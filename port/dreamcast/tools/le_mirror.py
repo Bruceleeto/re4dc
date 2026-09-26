@@ -15,6 +15,16 @@ this selectable candidate; the default mirror remains the full reference.
 
     le_mirror.py <src-tree> <dst-tree> [--force] [--require <deps.txt>]
 
+    le_mirror.py --snd-random <converted-tree-or-file> <new-dst> [--rel <rel>]
+
+--snd-random converts only the SE random tables (fmt_snd_random) of a
+mirror, overlay or derived archive (prepared room .dar, route .drs) that an
+older le_mirror.py converted, when it is not rebuilt from the GameCube tree:
+the tables were left big-endian before fmt_snd_random. <new-dst> must not
+exist: rewritten files are new, the others hard-linked, the source is never
+modified; the log is <new-dst>.snd_random.json; exit 2 if a table stays raw.
+On a current mirror it changes nothing (idempotent).
+
 --require names a file listing the disc paths a boot fixture actually reads
 (one per line, # comments); the run fails (exit 2) unless every part of every
 listed file was converted completely or carries an explicit safe-raw contract
@@ -339,20 +349,135 @@ def fmt_fnt(sw, off, size, ctx):
     fmt_tpl(sw, off + tpl_ofs, size - tpl_ofs, ctx)
 
 
-def fmt_snd_mram(sw, off, size, ctx, bgm=False):
+SND_RND_GROUPS_MAX = 128  # SIT rnd_no is an s8: seRandomCheck indexes tbl[1..127]
+
+
+def fmt_snd_random(sw, off, rnd, end, groups, count, notes=None):
+    """SE random table of a non-BGM sound block at off + rnd (snd.cpp
+    seRandomCheck, which reads it natively): u32 group offsets from the table
+    start (index = a SIT entry's rnd_no, 0 = no table), then per group
+    SndRndTbl {u16 num, u16 last, u16 e[num]}: `num` SE numbers of this block,
+    one picked with Rnd() % num and stored in `last`. The offset table runs up
+    to the lowest record offset (32 entries in the GameCube data). Records are
+    u16 arrays packed on a 2-byte grid (em/pl00.drs: 0x80, 0x8E, 0x9C, 0xA6,
+    0xB0); groups may share a record, or reach into another one on the same
+    grid, so each u16 of a record is swapped once. An all-zero table (no
+    random groups) is endian-invariant and is left as it is.
+
+    What the game tolerates is converted value for value, or left, and noted
+    in `notes`: an e[] that is not a SIT entry of the block (SndCall's
+    sndExistCheck refuses it and nothing plays, as on the GameCube); a record
+    that only groups no SIT entry selects reach (never read) and that cannot
+    be converted. A layout no conversion can keep raises ValueError
+    (convert_snd_random then leaves the table raw): a SIT group outside the
+    table, a table not u32-aligned or a used record not u16-aligned (SH-4
+    address errors), a used record over the offsets or another structure of
+    the block, outside the block, or with num 0 (Rnd() % 0). `groups` = the
+    SIT's non-zero rnd_no values, `count` = the SIT entries. Returns
+    {groups, records, cells}."""
+    tbl = off + rnd
+    if rnd % 4:
+        raise ValueError("%s: SE random table at %#x is not u32-aligned" % (sw.label, rnd))
+    words = min((end - tbl) // 4, SND_RND_GROUPS_MAX)
+    first = None
+    for i in range(words):
+        if first is not None and 4 * i + 4 > first:   # the word would reach the lowest record
+            break
+        v = sw.peek32(tbl + 4 * i)
+        if v and (first is None or v < first):
+            first = v
+    if first is None:
+        if any(not 0 < g < words for g in groups):
+            raise ValueError("%s: SE random group outside its all-zero table" % sw.label)
+        return {"groups": 0, "records": 0, "cells": 0}
+    if first < 4:
+        raise ValueError("%s: SE random table's first record at %#x" % (sw.label, first))
+    n = min(first // 4, words)
+    bad = sorted(g for g in groups if not 0 < g < n)
+    if bad:
+        raise ValueError("%s: SIT random group %d outside the %d-entry table" % (sw.label, bad[0], n))
+    offs = sw.u32s(tbl, n)
+    mine = set()   # u16 cells this table swapped: a shared record is converted once
+
+    def cells(o):
+        """The record's u16 cells, checked before any is swapped."""
+        p = tbl + o
+        if o % 2:
+            raise ValueError("%s: SE random record at %#x is not u16-aligned" % (sw.label, o))
+        sw._check(p, 4)
+        for q in (p, p + 2):
+            if (sw.done[q] or sw.done[q + 1]) and q not in mine:
+                raise ValueError("%s: SE random record at %#x overlaps another structure" % (sw.label, o))
+        num = sw.val16(p)
+        if num == 0:
+            raise ValueError("%s: SE random record at %#x has no entries" % (sw.label, o))
+        sw._check(p + 4, 2 * num)
+        qs = [p, p + 2] + [p + 4 + 2 * k for k in range(num)]
+        for q in qs[2:]:
+            if (sw.done[q] or sw.done[q + 1]) and q not in mine:
+                raise ValueError("%s: SE random record at %#x overlaps another structure" % (sw.label, o))
+        return qs
+
+    records = 0
+    for o in sorted(set(offs) - {0}):
+        users = [g for g, x in enumerate(offs) if x == o]
+        try:
+            qs = cells(o)
+        except ValueError as exc:
+            if any(g in groups for g in users):
+                raise
+            if notes is not None:  # never read: no SIT entry of the block selects these groups
+                notes.append("record %#x of unused group(s) %s left as it is: %s" % (o, users, exc))
+            continue
+        for q in qs:
+            if q not in mine:
+                sw.u16(q)
+                mine.add(q)
+        records += 1
+        e = [sw.val16(q) for q in qs[2:]]
+        if notes is not None and any(x >= count for x in e):
+            notes.append("record %#x: e[] %s not in the SIT (%d): refused by sndExistCheck, as on the GameCube" %
+                         (o, sorted(set(x for x in e if x >= count))[:4], count))
+    return {"groups": sum(1 for g in groups if offs[g]), "records": records, "cells": len(mine)}
+
+
+def convert_snd_random(sw, off, rnd, end, groups, count):
+    """fmt_snd_random with its own rollback: a table no conversion can keep
+    stays raw and logged, and only the table does; the rest of the block
+    (header, SIT, wavetable, sequences) keeps its conversion. Returns
+    (summary with "notes", None) or (None, error)."""
+    lo = min(off + rnd, end)
+    backup, marks = bytes(sw.data[lo:end]), bytes(sw.done[lo:end])
+    notes = []
+    try:
+        with sw.bounded(off, end - off):
+            summary = fmt_snd_random(sw, off, rnd, end, groups, count, notes)
+    except (ValueError, IndexError, struct.error) as e:
+        sw.data[lo:end] = backup
+        sw.done[lo:end] = marks
+        return None, str(e)
+    summary["notes"] = notes
+    return summary, None
+
+
+def fmt_snd_mram(sw, off, size, ctx, bgm=False, entry=None):
     """Sound (ISS) block, the MRAM half of a container sound part
     (snd.cpp SndBlkInit, snd_sub3.cpp Snd_iss_blk_init, include/snd_drv.h,
-    include/dolphin/syn.h): u32 block_ofs, u32 x4 (BGM blocks start at the
+    include/dolphin/syn.h): u32 block_ofs, u32 rnd_ofs (BGM blocks start at the
     header directly); header {u32 num, dls_ofs, sit_ofs, seq_ofs}; SIT[num]
-    (0x18: u16 prog, bytes, u16 pitch_l/pitch_hi at 0x0A/0x0C, u16 flag at
-    0x16); wavetable SND_WT_HDR {6 u32} then WTINST u16 note table, WTREGION
-    (0x18), WTART (0x50), WTSAMPLE (0x10), WTADPCM (0x2E) sections in offset
-    order; sequence table {u32 count, u32 ofs[count]} with raw MIDI bodies."""
+    (0x18: u16 prog, bytes, u16 pitch_l/pitch_hi at 0x0A/0x0C, s8 rnd_no at
+    0x13, u16 flag at 0x16); wavetable SND_WT_HDR {6 u32} then WTINST u16 note
+    table, WTREGION (0x18), WTART (0x50), WTSAMPLE (0x10), WTADPCM (0x2E)
+    sections in offset order; sequence table {u32 count, u32 ofs[count]} with
+    raw MIDI bodies; the SE random table at rnd_ofs (fmt_snd_random). A random
+    table that cannot be converted is the block's only raw part (returned, so
+    the entry is incomplete; `entry["snd_random"]` holds the reason)."""
     if bgm:
         hdr = off
+        rnd = 0
     else:
         block_ofs = sw.u32(off)
-        sw.u32(off + 4)
+        rnd = sw.u32(off + 4)
         hdr = off + block_ofs
     num, dls, sit, seq = sw.u32s(hdr, 4)
     end = off + size
@@ -360,12 +485,16 @@ def fmt_snd_mram(sw, off, size, ctx, bgm=False):
     def section_end(o):
         later = [x for x in starts if x > o]
         return hdr + later[0] if later else end
+    groups = set()
     for i in range(num):
         r = hdr + sit + 0x18 * i
         sw.u16(r)
         sw.u16(r + 0x0A)
         sw.u16(r + 0x0C)
         sw.u16(r + 0x16)
+        g = struct.unpack_from("b", sw.data, r + 0x13)[0]
+        if g:
+            groups.add(g)
     if dls:
         wt = hdr + dls
         wt_end = section_end(dls)
@@ -393,6 +522,189 @@ def fmt_snd_mram(sw, off, size, ctx, bgm=False):
         t = hdr + seq
         count = sw.u32(t)
         sw.u32s(t + 4, count)
+    if bgm:
+        return None
+    if not rnd:
+        if groups:
+            error = "%s: SIT random groups %s but no SE random table" % (sw.label, sorted(groups))
+            if entry is not None:
+                entry["snd_random"] = {"error": error}
+            return ["SE random table (%s)" % error]
+        return None
+    summary, error = convert_snd_random(sw, off, rnd, end, groups, num)
+    if entry is not None:
+        entry["snd_random"] = summary if summary is not None else {"error": error}
+    if error:
+        return ["SE random table (%s)" % error]
+    return None
+
+
+def snd_blocks_converted(data, rel):
+    """(key, off, size) of every non-BGM sound block (type-1 part, sndType != 3)
+    of a file this tool already converted: the convert_container walk (one
+    nesting level, MULTI_CONTAINER files) over little-endian DvdHeaders."""
+    if bytes(data[:32]) not in (CONTAINER_MAGIC, DRS_MAGIC):
+        return []
+    res = []
+    walked = set()
+
+    def walk(base, key_prefix, depth):
+        walked.add(base)
+        off = base + ENTRY_SIZE
+        i = 0
+        while off + ENTRY_SIZE <= base + HEADER_TABLE and off + ENTRY_SIZE <= len(data):
+            t, size, dest, ofs, snd_type = struct.unpack_from("<5I", data, off)
+            key = "%s%d" % (key_prefix, i)
+            if t == END_OF_TABLE:
+                break
+            if t == NESTED:
+                if depth == 0:
+                    walk(ofs, key + "/", 1)
+            elif t == 1 and snd_type != 3 and base + ofs + size <= len(data):
+                res.append((key, base + ofs, size))
+            off += ENTRY_SIZE
+            i += 1
+
+    walk(0, "", 0)
+    if rel in MULTI_CONTAINER:
+        for base in range(ENTRY_SIZE, len(data) - ENTRY_SIZE + 1, ENTRY_SIZE):
+            if base not in walked and data[base:base + ENTRY_SIZE] == CONTAINER_MAGIC:
+                walk(base, "@%x/" % base, 0)
+    return res
+
+
+def _snd_random_order(data, tbl, end):
+    """'be', 'le', 'zero' or 'ambiguous': the byte order in which the table's
+    non-zero offsets (up to the lowest record) are all plausible record
+    offsets (even, past the offsets, inside the block)."""
+    words = min((end - tbl) // 4, SND_RND_GROUPS_MAX)
+    raw = [bytes(data[tbl + 4 * i:tbl + 4 * i + 4]) for i in range(words)]
+    if not any(any(w) for w in raw):
+        return "zero"
+    fits = []
+    for order in ("big", "little"):
+        vals = [int.from_bytes(w, order) for w in raw]
+        first = None
+        for i, v in enumerate(vals):
+            if first is not None and 4 * i + 4 > first:   # the word would reach the lowest record
+                break
+            if v and (first is None or v < first):
+                first = v
+        n = min(first // 4, words)
+        fits.append(first >= 4 and all(v % 2 == 0 and 4 * n <= v < end - tbl for v in vals[:n] if v))
+    return {(True, False): "be", (False, True): "le"}.get(tuple(fits), "ambiguous")
+
+
+def retrofit_snd_random(rel, data):
+    """Converts, in place, the SE random tables of a file an older le_mirror.py
+    converted (DvdHeaders, block headers and SITs little-endian, the random
+    tables still big-endian: fmt_snd_mram did not convert them before
+    fmt_snd_random), for mirrors and derived archives (prepared rooms, route
+    overlays) that are not rebuilt from the GameCube tree. Same walk and same
+    conversion (convert_snd_random) on the tables only; every other byte stays
+    as it is. A table that already reads little-endian (this tool's output) or
+    is all zero is left as it is, so the step is idempotent. Returns one log
+    entry per non-BGM sound block: {part, ofs, size, groups, state, ...} with
+    state 'converted', 'little-endian', 'all zero', 'no table' or 'raw'
+    (error: the table is left as it is)."""
+    sw = Swapper(data, rel)
+    log = []
+    for key, off, size in snd_blocks_converted(data, rel):
+        end = off + size
+        block_ofs, rnd = struct.unpack_from("<2I", data, off)
+        hdr = off + block_ofs
+        e = {"part": key, "ofs": off, "size": size}
+        log.append(e)
+        try:
+            num, dls, sit, seq = struct.unpack_from("<4I", data, hdr)
+            groups = set(struct.unpack_from("b", data, hdr + sit + 0x18 * i + 0x13)[0]
+                         for i in range(num)) - {0}
+        except struct.error as exc:
+            e.update(state="raw", error="%s: block header: %s" % (rel, exc))
+            continue
+        e["groups"] = sorted(groups)
+        if not rnd or rnd >= size:
+            e["state"] = "no table" if not rnd and not groups else "raw"
+            if e["state"] == "raw":
+                e["error"] = "%s: random table offset %#x with groups %s" % (rel, rnd, sorted(groups))
+            continue
+        order = _snd_random_order(data, off + rnd, end)
+        if order == "zero":
+            e["state"] = "all zero"
+            if any(not 0 < g < min(size - rnd, 4 * SND_RND_GROUPS_MAX) // 4 for g in groups):
+                e.update(state="raw", error="%s: SE random group outside its all-zero table" % rel)
+            continue
+        if order != "be":
+            e["state"] = "little-endian" if order == "le" else "raw"
+            if order != "le":
+                e["error"] = "%s: SE random table byte order ambiguous" % rel
+            continue
+        before = bytes(data[off + rnd:end])
+        summary, error = convert_snd_random(sw, off, rnd, end, groups, num)
+        if error:
+            e.update(state="raw", error=error)
+            continue
+        changed = [i for i in range(end - off - rnd) if data[off + rnd + i] != before[i]]
+        e.update(state="converted", bytes_changed=len(changed),
+                 span=[off + rnd + changed[0], off + rnd + changed[-1] + 1] if changed else None, **summary)
+    return log
+
+
+def retrofit_snd_random_path(src, dst, rel=None):
+    """le_mirror.py --snd-random <src> <dst> [--rel <rel>]: retrofit_snd_random
+    over a mirror / overlay tree or one file, into a NEW dst (refused if it
+    exists). Rewritten files are new files; every other file is hard-linked
+    (copied across file systems), so the source is never modified. The log
+    goes beside dst: <dst>.snd_random.json. Returns the number of tables left
+    raw (0 = every table reads little-endian)."""
+    if os.path.lexists(dst):
+        raise SystemExit("%s exists (the retrofit writes a new tree)" % dst)
+    if os.path.isdir(src):
+        pairs = []
+        for root, dirs, files in os.walk(src):
+            dirs.sort()
+            for name in sorted(files):
+                sp = os.path.join(root, name)
+                pairs.append((sp, os.path.join(dst, os.path.relpath(sp, src)),
+                              os.path.relpath(sp, src).replace(os.sep, "/").lower()))
+        for root, dirs, files in os.walk(src):
+            os.makedirs(os.path.join(dst, os.path.relpath(root, src)), exist_ok=True)
+    else:
+        parent = os.path.basename(os.path.dirname(os.path.abspath(src)))
+        pairs = [(src, dst, (rel or "%s/%s" % (parent, os.path.basename(src))).lower())]
+        os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
+    report = []
+    raw = rewritten = tables = 0
+    for sp, dp, r in pairs:
+        with open(sp, "rb") as f:
+            head = f.read(32)
+        log = []
+        if head in (CONTAINER_MAGIC, DRS_MAGIC):
+            data = bytearray(open(sp, "rb").read())
+            original = bytes(data)
+            log = retrofit_snd_random(r, data)
+        if log and bytes(data) != original:
+            with open(dp + ".snd_random.tmp", "wb") as f:
+                f.write(data)
+            os.replace(dp + ".snd_random.tmp", dp)
+            rewritten += 1
+        else:
+            try:
+                os.link(sp, dp)
+            except OSError:
+                import shutil
+                shutil.copy2(sp, dp)
+        if log:
+            report.append({"file": r, "rewritten": bool(log) and bytes(data) != original, "blocks": log})
+            tables += sum(1 for e in log if e.get("state") == "converted")
+            raw += sum(1 for e in log if e.get("state") == "raw")
+    with open(dst.rstrip("/") + ".snd_random.json", "w") as f:
+        json.dump(report, f, indent=1)
+    print("le_mirror --snd-random: %s -> %s: %d files, %d with sound blocks, %d rewritten, %d tables converted, "
+          "%d left raw" % (src, dst, len(pairs), len(report), rewritten, tables, raw))
+    for e in (b for r_ in report for b in r_["blocks"] if b.get("state") == "raw"):
+        print("  raw: %s" % e["error"])
+    return raw
 
 
 
@@ -1851,7 +2163,7 @@ def convert_part(sw, rel, key, part_off, size, entry, drs_body=False):
     if entry["type"] == 1:  # sound block, MRAM half (type 2 is the ARAM sample data)
         entry["format"] = "SND"
         entry["handled"] = True
-        guarded(sw, lambda sw_, o, n, c: fmt_snd_mram(sw_, o, n, c, bgm=entry["snd"][0] == 3),
+        guarded(sw, lambda sw_, o, n, c: fmt_snd_mram(sw_, o, n, c, bgm=entry["snd"][0] == 3, entry=entry),
                 part_off, size, "%s:%s" % (rel, key), entry)
     elif drs_body and entry["type"] == 0:
         entry["format"] = "DRS_ARC"
@@ -2211,6 +2523,16 @@ def prepare_event_reference(rel, source):
 
 def main():
     argv = sys.argv[1:]
+    if "--snd-random" in argv:
+        argv.remove("--snd-random")
+        rel = None
+        if "--rel" in argv:
+            i = argv.index("--rel")
+            rel = argv[i + 1]
+            del argv[i:i + 2]
+        if len(argv) != 2:
+            sys.exit(__doc__)
+        sys.exit(2 if retrofit_snd_random_path(argv[0], argv[1], rel) else 0)
     require = None
     if "--require" in argv:
         i = argv.index("--require")
@@ -2291,6 +2613,10 @@ def main():
     if errors:
         print("le_mirror: %d handler errors (rolled back to raw), first: %s: %s"
               % (len(errors), errors[0].get("sub") or errors[0]["file"], errors[0]["error"]))
+    rnd_raw = [e for e in REPORT if (e.get("snd_random") or {}).get("error")]
+    if rnd_raw:
+        print("le_mirror: %d SE random tables left raw (the rest of each block converted), first: %s:%s: %s"
+              % (len(rnd_raw), rnd_raw[0]["file"], rnd_raw[0].get("part"), rnd_raw[0]["snd_random"]["error"]))
     if require:
         problems = check_required(REPORT, require)
         if problems:

@@ -5,6 +5,7 @@ isolation (a child handler can neither read nor change a neighbour, and a
 failed child rolls back only itself), shared references, and the boot
 fixture dependency check."""
 import importlib.util
+import json
 import pathlib
 import struct
 import sys
@@ -678,6 +679,244 @@ class SubScreenTest(unittest.TestCase):
         self.assertEqual(struct.unpack_from('<f', out, s + 20 + 4)[0], 1.0)
         self.assertEqual(struct.unpack_from('<7H', out, s + 20 + 84), (0, 1, 2, 0, 0, 1, 2))
         self.assertEqual(struct.unpack_from('<I', out, s + 20 + 84 + 16)[0], 0x01020304)
+
+
+def make_snd_block(rnd_nos, groups, records, first=0x80, align=2, raw_offs=None):
+    """A non-BGM sound block's MRAM half as the GameCube banks lay it out
+    (le_mirror.fmt_snd_mram): u32 block_ofs 0x20, u32 rnd_ofs; the ISS header
+    {num, dls 0, sit 0x10, seq 0} at 0x20; SIT[num] (0x18 each, s8 rnd_no at
+    0x13); then the SE random table at the end: 32 u32 group offsets from the
+    table start and the SndRndTbl records {u16 num, u16 last 0xFFFF, u16
+    e[num]} from `first` on, packed on an `align`-byte grid (2 in the GameCube
+    data: em/pl00.drs has records at 0x80, 0x8E, 0x9C, 0xA6, 0xB0).
+    `groups` = {g: record index} (groups may share a record) or {g: ("at", ofs)}
+    for an offset of its own (inside another record, or garbage); `raw_offs`
+    overrides offset words {index: value}. Returns (block, rnd, record offsets)."""
+    num = len(rnd_nos)
+    sit = bytearray()
+    for i, g in enumerate(rnd_nos):
+        sit += struct.pack(">H8sHH5sb2xH", 0x100 + i, bytes(8), 0x1000 + i, 0x2000 + i, bytes(5), g, 0x8000 + i)
+    rnd = 0x30 + len(sit)
+    body = bytearray(first - 0x80)
+    rec_ofs = []
+    for e in records:
+        rec_ofs.append(0x80 + len(body))
+        body += struct.pack(">HH%dH" % len(e), len(e), 0xFFFF, *e)
+        body += bytes((-len(body)) % align)
+    offs = [0] * 32
+    for g, r in groups.items():
+        offs[g] = r[1] if isinstance(r, tuple) else rec_ofs[r]
+    for i, v in (raw_offs or {}).items():
+        offs[i] = v
+    block = be32(0x20, rnd) + bytes(0x18) + be32(num, 0, 0x10, 0) + sit + be32(*offs) + body
+    return bytearray(block + bytes((-len(block)) % 32)), rnd, rec_ofs
+
+
+def se_random_view(data, bo, groups):
+    """What snd.cpp seRandomCheck reads for each SIT group g, in byte order bo
+    ('>' GameCube, '<' Dreamcast): tbl = data + ((u32*)data)[1]; o = tbl[g];
+    o == 0 -> no pick; else t = tbl + o: {num, last, e[num]}."""
+    tbl = struct.unpack_from(bo + "I", data, 4)[0]
+    view = {}
+    for g in groups:
+        o = struct.unpack_from(bo + "I", data, tbl + 4 * g)[0]
+        if not o:
+            view[g] = None
+            continue
+        n, last = struct.unpack_from(bo + "HH", data, tbl + o)
+        view[g] = (o, n, last, struct.unpack_from(bo + "%dH" % n, data, tbl + o + 4))
+    return view
+
+
+class SoundRandomTableTest(unittest.TestCase):
+    """snd.cpp seRandomCheck reads the block's random table natively:
+    tbl = data + ((u32*)data)[1]; t = tbl + tbl[g]; *no = t->e[Rnd() % t->num];
+    t->last = *no. The Dreamcast must read what the GameCube reads."""
+
+    def convert(self, data):
+        sw = LE.Swapper(data, "snd")
+        entry = {"handled": True}
+        LE.guarded(sw, lambda sw_, o, n, c: LE.fmt_snd_mram(sw_, o, n, c, entry=entry), 0, len(data), "snd", entry)
+        return entry
+
+    def assert_same_view(self, raw, data, groups):
+        gc = se_random_view(raw, ">", groups)
+        self.assertEqual(se_random_view(data, "<", groups), gc)
+        return gc
+
+    def test_packed_and_shared_records_read_as_on_the_gamecube(self):
+        # GameCube packing (2-byte grid): records at 0x80, 0x8A, 0x94 (odd counts); groups 1/2 share one.
+        rnd_nos = [1, 2, 3, 5, 0, 0]
+        data, rnd, recs = make_snd_block(rnd_nos, {1: 0, 2: 0, 3: 1, 5: 2}, [[3, 4, 5], [1, 2, 0], [2]])
+        self.assertEqual(recs, [0x80, 0x8A, 0x94])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        self.assertEqual(struct.unpack_from("<2I", data, 0), (0x20, rnd))
+        self.assertEqual(struct.unpack_from("<H", data, 0x30)[0], 0x100)          # SIT prog
+        self.assertEqual(data[0x30 + 0x13], 1)                                     # rnd_no byte
+        view = self.assert_same_view(raw, data, [1, 2, 3, 5])
+        self.assertEqual({g: v[3] for g, v in view.items()}, {1: (3, 4, 5), 2: (3, 4, 5), 3: (1, 2, 0), 5: (2,)})
+        self.assertEqual(entry["snd_random"], {"groups": 4, "records": 3, "cells": 5 + 5 + 3, "notes": []})
+
+    def test_first_record_on_a_2_byte_grid(self):
+        # rev 1 refused a table whose lowest record was not 4-aligned; the game only needs u16 alignment.
+        data, rnd, recs = make_snd_block([1, 2, 0], {1: 0, 2: 1}, [[0, 1, 2], [2]], first=0x82)
+        self.assertEqual(recs, [0x82, 0x8C])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        self.assertEqual(entry["snd_random"]["records"], 2)
+        self.assert_same_view(raw, data, [1, 2])
+
+    def test_group_reaching_into_another_record(self):
+        # group 4 starts at record 0's e[0] (same u16 grid): its cells are converted once, both read right.
+        data, rnd, recs = make_snd_block([1, 4, 0, 0, 0], {1: 0, 4: ("at", 0x84)}, [[2, 1, 3, 3]])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        view = self.assert_same_view(raw, data, [1, 4])
+        self.assertEqual(view[4][1:3], (2, 1))   # num = e[0], last = e[1] of record 0
+        self.assertEqual(entry["snd_random"]["cells"], 6)
+
+    def test_entry_outside_the_sit_is_kept_and_noted(self):
+        # sndExistCheck refuses SE 7 of a 2-entry SIT (nothing plays), on both machines: convert, note it.
+        data, rnd, recs = make_snd_block([1, 0], {1: 0}, [[1, 7]])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        self.assert_same_view(raw, data, [1])
+        self.assertEqual(len(entry["snd_random"]["notes"]), 1)
+        self.assertIn("sndExistCheck", entry["snd_random"]["notes"][0])
+
+    def test_unused_group_garbage_is_left_and_noted(self):
+        # group 9 (no SIT entry selects it) points outside the block: the game never reads it.
+        data, rnd, recs = make_snd_block([1, 0], {1: 0}, [[1, 0]], raw_offs={9: 0x7FFE})
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        self.assert_same_view(raw, data, [1])
+        self.assertEqual(struct.unpack_from("<I", data, rnd + 4 * 9)[0], 0x7FFE)   # the offset word is converted
+        self.assertIn("unused group(s) [9]", entry["snd_random"]["notes"][0])
+
+    def test_all_zero_table_is_left_as_it_is(self):
+        data, rnd, recs = make_snd_block([0, 0], {}, [])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assertTrue(entry["complete"], entry)
+        self.assertEqual(bytes(data[rnd:]), raw[rnd:])
+        self.assertEqual(struct.unpack_from("<I", data, 4)[0], rnd)
+
+    def assert_only_the_table_raw(self, data, raw, rnd, entry, reason, n_sit):
+        self.assertTrue(entry["handled"])
+        self.assertNotIn("error", entry)
+        self.assertFalse(entry["complete"])
+        self.assertEqual(len(entry["raw_parts"]), 1)
+        self.assertIn("SE random table", entry["raw_parts"][0])
+        self.assertIn(reason, entry["snd_random"]["error"])
+        # the table is exactly the source bytes; the rest of the block is converted
+        self.assertEqual(bytes(data[rnd:]), raw[rnd:])
+        self.assertEqual(struct.unpack_from("<2I", data, 0), (0x20, rnd))
+        self.assertEqual(struct.unpack_from("<4I", data, 0x20), (n_sit, 0, 0x10, 0))
+        for i in range(n_sit):
+            self.assertEqual(struct.unpack_from("<HHHH", data, 0x30 + 0x18 * i + 0x0A)[:2], (0x1000 + i, 0x2000 + i))
+            self.assertEqual(struct.unpack_from("<H", data, 0x30 + 0x18 * i + 0x16)[0], 0x8000 + i)
+
+    def test_group_outside_the_table_leaves_only_the_table_raw(self):
+        # rev 1 rolled the whole block back (SIT, wavetable raw: every SE of the block broken).
+        data, rnd, recs = make_snd_block([40, 0], {1: 0}, [[1]])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assert_only_the_table_raw(data, raw, rnd, entry, "group 40 outside", 2)
+
+    def test_used_record_without_entries_leaves_only_the_table_raw(self):
+        # num 0: Rnd() % 0; no conversion keeps that, so the table stays as it was and is reported.
+        data, rnd, recs = make_snd_block([1, 2, 0], {1: 0, 2: 1}, [[1], []])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assert_only_the_table_raw(data, raw, rnd, entry, "no entries", 3)
+
+    def test_used_odd_record_leaves_only_the_table_raw(self):
+        data, rnd, recs = make_snd_block([1, 2], {1: 0, 2: ("at", 0x87)}, [[0, 1, 0]])
+        raw = bytes(data)
+        entry = self.convert(data)
+        self.assert_only_the_table_raw(data, raw, rnd, entry, "not u16-aligned", 2)
+
+    def test_raw_table_is_reported_by_require(self):
+        data, rnd, recs = make_snd_block([40, 0], {1: 0}, [[1]])
+        out = bytearray(make_container([(1, len(data), 0, 0x400, 1, 0, 0, 0)]) + data)
+        LE.REPORT.clear()
+        LE.convert_file("etc/snd.das", out)
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write("etc/snd.das\n")
+        problems = LE.check_required(LE.REPORT, f.name)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith("etc/snd.das:0: incomplete, raw parts: SE random table ("), problems)
+
+
+class SoundRandomRetrofitTest(unittest.TestCase):
+    """le_mirror.py --snd-random: mirrors and derived archives converted before
+    fmt_snd_random (tables still big-endian) get the same tables as a full
+    conversion, and nothing else changes."""
+
+    def files(self):
+        blocks = [make_snd_block([1, 2, 3, 0], {1: 0, 2: 0, 3: 1}, [[3, 1, 2], [0]])[0],
+                  make_snd_block([0, 0], {}, [])[0],
+                  make_snd_block([2, 0, 1], {1: 1, 2: 0}, [[1, 0], [2, 2, 1]], first=0x82)[0]]
+        parts, at = [], 0x400
+        for b in blocks:
+            parts.append((1, len(b), 0, at, 1, 0, 0, 0))
+            at += len(b)
+        src = bytes(make_container(parts) + b"".join(blocks))
+        full = bytearray(src); LE.REPORT.clear(); LE.convert_file("etc/snd.das", full)
+        old = bytearray(full)          # an older tool: everything converted but the random tables
+        for (t, size, dest, ofs, *_), b in zip(parts, blocks):
+            rnd = struct.unpack_from(">I", b, 4)[0]
+            old[ofs + rnd:ofs + size] = src[ofs + rnd:ofs + size]
+        self.assertNotEqual(bytes(old), bytes(full))
+        return src, bytes(old), bytes(full)
+
+    def test_retrofit_equals_the_full_conversion_and_is_idempotent(self):
+        src, old, full = self.files()
+        data = bytearray(old)
+        log = LE.retrofit_snd_random("etc/snd.das", data)
+        self.assertEqual(bytes(data), full)
+        self.assertEqual([e["state"] for e in log], ["converted", "all zero", "converted"])
+        again = LE.retrofit_snd_random("etc/snd.das", data)
+        self.assertEqual(bytes(data), full)
+        self.assertEqual([e["state"] for e in again], ["little-endian", "all zero", "little-endian"])
+
+    def test_retrofit_path_writes_a_new_tree(self):
+        src, old, full = self.files()
+        with tempfile.TemporaryDirectory() as tmp:
+            s = pathlib.Path(tmp, "mirror"); (s / "etc").mkdir(parents=True)
+            (s / "etc" / "snd.das").write_bytes(old)
+            (s / "etc" / "other.dat").write_bytes(b"x" * 64)
+            ino = (s / "etc" / "snd.das").stat().st_ino
+            d = pathlib.Path(tmp, "mirror-new")
+            self.assertEqual(LE.retrofit_snd_random_path(str(s), str(d)), 0)
+            self.assertEqual((s / "etc" / "snd.das").read_bytes(), old)              # source untouched
+            self.assertEqual((s / "etc" / "snd.das").stat().st_ino, ino)
+            self.assertEqual((d / "etc" / "snd.das").read_bytes(), full)
+            self.assertNotEqual((d / "etc" / "snd.das").stat().st_ino, ino)
+            self.assertTrue((d / "etc" / "other.dat").samefile(s / "etc" / "other.dat"))  # hard link
+            log = json.loads(pathlib.Path(tmp, "mirror-new.snd_random.json").read_text())
+            self.assertEqual([(r["file"], r["rewritten"]) for r in log], [("etc/snd.das", True)])
+            d2 = pathlib.Path(tmp, "mirror-new2")                                     # idempotent
+            self.assertEqual(LE.retrofit_snd_random_path(str(d), str(d2)), 0)
+            self.assertTrue((d2 / "etc" / "snd.das").samefile(d / "etc" / "snd.das"))
+            with self.assertRaises(SystemExit):
+                LE.retrofit_snd_random_path(str(s), str(d))                           # never over a tree
+
+    def test_retrofit_single_file(self):
+        src, old, full = self.files()
+        with tempfile.TemporaryDirectory() as tmp:
+            a = pathlib.Path(tmp, "r101.dar"); a.write_bytes(old)
+            b = pathlib.Path(tmp, "out", "r101.dar")
+            self.assertEqual(LE.retrofit_snd_random_path(str(a), str(b), "st1/r101.dar"), 0)
+            self.assertEqual(b.read_bytes(), full)
+            self.assertEqual(a.read_bytes(), old)
+            self.assertTrue(pathlib.Path(tmp, "out", "r101.dar.snd_random.json").exists())
 
 
 if __name__ == "__main__":
