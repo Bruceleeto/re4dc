@@ -1653,7 +1653,9 @@ extern "C" unsigned re4dc_ui_reclaim_one(){
 // ROUTE_MOVIE_DIAG=2/3 (test only; 0/1 compile it out): the route movie's claim skips its
 // normal pass, as if every upload were referenced by this frame's scene, so only the
 // fallback below can free the block (2), or nothing does and the open fails as it did on
-// a fragmented pool before the fallback existed (3).
+// a fragmented pool before the fallback existed (3). ROUTE_MOVIE_DIAG=4: the claim is
+// normal and the movie opens inside a scene of the interrupted frame, so a movie whose open
+// fails later (r100 s20 staging) retires its texture with that scene open.
 #if defined(RE4DC_ROUTE_MOVIE_DIAG) && RE4DC_ROUTE_MOVIE_DIAG>=2
 #define RE4DC_CLAIM_TEST RE4DC_ROUTE_MOVIE_DIAG
 #else
@@ -1668,7 +1670,7 @@ int vram_claim(unsigned bytes,bool movie){
     // Fragmented pool: re-probe only after each 64 KiB released, not after every small texture
     // (the sub screen's 1 MiB claim probed 146 times at r101, each failure a KOS "out of PVR
     // memory" line, warp-r101-pbdoor8); at most 64 KiB more is released than strictly needed.
-#if RE4DC_CLAIM_TEST
+#if RE4DC_CLAIM_TEST==2 || RE4DC_CLAIM_TEST==3
     const bool forced=movie; // test: the normal pass finds nothing it may release
     bool ok=!forced && fits();
 #else
@@ -3251,6 +3253,9 @@ extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
     movie_upload_serial=movie_shown_serial=movie_presentations=0;movie_first_picture_us=0;
 #if RE4DC_TEX_RESIDENT
     if(!movie_texture)re4dc_ui_vram_unclaim();
+#endif
+#if RE4DC_CLAIM_TEST==4 && RE4DC_PVR_STREAM
+    if(movie_texture && !stream_scene)stream_open(); // test: the interrupted frame's scene is open
 #endif
     return movie_texture!=nullptr;
 }
