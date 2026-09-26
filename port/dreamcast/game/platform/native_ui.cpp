@@ -3306,6 +3306,20 @@ extern "C" int re4dc_ui_movie_present_now(){
 }
 extern "C" int re4dc_ui_movie_close(){
     if(!movie_texture)return 1;
+#if RE4DC_PVR_STREAM
+    // A movie whose open fails after the texture was allocated (snd_stream_init_ex without heap)
+    // retires inside the frame it interrupted. That frame's open scene is discarded first, as in
+    // re4dc_ui_movie_upload_begin, and the frame is not presented; otherwise the fence below never
+    // completes and the texture and its claim leak (r100 s20: 101 retries, 11 s, preload blocked).
+    if(stream_scene){
+        re4dc_log("route movie texture retirement: open scene discarded\n");
+        stream_close(false);
+#if RE4DC_D349_RENDERER_STACK
+        if(deferred_first || draining_parts)reset_deferred();
+#endif
+        stream_aborted=true;
+    }
+#endif
 #if RE4DC_PVR_PIPELINE
     present_fence();
 #endif
