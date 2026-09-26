@@ -1650,7 +1650,8 @@ extern "C" unsigned re4dc_ui_reclaim_one(){
 // transceiver). Returns 1 when the block fits. Every claim is paired with
 // re4dc_ui_vram_unclaim(); the preload waits while one is open and afterwards
 // reloads what the claims released (it skips what is still resident).
-extern "C" int re4dc_ui_vram_claim(unsigned bytes){
+namespace {
+int vram_claim(unsigned bytes,bool movie){
     ++vram_claims;
     unsigned released=0,released_bytes=0;
     // Probe only when the total would do: a failed pvr_mem_malloc() logs an error.
@@ -1659,23 +1660,55 @@ extern "C" int re4dc_ui_vram_claim(unsigned bytes){
     // (the sub screen's 1 MiB claim probed 146 times at r101, each failure a KOS "out of PVR
     // memory" line, warp-r101-pbdoor8); at most 64 KiB more is released than strictly needed.
     bool ok=fits();
-    unsigned since_probe=0;
-    while(!ok){
-        Entry* victim=nullptr;
-        for(auto& e:entries) if(e.valid && e.frame!=frame && (!victim || e.frame<victim->frame)) victim=&e;
-        if(!victim){ok=since_probe && fits();break;}
-        const unsigned vb=victim->package.vram_bytes();
-        released_bytes+=vb;++released;since_probe+=vb?vb:1;
-        RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);
-        if(since_probe<65536U)continue;
-        since_probe=0;
-        ok=fits();
+    // Route movie fallback (second pass). The movie opens from a source task in the middle of a
+    // frame (r100 s20: the s03 Ganado's death event), so this frame's uploads are still referenced
+    // by the open scene and the normal pass may not touch them; ~680 KB of them scattered through
+    // a fragmented pool left no 256 KiB hole (fits=0, the movie ended with no picture: terminal=3,
+    // game-20260924-140901). The movie hides the world and owns the next presentations, so: finish
+    // the open scene unpresented (as re4dc_ui_ta_single_bank does), fence its render, end this
+    // frame's emission (the rest of it is not presented: nothing more is resolved or uploaded
+    // before the next frame), then release this frame's uploads too, with the same 64 KiB probe
+    // steps. re4dc_ui_vram_unclaim schedules the preload that reloads them before the next frame
+    // draws. Render only: no source state is touched.
+    bool fell_back=false;
+    unsigned fallback_released=0,fallback_bytes=0;
+    for(;;){
+        unsigned since_probe=0;
+        while(!ok){
+            Entry* victim=nullptr;
+            for(auto& e:entries) if(e.valid && (fell_back || e.frame!=frame) && (!victim || e.frame<victim->frame)) victim=&e;
+            if(!victim){ok=since_probe && fits();break;}
+            const unsigned vb=victim->package.vram_bytes();
+            released_bytes+=vb;++released;since_probe+=vb?vb:1;
+            if(fell_back){fallback_bytes+=vb;++fallback_released;}
+            RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);
+            if(since_probe<65536U)continue;
+            since_probe=0;
+            ok=fits();
+        }
+        if(ok || !movie || fell_back)break;
+#if RE4DC_PVR_STREAM
+        if(stream_scene)stream_close(false);
+#endif
+#if RE4DC_PVR_PIPELINE
+        present_fence();
+#endif
+        if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready){re4dc_log("native texture claim: fallback fence pending\n");break;}
+#if RE4DC_D349_RENDERER_STACK
+        if(deferred_first || draining_parts)reset_deferred();
+#endif
+#if RE4DC_PVR_STREAM
+        stream_aborted=true;
+#endif
+        fell_back=true;
     }
     claim_released+=released;
-    re4dc_log("native texture claim: bytes=%u fits=%d released=%u (%u B) free=%u used=%u claims=%u\n",bytes,ok?1:0,released,released_bytes,
-        (unsigned)pvr_mem_available(),used,vram_claims);
+    re4dc_log("native texture claim: bytes=%u fits=%d released=%u (%u B) free=%u used=%u claims=%u fallback=%d (%u, %u B)\n",bytes,ok?1:0,released,released_bytes,
+        (unsigned)pvr_mem_available(),used,vram_claims,fell_back?1:0,fallback_released,fallback_bytes);
     return ok?1:0;
 }
+}
+extern "C" int re4dc_ui_vram_claim(unsigned bytes){return vram_claim(bytes,false);}
 extern "C" void re4dc_ui_vram_unclaim(){
     if(!vram_claims)return;
     if(!--vram_claims && claim_released){preload_pending=true;claim_released=0;}
@@ -3191,7 +3224,9 @@ extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
     // Macroblock sizes inside the 512x256 texture; rows load as 32-byte blocks.
     if(movie_texture || !ready || !width || !height || width>512 || height>256 || (width&15))return 0;
 #if RE4DC_TEX_RESIDENT
-    re4dc_ui_vram_claim(512*256*2); // released with the texture (re4dc_ui_movie_close)
+    // Released with the texture (re4dc_ui_movie_close). The movie's claim may end this frame's
+    // scene and release its uploads when nothing else frees a block (fallback in vram_claim).
+    vram_claim(512*256*2,true);
 #endif
     movie_texture=pvr_mem_malloc(512*256*2);movie_picture=false;movie_width=width;movie_height=height;
     movie_upload_serial=movie_shown_serial=movie_presentations=0;movie_first_picture_us=0;
