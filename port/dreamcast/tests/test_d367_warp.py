@@ -9,7 +9,7 @@ warp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(warp)
 
 KEYS = {"name", "room", "jp", "pos", "dir", "ang", "rsf", "scenario", "find", "unlock", "inv", "area", "act", "trg",
-        "dump"}
+        "dead", "kill", "goto", "dump"}
 
 
 class WarpPresets(unittest.TestCase):
@@ -21,6 +21,20 @@ class WarpPresets(unittest.TestCase):
                 if line.startswith("#"):
                     continue
                 self.assertIn(line.split()[0], KEYS, (name, line))
+
+    def test_s20_presets_kill_and_goto(self):
+        lines = warp.lines_for(warp.PRESETS["r100-s20"], name="r100-s20").splitlines()
+        self.assertIn("act 30 fwd 150", lines)       # the preset's own door act, always on
+        self.assertIn("kill 0x12 400 0x100", lines)
+        route = warp.lines_for(warp.PRESETS["r100-s20-route"], name="r100-s20-route").splitlines()
+        self.assertIn("kill 0x12 700 0x100", route)
+        self.assertEqual([l for l in route if l.startswith("goto ")],
+                         ["goto 400 -86558 0 -1243", "goto 460 -83382 1100 -34851"])
+        import io, contextlib
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            warp.main(["r100-house-door", "--kill", "0x12:500:0x100"])
+        self.assertIn("kill 0x12 500 0x100", out.getvalue().splitlines())
 
     def test_east_door_actions_and_after_state_variant(self):
         text = warp.lines_for(warp.PRESETS["r100-east-door"], door=True)
