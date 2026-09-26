@@ -93,6 +93,14 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
   (never committed: copy it into port/dreamcast/game for the build, untracked; the current one is v10,
   coarse_world_v10.h sha256 65f8529ed1ce55d348d50c679cdd696ae7e212298b0c7fb7a50623640e318c85, and nothing in the build checks it) and needs the world textures
   staged with `EXTRA_TEXDIRS`.
+- The coarse world's layout-11 runtime rev 2 (e69737e; render-only; default off): `COARSE_WORLD` bits 16 (R1 + R6
+  mesh records), 32 (R7 backdrop segments; the sky dome then writes no depth), 64 (R3 world texture preload after the
+  character passes, no disc access) and 128 (K0: skip the coarse view's collision piece 0 walk when the world covers
+  it; drawing only). It reads a layout-11 coarse_world.h built to the external world agent's renderer contract rev 2
+  (re4-assets-private world-agent-20260926 from-main\renderer-contract.md section 11, ref_decoder.py rev 2).
+  `COARSE_NO_STD_SCENERY=1` (needs COARSE_WORLD, NATIVE_STATIC=1, NATIVE_MESH=1, NATIVE_PKG_HIGH=1): the coarse room
+  never opens the Standard scenery package, +599,424 B of heap 4; test arms only: images the coarse path does not draw
+  there (door demo, death, continue) show no packaged scenery.
 - The effect pools' scans and moves (1d3dc4d; exact, room-independent; not in LH yet): the coarse-square arms add
   `GAME_FX_SCAN=1 GAME_FX_MOVE=1` (FX_SCAN needs `GAME_ESP_OWNER=1`; its EfmDelete list path needs
   `GAME_ATCHK_LIST=1 GAME_WORKAT_INLINE=1`). Header knobs (include/esp.h): fresh builds only. =2 check builds

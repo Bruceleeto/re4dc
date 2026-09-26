@@ -322,6 +322,35 @@ reference is an offline render of the GameCube render set; an audit and measurem
 G_fight 29.30, R_fight 11.77 (~10 fps paced in the 6-Ganado kite fight), so 30 fps in the heavy fight is out of reach
 with this image; the heavy-fight choices come with the make-room plan.
 
+Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
+stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
+FOG_FAR 18000 instead of the approved 25 m (square plan, "Corrections"; the stride 7 + 25 m re-baseline is running).
+**The original world** (/root/probe/d367-agents/original-world-20260926/, try-it run original-tryit-20260926/): the full
+GameCube render set of r101 (209 placements, 81 BINs, 135,813 triangles, 112 images, GC trees, per-frame light, 70 m
+far) was never drawn by the game at the square: the P1 viewer was not the game, the P2 GX path ran out of heap 4, and
+the "Original" quality package is itself reduced (PS2 trees, baked light, LOD biases, 25 m) and draws 10 of its 20
+colour + mask pair packages invisible. Every "source renderer" image since 2026-09-25 is Standard quality. The data is
+complete (offline reference renders); the GX path now runs in the game at the square (heap 4 minimum 679 KB free,
+villagers, no HALT); Original mode halts after the bell on a KOS sbrk out-of-memory (sub screen). Light: the port's
+unit-normal light matches a real-game Dolphin frame within 1-4% once the per-frame Filter00 (glow + contrast) is
+added, so Filter00 is the visible gap, not the light maths. The sky dome and treeline sit 57-63 m from the square and
+vanish only through the 25 m fog. Cost ladder (LADDER.md; estimates; the reduced Original mode's scenery measured
+25.33 ms in F at 18 m): the original as is (70 m far) ~54.7 ms of world in F (57.9 V1E, 79.2 V3, 94.2 W1); invisible reductions (I11) 5.6 F / 8.4
+V1E / 14.9 V3 / 4.6 W1; with a W1-class kernel ~2.1 F / 3.3 V1E / 6.3 V3 (2.9 with PS2 trees) / 1.9 W1. In V3 the GC
+trees are 47.8 of 57 ms, so trees need a visible choice; hidden-placement culling (PVS, ~17 ms in F) is not built yet.
+**World runtime rev 2 landed** default off (e69737e: COARSE_WORLD bits 16-128, the external world agent's renderer
+contract rev 2; COARSE_NO_STD_SCENERY reclaims 599,424 B of heap 4 in coarse rooms, not for play recipes until door
+and death captures show packaged scenery where the coarse path does not draw). **Route fixes** (7f1533d..c999bea):
+(a) the SE random tables reached the Dreamcast big-endian on every disc (wild reads and stores, "Illegal SE No.",
+extra draws of the shared game RNG); le_mirror now converts them (`--snd-random` for mirrors and derived archives);
+switching the disc mirrors needs new logic-trace references and regenerated derived archives, scheduled while no lane
+measures against the old references; a separate defect remains in the d367 / d362 mirrors' bgm/doorse.dat (11 of 12
+containers keep GameCube headers). (b) The r100 post-house call no longer soft-locks when the s20 ambush fills heap 4
+(5fd2fe9: the call runs without the radio model), and cManager createBack takes a backed free slot when the source's
+slot cannot be backed (5c33747). (c) The s20 route movie claims VRAM with a fallback pass when the pool has no hole
+(072b574; user play 09-24: 6 of 10 s20 arrivals played the movie) and a failed open discards the interrupted frame's
+scene (5d811f3; 0 fence stalls in 32 runs). (d) Warp rig: `kill` / `goto` verbs, r100-s20 presets, STALL_DIAG (1b2bcc3).
+
 User decisions 2026-09-24 (later): (1) **r103: go.** Implement design-r103 PLAN (W8b room-archive compaction, W8c
 textures + the post-bell radio stream, W8d census, W8e bell -> door -> r103; the r103 -> r106 exit fades to the title
 on test discs). This is the end of the opening route. (2) **r100 Standard look approved and TREE_IMPOSTOR's 77 KB

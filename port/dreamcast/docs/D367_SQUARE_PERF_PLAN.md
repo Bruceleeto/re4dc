@@ -460,6 +460,25 @@ flags + cl54's character recipe; hw model, uncalibrated, ACT_CAP=0; twins differ
   standard (twins cl69 / cl70). The fight needs the bigger levers (vertex path cost, characters in crowds, the fight's
   G): a make-room plan is being prepared (/root/probe/d367-agents/make-room-20260926/).
 
+**Corrections (2026-09-26 night, verified; make-room PLAN.md section 1, fight_g NOTES.md):**
+- **G is not closed.** hwproject's default trace stride (every 8th tick) always lands on one `Frame_cnt` residue mod 8,
+  and the Ganados stagger their route and attack checks on `Frame_cnt & 3 / & 7 / & 0xF` (em10.cpp), so the traced
+  ticks undercount that work (hwproject's own representativeness line: -4.8% sq105, -2.5% sq106, -1.1% sq107).
+  Rescaled to all 120 ticks (fight_g tools/g120.py: each functions.tsv row x insn_pf_120 / insn_pf): **G_std ~25.92**
+  (not 24.84), **G_fight ~29.61** (not 29.30), G_fight - G_std **+3.69** (not +4.45: motion / skeleton +1.15, maths
+  +0.93, effects +0.80, collision +0.60). The sq104 "G closed" (24.57) and every older G were traced the same way.
+  Rule from now on: stride 7 (`TRACE=1000:1105:7`, `TRACE=800:905:7`: 16 frames, every residue mod 16 once).
+- **net_crc32le is ~4.35 ms in its one tick** (one call of 867,814 instructions; 0.036 ms a tick on average), not the
+  ~34.8 ms read from the traced sample (insn_pf 57,854 traced vs insn_pf_120 7,232).
+- **Every measured R arm and world arm ran FOG_FAR=18000**, not the approved 25 m: the uncapped cost-arm flag set
+  appended `FOG_FAR=18000` after the recipe's 25000 (boot log `native fog: ... far=18000`; sq105-107, cl54, cl64, wd17).
+  The world agent prices at 25 m (v10 in F: 1.271 ms at 18 m, 1.475 at 25 m). The kite's Ganados are 3-12 m away
+  (unaffected); the standard window may gain Ganados between 18 and 25 m.
+- cl54's R is 11.77 on its own twin cl63 (the 12.35 used a non-twin); the canonical recipe's TA vertex buffer is
+  2048 KiB x 2 banks (TA_DOUBLEBUF), not native_ui.cpp's 1024 source default.
+- Re-baseline G0 (stride 7 + 25 m, version C knobs off / on) is running (make-room-20260926/g0/); its numbers replace
+  these estimates.
+
 On sq104's G (24.57, everything landed through 4f81bbd; G closed) the same estimate gives (1000 - 30 x 24.57) / R:
 vl26 20.7 fps, B 30 fps (capped). 30 fps needs R <= 8.76 (no margin) or <= 5.43 (the 3.33 margin): vl26 is 3.94
 over without margin; the rest is the characters' meshes (the external cast refit).
@@ -1656,3 +1675,5 @@ Append one row per measured arm: date, arm, change, hw ms (2L+R), logic trace ve
 | 09-26 | cl63-cl66 | COARSE_PREGATE=1 on version C (lane stack; twins) | standard W 43.01 -> 40.94, R 11.77 -> 10.20 (-1.57); kite W -0.32 (R unmeasured, likely a small loss) | - | cl67 STRICT vs tr56 / tr42, dtcmp identical; =2 cl68 / cl68-f1k 0 violations; frozen frames 0 px | kept |
 | 09-26 | cl69 / cl70 | CHAR_DATA_BLOCK=1 on version C (lane stack; twins) | standard G 31.24 -> 30.97 (-0.27), W -0.65, R -0.38 | - | cl71 STRICT vs tr56 / tr42, dtcmp identical; layout proof (1,134 data symbols at their no-character addresses) | kept |
 | 09-26 | land27 | COARSE_PREGATE + CHAR_DATA_BLOCK landed (c6edb6f; mode flip dropped, $(error) without COARSE=1) | - | - | knob-off identity (default, canonical); carry-over coarse_ganado.o / coarse_actor.o equal the lane's | landed, default off |
+| 09-26 | corrections | G trace stride 8 samples one Frame_cnt residue: all-ticks G_std ~25.92 / G_fight ~29.61 (g120.py); R and world arms ran FOG_FAR=18000; net_crc32le ~4.35 ms in one tick | G_std +1.08, G_fight +0.31 vs the traced values | - | (derived from sq105-107 functions.tsv) | G NOT closed; stride 7 + 25 m re-baseline (G0) running |
+| 09-26 | land28 | wd layout-11 runtime rev 2 (COARSE_WORLD bits 16 R1+R6, 32 R7, 64 R3, 128 K0) + COARSE_NO_STD_SCENERY landed (e69737e; guard tests NATIVE_STATIC / NATIVE_MESH each and needs NATIVE_PKG_HIGH=1) | R7 4 segments ~+0.13-0.14 per drawn tick (V1E, 18 m); reclaim heap 4 +599,424 B | - | wdG8 STRICT vs tr56 / tr42 (wdG7 FAILED: disc reads in the load wait, fixed); wrG STRICT; knob-off identity (id58) | landed, default off; the reclaim is not for play recipes yet |
