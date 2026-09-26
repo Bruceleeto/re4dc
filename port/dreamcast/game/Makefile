@@ -268,6 +268,12 @@ ROUTE_MOVIES ?= 0
 ROUTE_MOVIE_YUV ?= 1
 ROUTE_MOVIE_TEXHASH ?= 0
 # ROUTE_MOVIE_DIAG=1: test builds log the movie loop's per-picture timing and the failing step.
+#   2/3/4 are test-only proofs of the route movie VRAM claim (platform/native_ui.cpp; 0 and 1 compile
+#   them out): 2 = the movie claim's normal pass releases nothing, so only its fallback (end this
+#   frame's scene unpresented, release this frame's uploads) frees the 256 KiB block; 3 = the same
+#   without the fallback (the open fails: the pre-fallback outcome on a fragmented pool); 4 = the
+#   movie opens inside the interrupted frame's scene, so a later open failure (heap 4 staging)
+#   retires the texture with that scene open (re4dc_ui_movie_close discards it).
 ROUTE_MOVIE_DIAG ?= 0
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
