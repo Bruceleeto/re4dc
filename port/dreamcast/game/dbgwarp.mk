@@ -4,12 +4,19 @@
 #                STRICT against continued play; never on a user disc. Default 0: the hooks compile
 #                out and the default image is byte-identical.
 DBG_WARP ?= 0
+#   STALL_DIAG=1 test builds only (platform/vi.cpp): a 1 s vblank heartbeat with the frame loop's vsync
+#                count, and a log-only stall report (interrupted PC/PR, the main thread's PC/PR and
+#                stack return addresses, re4dc_threads_dump) once the frame loop has not finished an
+#                iteration for 3 s. Default 0: compiled out, the default image is byte-identical.
+STALL_DIAG ?= 0
 .PHONY: dbgwarp-force
 $(OBJDIR)/dbgwarp.h: dbgwarp-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_DBG_WARP %s\n' '$(DBG_WARP)' > $@.tmp
+	@printf '#define RE4DC_DBG_WARP %s\n#define RE4DC_STALL_DIAG %s\n' '$(DBG_WARP)' '$(STALL_DIAG)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
+$(OBJDIR)/platform/vi.o: $(OBJDIR)/dbgwarp.h
+$(OBJDIR)/platform/vi.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
 DBGWARP_GAME = $(OBJDIR)/src/game/title.o $(OBJDIR)/src/game/sce_com.o $(OBJDIR)/ui_bridge.o
 $(DBGWARP_GAME): $(OBJDIR)/dbgwarp.h
 $(DBGWARP_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h

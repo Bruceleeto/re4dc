@@ -35,6 +35,22 @@ PRESETS = {
     # before the house; --door steps him into area 0xA.
     "r100-house-door": dict(room=0x100, pos=(-82910, 860, -38480), ang=-0.1293, rsf={0x100: [13]}, scenario={0: 0x10},
                             door=[("fwd", 30, 150)], notes="just before s03 (area 0xA armed: flags 3/10 clear)"),
+    # s20 (the truck) and the ambush: r100-house-door with its door act always on (fwd -> area 0xA ->
+    # r100_Sce_look -> s03, movie 0x10003), then `kill` shoots the s03 Ganado (id 0x12, R100Init's
+    # EmSetEvent with the r100_Sce_zombi_dead death link) dead from room frame 400 (room frames stop
+    # while a movie owns the frame, so this is after s03). Its death runs r100_Sce_zombi_dead as in
+    # play: r100_em_set (the ambush), s20 (movie 0x10020), the after state, the post-house call
+    # (OpeSetOpenTerm(1), stream 1:3).
+    "r100-s20": dict(room=0x100, pos=(-82910, 860, -38480), ang=-0.1293, rsf={0x100: [13]}, scenario={0: 0x10},
+                     acts=[("fwd", 30, 150)], kill=(0x12, 400, 0x100),
+                     notes="s03, then the s03 Ganado killed at room frame 400: s20 + the ambush + the call"),
+    # The same s20 path from a fresh r100 entry, as the route reaches it: s40 (movie 0x10040) and the
+    # first radio call run first (close the call with a padscript: A every 90 vbl from vbl 1800,
+    # README "Warp rig"), then `goto` puts Leon into area 6 (R100Main pre-reads s03/s20, room flag 0)
+    # and into area 0xA (r100_Sce_look -> s03), and the s03 Ganado is shot dead from room frame 700.
+    "r100-s20-route": dict(room=0x100, goto=[(400, (-86558, 0, -1243)), (460, (-83382, 1100, -34851))],
+                           kill=(0x12, 700, 0x100),
+                           notes="fresh r100 (s40 + call), areas 6 and 0xA, s03 Ganado killed: s20 + ambush + call"),
     # s44 (r100_EventBrige, area 0x1B, readEvent(8) = r100s44): only while flag 10 is clear.
     "r100-bridge": dict(room=0x100, pos=(-112251, -193, -4420), ang=-1.5172, rsf={0x100: [13]}, scenario={0: 0x10},
                         door=[("fwd", 30, 90)], notes="just before s44 (area 0x1B, flag 10 clear)"),
@@ -108,12 +124,20 @@ def lines_for(p, door=False, dump=False, name=None):
     for i in range(0, len(dead), 10):   # the rig reads at most 12 tokens per line
         out.append("dead " + " ".join("0x%02x" % n for n in dead[i:i + 10]))
     out.append("inv default")
+    acts = list(p.get("acts") or [])   # the preset's own actions: always on
     if door:
-        for kind, frame, hold in p.get("door", []):
-            out.append("act %d %s %d" % (frame, kind, hold))
+        acts += p.get("door", [])
+    for kind, frame, hold in sorted(acts, key=lambda a: a[1]):
+        out.append("act %d %s %d" % (frame, kind, hold))
     if p.get("trg"):
         no, frame, room = (tuple(p["trg"]) + (0,))[:3]
         out.append("trg %d %d" % (no, frame) + (" 0x%03x" % room if room else ""))
+    if p.get("kill"):
+        em_id, frame, room = (tuple(p["kill"]) + (0,))[:3]
+        out.append("kill 0x%02x %d" % (em_id, frame) + (" 0x%03x" % room if room else ""))
+    for g in p.get("goto") or []:
+        frame, pos = g[0], g[1]
+        out.append("goto %d %d %d %d" % ((frame,) + tuple(pos)) + (" %.4f" % g[2] if len(g) > 2 else ""))
     if dump:
         out.append("dump")
     return "\n".join(out) + "\n"
@@ -132,6 +156,8 @@ def main(argv=None):
     ap.add_argument("--find", type=lambda s: int(s, 0))
     ap.add_argument("--act", action="append", default=[], help="KIND:FRAME:HOLD")
     ap.add_argument("--trg", help="NO:FRAME[:ROOM] make DebugTrg(NO) return 1 once (r101 bell: 0)")
+    ap.add_argument("--kill", help="ID:FRAME[:ROOM] shoot the first live enemy with model id ID dead from that "
+                                   "room frame (r100 s03 Ganado: 0x12)")
     ap.add_argument("-o", "--output")
     a = ap.parse_args(argv)
     if a.preset == "list":
@@ -172,6 +198,9 @@ def main(argv=None):
     if a.trg:
         f = a.trg.split(":")
         p["trg"] = (int(f[0], 0), int(f[1], 0), int(f[2], 0) if len(f) > 2 else 0)
+    if a.kill:
+        f = a.kill.split(":")
+        p["kill"] = (int(f[0], 0), int(f[1], 0), int(f[2], 0) if len(f) > 2 else 0)
     text = lines_for(p, door=a.door or bool(a.act), dump=a.dump, name=a.preset or "explicit")
     if a.output:
         open(a.output, "w").write(text)

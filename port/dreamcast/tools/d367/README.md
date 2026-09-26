@@ -368,7 +368,8 @@ seconds after boot, instead of a whole title -> intro -> r100 walk.
   (`warp.py list` lists them). Lines: `room 0x100`, `pos x y z`, `ang <rad>` or `dir 0x8000`,
   `rsf <room> <bit>...` (room save flags), `scenario <0|1> <hex>`, `find <hex>` (Item_find_flg),
   `unlock <0|1> <hex>`, `inv default`, `act <room frame> <a|b|x|y|start|fwd|back> <hold>`,
-  `trg <no> <room frame> [room]` (`--trg NO:FRAME[:ROOM]`), `dump`.
+  `trg <no> <room frame> [room]` (`--trg NO:FRAME[:ROOM]`), `kill <em id> <room frame> [room]`
+  (`--kill ID:FRAME[:ROOM]`), `goto <room frame> x y z [ang]` (up to 4), `dump`.
 - **What it does:** once the title data is loaded, the title, picker and menus are skipped and
   titleExit takes the debug-start path (config.txt [STAGE]/[ROOM] + START) with the warp room, so
   the room loads through the game's own new-game and room-load code. Quality comes from RE4DCCFG /
@@ -381,8 +382,22 @@ seconds after boot, instead of a whole title -> intro -> r100 walk.
   at or after that frame of the current room (of `room` only, when given). r101_checkEmNum rings the
   bell on `DebugTrg(0)`, so the square fight reaches event 30 without 15 kills or the 11,700-frame
   timer. The fight before it is the game's own; everything after the bell is the game's own too.
+  `kill` shoots the first live enemy with that model id dead through the source's own damage path
+  (`cDmgInfo::set`, one hit per frame until its hp is gone), at or after that frame of the current
+  room (of `room` only, when given; room frames stop while a movie owns the frame), so its death
+  link runs as in play: `kill 0x12 400 0x100` is the s03 Ganado, whose death (r100_Sce_zombi_dead)
+  runs the ambush set, s20, the after state and the post-house call. `goto` moves Leon (setPos,
+  optional setAng) once at or after that frame of the first room, outside events, to walk him into
+  an AEV area without a padscript. Log: `warp: kill 0x12 fired in 100 at room frame N hp=...`,
+  `warp: kill 0x12 hp<=0 at room frame N after K hits`, `warp: goto I at room frame N pl=x,y,z`.
 - **Log:** `warp:` lines give vblank and guest time for the title skip, each room entry, the
   placement and each action.
+- **Stall diagnostics (`STALL_DIAG=1`, test builds only, dbgwarp.mk):** the vblank handler logs
+  `vblank N loop=<vsync_cnt>` every 60 vblanks, and when the frame loop has not come round for 180
+  vsyncs (then every 600) `stall: frame loop ...` with the interrupted PC/PR, the main thread's saved
+  PC/PR/SP and its stack's text addresses (`stall: main stack:`), then the thread dump. Room loads,
+  movies' ends and the sub screen hold the loop legitimately, so a report is a lead, not a verdict.
+  With `STALL_DIAG=0` (default) vi.cpp is unchanged and the image is byte-identical.
 - **Boot fixture:** a blank harness VMU asks to create RE4DCSYS; stage a padscript with
   `0 0008 3 card=8/1 3000` and `+20 0100 3 card=8/1 300` (clock source).
 - **Base fixtures:** r101 needs 16 motion keys that `/root/probe/d354v7-fixtures` lacks
@@ -393,6 +408,8 @@ seconds after boot, instead of a whole title -> intro -> r100 walk.
 | r100-spawn | 0x100 | none | s40 movie and the radio call (r100_StartEvent) |
 | r100-post-radio | 0x100 | rsf 13, Scenario[0] 0x10 | play at the gate |
 | r100-house-door | 0x100 | rsf 13, Scenario[0] 0x10 | s03 (area 0xA, r100_Sce_look) |
+| r100-s20 | 0x100 | r100-house-door + its door act, kill 0x12 at 400 | s03, then s20 + the ambush + the post-house call (OpeSetOpenTerm(1)) |
+| r100-s20-route | 0x100 | none; goto area 6 at 400 and area 0xA at 460, kill 0x12 at 700 | s40 + the first call (padscript: A every 90 vbl from vbl 1800), then as r100-s20 from a fresh r100 entry |
 | r100-bridge | 0x100 | rsf 13, Scenario[0] 0x10 | s44 (area 0x1B, r100_EventBrige) |
 | r100-east-door | 0x100 | rsf 13, Scenario[0] 0x10 | r101 door (AEV area 0, no lock) |
 | r101-entry | 0x101 | none | r101 first visit |

@@ -22,13 +22,24 @@
 //    (of `room` only, when given). r101_checkEmNum rings the bell on DebugTrg(0), so a square fight
 //    reaches the bell event without 15 kills or 11,700 fight frames. r100 reads DebugTrg(1) for its
 //    own shortcut; the number keeps the two apart.
+//  - Kill: `kill <em id> <room frame> [room]` kills the first live enemy with that model id, once at
+//    or after that frame of the current room (of `room` only, when given), through the source's own
+//    damage path: a handgun hit (cDmgInfo::set kind 1 on the hit box emSphereAtCk picks, as
+//    PlWepHitCheck3 registers a hit) every frame no hit is pending, until its hp is gone. The enemy's
+//    own damage check then runs its death, and whatever the room links to it (SceExecLinkEmDead) runs
+//    as in play: r100's s03 Ganado (id 0x12) -> r100_Sce_zombi_dead -> the ambush + s20.
+//  - Move: `goto <room frame> x y z [ang]` (first room, up to 4) moves Leon there at or after that
+//    frame, outside events; an area trigger at the spot then fires as when he walks in (r100: area
+//    6 pre-reads s03/s20, area 0xA starts s03), so a fresh room entry (its entry event and call)
+//    reaches a later event without a scripted walk.
 // A warp start is NOT STRICT against continued play (fresh room entry with synthesized flags; the
 // RNG, timers and enemy state are those of a new game). It is for iteration and bring-up only.
 //
 // /cd/dc/warp.txt (tools/d367/warp.py writes it from a named preset):
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
-//   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | dump | name <preset>
+//   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
+//   goto <frame> x y z [ang] | dump | name <preset>
 #if RE4DC_DBG_WARP
 #include "types.h"
 #include "global.h"
@@ -38,6 +49,8 @@
 #include "sce_at.h"
 #include "area.h"
 #include "em_set.h"
+#include "em.h"
+#include "em_sub.h"
 #include "re4dc_platform.h"
 #include <string.h>
 #include <stdio.h>
@@ -74,6 +87,13 @@ struct Warp {
     int trg_no;
     u32 trg_frame;
     u16 trg_room;  // 0: any room
+    bool has_kill, kill_done;
+    int kill_id;
+    u32 kill_frame, kill_hits;
+    u16 kill_room;  // 0: any room
+    cEm* kill_em;   // the target once found (kept until its hp is gone)
+    struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; } go[4];
+    unsigned n_go;
     // runtime
     u32 room_frames, first_room_gen, rooms;
     u32 pad_frames;  // PADRead calls in the current room: the action clock
@@ -166,6 +186,18 @@ void load()
             wp.trg_no = (int) num(tok[1]);
             wp.trg_frame = num(tok[2]);
             wp.trg_room = n >= 4 ? (u16) num(tok[3]) : 0;
+        } else if (!strcmp(k, "kill") && n >= 3) {
+            wp.has_kill = true;
+            wp.kill_id = (int) num(tok[1]);
+            wp.kill_frame = num(tok[2]);
+            wp.kill_room = n >= 4 ? (u16) num(tok[3]) : 0;
+        } else if (!strcmp(k, "goto") && n >= 5 && wp.n_go < 4) {
+            Warp::Goto& g = wp.go[wp.n_go++];
+            g.frame = num(tok[1]);
+            for (int i = 0; i < 3; ++i) g.pos[i] = (f32) strtod(tok[2 + i], nullptr);
+            g.has_ang = n >= 6;
+            g.ang = g.has_ang ? (f32) strtod(tok[5], nullptr) : 0.0f;
+            g.done = false;
         } else if (!strcmp(k, "dump")) {
             wp.dump = true;
         } else {
@@ -176,6 +208,10 @@ void load()
               wp.name[0] ? wp.name : "-", (unsigned) wp.room, wp.jp, wp.has_pos ? "set" : "jump point", wp.n_rsf,
               (unsigned) wp.scenario[0], (unsigned) wp.scenario[1], (unsigned) wp.find, (unsigned) wp.unlock[0],
               (unsigned) wp.unlock[1], wp.n_act);
+    if (wp.has_kill) {
+        re4dc_log("warp: kill 0x%02x armed at room frame %u room %03x\n", (unsigned) wp.kill_id,
+                  (unsigned) wp.kill_frame, (unsigned) wp.kill_room);
+    }
 }
 
 void stamp(const char* what)
@@ -201,6 +237,64 @@ void dump_areas()
             re4dc_log("warp: area %02x type=%u flag=%02x trig=%02x shape=%u center=%d,%d,%d\n", no, w->type, w->flag,
                       w->trigger, area.type, (int) c.x, (int) c.y, (int) c.z);
         }
+    }
+}
+
+// `kill`: once at or after its room frame, the first live enemy with the model id takes a handgun
+// hit (kind 1) whenever none is pending, registered as PlWepHitCheck3 does (cDmgInfo::set on the
+// hit box emSphereAtCk picks around the enemy); its own damage check applies it (LifeDownSet2,
+// the hp <= 0 death, the scene links). Ends when its hp is gone or it left the live list.
+void kill_poll()
+{
+    if (!wp.has_kill || wp.kill_done) return;
+    if (wp.kill_room && pG->room_id != wp.kill_room) return;
+    if (wp.room_frames < wp.kill_frame) return;
+    cEm* em = wp.kill_em;
+    char what[64];
+    if (!em) {
+        for (em = EmMgr.getEmPtr(wp.kill_id, 0); em; em = EmMgr.getEmPtr(wp.kill_id, em)) {
+            if ((em->be_flag & 0x21) == 0x21 && em->hp > 0) break;
+        }
+        if (!em) return;  // not placed yet: keep looking
+        wp.kill_em = em;
+        snprintf(what, sizeof(what), "kill 0x%02x fired in %03x at room frame %u hp=%d", (unsigned) wp.kill_id,
+                 (unsigned) pG->room_id, (unsigned) wp.room_frames, (int) em->hp);
+        stamp(what);
+    }
+    if (!(em->be_flag & 1) || em->hp <= 0) {
+        wp.kill_done = true;
+        snprintf(what, sizeof(what), "kill 0x%02x hp<=0 at room frame %u after %u hits", (unsigned) wp.kill_id,
+                 (unsigned) wp.room_frames, (unsigned) wp.kill_hits);
+        stamp(what);
+        return;
+    }
+    if (em->dmg.m_Flag & 1) return;  // the last hit is still pending
+    Vec c = em->pos;
+    YARARE_INFO* part = emSphereAtCk(em, &c, &c, 5000.0f, 1, 5000.0f);
+    if (!part) part = &em->hitInfo;
+    Vec from = pPL ? pPL->pos : em->pos;
+    em->dmg.set(0, 10, 1, &from, part->rad, part);
+    ++wp.kill_hits;
+}
+
+// `goto`: in the first room, at or after its room frame and outside events (Status_flg[1]
+// 0x10000000), Leon is moved to the position (an area's trigger then fires as when he walks in).
+void goto_poll()
+{
+    for (unsigned i = 0; i < wp.n_go; ++i) {
+        Warp::Goto& g = wp.go[i];
+        if (g.done || wp.room_frames < g.frame || !pPL || (pG->Status_flg[1] & 0x10000000)) continue;
+        g.done = true;
+        Vec p = {g.pos[0], g.pos[1], g.pos[2]};
+        pPL->setPos(&p);
+        if (g.has_ang) {
+            Vec a = {0.0f, g.ang, 0.0f};
+            pPL->setAng(&a);
+        }
+        char what[64];
+        snprintf(what, sizeof(what), "goto %u at room frame %u pl=%d,%d,%d", i, (unsigned) wp.room_frames, (int) p.x,
+                 (int) p.y, (int) p.z);
+        stamp(what);
     }
 }
 }  // namespace
@@ -277,7 +371,9 @@ void re4dc_warp_poll(void)
 {
     if (!wp.active) return;
     ++wp.room_frames;
+    kill_poll();
     if (wp.rooms != 1) return;
+    goto_poll();
     if (wp.room_frames == 1) {
         if (wp.has_area && pPL) {
             Vec c = {0.0f, 0.0f, 0.0f};
