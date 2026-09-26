@@ -1650,6 +1650,15 @@ extern "C" unsigned re4dc_ui_reclaim_one(){
 // transceiver). Returns 1 when the block fits. Every claim is paired with
 // re4dc_ui_vram_unclaim(); the preload waits while one is open and afterwards
 // reloads what the claims released (it skips what is still resident).
+// ROUTE_MOVIE_DIAG=2/3 (test only; 0/1 compile it out): the route movie's claim skips its
+// normal pass, as if every upload were referenced by this frame's scene, so only the
+// fallback below can free the block (2), or nothing does and the open fails as it did on
+// a fragmented pool before the fallback existed (3).
+#if defined(RE4DC_ROUTE_MOVIE_DIAG) && RE4DC_ROUTE_MOVIE_DIAG>=2
+#define RE4DC_CLAIM_TEST RE4DC_ROUTE_MOVIE_DIAG
+#else
+#define RE4DC_CLAIM_TEST 0
+#endif
 namespace {
 int vram_claim(unsigned bytes,bool movie){
     ++vram_claims;
@@ -1659,7 +1668,13 @@ int vram_claim(unsigned bytes,bool movie){
     // Fragmented pool: re-probe only after each 64 KiB released, not after every small texture
     // (the sub screen's 1 MiB claim probed 146 times at r101, each failure a KOS "out of PVR
     // memory" line, warp-r101-pbdoor8); at most 64 KiB more is released than strictly needed.
+#if RE4DC_CLAIM_TEST
+    const bool forced=movie; // test: the normal pass finds nothing it may release
+    bool ok=!forced && fits();
+#else
+    const bool forced=false;
     bool ok=fits();
+#endif
     // Route movie fallback (second pass). The movie opens from a source task in the middle of a
     // frame (r100 s20: the s03 Ganado's death event), so this frame's uploads are still referenced
     // by the open scene and the normal pass may not touch them; ~680 KB of them scattered through
@@ -1676,7 +1691,7 @@ int vram_claim(unsigned bytes,bool movie){
         unsigned since_probe=0;
         while(!ok){
             Entry* victim=nullptr;
-            for(auto& e:entries) if(e.valid && (fell_back || e.frame!=frame) && (!victim || e.frame<victim->frame)) victim=&e;
+            for(auto& e:entries) if(e.valid && (fell_back || (!forced && e.frame!=frame)) && (!victim || e.frame<victim->frame)) victim=&e;
             if(!victim){ok=since_probe && fits();break;}
             const unsigned vb=victim->package.vram_bytes();
             released_bytes+=vb;++released;since_probe+=vb?vb:1;
@@ -1686,7 +1701,7 @@ int vram_claim(unsigned bytes,bool movie){
             since_probe=0;
             ok=fits();
         }
-        if(ok || !movie || fell_back)break;
+        if(ok || !movie || fell_back || RE4DC_CLAIM_TEST==3)break;
 #if RE4DC_PVR_STREAM
         if(stream_scene)stream_close(false);
 #endif
@@ -3226,7 +3241,11 @@ extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
 #if RE4DC_TEX_RESIDENT
     // Released with the texture (re4dc_ui_movie_close). The movie's claim may end this frame's
     // scene and release its uploads when nothing else frees a block (fallback in vram_claim).
+#if RE4DC_CLAIM_TEST==3
+    if(!vram_claim(512*256*2,true)){re4dc_ui_vram_unclaim();return 0;} // test: the pre-fallback outcome
+#else
     vram_claim(512*256*2,true);
+#endif
 #endif
     movie_texture=pvr_mem_malloc(512*256*2);movie_picture=false;movie_width=width;movie_height=height;
     movie_upload_serial=movie_shown_serial=movie_presentations=0;movie_first_picture_us=0;
