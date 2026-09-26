@@ -43,6 +43,27 @@
 #if RE4DC_NATIVE_MESH
 #include "../../room/instanced_mesh.hpp"
 #endif
+// COARSE_NO_STD_SCENERY (game30.mk; COARSE=1 with COARSE_WORLD only; default off): in the room the coarse
+// world draws (coarse.cpp re4dc_coarse_world_room: coarse_world.h kRoom) bind_mesh() neither opens nor binds
+// the room's scenery mesh package, so its heap-4 cell stays free (r101 Standard low/MAINSCENARIO.re4mesh,
+// 599,328 B). Nothing a coarse image does reads it: a coarse tick's Trans() runs no ModelTrans (objTrans /
+// emTrans) and its Render() draws the coarse view in place of the world OTs, so neither the part walk
+// (re4dc_static_submit -> mesh_submit: LOD, impostors, tree quads, light_part, baked shells) nor trans.cpp's
+// FRONT_LEAN / SCENERY_GATE queries (re4dc_static_mesh_lit, re4dc_static_gate) run for it. re4dc_static_bind
+// returns nothing to the game: objects, collision and game state are unchanged. An image the coarse path does
+// not draw in that room (outside in-room play: door demo, death, continue) draws its scroll parts through the
+// generic path (a released part has no GX stream: nothing). "native mesh: no-std" lines: the heap-4 free where
+// the package would have opened, and a census of its readers on coarse / other images (coarse.cpp latches
+// the image kind per tick: re4dc_std_scenery_tick).
+#ifndef RE4DC_NO_STD_SCENERY
+#define RE4DC_NO_STD_SCENERY 0
+#endif
+#if RE4DC_NO_STD_SCENERY
+#if !RE4DC_NATIVE_MESH
+#error COARSE_NO_STD_SCENERY skips the NATIVE_MESH scenery package (game30.mk)
+#endif
+extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h kRoom (stage << 8 | room)
+#endif
 // Transform-once meshlet path for R4IM meshes (room/mesh_fastpath.hpp). 0 keeps
 // the per-strip-corner Emitter path for every meshlet (A/B reference).
 #ifndef RE4DC_MESH_FASTPATH
@@ -796,10 +817,57 @@ const MeshEntry* find_entry(const void* object,unsigned& owner){
     return nullptr;
 }
 
+#if RE4DC_NO_STD_SCENERY
+// COARSE_NO_STD_SCENERY: the room whose package bind_mesh skipped, and a census of the calls that would have
+// read it while in that room, by the image kind the tick latched (coarse.cpp -> re4dc_std_scenery_tick):
+// reads[kind][reader], kind 1 coarse image / 0 other; reader 0 re4dc_static_submit scroll part (mesh_submit),
+// 1 re4dc_static_mesh_lit (FRONT_LEAN), 2 re4dc_static_gate (SCENERY_GATE).
+struct NoStd {
+    unsigned room=~0U,binds=0;   // the skipped room (cleared at room retirement) and its skipped owned binds
+    int coarse=0;                // this tick's image is coarse
+    unsigned reads[2][3]={};
+    unsigned no_stream=0;        // other-image scroll parts without a GX stream (released: drawn as nothing)
+    unsigned spans=0,last=~0U;   // runs of consecutive UI frames with other-image reads
+    unsigned ticks=0;
+};
+NoStd no_std;
+bool no_std_skip(unsigned room){
+    if(room!=re4dc_coarse_world_room())return false;
+    if(no_std.room!=room){
+        no_std.room=room;
+        re4dc_log("native mesh: no-std room=%x%02x: scenery package not opened (COARSE_NO_STD_SCENERY) heap4=%d\n",
+            room>>8,room&255U,re4dc_static_heap_free());
+    }
+    ++no_std.binds;
+    return true;
+}
+void no_std_read(unsigned reader,const Re4dcModelPart* p){
+    if(no_std.room==~0U)return;
+    const unsigned frame=re4dc_ui_frame();
+    if(no_std.coarse){
+        if(++no_std.reads[1][reader]<=4)re4dc_log("native mesh: no-std READ ON A COARSE IMAGE reader=%u frame=%u\n",reader,frame);
+        return;
+    }
+    ++no_std.reads[0][reader];
+    if(p && !p->stream_bytes)++no_std.no_stream;
+    if(frame!=no_std.last && frame!=no_std.last+1U && ++no_std.spans<=16)
+        re4dc_log("native mesh: no-std other-image reads from frame %u (span %u, reader %u)\n",frame,no_std.spans,reader);
+    no_std.last=frame;
+}
+void no_std_log(const char* when){
+    const auto& r=no_std.reads;
+    re4dc_log("native mesh: no-std %s room=%x%02x binds=%u coarse=%u/%u/%u other=%u/%u/%u no_stream=%u spans=%u frame=%u\n",
+        when,no_std.room>>8,no_std.room&255U,no_std.binds,r[1][0],r[1][1],r[1][2],r[0][0],r[0][1],r[0][2],
+        no_std.no_stream,no_std.spans,re4dc_ui_frame());
+}
+#endif
 void bind_mesh(const void* object,unsigned room,int block,unsigned bin,unsigned common){
     const unsigned index=view_index(block);
     if(index>=kViews || !(RE4DC_NATIVE_STATIC_OWNERS&(1U<<index)) ||
        (common && !(RE4DC_NATIVE_STATIC_OWNERS&(1U<<kCommonView)))){++stats.unowned_binds;return;}
+#if RE4DC_NO_STD_SCENERY
+    if(no_std_skip(room))return;   // the coarse world draws this room: no package, no binding
+#endif
     MeshView& owner=mesh_views[index];
     if(!open(owner,index,room))return;
     MeshView& target=common?mesh_views[kCommonView]:owner;
@@ -1121,8 +1189,18 @@ extern "C" void re4dc_static_retire_all(){
 #if RE4DC_NATIVE_MESH
     for(auto& v:mesh_views)if(v.attempted)retire(v);
 #endif
+#if RE4DC_NO_STD_SCENERY
+    if(no_std.room!=~0U){no_std_log("leave");no_std=NoStd();}
+#endif
 }
 extern "C" const Re4dcStaticStats* re4dc_static_stats(){return &stats;}
+#if RE4DC_NO_STD_SCENERY
+// coarse.cpp re4dc_coarse_tick(), once per Trans(): 1 when this tick's image (drawn by the next Render()) is coarse.
+extern "C" void re4dc_std_scenery_tick(int coarse){
+    no_std.coarse=coarse;
+    if(no_std.room!=~0U && ++no_std.ticks%1200U==0)no_std_log("census");
+}
+#endif
 #if RE4DC_QUALITY_ASSETS
 // ui_bridge.cpp re4dc_room_enter(): after the quality freeze, before any package
 // of the room opens. Original never reads the index (nor low/ or texlow/).
@@ -1203,6 +1281,9 @@ extern "C" void re4dc_static_flush_impostors(){
 // ran): the mesh then never reads source lighting again (trans.cpp).
 extern "C" int re4dc_static_mesh_lit(const void* object,unsigned vertices,unsigned parts){
 #if RE4DC_NATIVE_MESH
+#if RE4DC_NO_STD_SCENERY
+    no_std_read(1,nullptr);
+#endif
     if(!stats.owners_open)return 0;
     unsigned owner=0;
     const MeshEntry* e=find_entry(object,owner);
@@ -1233,6 +1314,9 @@ extern "C" float re4dc_fog_far_for_gate(float zfar);
 // skip the model's render setup with identical pixels.
 extern "C" int re4dc_static_gate(const void* object,const float mv[12],const float projection[7],float zfar){
 #if RE4DC_NATIVE_MESH
+#if RE4DC_NO_STD_SCENERY
+    no_std_read(2,nullptr);
+#endif
     if(!stats.owners_open)return 0;
     unsigned owner=0;
     const MeshEntry* e=find_entry(object,owner);
@@ -1789,6 +1873,9 @@ extern "C" int re4dc_static_submit(const Re4dcModelPart* part){
     const unsigned frame=re4dc_ui_frame();
     log_stats(frame);
 #if RE4DC_NATIVE_MESH
+#if RE4DC_NO_STD_SCENERY
+    if(p.static_geometry)no_std_read(0,&p);
+#endif
     return mesh_submit(p);
 #endif
     if(!p.world || !p.view || !p.static_geometry || !stats.owners_open)return 0;

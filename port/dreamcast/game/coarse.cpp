@@ -419,7 +419,7 @@ void draw_block_polys(Out& o, cSat* sat, const cSatBlock* b, const PieceView& pv
             continue;
         }
         g_seen[no >> 3] |= bit;
-#if RE4DC_COARSE_WORLD & 3
+#if RE4DC_COARSE_WORLD & 0x33
         if (g_world && g_piece == 0 && no < coarse_world::kPolys) {
             unsigned char skip = 0;
 #if RE4DC_COARSE_WORLD & 1
@@ -427,6 +427,12 @@ void draw_block_polys(Out& o, cSat* sat, const cSatBlock* b, const PieceView& pv
 #endif
 #if RE4DC_COARSE_WORLD & 2
             skip |= coarse_world::kSkipGround[no >> 3];   // drawn as the ground (coarse_world.cpp)
+#endif
+#if RE4DC_COARSE_WORLD & 16
+            skip |= coarse_world::kSkipMesh[no >> 3];   // drawn as a mesh record (R1)
+#endif
+#if RE4DC_COARSE_WORLD & 32
+            skip |= coarse_world::kSkipBackdrop[no >> 3];   // stood in for by the far scenery (R7)
 #endif
             if (skip & bit) {
                 g_st.replaced++;
@@ -500,6 +506,11 @@ void draw_blocks(Out& o, cSat* sat, const cSatBlock* b, const PieceView& pv, con
 void draw_world(Out& o)
 {
     for (u32 i = 0; i < SatMgr.nArray; ++i) {
+#if RE4DC_COARSE_WORLD & 128
+        if (i == 0 && g_world) {
+            continue;   // K0: the world data covers every piece-0 polygon (coarse_world.h kCover); drawing only
+        }
+#endif
         cSat* sat = (cSat*) ((u8*) SatMgr.pArray + SatMgr.size * i);
         if (!sat->isAlive() || !sat->block_p || !sat->poly_p) {
             continue;
@@ -717,6 +728,18 @@ void draw_effects(Out& o)
 }
 }  // namespace
 
+#if RE4DC_NO_STD_SCENERY
+#if !RE4DC_COARSE_WORLD
+#error COARSE_NO_STD_SCENERY needs COARSE_WORLD (the room the coarse world draws)
+#endif
+// COARSE_NO_STD_SCENERY (game30.mk): native_static.cpp skips the scenery mesh package of the room this data draws
+// and counts that package's readers by the image kind each tick latches.
+extern "C" void re4dc_std_scenery_tick(int coarse);   // platform/native_static.cpp
+extern "C" unsigned re4dc_coarse_world_room()
+{
+    return coarse_world::kRoom;
+}
+#endif
 // Trans() of tick k: 1 in in-room play (the pace.cpp context: Rno0 3, no held picture or room
 // change, no sub screen, no movie), where the presentation stages run in the qualified skip mode.
 // Latches whether image k (drawn by iteration k+1) is coarse: every such image not dropped.
@@ -727,6 +750,9 @@ extern "C" int re4dc_coarse_tick(int dropped)
         ctx = 0;
     }
     re4dc_coarse_image = ctx && !dropped;
+#if RE4DC_NO_STD_SCENERY
+    re4dc_std_scenery_tick(re4dc_coarse_image);
+#endif
     return ctx;
 }
 
@@ -871,3 +897,12 @@ extern "C" void re4dc_coarse_draw(void)
         g_st = Stats();
     }
 }
+
+#if RE4DC_COARSE_WORLD & 64
+// COARSE_WORLD R3: native_ui's room-entry texture preload adds the world's list (coarse_world.cpp
+// re4dc_coarse_world_tex) only in the data's room.
+extern "C" int re4dc_coarse_world_room(void)
+{
+    return pG && G_ROOM_ID == coarse_world::kRoom;
+}
+#endif

@@ -616,6 +616,39 @@ $(OBJDIR)/coarse.o: coarse.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_COARSE=$(COARSE) -MMD -MP -c $< -o $@
 endif
+# COARSE_NO_STD_SCENERY=1 (heap-4 reclaim, render-only; only with COARSE=1 and COARSE_WORLD set, below): in the
+#   room the coarse world draws (coarse_world.h kRoom) native_static.cpp bind_mesh() neither opens nor binds the
+#   room's scenery mesh package (r101 Standard: low/MAINSCENARIO.re4mesh, 599,328 B of heap 4). No coarse image
+#   reads it: a coarse tick runs no ModelTrans and its Render() draws the coarse view in place of the world OTs.
+#   Objects, collision and game state are unchanged (the bind returns nothing to the game). An image the coarse
+#   path does not draw in that room (outside in-room play: door demo, death, continue) draws its scroll parts
+#   through the generic path (a released part has no GX stream: nothing). "native mesh: no-std" log lines: the
+#   heap-4 free where the package would have opened, and a census of its readers on coarse and other images.
+COARSE_NO_STD_SCENERY ?= 0
+ifneq ($(COARSE_NO_STD_SCENERY),0)
+ifneq ($(COARSE_NO_STD_SCENERY),1)
+$(error COARSE_NO_STD_SCENERY is 0 or 1)
+endif
+ifneq ($(COARSE),1)
+$(error COARSE_NO_STD_SCENERY needs COARSE=1: coarse images draw every in-room image of the room)
+endif
+ifeq ($(filter-out 0,$(strip $(COARSE_WORLD))),)
+$(error COARSE_NO_STD_SCENERY needs COARSE_WORLD: the coarse world draws the room in place of the scenery package)
+endif
+ifneq ($(NATIVE_STATIC),1)
+$(error COARSE_NO_STD_SCENERY needs NATIVE_STATIC=1 (the scenery package it skips))
+endif
+ifneq ($(NATIVE_MESH),1)
+$(error COARSE_NO_STD_SCENERY needs NATIVE_MESH=1 (the scenery package it skips))
+endif
+# Only the top-of-heap package layout (NATIVE_PKG_HIGH=1) is gated STRICT without the package: with the low layout
+# every later source heap-4 allocation of the room would move down by the package's cell.
+ifneq ($(NATIVE_PKG_HIGH),1)
+$(error COARSE_NO_STD_SCENERY needs NATIVE_PKG_HIGH=1 (the only layout gated without the package))
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_NO_STD_SCENERY=1
+$(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_NO_STD_SCENERY=1
+endif
 # COARSE_WORLD=bits (lane wd, test; needs COARSE=1): the coarse view's world beyond
 #   the flat collision (coarse_world.cpp; data in the generated private coarse_world.h, textures staged with
 #   EXTRA_TEXDIRS). 1: house shells (every house BIN of the room as its baked 128 VQ render shell, the
@@ -624,6 +657,19 @@ endif
 #   those floors). 4: sky (the room's dome, unfogged, fading into the fog colour at the horizon; the PVR
 #   background takes the fog colour, native_static FOG_BACKGROUND). 8: trees (the Standard impostor records
 #   as their atlas quads in the punch-through list; needs TREE_IMPOSTOR=1).
+#   Bits 16-128 read a layout-11 header (kWorldLayout = 11; the world agent's binary contract,
+#   re4-assets-private world-agent-20260926 from-main\renderer-contract.md); with them off the build is as before.
+#   16: R1 (+R6) mesh records (kMesh*, kSkipMesh): a mode byte per record (repeat, fog, cull or both sides,
+#   16- or 32-bit UVs, an ARGB per strip vertex), drawn after the shells; reserved-mode (R2) records are
+#   skipped and counted as rejects. 32: R7 backdrop segments (kBackdrop*, kSkipBackdrop): up to 16 textured
+#   bands after the sky and before the ground, fading into the fog colour as the sky, world-fixed or following
+#   the eye; with segments the sky dome writes no depth, so it never hides a band. 64: R3 world texture preload
+#   (kWorldTex): the room-entry preload adds the listed keys in the data's room after its other passes, within
+#   BUDGET.md revision 2's caps (16 new keys, 84,448 B of new VRAM per visit, at the packages' real sizes)
+#   ("COARSE world tex" log line; needs TEX_RESIDENT=1). 128: K0: the coarse view does not walk piece 0
+#   (its drawing only; collision is untouched) when the data covers every piece-0 polygon (kCover full); the
+#   build fails on partial coverage or on a non-empty skip set whose bit is off. Any of bits 16-128 builds the
+#   whole header through the data gate in coarse_world.cpp (static_asserts: ranges, sizes, layouts).
 COARSE_WORLD ?= 0
 ifneq ($(COARSE_WORLD),0)
 ifeq ($(COARSE),0)
@@ -641,6 +687,11 @@ endif
 ifneq ($(shell echo $$(( $(COARSE_WORLD) & 8 ))),0)
 ifneq ($(TREE_IMPOSTOR),1)
 $(error COARSE_WORLD bit 8 (trees) needs TREE_IMPOSTOR=1 (the punch-through list, re4dc_model_pt_begin))
+endif
+endif
+ifneq ($(shell echo $$(( $(COARSE_WORLD) & 64 ))),0)
+ifneq ($(TEX_RESIDENT),1)
+$(error COARSE_WORLD bit 64 (R3 world texture preload) needs TEX_RESIDENT=1 (the room-entry preload))
 endif
 endif
 endif

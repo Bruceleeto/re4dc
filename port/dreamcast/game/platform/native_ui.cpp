@@ -128,6 +128,10 @@
 #include "../../room/room_storage.hpp"
 #include "../../room/gpu_lifecycle.hpp"
 #include "../../room/pvr_geometry.hpp"
+#if RE4DC_COARSE_WORLD & 64
+extern "C" int re4dc_coarse_world_room(void);                        // coarse.cpp: the world data's room (R3)
+extern "C" int re4dc_coarse_world_tex(unsigned i,unsigned out[5]);   // coarse_world.cpp: its texture list
+#endif
 
 #if RE4DC_COARSE_LEON
 extern "C" int re4dc_coarse_actor_texture_key(const Re4dcUiImage*,unsigned*,unsigned*);
@@ -1407,6 +1411,14 @@ PreloadPick preload_picks[kTextureCount];
 #if RE4DC_QUALITY_ASSETS
 bool preload_room_pass; // Standard: skip the index's drop keys in the room-identity pass only
 #endif
+#if RE4DC_COARSE_WORLD & 64
+// COARSE_WORLD R3, this visit to the world's room (renderer-contract.md Revision 2): the new world VRAM and keys the
+// world pass picked, against BUDGET.md revision 2's caps, and per kWorldTex entry (kWorldTexCount <= 48) whether it
+// was new world VRAM, found resident by an earlier pass, or logged as capped.
+constexpr unsigned kWorldNewKeys=16,kWorldNewBytes=84448;
+unsigned world_new_n,world_new_bytes;
+std::uint64_t world_new_mask,world_seen_mask,world_capped_mask;
+#endif
 void preload_select(const re4dc::texture::SourceIdentityTable& table,unsigned& n,unsigned& resident,unsigned& bytes,unsigned limit,unsigned byte_limit){
     for(unsigned i=0;i<table.count() && n+resident<limit;++i){
         unsigned crc,fnv,width,height,format;
@@ -1456,6 +1468,66 @@ void preload_identities(){
 #endif
     for(auto& e:enemy_identities)if(e.archive)preload_select(e.table,n,resident,bytes,limit,byte_limit);
     preload_select(player_identities,n,resident,bytes,limit,byte_limit);preload_select(weapon_identities,n,resident,bytes,limit,byte_limit);
+#if RE4DC_COARSE_WORLD & 64
+    // COARSE_WORLD R3 (renderer-contract.md 5, Revision 2): in the world data's room, its texture list (kWorldTex,
+    // most important first), after the room, Standard and character passes, so their picks are the same as without it.
+    // - A listed key one of those passes picked counts as resident (it loads pinned with them).
+    // - A listed key already uploaded is pinned like the room set while picks + pins stay under the world's slot
+    //   limit, which lends it half of the first-sight reserve (192 - 16 - pinned); past that it stays resident but
+    //   unpinned (unpinned=).
+    // - A listed key that an earlier pass of this visit found resident or picked, and that is no longer uploaded
+    //   (evicted while unpinned), loads on first sight, as without R3 (evicted=): it is not picked again.
+    // - Any other key is new world VRAM: picked in list order within BUDGET.md revision 2's caps for this visit to
+    //   the room (16 keys, 84,448 B; a key counts once) while it fits the slot limit and the byte budget. Past the
+    //   caps (capped=; one log line per key and visit) or the limits (nofit=) it loads on first sight, as without R3.
+    //   Its size is the entry's bytes, which the data gate (coarse_world.cpp static_asserts, ref_decoder.py) holds
+    //   to its real size: 2048 + w*h/4 (VQ), w*h*2 (16-bit), or 2048 + w*h/16 + 32 for a TreeAtlas key (4-bit
+    //   palettised VQ). No disc access: the pass runs in every room-entry preload, some of them inside the room's
+    //   load wait, where a stall would change the number of frames the wait takes.
+    unsigned world_listed=0,world_resident=0,world_unpinned=0,world_np=0,world_nofit=0,world_absent=0,world_capped=0,world_evicted=0;
+    Key world_picks[kWorldNewKeys];
+    if(!re4dc_coarse_world_room()){ // another room: the next visit starts afresh
+        world_new_n=0;world_new_bytes=0;world_new_mask=0;world_seen_mask=0;world_capped_mask=0;
+    }else{
+        const unsigned wlimit=kTextureCount>RE4DC_TEX_RESIDENT_RESERVE_SLOTS/2+pinned?kTextureCount-RE4DC_TEX_RESIDENT_RESERVE_SLOTS/2-pinned:0;
+        unsigned t[5];
+        for(unsigned i=0;i<64 && re4dc_coarse_world_tex(i,t);++i){
+            ++world_listed;
+            const Key key{t[0],t[1]};
+            const std::uint64_t bit=std::uint64_t(1)<<i;
+            bool picked=false;
+            for(unsigned k=0;k<n && !picked;++k)if(preload_picks[k].key==key)picked=true;
+            if(picked){world_seen_mask|=bit;++world_resident;continue;}
+            Entry* up=nullptr;
+            for(auto& e:entries)if(e.valid && e.key==key){up=&e;break;}
+            if(up){
+                world_seen_mask|=bit;
+                if(up->frame==frame)++world_resident;
+                else if(n+resident<wlimit){up->frame=frame;++resident;bytes+=up->package.vram_bytes();++world_resident;}
+                else ++world_unpinned;
+                continue;
+            }
+            bool absent=false;
+            for(const auto& m:missing_keys)if((m.crc|m.fnv) && m==key)absent=true;
+            if(absent){++world_absent;continue;}
+            if((world_seen_mask|world_new_mask)&bit){++world_evicted;continue;}
+            const unsigned size=t[4];
+            if(world_new_n>=kWorldNewKeys || world_new_bytes+size>kWorldNewBytes){
+                ++world_capped;
+                if(!(world_capped_mask&bit)){
+                    world_capped_mask|=bit;
+                    re4dc_log("COARSE world tex capped %08x-%08x %ux%u bytes=%u visit_new=%u/%u keys=%u/%u\n",key.crc,key.fnv,t[2],t[3],
+                        size,world_new_bytes,kWorldNewBytes,world_new_n,kWorldNewKeys);
+                }
+                continue;
+            }
+            if(n+resident>=wlimit || bytes+size>byte_limit){++world_nofit;continue;}
+            world_new_mask|=bit;++world_new_n;world_new_bytes+=size;
+            world_picks[world_np++]=key;
+            preload_picks[n++]={key,(unsigned short)t[2],(unsigned short)t[3],5};bytes+=size;
+        }
+    }
+#endif
     // Package-name order ("%08x-%08x": crc, then fnv).
     for(unsigned i=1;i<n;++i){
         const PreloadPick p=preload_picks[i];unsigned j=i;
@@ -1474,6 +1546,18 @@ void preload_identities(){
     if(frame)for(auto& e:entries)if(e.valid && e.frame==frame)e.frame=frame-1;
     re4dc_log("native texture preload: frame=%u picked=%u resident=%u loads=%u skipped=%u full=%d used=%u budget=%u entries=%u us=%u\n",frame,n,resident,preload_loads-loads,
         preload_skipped-skipped,full?1:0,used,budget,kTextureCount,unsigned(timer_us_gettime64()-start));
+#if RE4DC_COARSE_WORLD & 64
+    if(world_listed){
+        // loaded: the world picks now uploaded (new: their VRAM); missing: listed keys neither resident nor loaded
+        // (they load on first sight, as without R3); visit: this visit's new world VRAM and keys against the caps
+        unsigned world_loaded=0,world_bytes=0;
+        for(unsigned k=0;k<world_np;++k)for(const auto& e:entries)if(e.valid && e.key==world_picks[k]){++world_loaded;world_bytes+=e.package.vram_bytes();break;}
+        re4dc_log("COARSE world tex listed=%u loaded=%u resident=%u new=%u missing=%u nofit=%u absent=%u unpinned=%u evicted=%u "
+            "capped=%u visit=%u/%u B %u/%u keys\n",world_listed,world_loaded,world_resident,world_bytes,
+            world_listed-world_resident-world_unpinned-world_loaded,world_nofit,world_absent,world_unpinned,world_evicted,world_capped,
+            world_new_bytes,kWorldNewBytes,world_new_n,kWorldNewKeys);
+    }
+#endif
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
     void vram_census(const char*);vram_census("preload");
 #endif
@@ -2750,7 +2834,8 @@ extern "C" std::uint32_t* re4dc_coarse_begin(int fog){
 // bound by key and pinned for this frame; the vertices carry their UVs (texture x vertex colour).
 // mode: 1 fog table, 2 repeat UVs (tiled materials; else clamped), 4 offset colour (vertex word 7 is
 // added: the sky's fade into the fog colour), 8 / 16 PVR back-face cull of positive / negative screen
-// area, 32 16-bit UVs (vertex word 4). nullptr: no frame, or the package cannot be loaded.
+// area, 32 16-bit UVs (vertex word 4), 64 no depth write (bit 32 builds: R7's sky dome). nullptr: no frame, or
+// the package cannot be loaded.
 extern "C" std::uint32_t* re4dc_coarse_begin_mode(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned mode){
     if(!frame_ready || stream_aborted || direct_open)return nullptr;
     const Key key{crc,fnv};
@@ -2765,6 +2850,9 @@ extern "C" std::uint32_t* re4dc_coarse_begin_mode(unsigned crc,unsigned fnv,unsi
     if(mode&8)c.gen.culling=PVR_CULLING_CW;        // rejects positive screen area (pvr_geometry.hpp convention)
     if(mode&16)c.gen.culling=PVR_CULLING_CCW;      // rejects negative screen area
     if(mode&32)c.fmt.uv=PVR_UVFMT_16BIT;           // vertex word 4 = PVR_PACK_16BIT_UV
+#if RE4DC_COARSE_WORLD & 32
+    if(mode&64)c.depth.write=PVR_DEPTHWRITE_DISABLE; // 64: no depth write (R7: the sky dome behind the backdrop segments)
+#endif
 #if RE4DC_NATIVE_FOG
     c.gen.fog_type=(mode&1)?PVR_FOG_TABLE:PVR_FOG_DISABLE;
 #endif
