@@ -422,6 +422,13 @@ a run that played up to that point. Use warps for iteration and bring-up (does t
 the event start, what does the room cost). Logic proofs, STRICT traces and route sign-off still
 use normal runs.
 
+**Heap-4-bound events need matched arena fits.** With ARENA_FIT the arena (and so heap 4) is sized
+in 4 KiB steps from the image end, and the linker puts `.init` on an 8 KiB boundary after `.text`: a
+few bytes of code that push `.text` over that boundary cost 8 KiB of heap 4. Where heap 4 runs out
+(the r100 post-house ambush after s20) that changes which enemies, objects and parts get memory, so
+compare arms only when their `re4dc_mem: arena fit` lines match (sh-elf-objdump -h: `.init` address;
+sh-elf-nm: `_end`). Levers for test arms: STALL_DIAG, ROUTE_MOVIE_DIAG, PC_SAMPLER_BYTES (a .bss ring).
+
 ### Cost, heap-4 and class options (W9b)
 
 | Option | Effect |
