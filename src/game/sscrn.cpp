@@ -936,12 +936,25 @@ void OpeSetOpenTerm(int no, f32 x, f32 y, f32 z, f32 ang)
     wk->pObjWep = (cObjWep*) ObjMgr.createBack(0xB);
     if (wk->pObjWep == 0) {
         pLog->err(0, 0, "OpeSetOpenTerm cObjWep CREATE FAILED");
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+        // Port: these returns leave the event started above running (no SceEventEnd, stream still
+        // playing): the game soft-locks with Leon's hand at his ear. The GameCube never takes them
+        // (its object array and parts are allocated with the room); here heap 4 can be exhausted by
+        // the r100 post-house ambush just before this call. Take the call without the radio model.
+        goto NO_RADIO;
+#else
         return;
+#endif
     }
     if (wk->pObjWep->modelInit(PL_ARC_PTR(pG->pPlayer, 0x77), PL_ARC_PTR(pG->pPlayer, 0x78)) == 0) {
         pLog->err(0, 0, "OpeSetOpenTerm modelInit() failed.");
         ObjMgr.destroy(wk->pObjWep);
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+        wk->pObjWep = 0;
+        goto NO_RADIO;
+#else
         return;
+#endif
     }
     {
         pos.x = 111.0f;
@@ -954,6 +967,13 @@ void OpeSetOpenTerm(int no, f32 x, f32 y, f32 z, f32 ang)
     }
     wk->pObjWep->setNoSuspend(1);
     pl->setLeftHand(2);
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    if (0) {
+    NO_RADIO:
+        // OpeSetOpenTermEnd restores the hand only with the model, so the hand pose stays too.
+        OSReport("OpeSetOpenTerm: call %d continues without the radio model (port, heap 4)\n", no);
+    }
+#endif
     while (MotionGetState(pl) == 0) {
         if (Key.trg & 0x20000000) {
             OpeSetOpenTermCancel();
