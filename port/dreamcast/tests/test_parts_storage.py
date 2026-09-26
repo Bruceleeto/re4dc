@@ -131,6 +131,10 @@ void check_enemies(){
  if(RE4DC_ENEMY_DEMAND){deny=true;bool rejected=false;try{EmMgrWork(40);}catch(const std::runtime_error&){rejected=true;}
  assert(rejected&&EmMgr.workAt(17)==retained&&!EmMgr.workAt(40));deny=false;}
  auto rear=EmMgr.createBack(0x23);assert(rear==EmMgr.workAt(59)&&EmMgr.getPrevWork(rear)==EmMgrWork(58));
+ if(RE4DC_ENEMY_DEMAND){auto b58=EmMgr.createBack(0x23);assert(b58==EmMgr.workAt(58));
+  deny=true;auto fb=EmMgr.createBack(0x23);deny=false;assert(fb==EmMgr.workAt(16)&&!EmMgr.workAt(57));
+  auto src=EmMgr.createBack(0x23);assert(src==EmMgr.workAt(57));
+  EmMgr.destroy(b58);EmMgr.destroy(fb);EmMgr.destroy(src);EmMgr.dieCheck();EmMgr.dieCheck();assert(!fb->be_flag);}
  std::vector<cEm*> slots;for(unsigned i=0;i<60;++i){auto p=EmMgr.workAt(i);if(!p||!(p->be_flag&0x601))p=EmMgr.create(0x12,i);assert(p);slots.push_back(p);}
  assert(EmMgr.countActiveWork()==60&&!EmMgr.create());for(unsigned i=0;i<60;++i)assert(EmMgrWork(i)==slots[i]);
  assert(!EmMgrWork(60)&&!EmMgr.prepareWork(0,2));
@@ -179,6 +183,15 @@ int main(){
  if(RE4DC_OBJECT_DEMAND){deny=true;assert(!ObjMgr.prepareWork(0,1));deny=false;assert(ObjMgr.workAt(17)==parent);}
  assert(ObjMgr.create(0,17)==parent);start_calls=calls;
  for(int i=0;i<100;++i){ObjMgr.destroy(parent);ObjMgr.dieCheck();ObjMgr.dieCheck();assert(ObjMgr.create(0,17)==parent);}assert(calls==start_calls);
+ // createBack keeps the source's slot (the highest free) whenever its page can be backed; only when
+ // backing fails does it take the highest free slot in an already-backed page (not the create failing).
+ if(RE4DC_OBJECT_DEMAND){auto b33=ObjMgr.createBack(0),b32=ObjMgr.createBack(0);assert(b33==ObjMgr.workAt(33)&&b32==ObjMgr.workAt(32));
+  deny=true;auto fb=ObjMgr.createBack(0);deny=false;assert(fb&&fb==ObjMgr.workAt(23)&&!ObjMgr.workAt(31));
+  auto src=ObjMgr.createBack(0);assert(src==ObjMgr.workAt(31));
+  deny=true;for(unsigned i=0;i<35;++i){auto p=ObjMgr.workAt(i);if(p&&!(p->be_flag&0x601))assert(ObjMgr.create(0,i));}
+  auto none=ObjMgr.createBack(0);deny=false;assert(!none&&!ObjMgr.workAt(15));
+  for(unsigned i=0;i<35;++i){auto p=ObjMgr.workAt(i);if(p&&p!=parent&&p!=rear&&(p->be_flag&0x601))ObjMgr.destroy(p);}
+  ObjMgr.dieCheck();ObjMgr.dieCheck();assert(ObjMgr.countActiveWork()==2);}
  // Logical predecessor, including across a physical page and a dead slot.
  auto at32=ObjMgr.create(0,32);assert(at32&&ObjMgr.getPrevWork(at32)==ObjMgrWork(31));
  auto at0=ObjMgr.create(0,0);assert(at0&&!ObjMgr.getPrevWork(at0));

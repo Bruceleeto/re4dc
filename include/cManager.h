@@ -507,10 +507,23 @@ T* cManager<T>::getPrevWork(T* p)
     return p;
 }
 
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+extern "C" void re4dc_log(const char* fmt, ...);
+#endif
+
 template <class T>
 T* cManager<T>::createBack(int id)
 {
     int i;
+#if !defined(__PPC__)
+    // Port, demand-backed pools (parts_bridge.cpp): the source takes the highest free slot, and the
+    // GameCube allocates the whole array with the room, so that choice never fails for memory. It is
+    // kept whenever its page can be backed (the same slot index as the GameCube). Only when backing it
+    // fails (heap 4 exhausted, as after the r100 post-house ambush) does the scan go on to the highest
+    // free slot in a page that is already backed, instead of failing the create. Unbacked pages below
+    // the failed one are never smaller, so they are not retried.
+    int unbacked = -1;
+#endif
     for (i = nArray - 1; i >= 0; i--) {
 #if !defined(__PPC__)
         T* p = workAt(i);
@@ -519,7 +532,11 @@ T* cManager<T>::createBack(int id)
 #endif
 #if !defined(__PPC__)
         if (!p || !(p->be_flag & 0x601)) {
-            if (!prepareWork(i, 1) || !(p = workAt(i))) return 0;
+            if (!p && unbacked >= 0) continue;
+            if (!prepareWork(i, 1) || !(p = workAt(i))) {
+                unbacked = i;
+                continue;
+            }
 #else
         if (!(p->be_flag & 0x601)) {
 #endif
@@ -530,9 +547,18 @@ T* cManager<T>::createBack(int id)
             }
             addListBack(p);
             countActiveWork();
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+            if (unbacked >= 0) {
+                re4dc_log("createBack: %s id 0x%x slot %d not backed (heap), took backed slot %d\n", name, id,
+                          unbacked, i);
+            }
+#endif
             return p;
         }
     }
+#if !defined(__PPC__)
+    if (unbacked >= 0) return 0;  // backing failed and no backed slot was free: as before
+#endif
     log("create() failed. %s work is full id:%d", name, id);
     return 0;
 }
