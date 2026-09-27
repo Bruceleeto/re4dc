@@ -322,6 +322,37 @@ reference is an offline render of the GameCube render set; an audit and measurem
 G_fight 29.30, R_fight 11.77 (~10 fps paced in the 6-Ganado kite fight), so 30 fps in the heavy fight is out of reach
 with this image; the heavy-fight choices come with the make-room plan.
 
+User decisions 2026-09-26 (night), on the world agent's C1b review (its sheets set against real GameCube frames from
+Dolphin): **"Go with recommendations"**:
+- **Look A:** source tiles + source light, unit normals.
+- **Ground R14:** the source soft ground / shadow layers drawn as PVR translucent layers from the resident I4 masks, with a
+  constant black colour. Estimated at +6,144 B VRAM and ~+0.6-0.75 ms SH-4 in the named views. G42 stays only as the
+  fallback if the hardware fill page rejects the TR fill.
+- **Trees:** the PS2 geometry direction, keeping the BIN17 forests as geometry. Estimated V3 tree share 6.44 ms, against
+  13.52 for the GC trees.
+- **Fog F0:** the approved 25 m.
+
+The first slice (d1) is authorized (re4-assets-private world-agent-20260926 reviews\c1.md). Before its in-game sheet,
+the runtime needs:
+- R14 (a reserved mode today);
+- a memory fit for the whole square (the PS2 trees alone are ~1.19 MB of layout-11 arrays);
+- the native PS2 tree materials;
+- the ground-brightness fix.
+
+**Tried for real the same evening:** the port draws the full original set in-game.
+- The set loads and draws at the square and matches the GameCube in shape and texture. The exceptions are the parts
+  whose pair package is missing (invisible) and ~2 wrap-rejected packets a frame in F and W1.
+- Cost (image C: 70 m, LOD 0; ot4 / ot5, F): R 94.74 hw ms, ~8 fps. The game's own GX path: R 689.
+- The look gaps against Dolphin:
+  - the ground is 1.3-3.2x too dark on every port path (cause under diagnosis);
+  - no Filter00;
+  - the sky and treeline are lost in the 25 m fog;
+  - the V1E bonfire is missing;
+  - 12 pair packages are not built by the pipeline;
+  - no dither and no mips.
+- Report: /root/probe/d367-agents/original-tryit-20260926/compare/REPORT.md. The look-gaps job
+  (/root/probe/d367-agents/look-gaps-20260926/) is diagnosing the ground, the fires and a PVR Filter00.
+
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
 FOG_FAR 18000 instead of the approved 25 m (square plan, "Corrections"; the stride 7 + 25 m re-baseline is running).
