@@ -67,6 +67,11 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
   skin work; =2 is a check build that counts violations, which must be 0) and `CHAR_DATA_BLOCK=1` (needs
   COARSE_LEON=1; link only: the character adapters' data as one 16 KiB-padded block after .data, so game data keeps
   its addresses and cache sets; toggling it does not force a relink: use a fresh OBJDIR and delete the ELF first).
+- One submission per actor (e874a66; exact, render-only; default off): `COARSE_ONE_SUBMIT=1` (needs COARSE_LEON=1;
+  #error unless ACTOR_DIRECT, SKIN_LAZY, no ACTOR_UV16, no TA_GUARD; refuses COARSE_PREGATE=2). A group's chunks
+  share one TA_DIRECT window (Leon 8 -> 3 submissions, a cast Ganado 4 -> 1). =2 is a check build that draws every
+  chunk twice and logs "C3CHK" word / header / result mismatches (must be 0): never an image or cost arm. With the
+  knob on, the model_parts / direct_parts / handle_hits / frame_pvr_calls counters count windows, not chunks.
 - The skeleton kernels (ddea9bf; room-independent; not in LH yet): the coarse-square arms add
   `GAME_PWC_KERNEL=3 GAME_PMC_KERNEL=1 GAME_HERMITE_FAST=1`. PWC_KERNEL needs `GAME_SKEL_FTRV=1` (=1 the
   Ganados' pass, exact; =3 every model's pass, last-bit FP policy, decisions identical); PMC_KERNEL needs

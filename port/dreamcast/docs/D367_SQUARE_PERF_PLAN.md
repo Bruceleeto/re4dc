@@ -476,8 +476,26 @@ flags + cl54's character recipe; hw model, uncalibrated, ACT_CAP=0; twins differ
   (unaffected); the standard window may gain Ganados between 18 and 25 m.
 - cl54's R is 11.77 on its own twin cl63 (the 12.35 used a non-twin); the canonical recipe's TA vertex buffer is
   2048 KiB x 2 banks (TA_DOUBLEBUF), not native_ui.cpp's 1024 source default.
-- Re-baseline G0 (stride 7 + 25 m, version C knobs off / on) is running (make-room-20260926/g0/); its numbers replace
-  these estimates.
+- **Re-baseline G0, measured** (make-room-20260926/g0/NOTES.md). Version C on land27, FOG_FAR=25000, stride 7
+  (TRACE 1000:1105:7 standard, 800:905:7 kite), same-tree twins, uncapped, hw model (uncalibrated). Knobs off:
+  - Standard window: G_std **25.75**, W 38.22, R 12.47 (characters 8.96, world 1.45, effects 1.45, HUD 0.61).
+  - Kite: G_fight **29.23**, W 40.66, R 11.44.
+  - Six-Ganado peak (t 835-905, same-tick G): G 29.62, W 43.12, R 13.49 (characters 9.22).
+
+  With COARSE_PREGATE=1 + CHAR_DATA_BLOCK=1: G 25.55 / 29.03 (layout only), R 10.74 / 11.52 / 13.49.
+
+  - 25 m vs 18 m: G is identical (fog is drawing only). Standard R is +0.80: 6 Ganado meshes are emitted at 25 m
+    against 5 at 18 m, though the window faces a wall with 0-1 on screen. Kite R -0.04.
+  - fps today, knobs off, no margin: standard 18.2, kite 10.8, peak 8.2.
+  - The ~4.35 ms net_crc32le motion-miss tick is absent from all six new kite runs with the same ELFs and inputs: it is
+    wall-timed (a log line naming the clip is being added).
+- **Open: the land27 recipe drifts from the logic references.** G0's knob-off gate g0h is DISCRETE against tr56 / tr42:
+  - float drift only, from t=182 in pm / em / om;
+  - must-match rows identical;
+  - enemy drift max 0.0098 units.
+
+  g0g (knobs on) and the C3 gate give byte-identical verdicts, so the drift predates them. It is not explained yet
+  (a bisect is running), and STRICT is not re-based on the g0g / g0h twins until it is.
 
 On sq104's G (24.57, everything landed through 4f81bbd; G closed) the same estimate gives (1000 - 30 x 24.57) / R:
 vl26 20.7 fps, B 30 fps (capped). 30 fps needs R <= 8.76 (no margin) or <= 5.43 (the 3.33 margin): vl26 is 3.94
@@ -1678,3 +1696,6 @@ Append one row per measured arm: date, arm, change, hw ms (2L+R), logic trace ve
 | 09-26 | corrections | G trace stride 8 samples one Frame_cnt residue: all-ticks G_std ~25.92 / G_fight ~29.61 (g120.py); R and world arms ran FOG_FAR=18000; net_crc32le ~4.35 ms in one tick | G_std +1.08, G_fight +0.31 vs the traced values | - | (derived from sq105-107 functions.tsv) | G NOT closed; stride 7 + 25 m re-baseline (G0) running |
 | 09-26 | land28 | wd layout-11 runtime rev 2 (COARSE_WORLD bits 16 R1+R6, 32 R7, 64 R3, 128 K0) + COARSE_NO_STD_SCENERY landed (e69737e; guard tests NATIVE_STATIC / NATIVE_MESH each and needs NATIVE_PKG_HIGH=1) | R7 4 segments ~+0.13-0.14 per drawn tick (V1E, 18 m); reclaim heap 4 +599,424 B | - | wdG8 STRICT vs tr56 / tr42 (wdG7 FAILED: disc reads in the load wait, fixed); wrG STRICT; knob-off identity (id58) | landed, default off; the reclaim is not for play recipes yet |
 | 09-26 | ot4 / ot5 | the full original set in-game (try-it image C: r101-base + 8 pairs, LOD 0, 70 m, x1.97 light; diagnostic tree16), F, drawn / never drawn | W 119.39 / G_q 24.65 -> R 94.74 (scenery 38.23: MeshDraw::draw 17.05, vp::transform<3> 12.58); GX path ox2 / ox3 R 689.02 | - | (diagnostic, not a candidate; the pair is traced on the same frames at stride 8) | measurement: the original world is ~16x over R <= 6 |
+| 09-26 | g0a-g0d | G0 re-baseline: version C land27, 25 m, stride 7, twins; knobs off (a / b) and COARSE_PREGATE + CHAR_DATA_BLOCK (c / d) | off: G 25.75 / 29.23, R std 12.47, kite 11.44, peak 13.49; on: G 25.55 / 29.03, R 10.74 / 11.52 / 13.49 | - | g0g STRICT vs its knob-off twin g0h; both DISCRETE vs tr56 / tr42 (float drift, 0.0098 units; bisect running) | measurement |
+| 09-26 | c3m / c3n | COARSE_ONE_SUBMIT=1 (one submission per actor) on G0's knobs-on image | standard R 10.741 -> 10.205 (-0.536); kite 11.523 -> 10.678 (-0.845); peak 13.490 -> 12.426 (-1.064) | - | =2 0 mismatches (337,161 chunks); frozen frames 0 px; c3w STRICT vs g0g, DISCRETE vs tr56 / tr42 like g0g | kept |
+| 09-26 | land30 | COARSE_ONE_SUBMIT landed (e874a66; lane patch + main's native_ui hunk) | - | - | knob-off identity (default, canonical vs land29); carry-over: the same four objects change, C3's code identical to the lane's | landed, default off |
