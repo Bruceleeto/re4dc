@@ -375,12 +375,21 @@ and death captures show packaged scenery where the coarse path does not draw). *
 (a) the SE random tables reached the Dreamcast big-endian on every disc (wild reads and stores, "Illegal SE No.",
 extra draws of the shared game RNG); le_mirror now converts them (`--snd-random` for mirrors and derived archives);
 switching the disc mirrors needs new logic-trace references and regenerated derived archives, scheduled while no lane
-measures against the old references; a separate defect remains in the d367 / d362 mirrors' bgm/doorse.dat (11 of 12
-containers keep GameCube headers). (b) The r100 post-house call no longer soft-locks when the s20 ambush fills heap 4
+measures against the old references; the d367 / d362 / mirror-ss mirrors' bgm/doorse.dat and bgm/bio4midi.dat also kept GameCube headers in every
+container but the first; the -rndle3 mirrors fix both (equal to mirror-w4q's). The switch (rev 4 in preparation, with
+a guard that refuses a trace pair across it) moves every builder at once. (b) The r100 post-house call no longer soft-locks when the s20 ambush fills heap 4
 (5fd2fe9: the call runs without the radio model), and cManager createBack takes a backed free slot when the source's
 slot cannot be backed (5c33747). (c) The s20 route movie claims VRAM with a fallback pass when the pool has no hole
 (072b574; user play 09-24: 6 of 10 s20 arrivals played the movie) and a failed open discards the interrupted frame's
-scene (5d811f3; 0 fence stalls in 32 runs). (d) Warp rig: `kill` / `goto` verbs, r100-s20 presets, STALL_DIAG (1b2bcc3).
+scene (5d811f3; 0 fence stalls in 32 runs). (d) Warp rig: `kill` / `goto` verbs, r100-s20 presets, STALL_DIAG (1b2bcc3). (e) **r100 heap 4 for s20 and the full
+ambush** (66b8edd): `room_smd.py release` strips the BINs the r100 Original + Standard packages already cover from the
+block files (A1, +1,086,464 B) and the room archive (A2, +696,640 B more); at arena fit 13,312,000 the control fails
+the s20 movie (0/571) while A1 plays it 571/571, spawns the full GameCube ambush and reaches the post-house call. The
+data is private (lane-bugs/h4-data) and goes onto user discs only after the audit's missing proofs: an ambush STRICT
+pair against a streamed-ambush control, tick-matched pixels in Standard and Original, a cost arm, and for A2 an
+equalised s20 pair (the smaller archive moves the wall-timed s40 movie end). Smaller block files shorten the game's
+block-swap stops (15/29/15 -> 9/17/9 ticks): that is load timing under the door rule, and running-tick logic must stay
+STRICT with the stop ticks removed.
 
 User decisions 2026-09-24 (later): (1) **r103: go.** Implement design-r103 PLAN (W8b room-archive compaction, W8c
 textures + the post-bell radio stream, W8d census, W8e bell -> door -> r103; the r103 -> r106 exit fades to the title
