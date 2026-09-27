@@ -12,10 +12,24 @@ and the tables. Table entries are offsets from the table itself.
       Local (non-common) BINs as <outdir>/NNNN.BIN in source byte order, plus
       placements.json and scales.json (largest |scale| per BIN, the form
       convert_room_bins.py --scales takes, owner 0xff).
-  room_smd.py release <room.arc|room.dar> <MAINSCENARIO.re4mesh.json> <out>
+  room_smd.py release <room.arc|room.dar|block.dat> <identity>[,<identity>..] <out>
+                      [--common <identity>[,<identity>..]]
       The release contract below, applied to a converted (little-endian)
-      room archive or its .dar container; writes <out>.json with per-BIN
-      savings. Every other sub-file stays byte-identical.
+      room archive, its .dar container or a scroll block file (st1/r100_0N.dat:
+      a tagged archive holding one SMD); writes <out>.json with per-BIN
+      savings. An identity is a convert_room_bins.py summary (.re4mesh.json,
+      its "release" list) or the R4IM package itself (.re4mesh). Several
+      identities (e.g. the Original and the Standard package of one owner:
+      whichever the runtime opens binds the released BIN) release only the
+      BINs that all of them cover with the same source identity. A room
+      archive's second SMD is its common SMD (game.cpp SmdInit); --common
+      gives its identities (the COMMON package), otherwise it is kept. The
+      output is checked as `check` does before it is written.
+  room_smd.py check <source> <released>
+      Proves that <released> differs from <source> only by the release
+      contract: every released BIN is exactly release_bin() of its source,
+      every other byte is unchanged or moved with its sub-file, and every
+      rebased index record (NTR, ESQ) points at unchanged bytes.
 
 Release contract. A BIN that a native R4IM package covers completely (every
 source part, single node, rigid, no shape table; convert_room_bins.py lists
@@ -36,12 +50,20 @@ as released and matches parts by index (offset / 32) instead of by source
 offset and size. A released part never falls back to GX data: any path that
 would (no package, reserve failure) draws nothing. The released archive is
 therefore only valid together with its packages and NATIVE_MESH=1.
+
+Scroll block files (block.cpp) hold one SMD each; cBlock::checkBlockMemory
+sizes the block pool from the file sizes, so a released block file shrinks the
+pool with no code change. A room archive with prepared indexes keeps them
+valid: NTR (texture identities) and ESQ (effect sequences) hold absolute
+archive offsets; both are rebased and re-checksummed, and a record inside a
+released BIN region is refused.
 """
 import argparse
 import hashlib
 import json
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 WORK_SIZE = 72
@@ -298,6 +320,12 @@ def release_smd(smd, e, release):
     base, starts, end = s.bin_table()
     first = min(starts) if starts else end
     order = sorted(set(starts))
+    # A body runs to the next placed BIN's start: a table word past the placed
+    # BINs (an unplaced BIN) would be swallowed by the body before it.
+    for k in range(len(starts), (first - base) // 4 if starts else 0):
+        v = base + struct.unpack_from(e + "I", smd, base + 4 * k)[0]
+        if base < v < end and v not in order:
+            raise ValueError("BIN table entry %d: an unplaced BIN inside the BIN region" % k)
     body = {st: smd[st:min([x for x in order if x > st] + [end])] for st in order}
     new_region, where, report = bytearray(), {}, []
     index_of = {}
@@ -333,56 +361,110 @@ def release_smd(smd, e, release):
                             bin_region_start=first, bin_region_end=end)
 
 
+def offset_map(moves):
+    """[(region start, region end, delta)] of released BIN regions (absolute
+    archive offsets) -> source offset -> released offset. Bytes from a
+    region's end on move by its delta; an offset inside a region has no
+    counterpart."""
+    def where(v):
+        d = 0
+        for lo, hi, delta in moves:
+            if lo <= v < hi:
+                raise ValueError("offset 0x%x inside a released BIN region" % v)
+            if v >= hi:
+                d += delta
+        return v + d
+    return where
+
+
 def release_archive(arc, release):
-    """Converted room archive -> (archive with its SMD released, report)."""
+    """Converted room archive or scroll block file -> (archive with its SMDs
+    released, report). release: {bin: identity} for an archive with one SMD,
+    or one such dict per SMD in archive order (None or {}: that SMD is kept);
+    a room archive's second SMD is its common SMD (game.cpp SmdInit)."""
     e = archive_endian(arc)
     entries = tagged_entries(arc, e)
     smd = [i for i, (tag, _, _) in enumerate(entries) if tag == b"SMD\0"]
-    if len(smd) != 1:
-        raise ValueError("expected one SMD in the room archive")
-    _, s, t = entries[smd[0]]
-    new_smd, report = release_smd(arc[s:t], e, release)
-    delta = len(new_smd) - (t - s)
-    if delta % 32:
-        raise ValueError("SMD size change is not 32-byte aligned")
-    out = bytearray(arc[:s]) + new_smd + arc[t:]
-    for i, (_, o, _) in enumerate(entries):
-        if o >= t and o != s:
-            struct.pack_into(e + "I", out, 0x10 + 4 * i, o + delta)
-    # Only the BIN region shrinks: SMD bytes from its end on (TPL / FCV tables)
-    # and every later sub-file move by delta.
-    region_start, moved_from = s + report.pop("bin_region_start"), s + report.pop("bin_region_end")
+    if isinstance(release, dict):
+        if len(smd) != 1:
+            raise ValueError("expected one SMD in the room archive (%d: give one release map per SMD)" % len(smd))
+        release = [release]
+    if len(release) != len(smd):
+        raise ValueError("%d SMDs, %d release maps" % (len(smd), len(release)))
+    out, moves, smds = bytearray(arc), [], []
+    # Last SMD first: an earlier SMD's offsets stay valid while a later one is replaced.
+    for i, rel in sorted(zip(smd, release), key=lambda x: -entries[x[0]][1]):
+        _, s, t = entries[i]
+        if not rel:
+            smds.append(dict(entry=i, kept=True))
+            continue
+        new_smd, report = release_smd(arc[s:t], e, rel)
+        delta = len(new_smd) - (t - s)
+        if delta % 32:
+            raise ValueError("SMD size change is not 32-byte aligned")
+        out[s:t] = new_smd
+        # Only the BIN region shrinks: SMD bytes from its end on (TPL / FCV
+        # tables) and every later sub-file move by delta.
+        moves.append((s + report.pop("bin_region_start"), s + report.pop("bin_region_end"), delta))
+        report.update(entry=i)
+        smds.append(report)
+    where = offset_map(moves)
+    for i, (tag, o, _) in enumerate(entries):
+        struct.pack_into(e + "I", out, 0x10 + 4 * i, where(o))
     for tag, o, _ in entries:
-        if tag == b"ESQ\0":
-            raise ValueError("ESQ effect identity index: absolute offsets not rebased by release")
         if tag == b"NTR\0":
-            rebase_native_table(out, o + delta if o >= t else o, e, region_start, moved_from, delta)
-    report.update(archive_source=len(arc), archive_resident=len(out))
+            rebase_native_table(out, where(o), e, where)
+        elif tag == b"ESQ\0":
+            rebase_effect_table(out, where(o), e, where, len(arc))
+    smds.sort(key=lambda r: r["entry"])
+    report = dict(smds=smds, saved=len(arc) - len(out), archive_source=len(arc), archive_resident=len(out))
+    if len(smds) == 1 and not smds[0].get("kept"):
+        report.update({k: v for k, v in smds[0].items() if k != "entry"}, saved=len(arc) - len(out))
     return bytes(out), report
 
 
 NATIVE_TABLE_MAGIC = b"R4NTBL\0\0"
+EFFECT_TABLE_MAGIC = b"R4ESQTBL"
 
 
-def rebase_native_table(out, at, e, region_start, moved_from, delta):
+def rebase_native_table(out, at, e, where):
     """prepare_native_ui.py --compact-room NTR index (magic, version, count,
     stride 12, crc32(records), original bytes, resident bytes; records of
-    absolute payload / header / TPL offsets): rebase offsets past the BIN
-    region, set the resident size, recompute the CRC. texture_package.cpp
+    absolute payload / header / TPL offsets): rebase the offsets (where:
+    offset_map), set the resident size, recompute the CRC. texture_package.cpp
     SourceIdentityTable rejects the archive otherwise."""
-    import zlib
     magic, version, count, stride, _, original, _ = struct.unpack_from(e + "8s6I", out, at)
     if magic != NATIVE_TABLE_MAGIC or version != 1 or stride != 12:
         raise ValueError("unknown NTR index")
     for k in range(3 * count):
         p = at + 32 + 4 * k
         v = struct.unpack_from(e + "I", out, p)[0]
-        if region_start <= v < moved_from:
+        try:
+            struct.pack_into(e + "I", out, p, where(v))
+        except ValueError:
             raise ValueError("NTR record inside the released BIN region")
-        if v >= moved_from:
-            struct.pack_into(e + "I", out, p, v + delta)
     crc = zlib.crc32(bytes(out[at + 32:at + 32 + 12 * count])) & 0xFFFFFFFF
     struct.pack_into(e + "8s6I", out, at, magic, version, count, stride, crc, original, len(out))
+
+
+def rebase_effect_table(out, at, e, where, source_bytes):
+    """compact_effect_records.py ESQ index (magic, version 1, count, stride 12,
+    crc32(records), archive bytes, 0; records: absolute EST sequence offset,
+    resident span, record count): rebase the sequence offsets, set the archive
+    size, recompute the CRC. native_effect.cpp bind_archive checks all three
+    and binds nothing otherwise (the room's effects then read raw records)."""
+    magic, version, count, stride, _, size, zero = struct.unpack_from(e + "8s6I", out, at)
+    if magic != EFFECT_TABLE_MAGIC or version != 1 or stride != 12 or zero or size != source_bytes:
+        raise ValueError("unknown ESQ index")
+    for k in range(count):
+        p = at + 32 + 12 * k
+        v = struct.unpack_from(e + "I", out, p)[0]
+        try:
+            struct.pack_into(e + "I", out, p, where(v))
+        except ValueError:
+            raise ValueError("ESQ record inside the released BIN region")
+    crc = zlib.crc32(bytes(out[at + 32:at + 32 + 12 * count])) & 0xFFFFFFFF
+    struct.pack_into(e + "8s6I", out, at, magic, version, count, stride, crc, len(out), zero)
 
 
 def release_container(data, release):
@@ -423,6 +505,206 @@ def package_release(summary):
     return {int(r["bin"]): r for r in summary.get("release", [])}
 
 
+# room/instanced_mesh.hpp MeshHeader (80 B), MeshRecord (68 B), MeshPart (36 B); little-endian.
+R4IM_HEADER = struct.Struct("<4s15I4I")
+R4IM_MESH = struct.Struct("<HBBHHIII12f")
+R4IM_PART = struct.Struct("<IIBBBBII4f")
+IDENTITY_KEYS = ("vertices", "parts", "part_offsets", "part_sizes")
+
+
+def package_identities(data, common=False):
+    """R4IM package (convert_room_bins.py, v1-v3) -> {bin: identity} of the
+    meshes a released BIN binds to at run time: instanced_mesh.hpp
+    source_identity accepts nVtx == 2 only when the mesh carries every source
+    part (part_count == source_parts), and source_part then takes part k for
+    the k-th part header. The identity (source vertices, part count, part
+    header offsets and stream sizes) is what release_smd checks against the
+    BIN. common: the COMMON SMD's meshes (MeshRecord.common), else the owner's."""
+    if len(data) < R4IM_HEADER.size:
+        raise ValueError("not an R4IM package")
+    h = R4IM_HEADER.unpack_from(data, 0)
+    if h[0] != b"R4IM" or h[1] not in (1, 2, 3) or h[2] != len(data):
+        raise ValueError("not an R4IM package")
+    mesh_count, part_count, mesh_offset, part_offset = h[4], h[5], h[10], h[11]
+    if (mesh_offset + R4IM_MESH.size * mesh_count > len(data) or
+            part_offset + R4IM_PART.size * part_count > len(data)):
+        raise ValueError("R4IM tables outside the package")
+    out = {}
+    for m in range(mesh_count):
+        b, c, _, vertices, parts, _, first, n = R4IM_MESH.unpack_from(data, mesh_offset + R4IM_MESH.size * m)[:8]
+        if bool(c) != bool(common) or n != parts or first + n > part_count:
+            continue
+        if b in out:
+            raise ValueError("BIN %d twice in the package" % b)
+        heads = [R4IM_PART.unpack_from(data, part_offset + R4IM_PART.size * (first + k))[:2] for k in range(n)]
+        out[b] = dict(bin=b, vertices=vertices, parts=parts, part_offsets=[o for o, _ in heads],
+                      part_sizes=[z for _, z in heads])
+    return out
+
+
+def load_identities(sources, common=False):
+    """Identity sources (convert_room_bins.py summaries or R4IM packages) ->
+    ({bin: identity} of the BINs every source covers with the same identity,
+    {bin: reason} of the others). Only local BINs are in summaries."""
+    maps = []
+    for src in sources:
+        data = Path(src).read_bytes()
+        if data[:4] == b"R4IM":
+            maps.append(package_identities(data, common))
+        elif common:
+            raise ValueError("%s: a summary lists local BINs only; give the COMMON package" % src)
+        else:
+            maps.append(package_release(json.loads(data)))
+    if not maps:
+        return {}, {}
+    release, skipped = {}, {}
+    for b in sorted(set().union(*maps)):
+        have = [m[b] for m in maps if b in m]
+        if len(have) != len(maps):
+            skipped[b] = "not in every identity source"
+            continue
+        ids = [tuple(json.dumps(r.get(k)) for k in IDENTITY_KEYS) for r in have]
+        if any(None in (r.get(k) for k in IDENTITY_KEYS) for r in have) or len(set(ids)) != 1:
+            skipped[b] = "identity sources disagree"
+            continue
+        release[b] = {k: have[0][k] for k in IDENTITY_KEYS}
+    return release, skipped
+
+
+def smd_regions(arc, e):
+    """-> [(entry, SMD start, BIN region start, region end, [BIN starts])] (absolute)."""
+    out = []
+    for i, (tag, s, t) in enumerate(tagged_entries(arc, e)):
+        if tag == b"SMD\0":
+            sm = Smd(arc[s:t], e)
+            base, starts, end = sm.bin_table()
+            first = min(starts) if starts else end
+            out.append((i, s, s + first, s + end, [s + x for x in starts]))
+    return out
+
+
+def payload_archive(data):
+    """.dar container or bare archive -> (tagged archive, byte order)."""
+    if data[:32] == CONTAINER_MAGIC:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import le_mirror
+        slot = le_mirror.native_payload_slot(data)
+        _, size, _, offset = struct.unpack_from("<4I", data, slot)
+        data = data[offset:offset + size]
+    return data, archive_endian(data)
+
+
+def diff_release(source, released):
+    """Raises ValueError unless <released> is <source> with nothing changed but
+    the release contract (module docstring). Both are converted room archives,
+    block files or .dar containers. -> report of what differs."""
+    if source[:32] == CONTAINER_MAGIC:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import le_mirror
+        if released[:32] != CONTAINER_MAGIC:
+            raise ValueError("container released into a bare archive")
+        a_slot, b_slot = le_mirror.native_payload_slot(source), le_mirror.native_payload_slot(released)
+        if a_slot != b_slot:
+            raise ValueError("native payload slot moved")
+        slots = []
+        for pos in range(0x20, 0x400, 0x20):
+            ka = struct.unpack_from("<4I", source, pos)
+            kb = struct.unpack_from("<4I", released, pos)
+            if ka[0] == 0xFFFFFFFF:
+                if kb[0] != 0xFFFFFFFF:
+                    raise ValueError("container slot list changed")
+                break
+            if pos == a_slot:
+                continue
+            if ka != kb or source[ka[3]:ka[3] + ka[1]] != released[kb[3]:kb[3] + kb[1]]:
+                raise ValueError("container slot 0x%x changed" % pos)
+            slots.append(pos)
+        if source[:0x20] != released[:0x20]:
+            raise ValueError("container head changed")
+        _, sa, _, oa = struct.unpack_from("<4I", source, a_slot)
+        _, sb, _, ob = struct.unpack_from("<4I", released, b_slot)
+        report = diff_release(source[oa:oa + sa], released[ob:ob + sb])
+        report.update(container_source=len(source), container=len(released), other_slots_unchanged=len(slots))
+        return report
+    e = archive_endian(source)
+    if archive_endian(released) != e:
+        raise ValueError("byte order changed")
+    ea, eb = tagged_entries(source, e), tagged_entries(released, e)
+    n = len(ea)
+    if [t for t, _, _ in ea] != [t for t, _, _ in eb] or source[:0x10] != released[:0x10]:
+        raise ValueError("tag list or archive head changed")
+    if source[0x10 + 8 * n:min(s for _, s, _ in ea)] != released[0x10 + 8 * n:min(s for _, s, _ in eb)]:
+        raise ValueError("archive head padding changed")
+    moves = []
+    for (i, sa, lo, hi, _), (_, sb, lo2, hi2, _) in zip(smd_regions(source, e), smd_regions(released, e)):
+        if lo2 - sb != lo - sa:
+            raise ValueError("SMD %d: BIN region start moved" % i)
+        moves.append((lo, hi, (hi2 - lo2) - (hi - lo)))
+    where = offset_map(moves)
+    released_bins = kept_bins = 0
+    for i, ((tag, s, t), (_, s2, t2)) in enumerate(zip(ea, eb)):
+        if where(s) != s2:
+            raise ValueError("entry %d at 0x%x, expected 0x%x" % (i, s2, where(s)))
+        a, b = source[s:t], released[s2:t2]
+        name = tag.rstrip(b"\0").decode("latin1")
+        if tag == b"SMD\0":
+            sm_a, sm_b = Smd(a, e), Smd(b, e)
+            base, starts, end = sm_a.bin_table()
+            base2, starts2, end2 = sm_b.bin_table()
+            first = min(starts) if starts else end
+            first2 = min(starts2) if starts2 else end2
+            d = (end2 - first2) - (end - first)
+            tables = [x + d if x >= end else x for x in sm_a.tables]
+            if (a[:4] != b[:4] or tables != sm_b.tables or base != base2 or first != first2 or
+                    a[0x10:base] != b[0x10:base2] or a[end:] != b[end2:] or len(starts) != len(starts2) or
+                    [starts.index(x) for x in starts] != [starts2.index(x) for x in starts2]):
+                raise ValueError("SMD entry %d changed outside its BIN bodies" % i)
+            if a[base + 4 * len(starts):first] != b[base2 + 4 * len(starts2):first2]:
+                raise ValueError("SMD entry %d: BIN table padding changed" % i)
+            order, order2 = sorted(set(starts)), sorted(set(starts2))
+            for st, st2 in zip(order, [starts2[starts.index(x)] for x in order]):
+                body = a[st:min([x for x in order if x > st] + [end])]
+                body2 = b[st2:min([x for x in order2 if x > st2] + [end2])]
+                # release_smd pads every body to 32 bytes with zeros
+                if body2[:len(body)] == body and not any(body2[len(body):]):
+                    kept_bins += 1
+                    continue
+                stub = release_bin(body, e)
+                if body2[:len(stub)] != stub or any(body2[len(stub):]):
+                    raise ValueError("SMD entry %d: a BIN is neither its source nor its release stub" % i)
+                if released_bounds(body, e) != released_bounds(stub, e):
+                    raise ValueError("SMD entry %d: bounds changed" % i)
+                released_bins += 1
+        elif tag in (b"NTR\0", b"ESQ\0"):
+            count = struct.unpack_from(e + "I", a, 12)[0]
+            if a[:20] != b[:20] or a[32 + 12 * count:] != b[32 + 12 * count:]:
+                raise ValueError("%s index head or tail changed" % name)
+            if zlib.crc32(b[32:32 + 12 * count]) & 0xFFFFFFFF != struct.unpack_from(e + "I", b, 20)[0]:
+                raise ValueError("%s index CRC" % name)
+            for k in range(count):
+                ra3 = struct.unpack_from(e + "3I", a, 32 + 12 * k)
+                rb3 = struct.unpack_from(e + "3I", b, 32 + 12 * k)
+                if tag == b"NTR\0":   # record (>= 32 B), TPL image header (36 B), TPL head (12 B)
+                    spans = ((ra3[0], rb3[0], 32), (ra3[1], rb3[1], 36), (ra3[2], rb3[2], 12))
+                else:                 # EST sequence (span B), same span and record count
+                    if ra3[1:] != rb3[1:]:
+                        raise ValueError("ESQ record %d span changed" % k)
+                    spans = ((ra3[0], rb3[0], ra3[1]),)
+                for x, y, size in spans:
+                    if where(x) != y or source[x:x + size] != released[y:y + size]:
+                        raise ValueError("%s record %d does not point at its unchanged bytes" % (name, k))
+            sizes = struct.unpack_from(e + "2I", b, 24)
+            if tag == b"NTR\0" and sizes != (struct.unpack_from(e + "I", a, 24)[0], len(released)):
+                raise ValueError("NTR sizes")
+            if tag == b"ESQ\0" and sizes != (len(released), 0):
+                raise ValueError("ESQ archive size")
+        elif a != b:
+            raise ValueError("entry %d (%s) changed" % (i, name))
+    return dict(released_bins=released_bins, kept_bins=kept_bins, entries=n, source=len(source),
+                released=len(released), saved=len(source) - len(released),
+                regions=[dict(start=lo, end=hi, delta=d) for lo, hi, d in moves])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -432,8 +714,15 @@ def main():
     x.add_argument("--owner", type=lambda v: int(v, 0), default=0xFF)
     r = sub.add_parser("release")
     r.add_argument("archive", type=Path)
-    r.add_argument("package_json", type=Path)
+    r.add_argument("package", help="identity sources, comma-separated: convert_room_bins.py summaries "
+                                   "(.re4mesh.json) or R4IM packages (.re4mesh); a BIN is released only when all "
+                                   "of them cover it with the same identity")
     r.add_argument("out", type=Path)
+    r.add_argument("--common", help="identity sources of a room archive's common SMD (the COMMON package); "
+                                    "without it that SMD is kept")
+    c = sub.add_parser("check")
+    c.add_argument("source", type=Path)
+    c.add_argument("released", type=Path)
     a = ap.parse_args()
     if a.cmd == "extract":
         smd, e = load_smd(a.source)
@@ -451,15 +740,29 @@ def main():
                               placements=len(s.used()), common_placements=sum(p["common"] for p in s.used()),
                               local_bins=len(bins), bin_bytes=sum(len(b) for b in bins.values()),
                               not_releasable={i: w for i, w in why.items() if w})))
+    elif a.cmd == "check":
+        print(json.dumps(diff_release(a.source.read_bytes(), a.released.read_bytes())))
     else:
-        release = package_release(json.loads(a.package_json.read_text()))
-        out, report = release_container(a.archive.read_bytes(), release)
+        source = a.archive.read_bytes()
+        own, skipped = load_identities(a.package.split(","))
+        smds = len(smd_regions(*payload_archive(source)))
+        if smds == 1 and a.common:
+            raise ValueError("%s has one SMD: --common does not apply" % a.archive)
+        release = own
+        if smds > 1:
+            common, skipped_common = load_identities(a.common.split(","), True) if a.common else ({}, {})
+            release = [own] + [common] + [None] * (smds - 2)
+        out, report = release_container(source, release)
+        check = diff_release(source, out)
         if a.out.exists():
             raise FileExistsError(a.out)
         a.out.write_bytes(out)
-        report.update(archive=str(a.archive), package=str(a.package_json), sha256=hashlib.sha256(out).hexdigest())
+        report.update(archive=str(a.archive), package=a.package, common=a.common, not_released=skipped,
+                      check=check, sha256=hashlib.sha256(out).hexdigest())
+        if smds > 1:
+            report.update(common_not_released=skipped_common)
         Path(str(a.out) + ".json").write_text(json.dumps(report, indent=1))
-        print(json.dumps({k: v for k, v in report.items() if k != "bins"}))
+        print(json.dumps({k: v for k, v in report.items() if k not in ("bins", "smds")}))
 
 
 if __name__ == "__main__":

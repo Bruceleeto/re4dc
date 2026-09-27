@@ -237,6 +237,117 @@ int main(int argc,char** argv){
         with self.assertRaises(ValueError):
             R.release_archive(self.arc, {1: dict(part_sizes=[0, 0])})
 
+    def test_package_identities_are_the_converter_release_list(self):
+        room = C.smd_entries(self.root / 'room.arc', 0xFF)
+        blob, summary = C.convert_lod(room['entries'], 1.0, {(0xFF, b): s for b, s in room['scales'].items()},
+                                      eps_world=(0.05, 0.5), cluster_world=1000.0)
+        rel = {r['bin']: {k: r[k] for k in R.IDENTITY_KEYS} for r in C.release_identities(room['entries'], summary)}
+        got = R.package_identities(blob)
+        self.assertEqual({b: {k: v[k] for k in R.IDENTITY_KEYS} for b, v in got.items()}, rel)
+        self.assertEqual(R.package_identities(blob, common=True), {})
+        with self.assertRaises(ValueError):
+            R.package_identities(blob[:-4])
+        # Summary and package agree; a package of other BINs releases nothing.
+        (self.root / 'ident.re4mesh').write_bytes(blob)
+        (self.root / 'ident.json').write_text(json.dumps(dict(release=C.release_identities(room['entries'], summary))))
+        both, skipped = R.load_identities([self.root / 'ident.re4mesh', self.root / 'ident.json'])
+        self.assertEqual((sorted(both), skipped), ([0, 1], {}))
+        other = json.loads((self.root / 'ident.json').read_text())
+        other['release'][1]['part_sizes'] = [z + 4 for z in other['release'][1]['part_sizes']]
+        del other['release'][0]
+        (self.root / 'other.json').write_text(json.dumps(other))
+        both, skipped = R.load_identities([self.root / 'ident.re4mesh', self.root / 'other.json'])
+        self.assertEqual((both, skipped), ({}, {0: 'not in every identity source', 1: 'identity sources disagree'}))
+
+    def indexed_room(self):
+        """Room archive with a main and a common SMD and both prepared indexes
+        (NTR texture identities, ESQ effect sequences) after them."""
+        import zlib
+        common = synth_smd(list(reversed(self.bins)), [(0, (0, 0, 0), (0, 0, 0), (1, 1, 1), 0),
+                                                       (1, (5, 5, 5), (0, 0, 0), (1, 1, 1), 0)],
+                           tpl=b'COMMON-TPLTABLE!' * 4)
+        effects = bytes(range(256)) * 2
+        head = tagged([(b'SAT\0', b'collision' * 7), (b'SMD\0', self.smd), (b'SMD\0', common),
+                       (b'EFF\0', effects), (b'ESQ\0', bytes(64)), (b'NTR\0', bytes(64))])
+        ents = R.tagged_entries(head, '>')
+        eff_at, esq_at, ntr_at = ents[3][1], ents[4][1], ents[5][1]
+        tpl_at = ents[2][1] + R.Smd(common).tables[1]
+        arc = bytearray(head)
+        seqs = struct.pack('>6I', eff_at, 64, 2, eff_at + 128, 96, 3)
+        struct.pack_into('>8s6I', arc, esq_at, b'R4ESQTBL', 1, 2, 12, zlib.crc32(seqs), len(arc), 0)
+        arc[esq_at + 32:esq_at + 56] = seqs
+        recs = struct.pack('>3I', eff_at + 256, tpl_at + 4, tpl_at)
+        struct.pack_into('>8s6I', arc, ntr_at, b'R4NTBL\0\0', 1, 1, 12, zlib.crc32(recs), 1 << 24, len(arc))
+        arc[ntr_at + 32:ntr_at + 44] = recs
+        return bytes(arc), common
+
+    def test_release_of_a_room_with_a_common_smd_and_indexes(self):
+        import zlib
+        arc, common = self.indexed_room()
+        with self.assertRaises(ValueError):
+            R.release_archive(arc, {0: {}, 1: {}})   # two SMDs: one map each
+        new, report = R.release_archive(arc, [{0: {}, 1: {}}, {0: {}, 1: {}}])
+        check = R.diff_release(arc, new)
+        self.assertEqual((check['released_bins'], check['kept_bins']), (4, 0))
+        self.assertEqual(report['saved'], len(arc) - len(new))
+        self.assertEqual([r['entry'] for r in report['smds']], [1, 2])
+        ents_a, ents_b = R.tagged_entries(arc, '>'), R.tagged_entries(new, '>')
+        for (ta, sa, xa), (tb, sb, xb) in zip(ents_a, ents_b):
+            if ta in (b'SAT\0', b'EFF\0'):
+                self.assertEqual(arc[sa:xa], new[sb:xb])
+        d1 = report['smds'][0]['saved']
+        d = report['saved']
+        eff_a, eff_b = ents_a[3][1], ents_b[3][1]
+        self.assertEqual(eff_a - eff_b, d)
+        esq = ents_b[4][1]
+        magic, version, count, stride, crc, size, zero = struct.unpack_from('>8s6I', new, esq)
+        self.assertEqual((magic, count, size, zero), (b'R4ESQTBL', 2, len(new), 0))
+        self.assertEqual(struct.unpack_from('>6I', new, esq + 32), (eff_b, 64, 2, eff_b + 128, 96, 3))
+        self.assertEqual(crc, zlib.crc32(new[esq + 32:esq + 56]))
+        ntr = ents_b[5][1]
+        tpl_b = ents_b[2][1] + R.Smd(new[ents_b[2][1]:ents_b[2][2]], '>').tables[1]
+        self.assertEqual(struct.unpack_from('>3I', new, ntr + 32), (eff_b + 256, tpl_b + 4, tpl_b))
+        self.assertEqual(new[tpl_b:tpl_b + 16], arc[ents_a[2][1] + R.Smd(common).tables[1]:][:16])
+        self.assertGreater(d, d1)                      # both SMDs gave bytes
+        # The common SMD kept: only the main SMD's bytes, the indexes still valid.
+        kept, rep2 = R.release_archive(arc, [{0: {}, 1: {}}, None])
+        self.assertEqual(R.diff_release(arc, kept)['released_bins'], 2)
+        self.assertEqual(rep2['saved'], d1)
+        self.assertTrue(rep2['smds'][1]['kept'])
+        # An ESQ sequence inside a released BIN region, or an ESQ of another archive size: refused.
+        bad = bytearray(arc)
+        struct.pack_into('>I', bad, ents_a[4][1] + 32, ents_a[1][1] + R.Smd(self.smd).bin_table()[1][0] + 32)
+        with self.assertRaises(ValueError):
+            R.release_archive(bytes(bad), [{0: {}}, None])
+        bad = bytearray(arc)
+        struct.pack_into('>I', bad, ents_a[4][1] + 24, len(arc) + 32)
+        with self.assertRaises(ValueError):
+            R.release_archive(bytes(bad), [{0: {}}, None])
+
+    def test_check_refuses_anything_but_the_release(self):
+        arc, _ = self.indexed_room()
+        new, _ = R.release_archive(arc, [{0: {}, 1: {}}, {1: {}}])
+        R.diff_release(arc, new)
+        ents = R.tagged_entries(new, '>')
+        smd_at = ents[1][1]
+        stub_at = smd_at + R.Smd(new[smd_at:ents[1][2]], '>').bin_table()[1][0]
+        for where in (ents[3][1] + 5,           # effects
+                      ents[0][1] + 1,           # collision
+                      stub_at + 0x40,           # a released BIN's kept header / joint head
+                      ents[2][2] - 8,           # the common SMD's FCV table
+                      ents[5][1] + 32):         # an NTR record
+            bad = bytearray(new)
+            bad[where] ^= 1
+            with self.assertRaises(ValueError, msg=hex(where)):
+                R.diff_release(arc, bytes(bad))
+
+    def test_release_refuses_an_unplaced_bin_in_the_table(self):
+        # Three table entries, two placed BINs: the third body would be swallowed.
+        smd = bytearray(synth_smd(self.bins + [self.bins[0]], [(0, (0, 0, 0), (0, 0, 0), (1, 1, 1), 0),
+                                                               (1, (0, 0, 0), (0, 0, 0), (1, 1, 1), 0)]))
+        with self.assertRaises(ValueError):
+            R.release_smd(bytes(smd), '>', {1: {}})
+
     def test_render_unqualified_bins_keep_the_gx_path(self):
         multi = bytearray(self.bins[0])
         multi[0x19] = 2
@@ -271,6 +382,43 @@ class RouteRoomTests(unittest.TestCase):
 
     def test_r103(self):
         self.check('r103', 119, 1591040)
+
+
+R100 = pathlib.Path(os.environ.get('RE4DC_R100_MIRROR', '/root/probe/d367-agents/frontier/mirror-w4q/st1'))
+PACKAGES = pathlib.Path(os.environ.get('RE4DC_R100_PACKAGES', '/root/probe/d367-agents/assets/out'))
+
+
+@unittest.skipUnless((R100 / 'r100.dar').is_file() and (R100 / 'r100_04.dat').is_file() and
+                     (PACKAGES / 'standard/r100/low/COMMON.re4mesh').is_file(), 'private r100 files absent')
+class R100ReleaseTests(unittest.TestCase):
+    """r100 (private data): the scroll block files and the room archive release
+    every BIN against both the Original and the Standard package of its owner
+    (either may be opened at run time)."""
+    def identities(self, owner, common=False):
+        return R.load_identities([PACKAGES / 'original/r100/mesh' / (owner + '.re4mesh'),
+                                  PACKAGES / 'standard/r100/low' / (owner + '.re4mesh')], common)
+
+    def test_block_files_shrink_the_block_pool(self):
+        sizes = []
+        for n in range(5):
+            src = (R100 / ('r100_%02d.dat' % n)).read_bytes()
+            release, skipped = self.identities('FILE_%02d' % n)
+            new, _ = R.release_container(src, release)
+            check = R.diff_release(src, new)
+            self.assertEqual((skipped, check['kept_bins']), ({}, 0))
+            sizes.append((len(src), len(new)))
+        # block.cpp checkBlockMemory: the largest sum over the BLK connection sets.
+        sets = ([0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4])
+        self.assertEqual([max(sum(sizes[i][k] for i in s) for s in sets) for k in (0, 1)], [1126272, 39808])
+
+    def test_room_archive_releases_main_and_common(self):
+        src = (R100 / 'r100.dar').read_bytes()
+        own, skipped = self.identities('MAINSCENARIO')
+        common, skipped_common = self.identities('COMMON', True)
+        new, _ = R.release_container(src, [own, common])
+        check = R.diff_release(src, new)
+        self.assertEqual((skipped, skipped_common, check['released_bins'], check['kept_bins'], check['saved']),
+                         ({}, {}, 31, 0, 696640))
 
 
 if __name__ == '__main__':

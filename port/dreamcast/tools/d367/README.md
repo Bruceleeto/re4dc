@@ -368,6 +368,33 @@ and `NATIVE_MESH=1`: a released part never falls back to GX. The prepared room's
 texture index is rebased. `tests/test_room_smd.py` covers this, plus r101/r103 when
 `RE4DC_ROUTE_DAS_DIR` holds the route .das files.
 
+r100 also has five scroll block files (`st1/r100_00..04.dat`, one SMD each) and a room
+archive with two SMDs (the room's own and the common one, game.cpp SmdInit). Release them
+against both package sets, because either one may be opened at run time (Standard `low/` or
+Original). An identity is a converter summary (`.re4mesh.json`) or the R4IM package itself;
+a BIN is released only when every identity given covers it the same way (every part, the
+part headers in order). The ESQ effect index is rebased like NTR:
+
+```
+O=<assets>/out/original/r100/mesh; S=<assets>/out/standard/r100/low; M=<mirror>/st1
+for n in 00 01 02 03 04; do
+  python3 tools/room_smd.py release $M/r100_$n.dat $O/FILE_$n.re4mesh,$S/FILE_$n.re4mesh <rel>/st1/r100_$n.dat
+done
+for x in dar arc; do
+  python3 tools/room_smd.py release $M/r100.$x $O/MAINSCENARIO.re4mesh,$S/MAINSCENARIO.re4mesh <rel>/st1/r100.$x \
+    --common $O/COMMON.re4mesh,$S/COMMON.re4mesh
+done
+python3 tools/room_smd.py check $M/r100.dar <rel>/st1/r100.dar   # the release contract and nothing else
+# stage: ROOMFILES="st1/r100_00.dat=<rel>/st1/r100_00.dat .. st1/r100_04.dat=<rel>/st1/r100_04.dat
+#                   st1/r100.dar=<rel>/st1/r100.dar st1/r100.arc=<rel>/st1/r100.arc"
+```
+
+All 99 block BINs and all 31 room BINs release. The block pool (block.cpp checkBlockMemory:
+the largest sum of file sizes over the BLK sets) drops from 1,126,272 to 39,808 B, and the
+resident room archive from 2,615,168 to 1,918,528 B, both in heap 4 (the game reads only the
+.dar; the .arc goes along like r101's). `release` writes nothing unless `check` passes on its
+output. The released files need the r100 packages on the disc and `NATIVE_MESH=1`, as above.
+
 ## Warp rig (`DBG_WARP=1`, test builds only)
 
 Starts a test build next to an event trigger or a door, with the scenario state that event needs,
