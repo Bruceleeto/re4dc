@@ -102,6 +102,17 @@ int re4dc_actor_materialize_lazy(Re4dcModelPart* p);
 int re4dc_actor_model_buffers(Re4dcModelPart* p);
 }
 
+// COARSE_ONE_SUBMIT (game30.mk; render only; native_actor_fast.cpp): the coarse adapters' chunks of one actor in
+// one call. *p carries what the chunks share (model, texture and header inputs, lighting, projection, viewport);
+// each chunk's info (also the part), stream, uv, counts and modelview are written into *p in turn. Each chunk is
+// handled as re4dc_actor_submit(p) would handle it and bit i of the result is set when that call would have
+// returned 1; the chunks share one TA header (one direct TA window). n <= 32.
+struct Re4dcActorChunk {
+    const void* info; const unsigned char* stream; const unsigned char* uv; const float* modelview;
+    unsigned stream_bytes, position_count, normal_count;
+};
+extern "C" unsigned re4dc_actor_submit_chunks(Re4dcModelPart* p, const Re4dcActorChunk* chunks, unsigned n);
+
 #if defined(RE4DC_ACTOR_TEST)
 // Host test access to the prepared tables of the last prepared info.
 struct Re4dcActorScreen { float x, y, w_inverse; };

@@ -168,6 +168,64 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
         PSMTXConcat(relative,parts[i]->lt_inv_mat,local_skin[i]);
     }
 #endif
+#if RE4DC_COARSE_ONE_SUBMIT
+    // COARSE_ONE_SUBMIT: the visible chunks in order, in groups whose palettes fit the buffer together, one
+    // re4dc_actor_submit_chunks call (one TA header) per group: 8 -> 3. A chunk's palette starts at an even
+    // entry (32-byte aligned: COARSE_SKIN_FTRV allocates its output lines). Palettes, registrations and
+    // submissions keep the per-chunk loop's order and values; a chunk whose info matrix has the previous
+    // chunk's words reuses its modelview (the same two concatenations of the same words).
+    unsigned triangles=0,mask=0;
+    Re4dcModelPart p{};
+    p.model=m;p.position_stride=6;p.normal_stride=6;p.normal_shift=14;p.shift=4;
+    p.lighting=&light;p.image=image;p.source_key[2]=1;
+    p.depth_mode=m->z_mode;p.cull=0;p.alpha_state=255;
+    GXGetProjectionv(p.projection);GXGetViewportv(p.viewport);
+    Re4dcActorChunk group[8];unsigned member[8],n=0,used=0;
+    float mvs[8][12];const cModelInfo* mv_src=nullptr;
+    auto submit=[&]{
+        const unsigned ok=n?re4dc_actor_submit_chunks(&p,group,n):0U;
+        for(unsigned k=0;k<n;++k){
+            if(!((ok>>k)&1U)){++rejected;continue;}
+            triangles+=leon4k::chunks[member[k]].triangles;mask|=1U<<member[k];
+        }
+        n=0;used=0;
+    };
+    for(unsigned i=0;i<8;++i){
+        auto& c=leon4k::chunks[i];cModelInfo* src=infos[i];
+        if(!visible(src))continue;
+        if(c.palette_count>256){submit();return 0;}
+        unsigned at=(used+1U)&~1U;
+        if(at+c.palette_count>256){submit();at=0;}
+        float (*pal)[12]=palette+at;
+#if RE4DC_COARSE_SKIN_FTRV
+        re4dc_coarse_skin_groups(skin_stream+skin_first[i],skin_groups[i],&bone_T[0][0],&pal[0][0],c.palette_count);
+#if RE4DC_COARSE_SKIN_FTRV == 2
+        for(unsigned j=0;j<c.palette_count;++j)skin_chk.entry(c.weights[j],local_skin,pal[j]);
+#endif
+#else
+        for(unsigned j=0;j<c.palette_count;++j){
+            const auto& w=c.weights[j];
+            for(unsigned col=0;col<4;++col)for(unsigned row=0;row<3;++row){
+                float value=0;
+                for(unsigned k=0;k<w.count;++k)value+=local_skin[w.bone[k]][row][col]*w.value[k];
+                pal[j][col*3+row]=value;
+            }
+        }
+#endif
+        if(!re4dc_actor_skin_register(pG->Frame_cnt,&c,nullptr,&pal[0][0],c.palette_count)){
+            ++rejected;continue;
+        }
+        if(!mv_src || std::memcmp(mv_src->mat,src->mat,sizeof(Mtx))){
+            PSMTXConcat(m->pParts->mat,src->mat,pm);
+            PSMTXConcat(pG->Cam.v_mat,pm,mv);
+            mv_src=src;
+        }
+        std::memcpy(mvs[n],mv,sizeof(mv));
+        group[n]={&c,c.stream,c.uv,mvs[n],c.stream_bytes,c.position_count,c.normal_count};
+        member[n++]=i;used=at+c.palette_count;
+    }
+    submit();
+#else
     unsigned triangles=0,mask=0;
     for(unsigned i=0;i<8;++i){
         auto& c=leon4k::chunks[i];cModelInfo* src=infos[i];
@@ -203,6 +261,7 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
         if(!re4dc_actor_submit(&p)){++rejected;continue;}
         triangles+=c.triangles;mask|=1U<<i;
     }
+#endif
     ++drawn;
 #if RE4DC_COARSE_SKIN_FTRV == 2
     if(drawn<=3 || drawn%120==0)skin_chk.log("leon",pG->Frame_cnt);

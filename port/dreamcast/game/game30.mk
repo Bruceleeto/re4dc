@@ -602,6 +602,29 @@ $(OBJDIR)/coarse_skin_sh4.o: coarse_skin_sh4.S
 	@mkdir -p $(dir $@)
 	kos-cc $(KOS_CFLAGS) -c $< -o $@
 endif
+# COARSE_ONE_SUBMIT=1 (needs COARSE_LEON=1, NATIVE_ACTOR_DIRECT=1, NATIVE_ACTOR_UV16=0, TA_GUARD=0; render only): one
+#                    submission per coarse actor. coarse_actor.cpp and coarse_ganado_cast.cpp hand the visible chunks
+#                    to re4dc_actor_submit_chunks (platform/native_actor_fast.cpp) in groups whose palettes fit the
+#                    adapter's buffer together (Leon 8 -> 3, a cast Ganado 4 -> 1); a group's chunks share one TA
+#                    header. Each chunk keeps re4dc_actor_submit's steps, order and state effects; the TA stream
+#                    loses only the repeated headers. =2: check build, every chunk also goes through
+#                    re4dc_actor_submit first and both paths' TA words are compared ("C3CHK" lines: word, header and
+#                    result mismatches must stay 0; the image draws each chunk twice).
+COARSE_ONE_SUBMIT ?= 0
+ifneq ($(COARSE_ONE_SUBMIT),0)
+ifneq ($(COARSE_LEON),1)
+$(error COARSE_ONE_SUBMIT needs COARSE_LEON=1)
+endif
+ifeq ($(COARSE_PREGATE),2)
+$(error COARSE_ONE_SUBMIT: COARSE_PREGATE=2 counts output around each chunk's own submission (use 0 or 1))
+endif
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_COARSE_ONE_SUBMIT=$(COARSE_ONE_SUBMIT)
+$(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_COARSE_ONE_SUBMIT=$(COARSE_ONE_SUBMIT)
+# native_ui.cpp's re4dc_model_direct_begin_reserved (the frame owner's hunk): without it the call would link to a silent stub.
+ifeq ($(shell grep -c re4dc_model_direct_begin_reserved platform/native_ui.cpp),0)
+$(error COARSE_ONE_SUBMIT needs native_ui.cpp's re4dc_model_direct_begin_reserved)
+endif
+endif
 ifneq ($(COARSE),0)
 ifneq ($(PACE_CATCHUP),2)
 $(error COARSE needs PACE_CATCHUP=2 and PACE_TRANS_SKIP (the qualified mask 4063))

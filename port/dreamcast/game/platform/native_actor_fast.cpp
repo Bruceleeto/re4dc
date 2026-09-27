@@ -56,6 +56,10 @@
 #if RE4DC_ACTOR_DIRECT
 #include "ta_direct.hpp"
 #endif
+// COARSE_ONE_SUBMIT (game30.mk): re4dc_actor_submit_chunks, one TA window per coarse actor (end of file).
+#ifndef RE4DC_COARSE_ONE_SUBMIT
+#define RE4DC_COARSE_ONE_SUBMIT 0
+#endif
 
 #ifndef RE4DC_ACTOR_ASM
 #if defined(__sh__)
@@ -2146,6 +2150,44 @@ inline void pack_uv16(pvr_vertex_t* v, unsigned n, bool keep_u) {
     return true;
 }
 
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+// COARSE_ONE_SUBMIT=2 (check build): the TA words a direct Part sends, folded (FNV) while one_tap.on, and the
+// header its window opened with (the slab slot before the cache). re4dc_actor_submit_chunks compares both
+// paths' words chunk by chunk.
+struct OneTap { bool on, header_seen; u32 h, words, header[8]; };
+OneTap one_tap{};
+inline void one_fold(u32 w) { one_tap.h = (one_tap.h ^ w) * 16777619U; ++one_tap.words; }
+inline void one_header(const pvr_vertex_t* cache) {
+    if (one_tap.header_seen) return;
+    one_tap.header_seen = true;
+    std::memcpy(one_tap.header, cache - 1, 32);
+}
+void one_tap_meshlet(const pvr_vertex_t* cache, const u8* index, unsigned n) {  // emit_meshlet<true>
+    if (!one_tap.on) return;
+    one_header(cache);
+    for (unsigned k = 0; k < n; ++k) {
+        const u32* w = reinterpret_cast<const u32*>(cache + (index[k] & 127U));
+        one_fold((index[k] & 128U) ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX);
+        for (unsigned j = 1; j < 8; ++j) one_fold(w[j]);
+    }
+}
+void one_tap_strip(const pvr_vertex_t* cache, const u8* index, unsigned n) {  // emit_sq
+    if (!one_tap.on) return;
+    one_header(cache);
+    for (unsigned k = 0; k < n; ++k) {
+        const u32* w = reinterpret_cast<const u32*>(cache + (index[k] & 127U));
+        one_fold(k + 1 == n ? PVR_CMD_VERTEX_EOL : w[0]);
+        for (unsigned j = 1; j < 8; ++j) one_fold(w[j]);
+    }
+}
+void one_tap_put(const pvr_vertex_t* cache, const pvr_vertex_t* v, unsigned n) {  // re4dc_ta_put
+    if (!one_tap.on) return;
+    one_header(cache);
+    const u32* w = reinterpret_cast<const u32*>(v);
+    for (unsigned j = 0; j < n * 8U; ++j) one_fold(w[j]);
+}
+#endif
+
 struct Part {
     const Re4dcModelPart& p;
     Frame& f;
@@ -2182,12 +2224,18 @@ struct Part {
     pvr_vertex_t* at() { return static_cast<pvr_vertex_t*>(packet.vertices) + used; }
     void put(const pvr_vertex_t* v, unsigned n) {  // prepared vertices (clipped triangles)
 #if RE4DC_ACTOR_DIRECT
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+        if (direct) one_tap_put(cache.v, v, n);
+#endif
         if (direct) { sq = re4dc_ta_put(sq, v, n); slots += n; return; }
 #endif
         std::memcpy(at(), v, n * sizeof(pvr_vertex_t)); used += n;
     }
     void strip(const u8* index, unsigned n) {
 #if RE4DC_ACTOR_DIRECT
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+        if (direct) one_tap_strip(cache.v, index, n);
+#endif
         if (direct) { sq = emit_sq(sq, cache.v, index, n); slots += n; return; }
 #endif
         emit(at(), cache.v, index, n); used += n;
@@ -2203,6 +2251,9 @@ struct Part {
         if (!room(count)) return false;
 #if RE4DC_ACTOR_DIRECT
         if (direct) {
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+            one_tap_meshlet(cache.v, index, count);
+#endif
             sq = static_cast<std::uint32_t*>(emit_meshlet<true>(sq, cache.v, index, count)); slots += count;
         } else
 #endif
@@ -3777,6 +3828,545 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     re4dc_model_result(0, e.input, e.output);
     return 1;
 }
+
+#if RE4DC_COARSE_ONE_SUBMIT
+// ------------------------------------------------- one submission per actor --
+// COARSE_ONE_SUBMIT (game30.mk; render only): re4dc_actor_submit_chunks, the coarse adapters' chunks of one
+// actor in one call. Each chunk takes re4dc_actor_submit's steps in its order (qualification, blob, crowd
+// class, defer, Frame, fog gate, lights, level, meshlets, result) with the same state effects (frame cache
+// slots and skin tables, crowd distances, the frame owner's results), but the chunks share one TA_DIRECT
+// window: one reserve + texture bind + header + store-queue lock for the window instead of two reserves,
+// a bind, a header and a lock for every chunk (the window's opener hands its reservation to
+// re4dc_model_direct_begin_reserved, native_ui.cpp, which does not repeat it).
+// The part's shared fields are the header inputs, so every chunk's header is the window's (=2 compares them)
+// and the TA draws the same triangles in the same order. Inside an open window a chunk's reserve cannot
+// fail (its inputs and the owner's state are the opener's: model_used stays 0 in the direct path, and only
+// an abort, which closes the window, sets stream_aborted), so it is skipped. Also once per window:
+// constant lighting (lighting disabled: build_lights' result is a function of the lighting record) and the
+// cache priming (flags / oargb words, never written by the passes); once per repeated matrix set: the
+// screen rows; once per repeated translation: crowd_tier (the same distance again changes nothing).
+// =2 (check build): every chunk first goes through re4dc_actor_submit, and the TA words both paths emit
+// (headers included) are compared chunk by chunk ("C3CHK" lines); the image draws each chunk twice.
+#if !RE4DC_ACTOR_DIRECT || RE4DC_ACTOR_UV16 || !RE4DC_NATIVE_ACTOR_SKIN_LAZY || (defined(RE4DC_TA_GUARD) && RE4DC_TA_GUARD)
+#error "COARSE_ONE_SUBMIT needs NATIVE_ACTOR_DIRECT=1 NATIVE_ACTOR_SKIN_LAZY=1 NATIVE_ACTOR_UV16=0 TA_GUARD=0 (a window is one guarded part)"
+#endif
+extern "C" void re4dc_log(const char* fmt, ...);
+// native_ui.cpp (COARSE_ONE_SUBMIT): re4dc_model_direct_begin for a part the caller has just reserved.
+extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart*, const Re4dcModelPacket*, Re4dcModelDirect*);
+namespace {
+// qualifies() for a part without arrays (positions == nullptr: its array term is lazy_skin()), keeping
+// lazy_skin()'s registry entry and source for one_frame().
+bool one_qualifies(const Re4dcModelPart& p, const SkinEntry*& se, Re4dcActorSource& src) {
+    if (!(p.lighting && p.alpha_state <= 511 &&
+          (!(p.alpha_state & 256) || ((p.flags & 0x80000000U) && p.colors)) &&
+          ((!p.lighting->ambient_vertex && !p.lighting->material_vertex) || ((p.flags & 0x80000000U) && p.colors)) &&
+          (!p.lighting->enable || p.lighting->attenuation == 1 || p.lighting->attenuation == 2) &&
+          p.shift <= 30 && (p.position_stride == 6 || p.position_stride == 8) &&
+          (p.normal_shift == 6 || p.normal_shift == 14) && p.normal_stride >= 3 &&
+          p.position_count && p.normal_count && p.stream_bytes <= 1024 * 1024 && p.stream_bytes >= 32 &&
+          ram(p.stream, p.stream_bytes) && p.uv &&
+          p.projection[0] == 0 && p.viewport[2] > 0 && p.viewport[3] > 0))
+        return false;
+    if (p.positions || p.position_stride != 6) return false;
+    se = find_skin(p.info, nullptr);
+    return se && !se->materialized && se->palette && se->entries && re4dc_actor_model_source(p.info, &src) &&
+           src.positions && src.normals && src.position_count == p.position_count &&
+           src.normal_count == p.normal_count && bool(src.small_normals) == (p.normal_shift == 6);
+}
+
+// The screen rows of the last matrix set (screen_rows is a function of the three matrices' words).
+struct OneScreen { bool valid = false; float modelview[12], projection[7], viewport[6], M[3][4]; };
+
+// prepare_frame() for a part one_qualifies() accepted: its kSkin branch with lazy_skin()'s entry and source
+// (re4dc_actor_skin_palette finds the same entry), the same cache search, victim, fields and skin table.
+Frame& one_frame(const Re4dcModelPart& p, float near_distance, float far_distance, const SkinEntry& se,
+                 const Re4dcActorSource& src, OneScreen& memo) {
+    for (Frame& f : frames)
+        if (f.frame == frame_serial && f.info == p.info &&
+            same_words(f.modelview, p.modelview, 12) && same_words(f.projection, p.projection, 7) &&
+            same_words(f.viewport, p.viewport, 6))
+            return f;
+    Frame& f = frames[frame_victim]; frame_victim = (frame_victim + 1) % kFrames;
+    f = Frame{};
+    f.info = p.info; f.frame = frame_serial;
+    std::memcpy(f.modelview, p.modelview, sizeof(f.modelview));
+    std::memcpy(f.projection, p.projection, sizeof(f.projection));
+    std::memcpy(f.viewport, p.viewport, sizeof(f.viewport));
+    f.near_distance = near_distance; f.far_distance = far_distance;
+    f.q = pow2(-int(p.shift));
+    f.position_count = p.position_count; f.normal_count = p.normal_count;
+    f.small_normals = p.normal_shift == 6; f.nq = pow2(-int(p.normal_shift));
+    f.mode = kSkin; f.palette = se.palette; f.palette_entries = se.entries;
+    f.positions = src.positions; f.position_stride = 8;
+    f.normals = src.normals; f.normal_stride = src.small_normals ? 4U : 8U;
+    for (Frame& o : frames)
+        if (&o != &f && o.skin_positions) {
+            o.frame = ~0U; o.skin_positions = o.skin_dirs = nullptr; o.skin_ready = o.dirs_ready = nullptr;
+        }
+    workspace_end = workspace_bytes;
+    const unsigned entries = se.entries;
+    f.skin_positions = static_cast<float*>(frame_table(entries * (28U * 4U + 2U)));
+    if (f.skin_positions) {
+        f.skin_dirs = f.skin_positions + entries * 16U;
+        f.skin_ready = reinterpret_cast<u8*>(f.skin_dirs + entries * 12U);
+        f.dirs_ready = f.skin_ready + entries;
+        std::memset(f.skin_ready, 0, entries * 2U);
+#if RE4DC_AVK
+        f.avk_all = false;
+#endif
+        f.dirs_fold[0] = NAN;  // no directions built yet
+    }
+    ++stats.skinned_parts;
+    if (!memo.valid || !same_words(memo.modelview, p.modelview, 12) || !same_words(memo.projection, p.projection, 7) ||
+        !same_words(memo.viewport, p.viewport, 6)) {
+        screen_rows(p, memo.M);
+        std::memcpy(memo.modelview, p.modelview, sizeof(memo.modelview));
+        std::memcpy(memo.projection, p.projection, sizeof(memo.projection));
+        std::memcpy(memo.viewport, p.viewport, sizeof(memo.viewport));
+        memo.valid = true;
+    }
+    const float s = f.mode == kSkin ? 1.0f : f.q;
+    for (unsigned c = 0; c < 4; ++c) {
+        const float k = c < 3 ? s : 1.0f;
+        f.screen[c * 4 + 0] = memo.M[0][c] * k; f.screen[c * 4 + 1] = memo.M[1][c] * k;
+        f.screen[c * 4 + 2] = memo.M[2][c] * k; f.screen[c * 4 + 3] = memo.M[2][c] * k;
+    }
+    ++stats.info_preparations;
+    return f;
+}
+
+struct OneWindow {
+    bool open = false;
+    Re4dcModelDirect direct{};
+    std::uint32_t* sq = nullptr;
+    unsigned slots = 0, primed = 0;  // the window's slots so far; cache entries whose flags / oargb are primed
+    bool lights_ready = false;       // lights: build_lights' result for a lighting-disabled record
+    Lights lights, lit;              // lit: a lit chunk's own (built per chunk, as re4dc_actor_submit does)
+    const void* tier_model = nullptr;  // crowd_tier memo: the last call's model, class, translation and result
+    int tier_class = 0;
+    u32 tier_t[3]{};
+    unsigned tier = 0;
+    OneScreen screen;
+};
+void one_close(OneWindow& w) {
+    if (!w.open) return;
+    re4dc_model_direct_end(w.slots);
+    w.open = false; w.slots = 0; w.primed = 0;
+}
+
+// re4dc_actor_submit() for one chunk, sent into the window (opened here when closed): 1 / 0 as that call
+// would return; -1 when the part is not an array-less (lazily skinned) part: nothing done.
+int one_chunk(Re4dcModelPart& p, OneWindow& w) {
+    if (p.positions) return -1;
+    ++stats.parts;
+    const SkinEntry* se = nullptr;
+    Re4dcActorSource src{};
+    if (!one_qualifies(p, se, src)) { ++stats.declined; return 0; }
+    const float near_distance = p.projection[6] / (p.projection[5] - 1.0f);
+    const float far_distance = p.projection[6] / p.projection[5];
+    if (!re4dc::render::is_finite(near_distance) || !re4dc::render::is_finite(far_distance) ||
+        near_distance <= 0.0f || far_distance <= near_distance) { ++stats.declined; return 0; }
+    const unsigned mark = workspace_top;
+    struct Release { unsigned mark; ~Release() { workspace_top = mark; } } release{mark};
+    const BlobHeader* blob = blob_of(p);
+    int crowd_class = 0;
+    if constexpr (kCrowd) crowd_class = re4dc_actor_model_class(p.model, p.info);
+    if (kLodBuild && blob && (blob->flags & kLodPending)) relod(p, crowd_class > 0);
+    if (!blob && !(blob = convert(p))) { ++stats.declined; return 0; }
+    const u8* base = reinterpret_cast<const u8*>(blob);
+    ++stats.handled;
+    if (p.cull == 3) { re4dc_model_result(0, 0, 0); return 1; }
+    if (re4dc_model_defer_part(&p)) { ++stats.deferred; return 1; }
+
+    Frame& f = one_frame(p, near_distance, far_distance, *se, src, w.screen);
+#if RE4DC_ACTOR_FOG_GATE
+    if (blob->radius > 0.0f || blob->center[0] != 0.0f || blob->center[1] != 0.0f || blob->center[2] != 0.0f) {
+        const float cull_far = fog_gate_depth(near_distance, far_distance);
+        const float* m = p.modelview; const float* c = blob->center;
+        float depth = -1.0f;  // least view depth (-z) of the part's drawn vertices, if known
+        if (f.palette && f.palette_entries) {  // f.mode == kSkin
+            if (!f.gate_ready) {
+                const float mz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+                float T = 3.0e38f, G = 0.0f;
+#if RE4DC_AVK
+                {
+                    float S = 0.0f;
+#if defined(__sh__)
+                    // re4dc_actor_submit's rev 5 loop, operation for operation.
+                    alignas(8) float io[6] = {m[8], m[9], m[10], m[11], -3.0e38f, 0.0f};
+                    const float* pa = f.palette;
+                    const float* pb = pa + 3;
+                    const float* pc = pa + 6;
+                    const float* pd = pa + 9;
+                    const float* px = pa + 36;
+                    unsigned n = f.palette_entries;
+                    float* iop = io;
+                    __asm__ __volatile__(
+                        "mov     #4,r0\n\t"
+                        "fmov.s  @%[io]+,fr12\n\t"
+                        "fmov.s  @%[io]+,fr13\n\t"
+                        "fmov.s  @%[io]+,fr14\n\t"
+                        "fmov.s  @%[io]+,fr15\n\t"
+                        "fmov.s  @%[io]+,fr10\n\t"
+                        "fmov.s  @%[io]+,fr11\n"
+                        "1:\n\t"
+                        "fmov.s  @(r0,%[d]),fr4\n\t"
+                        "fmov.s  @%[d]+,fr0\n\t"
+                        "fmul    fr13,fr4\n\t"
+                        "fmov.s  @(r0,%[a]),fr9\n\t"
+                        "fmov.s  @(r0,%[b]),fr8\n\t"
+                        "fmul    fr9,fr9\n\t"
+                        "fmov.s  @(r0,%[c]),fr6\n\t"
+                        "fmac    fr0,fr12,fr4\n\t"
+                        "fmov.s  @(r0,%[d]),fr0\n\t"
+                        "fmul    fr8,fr8\n\t"
+                        "pref    @%[x]\n\t"
+                        "fmul    fr6,fr6\n\t"
+                        "add     #44,%[x]\n\t"
+                        "fmac    fr0,fr14,fr4\n\t"
+                        "fmov.s  @%[a]+,fr0\n\t"
+                        "pref    @%[x]\n\t"
+                        "add     #44,%[d]\n\t"
+                        "fmac    fr0,fr0,fr9\n\t"
+                        "fmov.s  @(r0,%[a]),fr0\n\t"
+                        "fadd    fr15,fr4\n\t"
+                        "add     #44,%[a]\n\t"
+                        "add     #4,%[x]\n\t"
+                        "fmac    fr0,fr0,fr9\n\t"
+                        "fmov.s  @%[b]+,fr0\n\t"
+                        "fmac    fr0,fr0,fr8\n\t"
+                        "fmov.s  @(r0,%[b]),fr0\n\t"
+                        "fcmp/gt fr11,fr9\n\t"
+                        "add     #44,%[b]\n\t"
+                        "fmac    fr0,fr0,fr8\n\t"
+                        "fmov.s  @%[c]+,fr0\n\t"
+                        "bt      2f\n"
+                        "6:\n\t"
+                        "fmac    fr0,fr0,fr6\n\t"
+                        "fmov.s  @(r0,%[c]),fr0\n\t"
+                        "fcmp/gt fr11,fr8\n\t"
+                        "add     #44,%[c]\n\t"
+                        "fmac    fr0,fr0,fr6\n\t"
+                        "bt      3f\n"
+                        "7:\n\t"
+                        "fcmp/gt fr11,fr6\n\t"
+                        "bt      4f\n"
+                        "8:\n\t"
+                        "fcmp/gt fr10,fr4\n\t"
+                        "bt      5f\n"
+                        "9:\n\t"
+                        "dt      %[n]\n\t"
+                        "bf      1b\n\t"
+                        "bra     0f\n\t"
+                        "nop\n"
+                        "2:\n\t"
+                        "bra     6b\n\t"
+                        "fmov    fr9,fr11\n"
+                        "3:\n\t"
+                        "bra     7b\n\t"
+                        "fmov    fr8,fr11\n"
+                        "4:\n\t"
+                        "bra     8b\n\t"
+                        "fmov    fr6,fr11\n"
+                        "5:\n\t"
+                        "bra     9b\n\t"
+                        "fmov    fr4,fr10\n"
+                        "0:\n\t"
+                        "fmov.s  fr11,@-%[io]\n\t"
+                        "fmov.s  fr10,@-%[io]\n"
+                        : [a] "+r"(pa), [b] "+r"(pb), [c] "+r"(pc), [d] "+r"(pd), [x] "+r"(px), [n] "+r"(n),
+                          [io] "+r"(iop)
+                        :
+                        : "r0", "fr0", "fr4", "fr6", "fr8", "fr9", "fr10", "fr11", "fr12", "fr13", "fr14", "fr15", "t",
+                          "memory");
+                    T = -io[4]; S = io[5];
+#else
+                    const float m8 = m[8], m9 = m[9], m10 = m[10], m11 = m[11];
+                    const float* P = f.palette;
+                    for (unsigned i = f.palette_entries; i; --i, P += 12) {
+                        __builtin_prefetch(P + 36);
+                        __builtin_prefetch(P + 47);
+                        const float d = -(m8 * P[9] + m9 * P[10] + m10 * P[11] + m11);
+                        const float s0 = P[0] * P[0] + P[1] * P[1] + P[2] * P[2];
+                        const float s1 = P[3] * P[3] + P[4] * P[4] + P[5] * P[5];
+                        const float s2 = P[6] * P[6] + P[7] * P[7] + P[8] * P[8];
+                        T = std::min(T, d);
+                        S = std::max(S, s0); S = std::max(S, s1); S = std::max(S, s2);
+                    }
+#endif
+                    G = std::max(G, mz * std::sqrt(S));
+                }
+#if RE4DC_AVK == 2
+                {
+                    float T2 = 3.0e38f, G2 = 0.0f;
+                    for (unsigned i = 0; i < f.palette_entries; ++i) {
+                        const float* P = f.palette + i * 12;
+                        const float d = -(m[8] * P[9] + m[9] * P[10] + m[10] * P[11] + m[11]);
+                        float s = 0.0f;
+                        for (unsigned k = 0; k < 3; ++k)
+                            s = std::max(s, P[k * 3] * P[k * 3] + P[k * 3 + 1] * P[k * 3 + 1] + P[k * 3 + 2] * P[k * 3 + 2]);
+                        T2 = std::min(T2, d); G2 = std::max(G2, mz * std::sqrt(s));
+                    }
+                    avk_gate_check(T, G, T2, G2);
+                }
+#endif
+#else
+                for (unsigned i = 0; i < f.palette_entries; ++i) {
+                    const float* P = f.palette + i * 12;  // columns R0, R1, R2, t
+                    const float d = -(m[8] * P[9] + m[9] * P[10] + m[10] * P[11] + m[11]);
+                    float s = 0.0f;
+                    for (unsigned k = 0; k < 3; ++k)
+                        s = std::max(s, P[k * 3] * P[k * 3] + P[k * 3 + 1] * P[k * 3 + 1] + P[k * 3 + 2] * P[k * 3 + 2]);
+                    T = std::min(T, d); G = std::max(G, mz * std::sqrt(s));
+                }
+#endif
+                f.gate_ready = true; f.gate_T = T; f.gate_G = G;
+            }
+            depth = f.gate_T - f.gate_G * (std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) + blob->radius);
+        }
+        ++fog_gate_tests;
+        if (frame_serial - fog_gate_log >= 600U) {
+            fog_gate_log = frame_serial;
+            re4dc_log("native actor fog gate: frame=%u tests=%u culled=%u far=%.0f\n", frame_serial, fog_gate_tests,
+                      fog_gate_culled, cull_far);
+        }
+        if (depth > cull_far) { ++fog_gate_culled; re4dc_model_result(0, 0, 0); return 1; }
+    }
+#endif
+    // (A skinned Frame: re4dc_actor_submit's rigid sphere test does not apply.)
+    // The most slots this chunk can send (a whole meshlet 3 per triangle at most, a clipped one 6): the
+    // window stays inside the store-queue window of 32767 slots.
+    const auto* table = reinterpret_cast<const MeshletInfo*>(base + sizeof(BlobHeader));
+    if (w.open) {
+        unsigned bound = 0;
+        for (unsigned mi = 0; mi < blob->meshlets; ++mi) bound += table[mi].n.triangles();
+        if (w.slots + 6U * bound > 32767U) one_close(w);
+    }
+    Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, 640.0f, 480.0f, project, nullptr}};
+    e.clip.context = &e.projection;
+    e.streaming = re4dc_model_packet_streaming() != 0;
+    if (!w.open) {
+        if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
+        if (re4dc_model_direct_enabled() && re4dc_model_direct_begin_reserved(&p, &e.packet, &w.direct)) {
+            if (w.direct.scratch_capacity < kCacheSlots) {
+                re4dc_model_direct_end(0); re4dc_model_result(2, 0, 0); return 1;
+            }
+            w.open = true; w.sq = w.direct.sq; w.slots = 0; w.primed = 0;
+        } else {
+            if (!re4dc_model_packet_begin(&p, &e.packet) || e.packet.capacity < kCacheSlots + 64U) {
+                re4dc_model_result(2, 0, 0);
+                return 1;
+            }
+            e.packet.capacity -= kCacheSlots;
+            e.cache.v = static_cast<pvr_vertex_t*>(e.packet.vertices) + e.packet.capacity;
+        }
+    }
+    if (w.open) {
+        e.direct = true; e.sq = w.sq; e.primed = w.primed;
+        e.packet.u_scale = w.direct.u_scale; e.packet.v_scale = w.direct.v_scale;
+        e.cache.v = static_cast<pvr_vertex_t*>(w.direct.scratch);
+    }
+    e.cache.oc = reinterpret_cast<u8*>(e.cache.v + kMaxVertices);
+
+    const SourceLighting& S = *p.lighting;
+    const bool constant_source = !S.enable && !S.ambient_vertex && !S.material_vertex;
+    Lights* lp = constant_source ? &w.lights : &w.lit;
+    if (!constant_source || !w.lights_ready || w.lights.source != p.lighting) {
+        if (!build_lights(p, f, blob->center, *lp)) lp->prepared = re4dc::render::prepare_actor_lights(*p.lighting);
+        lp->source = p.lighting;
+        w.lights_ready = constant_source;
+    }
+    Lights& lights = *lp;
+    unsigned tier = kTierFull;
+    if (crowd_class > 0) {
+        const u32* mw = reinterpret_cast<const u32*>(p.modelview);
+        if (w.tier_model && w.tier_model == p.model && w.tier_class == crowd_class && w.tier_t[0] == mw[3] &&
+            w.tier_t[1] == mw[7] && w.tier_t[2] == mw[11]) {
+            tier = w.tier;
+        } else {
+            tier = crowd_tier(p, crowd_class);
+            w.tier_model = p.model; w.tier_class = crowd_class; w.tier = tier;
+            w.tier_t[0] = mw[3]; w.tier_t[1] = mw[7]; w.tier_t[2] = mw[11];
+        }
+    }
+    if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant) {
+        lights.constant = true;  // never the window's record: lights.fast is false for constant lighting
+        lights.constant_rgb = part_colour(lights);
+    }
+    if (f.skin_dirs && !lights.constant) {
+        float dmax = 0.0f;
+        for (unsigned i = 0; i < 12; ++i) dmax = std::max(dmax, std::fabs(lights.dir[i / 4][i % 4]));
+        if (!near_vec(&lights.dir[0][0], f.dirs_fold, 12, dmax * kDirTolerance)) {
+            std::memset(f.dirs_ready, 0, f.palette_entries);
+            std::memcpy(f.dirs_fold, &lights.dir[0][0], sizeof(f.dirs_fold));
+            ++stats.skin_dir_sets;
+        }
+    }
+    const bool s16_uv = (p.flags & 0x80000000U) != 0;
+    const float uv_scale = s16_uv ? 1.0f / 256.0f : 1.0f / 32768.0f;
+    const PosConst k{0.0f, uv_scale * e.packet.u_scale, p.uv_offset[0] * e.packet.u_scale,
+                     uv_scale * e.packet.v_scale, p.uv_offset[1] * e.packet.v_scale, 640.0f, 480.0f,
+                     near_distance, far_distance};
+    e.colors = (p.alpha_state & 256) ? p.colors : nullptr;
+    e.alpha = u32(p.alpha_state & 255) << 24;
+    const unsigned rs = 3U + ((blob->flags & kHasCi) ? 1U : 0U) + ((blob->flags & kHasBake) ? 1U : 0U);
+    const unsigned color_index = blob->color_index;
+    const unsigned level = tier == kTierFar ? blob->levels
+                           : select_level(p, *blob, near_distance, tier == kTierMid ? crowd_mid_tau : lod_tau);
+    const LevelInfo* li = level ? reinterpret_cast<const LevelInfo*>(base + blob->lod4 * 4U) + (level - 1) : nullptr;
+    const MeshletLevel* lt = li ? reinterpret_cast<const MeshletLevel*>(base + li->table4 * 4U) : nullptr;
+    const u8* lists = li ? base + li->lists4 * 4U : base + blob->idx4 * 4U;
+    const u8* records = base + blob->rec4 * 4U;
+    unsigned bake_scale[3];
+    const BakeUse bake = kPrelit && (blob->flags & kHasBake) && blob->bake4 && lights.fast && !lights.constant && !e.colors
+        ? bake_prepare(e, lights, *blob, rs, bake_scale) : kBakeNone;
+    ++stats.lod_draws[level];
+    if (kCrowd) ++stats.crowd_parts[tier];
+    bool ok = true;
+    for (unsigned mi = 0; ok && mi < blob->meshlets; ++mi) {
+        const MeshletInfo& m = table[mi];
+        const Counts c = lt ? lt[mi].n : m.n;
+        const unsigned nv = c.vertices(), ni = c.indices(), nt = c.triangles();
+        if (!ni) continue;  // wholly collapsed at this level
+        const Records r{reinterpret_cast<const u16*>(records) + m.first * rs, rs, color_index, (blob->flags & kHasCi) != 0};
+        const u8* index = lists + (lt ? lt[mi].index : m.index);
+        ++stats.meshlets; stats.vertices += nv; stats.corners += ni; stats.triangles += nt;
+        if (kCrowd) stats.crowd_triangles[tier] += nt;
+        unsigned all, any;
+        pass_positions(e, r, nv, k, s16_uv, all, any);
+        if (all & kOcCull) {
+            ++stats.meshlets_culled;
+            e.input += nt;
+            continue;
+        }
+        e.prime(nv);
+        if (lights.constant) {
+#if RE4DC_AVK
+            if (!e.colors) {
+                const u32 argb = e.alpha | lights.constant_rgb;
+                pvr_vertex_t* v = e.cache.v;
+                unsigned i = 0;
+                for (; i + 4 <= nv; i += 4, v += 4) {
+                    v[0].argb = argb; v[1].argb = argb; v[2].argb = argb; v[3].argb = argb;
+                }
+                for (; i < nv; ++i, ++v) v->argb = argb;
+            } else
+#endif
+            for (unsigned i = 0; i < nv; ++i)
+                e.cache.v[i].argb = (e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha) | lights.constant_rgb;
+        } else if (bake != kBakeNone) {
+            pass_baked(e, r, nv, bake == kBakeScaled ? bake_scale : nullptr);
+        } else if (lights.fast) {
+            pass_lights(e, lights, r, nv);
+        } else {
+            pass_lights_exact(e, lights, r, nv);
+        }
+        if (bake == kBakeNone) stats.normals_lit += nv;
+        if (any & kOcNear) ++stats.meshlets_clipped;
+        if (!(any & (kOcCull | kOcNear)) && e.fits(ni)) { ++stats.meshlets_whole; ok = e.whole(index, ni, nt); }
+        else ok = e.strips(r, index, ni);
+    }
+    if (e.direct) {
+        w.sq = e.sq; w.slots += e.slots; w.primed = e.primed;
+        if (!ok) {
+            re4dc_model_packet_abort();
+            one_close(w);
+            re4dc_model_result(3, e.input, 0);
+            return 1;
+        }
+        re4dc_model_result(0, e.input, e.output);
+        return 1;
+    }
+    if (!ok) {
+        if (e.committed) re4dc_model_packet_abort();
+        re4dc_model_result(3, e.input, 0);
+        return 1;
+    }
+    re4dc_model_packet_commit(e.used);
+    re4dc_model_result(0, e.input, e.output);
+    return 1;
+}
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+constexpr unsigned kOneCheckMax = 8;
+struct OneCheck {
+    unsigned calls, chunks, words, word_mismatch, header_mismatch, result_mismatch, headers, logged, log_frame;
+} one_chk{};
+struct OneRef { int r; u32 h, words, header[8]; bool header_seen; };
+void one_note(const OneRef& a, const OneRef& b, unsigned k, const void* info) {
+    ++one_chk.chunks; one_chk.words += b.words;
+    const bool words = a.h != b.h || a.words != b.words;
+    const bool header = a.header_seen != b.header_seen || (a.header_seen && std::memcmp(a.header, b.header, 32));
+    if (a.header_seen && b.header_seen) ++one_chk.headers;
+    if (words) ++one_chk.word_mismatch;
+    if (header) ++one_chk.header_mismatch;
+    if (a.r != b.r) ++one_chk.result_mismatch;
+    if ((words || header || a.r != b.r) && one_chk.logged < 8) {
+        ++one_chk.logged;
+        re4dc_log("C3CHK mismatch frame=%u chunk=%u info=%08x result=%d/%d words=%u/%u hash=%08x/%08x header=%d/%d%s\n",
+                  frame_serial, k, unsigned(reinterpret_cast<std::uintptr_t>(info)), a.r, b.r, a.words, b.words, a.h,
+                  b.h, int(a.header_seen), int(b.header_seen), header ? " header-differs" : "");
+    }
+}
+#endif
+}  // namespace
+
+extern "C" unsigned re4dc_actor_submit_chunks(Re4dcModelPart* part, const Re4dcActorChunk* chunks, unsigned n) {
+    Re4dcModelPart& p = *part;
+    auto load = [&](unsigned i) {
+        const Re4dcActorChunk& c = chunks[i];
+        p.info = c.info; p.part = c.info; p.stream = c.stream; p.stream_bytes = c.stream_bytes; p.uv = c.uv;
+        p.position_count = c.position_count; p.normal_count = c.normal_count;
+        std::memcpy(p.modelview, c.modelview, sizeof(p.modelview));
+    };
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+    // The reference: every chunk through re4dc_actor_submit, its TA words folded.
+    OneRef ref[kOneCheckMax];
+    const unsigned nref = n < kOneCheckMax ? n : kOneCheckMax;
+    for (unsigned i = 0; i < nref; ++i) {
+        load(i);
+        one_tap = OneTap{}; one_tap.on = true;
+        ref[i].r = re4dc_actor_submit(&p);
+        one_tap.on = false;
+        ref[i].h = one_tap.h; ref[i].words = one_tap.words; ref[i].header_seen = one_tap.header_seen;
+        std::memcpy(ref[i].header, one_tap.header, 32);
+    }
+    // The reference's Frames of these infos are not reused: the window path prepares its own.
+    for (unsigned i = 0; i < nref; ++i)
+        for (Frame& o : frames)
+            if (o.info == chunks[i].info) o.frame = ~0U;
+    ++one_chk.calls;
+#endif
+    unsigned done = 0;
+    OneWindow w;
+    for (unsigned i = 0; i < n; ++i) {
+        load(i);
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+        one_tap = OneTap{}; one_tap.on = i < nref;
+#endif
+        int r = one_chunk(p, w);
+        if (r < 0) { one_close(w); r = re4dc_actor_submit(&p); }
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+        one_tap.on = false;
+        if (i < nref) {
+            OneRef got{r, one_tap.h, one_tap.words, {}, one_tap.header_seen};
+            std::memcpy(got.header, one_tap.header, 32);
+            one_note(ref[i], got, i, chunks[i].info);
+        }
+#endif
+        if (r) done |= 1U << i;
+    }
+    one_close(w);
+#if RE4DC_COARSE_ONE_SUBMIT == 2
+    if (frame_serial - one_chk.log_frame >= 120U) {
+        one_chk.log_frame = frame_serial;
+        re4dc_log("C3CHK frame=%u calls=%u chunks=%u words=%u word_mismatch=%u header_mismatch=%u result_mismatch=%u "
+                  "headers=%u\n", frame_serial, one_chk.calls, one_chk.chunks, one_chk.words, one_chk.word_mismatch,
+                  one_chk.header_mismatch, one_chk.result_mismatch, one_chk.headers);
+    }
+#endif
+    return done;
+}
+#endif
 
 #if defined(RE4DC_ACTOR_TEST)
 extern "C" unsigned re4dc_actor_test_reject_line() { return reject_line; }

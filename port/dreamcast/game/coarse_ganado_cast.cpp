@@ -475,6 +475,74 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
 #if RE4DC_COARSE_PREGATE == 1
     }
 #endif
+#if RE4DC_COARSE_ONE_SUBMIT
+    // COARSE_ONE_SUBMIT: as coarse_actor.cpp, the kept visible chunks in groups whose palettes fit the buffer
+    // together (each at an even entry), one re4dc_actor_submit_chunks call per group: 4 -> 1.
+    unsigned triangles=0,mask=0;
+    const unsigned emitted_before=re4dc_actor_stats()->triangles;
+    Re4dcModelPart p{};
+    p.model=m;p.position_stride=6;p.normal_stride=6;p.normal_shift=14;p.shift=4;
+    p.lighting=&light;p.image=image;p.source_key[2]=1;
+    p.depth_mode=m->z_mode;p.cull=0;p.alpha_state=255;
+    GXGetProjectionv(p.projection);GXGetViewportv(p.viewport);
+    Re4dcActorChunk group[4];unsigned member[4],n=0,used=0;
+    float mvs[4][12];
+    auto submit=[&]{
+        const unsigned ok=n?re4dc_actor_submit_chunks(&p,group,n):0U;
+        for(unsigned k=0;k<n;++k){
+            if(!((ok>>k)&1U)){++rejected;continue;}
+            triangles+=gc::chunks[app][member[k]].triangles;mask|=1U<<member[k];
+        }
+        n=0;used=0;
+    };
+    for(unsigned i=0;i<4;++i){
+        auto& c=gc::chunks[app][i];cModelInfo* src=infos[i];
+        if(!visible(src))continue;
+        if(c.palette_count>256){submit();return 0;}
+#if RE4DC_COARSE_PREGATE == 1
+        if((gate_skip>>i)&1U)continue;
+#endif
+        unsigned at=(used+1U)&~1U;
+        if(at+c.palette_count>256){submit();at=0;}
+        float (*pal)[12]=palette+at;
+#if RE4DC_COARSE_SKIN_FTRV
+        re4dc_coarse_skin_groups(skin_stream+skin_first[app][i],skin_groups[app][i],&bone_T[0][0],&pal[0][0],c.palette_count);
+#if RE4DC_COARSE_SKIN_FTRV == 2
+        for(unsigned j=0;j<c.palette_count;++j)skin_chk.entry(c.weights[j],local_skin,pal[j]);
+#endif
+#else
+        for(unsigned j=0;j<c.palette_count;++j){
+            const auto& w=c.weights[j];
+            for(unsigned col=0;col<4;++col)for(unsigned row=0;row<3;++row){
+                float value=0;
+                for(unsigned k=0;k<w.count;++k)value+=local_skin[w.bone[k]][row][col]*w.value[k];
+                pal[j][col*3+row]=value;
+            }
+        }
+#endif
+        if(!re4dc_actor_skin_register(pG->Frame_cnt,&c,nullptr,&pal[0][0],c.palette_count)){
+            ++rejected;continue;
+        }
+#if RE4DC_COARSE_PREGATE
+        std::memcpy(mv,gate_mv[i],sizeof(mv));  // gate_cull's PSMTXConcat pair on the same matrices
+        (void)pm;
+#else
+        PSMTXConcat(m->pParts->mat,src->mat,pm);
+        PSMTXConcat(pG->Cam.v_mat,pm,mv);
+#endif
+        if(stress_layout){
+            const unsigned slot=frame_meshes%7,row=frame_meshes/7;
+            const int order[7]={0,-1,1,-2,2,-3,3};
+            mv[0][3]=float(order[slot])*(row?850.f:650.f);
+            mv[1][3]=row?-350.f:-1100.f;
+            mv[2][3]=row?-6500.f:-4200.f;
+        }
+        std::memcpy(mvs[n],mv,sizeof(mv));
+        group[n]={&c,c.stream,c.uv,mvs[n],c.stream_bytes,c.position_count,c.normal_count};
+        member[n++]=i;used=at+c.palette_count;
+    }
+    submit();
+#else
     unsigned triangles=0,mask=0;
     const unsigned emitted_before=re4dc_actor_stats()->triangles;
     for(unsigned i=0;i<4;++i){
@@ -536,6 +604,7 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
 #endif
         triangles+=c.triangles;mask|=1U<<i;
     }
+#endif
     ++drawn;++frame_meshes;frame_triangles+=triangles;
     frame_emitted+=re4dc_actor_stats()->triangles>emitted_before;
 #if RE4DC_COARSE_SKIN_FTRV == 2

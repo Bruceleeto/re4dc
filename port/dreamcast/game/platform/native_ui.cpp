@@ -2612,12 +2612,23 @@ extern "C" int re4dc_model_header_preview(const Re4dcModelPart* p,void* out){
 namespace { const unsigned* model_texture=nullptr; }
 extern "C" void re4dc_model_texture(const unsigned* key){model_texture=key;}
 #endif
+#if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT
+// COARSE_ONE_SUBMIT (game30.mk; native_actor_fast.cpp re4dc_actor_submit_chunks): the part that opens a coarse
+// actor's TA window has just been reserved (re4dc_model_packet_reserve returned 1 into *reserved, nothing ran in
+// between), so packet_begin takes that reservation instead of repeating it: the same part and owner state give
+// the same result, model_pending and packet fields.
+namespace { const Re4dcModelPacket* model_reserved=nullptr; }
+#endif
 extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket* out){
     RE4DC_PROFILE_SCOPE(PacketPack);
 #if RE4DC_ACTOR_UV16
     // The actor path's per-part PCW bits (16-bit UV, strip length) go on this
     // part's slab copy only; the cached per-texture header stays generic.
     const unsigned pcw_set=next_pcw_set,pcw_clear=next_pcw_clear;next_pcw_set=next_pcw_clear=0;
+#endif
+#if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT
+    if(model_reserved){*out=*model_reserved;model_reserved=nullptr;}
+    else
 #endif
     if(!re4dc_model_packet_reserve(p,out))return 0;
 #if RE4DC_MESH_TEXTURES
@@ -2828,6 +2839,14 @@ extern "C" void re4dc_model_direct_end(unsigned vertices){
     (void)vertices;
 #endif
 }
+#if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT
+extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart* p,const Re4dcModelPacket* reserved,Re4dcModelDirect* out){
+    model_reserved=reserved;
+    const int begun=re4dc_model_direct_begin(p,out);
+    model_reserved=nullptr; // a nested-part refusal returns before packet_begin takes it
+    return begun;
+}
+#endif
 #if RE4DC_COARSE_LEON && !RE4DC_COARSE
 // ACTOR_SWAP (version A benchmark, COARSE=0): the reduced-mesh adapters' texture check.
 extern "C" int re4dc_coarse_leon_texture_ready(const Re4dcUiImage* image,unsigned crc,unsigned fnv){
