@@ -139,6 +139,7 @@
 #include <kos/sem.h>
 #endif
 #include "native_ui.h"
+#include "hud_source_mask.h"
 #include "native_model.h"
 #include "native_static.h"
 #include "native_render_profile.hpp"
@@ -1041,7 +1042,13 @@ static int prompt_image_key(const Re4dcUiImage& image,Key& key) {
 #if RE4DC_PAD_PROMPT_MANUAL_ART
 #include "manual_pages_keys.inc"
 #endif
+#if RE4DC_UI_HUD_MASK
+#include "include/hud_source_mask_keys.inc"
+#endif
 int external_image_key(const Re4dcUiImage& image,Key& external) {
+#if RE4DC_UI_HUD_MASK
+    const int hud=hud_mask_image_key(image,external);if(hud)return hud;
+#endif
 #if RE4DC_PAD_PROMPT_MANUAL_ART
     const int manual=manual_page_key(image,external);if(manual)return manual;
 #endif
@@ -2430,6 +2437,9 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
     RE4DC_PROFILE_COUNT(UiQuads,1);RE4DC_PROFILE_COUNT(UiBytes,sizeof(Re4dcUiQuad));
     RE4DC_PROFILE_HIGH(UiCapacity,sizeof(frame_storage));
 }
+#if RE4DC_UI_HUD_MASK
+#include "include/hud_source_mask_native.inc"
+#endif
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG && RE4DC_PVR_STREAM
 extern "C" int re4dc_pace_note(int* mode);   // pace.cpp
 // Test builds: the 2 s note after the pacing chord (text needs a native message renderer):
@@ -3549,6 +3559,40 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
     out->u_scale=out->v_scale=1;
     return 1;
 }
+#if RE4DC_PS2_WORLD_KERNEL==4
+extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,unsigned cull,Re4dcModelPacket* out){
+    if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
+       !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+    const Key key{crc,fnv};
+    const Re4dcUiImage image{&key,nullptr,width,height,5,0,0};
+    Entry* handle=load(image,false,&key);
+    if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
+    const auto& t=handle->package.textures()[0];
+    if(t.width!=width || t.height!=height)return 0; // repeated UVs cannot use padding
+    const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
+    stream_select(list);
+    if(stream_aborted)return 0;
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,list,re4dc::texture::pvr_format(t),t.width,t.height,handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
+    // PS2_WORLD_KERNEL=4 strips: the authored cull (0 drops screen area >= 0, i.e. clockwise with y down).
+    c.gen.culling=cull==0?PVR_CULLING_CW:cull==1?PVR_CULLING_CCW:PVR_CULLING_NONE;
+    c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+    c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
+    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.txr.env=PVR_TXRENV_MODULATEALPHA;
+    c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
+    c.txr.uv_clamp=PVR_UVCLAMP_NONE;
+#if RE4DC_NATIVE_FOG
+    c.gen.fog_type=PVR_FOG_TABLE;
+#endif
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+    model_pending=model_used+count;model_handle=handle;
+    out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
+    out->u_scale=out->v_scale=1;
+    return 1;
+}
+#endif
 #endif
 extern "C" void re4dc_model_finish_source_draws(){
     RE4DC_PROFILE_SCOPE(TranslucentDrain);

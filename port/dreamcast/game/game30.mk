@@ -1560,3 +1560,48 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 endif
+
+# PS2_WORLD_KERNEL (render only, default off): 1 = the coarse-world kernel shape on the PS2 world
+# (box/plane group classify, fast path without the clipper for wholly-inside groups, static
+# reference light cached per adopted owner); emitted words equal the old path's. 2 = 1 plus the
+# old tests in parallel ("PS2KERNEL ... unsafe/extra/badin/badcolor"; test builds only).
+# The object is built at -O2 -ffinite-math-only (after GAME_OPT's -O1; -ffp-contract=off stays; the
+# inputs are finite: the draw entry refuses a non-finite camera, and w >= 40 before any divide).
+PS2_WORLD_KERNEL ?= 0
+ifneq ($(PS2_WORLD_KERNEL),0)
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error PS2_WORLD_KERNEL needs PS2_WORLD_DRAW=1)
+endif
+$(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_KERNEL=$(PS2_WORLD_KERNEL) -O2 -ffinite-math-only
+# =4 (test): =3 plus whole strips on the fast path with the PVR's back-face cull in the header
+# (native_ui.cpp's re4dc_ps2_world_packet_cull); emitted words differ, the image should not.
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_KERNEL=$(PS2_WORLD_KERNEL)
+endif
+# PS2_WORLD_COLOR_ALL=1 (test, default off): cache every range corner's packed colour, not only the
+# lit ones (static heap; the adopt log line prints all= / bytes= for the memory decision).
+PS2_WORLD_COLOR_ALL ?= 0
+ifneq ($(PS2_WORLD_COLOR_ALL),0)
+$(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_COLOR_ALL=1
+endif
+
+# UI_HUD_MASK (renderer/hud-source-mask-r1, default 0): the HUD backing + red/amber lens through a
+# private composite of the source colour texture and its mask (two 64x64 ARGB4444 packages, 16 KiB
+# VRAM). Only ui_bridge.o and native_ui.o read it; the stamp rebuilds both when it changes.
+UI_HUD_MASK ?= 0
+ifeq ($(filter $(UI_HUD_MASK),0 1),)
+$(error UI_HUD_MASK must be 0 or 1)
+endif
+$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_UI_HUD_MASK=$(UI_HUD_MASK)
+$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HUD_MASK=$(UI_HUD_MASK)
+# UI_HUD_MASK_DIAG=1 (temporary test diagnostic): logs the first masked quads and the helper's reject reason.
+UI_HUD_MASK_DIAG ?= 0
+$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_UI_HUD_MASK_DIAG=$(UI_HUD_MASK_DIAG)
+$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HUD_MASK_DIAG=$(UI_HUD_MASK_DIAG)
+UI_HUD_MASK_STAMP := $(OBJDIR)/ui-hud-mask.txt
+.PHONY: ui-hud-mask-force
+$(UI_HUD_MASK_STAMP): ui-hud-mask-force
+	@mkdir -p $(dir $@)
+	@printf '%s\n' 'UI_HUD_MASK=$(UI_HUD_MASK)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: $(UI_HUD_MASK_STAMP)
