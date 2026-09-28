@@ -1,0 +1,50 @@
+#pragma once
+#ifndef RE4DC_ACTOR_TRANSACTION
+#define RE4DC_ACTOR_TRANSACTION 0
+#endif
+class cModel;
+class cModelInfo;
+#define RE4DC_ACTOR_MATERIAL_RECORD_REVISION 0x20260930u
+#if RE4DC_ACTOR_TRANSACTION
+extern "C" {
+// Called from the EXISTING successful UI archive adoption, with the same real
+// byte extent. family: 1 player,2 enemy,3 weapon; key is that owner's live key.
+void re4dc_actor_archive_adopt(const void* key,void* base,unsigned bytes,unsigned family);
+void re4dc_actor_archive_retire(const void* key);
+void re4dc_actor_archive_retire_transient();
+void re4dc_actor_forget_range(const void* base,unsigned bytes);
+void re4dc_actor_forget_all();
+void re4dc_actor_info_adopt(cModelInfo*);
+void re4dc_actor_info_retire(const void*);
+void re4dc_actor_model_changed(cModel*);
+void re4dc_actor_model_retire(cModel*);
+void re4dc_actor_data_move(const void*); // invalidate archive before rebasing
+// A tracked native conversion may change representation, not source identity.
+unsigned re4dc_actor_stream_begin(const void* stream,unsigned capacity);
+void re4dc_actor_stream_end(unsigned ticket,const void* stream,unsigned capacity);
+int re4dc_actor_material_owner_proof(cModel*,cModelInfo*,unsigned appearance,unsigned role,unsigned revision);
+int re4dc_actor_role_bindings(cModel*,unsigned appearance,cModelInfo** out,unsigned count);
+unsigned re4dc_actor_binding_revision(cModel*);
+unsigned re4dc_actor_role_source_bin(cModel*,cModelInfo*,unsigned appearance,unsigned role);
+}
+#else
+inline void re4dc_actor_archive_adopt(const void*,void*,unsigned,unsigned){}
+inline void re4dc_actor_archive_retire(const void*){}
+inline void re4dc_actor_archive_retire_transient(){}
+inline void re4dc_actor_forget_range(const void*,unsigned){}
+inline void re4dc_actor_forget_all(){}
+inline void re4dc_actor_info_adopt(cModelInfo*){}
+inline void re4dc_actor_info_retire(const void*){}
+inline void re4dc_actor_model_changed(cModel*){}
+inline void re4dc_actor_model_retire(cModel*){}
+inline void re4dc_actor_data_move(const void*){}
+inline unsigned re4dc_actor_stream_begin(const void*,unsigned){return 0;}
+inline void re4dc_actor_stream_end(unsigned,const void*,unsigned){}
+#endif
+// Covers every early return of conversion/LOD/bake while a borrowed source
+// representation is being mutated. Unregistered scratch streams get ticket0.
+struct Re4dcActorStreamMutation {
+    const void* p;unsigned bytes,ticket;
+    Re4dcActorStreamMutation(const void* q,unsigned n):p(q),bytes(n),ticket(re4dc_actor_stream_begin(q,n)){}
+    ~Re4dcActorStreamMutation(){if(ticket)re4dc_actor_stream_end(ticket,p,bytes);}
+};

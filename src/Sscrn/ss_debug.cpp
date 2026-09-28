@@ -428,7 +428,7 @@ int cManager<T>::dispWorkNum(int x, int y, int col, int sub)
     u32 n;
     u32 i;
 
-    if ((u32) pArray < 0x80000000 || (u32) pArray > 0x82FFFFFF) {
+    if ((u32) pArray < RE4_MEM_LO || (u32) pArray > RE4_MEM_HI) {
         return 0;
     }
     n = 0;

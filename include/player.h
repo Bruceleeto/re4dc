@@ -281,8 +281,13 @@ void knife_r2_down(cPlayer* pl);
 void setWepTrans(cPlayer* pl, int on);
 
 // (u32) view of pG->wep_no/wep_type (`(G_WEP_ID & 0xFFFF0000) == 0x0D020000`: rocket launcher)
+#if defined(__PPC__)
 #define G_WEP_ID (*(u32*) &pG->weapon_no)
 // (u32) view of pG->stage_no/room_no
 #define G_ROOM_ID32 (*(u32*) &pG->stage_no)
+#else
+#define G_WEP_ID (pG->weapon_id32)
+#define G_ROOM_ID32 (pG->room_id32)
+#endif
 
 #endif

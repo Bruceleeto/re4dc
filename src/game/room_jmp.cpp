@@ -88,7 +88,7 @@ cRoomJmp::cRoomJmp(void* p)
             if (info == 0) {
                 continue;
             }
-            if ((u32) info->name >= 0x80000000 && (u32) info->name <= 0x82FFFFFF) {
+            if ((u32) info->name >= RE4_MEM_LO && (u32) info->name <= RE4_MEM_HI) {
                 return;
             }
             info->name = (char*) ((u32) tbl + (u32) info->name);
@@ -107,7 +107,11 @@ s8 cRoomJmp::getIndexNum(s8 stage)
     if (ofs == 0) {
         return 0;
     }
+#if defined(__PPC__)
     return *((s8*) p + ofs + 3);
+#else
+    return *((s8*) p + ofs);  // the low byte of the record count on the little-endian target
+#endif
 }
 
 // Number of jump points of `room`: consecutive records with the same room number.

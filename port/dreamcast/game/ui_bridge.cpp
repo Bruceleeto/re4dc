@@ -6,6 +6,8 @@
 #include "main_mem.h"
 #include "gx.h"
 #include "native_ui.h"
+#include "re4dc_pad_prompts.h"
+#include "re4dc_manual_pages.h"
 #if RE4DC_NATIVE_STATIC && RE4DC_NATIVE_PKG_HIGH
 #include "re4dc_platform.h"
 #endif
@@ -21,6 +23,49 @@ extern "C" void* re4dc_ui_stage_alloc(unsigned bytes) {
 }
 extern "C" void re4dc_ui_stage_free(void* data) { Mem_free(data); }
 
+#ifndef RE4DC_UI_QUAD_LEAN
+#define RE4DC_UI_QUAD_LEAN 0
+#endif
+#if RE4DC_UI_QUAD_LEAN
+// UI_QUAD_LEAN (game30.mk, make-room F1; exact): the four corners of an ID quad are projected inline with
+// GXProject's own x / y expressions (platform/gx_stub.cpp). This object is built with the same game flags as
+// gx_stub.o (-O1 -ffp-contract=off), so every corner gets the same fmul / fadd / fdiv on the same operands in the
+// same order. Gone: the call per corner and the depth output (sz, and vz under an orthographic projection), which
+// the quad never reads. =2 also calls GXProject and compares x and y bit for bit ("UQL xy" lines).
+static inline void ui_project_xy(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f32* vp,
+                                 f32* sx, f32* sy)
+{
+    f32 vx = mtx[0][0] * x + mtx[0][1] * y + mtx[0][2] * z + mtx[0][3];
+    f32 vy = mtx[1][0] * x + mtx[1][1] * y + mtx[1][2] * z + mtx[1][3];
+    f32 px, py, pw;
+    if (pm[0] == 0.0f) {
+        f32 vz = mtx[2][0] * x + mtx[2][1] * y + mtx[2][2] * z + mtx[2][3];
+        px = pm[1] * vx + pm[2] * vz;
+        py = pm[3] * vy + pm[4] * vz;
+        pw = -vz;
+        if (pw == 0.0f) pw = 1e-6f;
+        pw = 1.0f / pw;
+    } else {
+        px = pm[1] * vx + pm[2];
+        py = pm[3] * vy + pm[4];
+        pw = 1.0f;
+    }
+    *sx = vp[2] / 2.0f * px * pw + vp[0] + vp[2] / 2.0f;
+    *sy = -(vp[3] / 2.0f) * py * pw + vp[1] + vp[3] / 2.0f;
+}
+#if RE4DC_UI_QUAD_LEAN >= 2
+#include "re4dc_platform.h"
+static unsigned uql_quads, uql_corners, uql_persp, uql_mismatch;
+static void uql_check(f32 x, f32 y, f32 cx, f32 cy, const f32* pm)
+{
+    unsigned a[2], b[2]; const f32 n[2] = {x, y}, o[2] = {cx, cy};
+    __builtin_memcpy(a, n, sizeof(a)); __builtin_memcpy(b, o, sizeof(b));
+    ++uql_corners; if (pm[0] == 0.0f) ++uql_persp;
+    if ((a[0] != b[0] || a[1] != b[1]) && uql_mismatch++ < 8)
+        re4dc_log("UQL xy MISMATCH inline=%08x,%08x GXProject=%08x,%08x\n", a[0], a[1], b[0], b[1]);
+}
+#endif
+#endif
 extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
     TexWk* wk = IdGetTexWk(u->texId, 1);
     if (!wk || !wk->pTpl || u->texNo >= wk->pTpl->numDescriptors) return;
@@ -35,18 +80,41 @@ extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
         q.image.palette_format = descriptor->CLUTHeader->format;
         q.image.palette_bytes = descriptor->CLUTHeader->numEntries * 2;
     }
+#if RE4DC_PAD_PROMPTS
+    // Only the live binocular zoom glyph, never shared C-stick textures.
+    if(u->classNo==0x24 && u->markNo==0x30 && u->texId==0x89 &&
+       u->texNo==0 && !(u->tex_flag&1)) {
+        const unsigned kind=re4dc_pad_prompt_kind(0,1);
+        Re4dcUiImage image;
+        if(kind && re4dc_ui_binocular_prompt(&q.image,kind,&image))q.image=image;
+    }
+#endif
     CameraCurrentProjection();
     Mtx model;
     PSMTXConcat(IDSystem::m_scrn_mat, u->mat, model);
     float projection[7], viewport[6];
     GXGetProjectionv(projection); GXGetViewportv(viewport);
     for (unsigned i=0; i<4; ++i) {
+#if RE4DC_UI_QUAD_LEAN
+        float x,y;
+        ui_project_xy(u->vtx[i].x, u->vtx[i].y, u->vtx[i].z, model, projection, viewport, &x, &y);
+#if RE4DC_UI_QUAD_LEAN >= 2
+        {float cx,cy,cz;
+         GXProject(u->vtx[i].x, u->vtx[i].y, u->vtx[i].z, model, projection, viewport, &cx, &cy, &cz);
+         uql_check(x, y, cx, cy, projection);}
+#endif
+#else
         float x,y,z;
         GXProject(u->vtx[i].x, u->vtx[i].y, u->vtx[i].z, model,
                   projection, viewport, &x, &y, &z);
+#endif
         q.xy[2*i] = x * 640.0f / viewport[2];
         q.xy[2*i+1] = y * 480.0f / viewport[3];
     }
+#if RE4DC_UI_QUAD_LEAN >= 2
+    if ((++uql_quads & 2047) == 0)
+        re4dc_log("UQL xy quads=%u corners=%u perspective=%u mismatch=%u\n", uql_quads, uql_corners, uql_persp, uql_mismatch);
+#endif
     const float uv[8]={u->u0,u->v0,u->u1,u->v0,u->u1,u->v1,u->u0,u->v1};
     for(unsigned i=0;i<8;++i) q.uv[i]=uv[i];
     q.color=((unsigned)(u8)u->col[3]<<24)|((unsigned)(u8)u->col[0]<<16)|
@@ -551,3 +619,7 @@ extern "C" void* re4dc_static_alloc(unsigned bytes){
 extern "C" void re4dc_static_free(void* data){room_free4(data,"native static package");}
 #endif
 
+
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+#include "manual_pages_bridge.inc"
+#endif

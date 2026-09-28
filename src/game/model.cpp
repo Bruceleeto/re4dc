@@ -4,6 +4,9 @@
 // info, light info and draw parameters used by every character/object. Also: pointer relocation
 // of model/TPL files (calcModelAddr / calcTplAddr and their inverses), bounding boxes, the parts
 // and model-info managers (PartsMgr, ModInfoMgr), and the debug skeleton display.
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+#include "actor_lifetime.h"
+#endif
 #include "atari.h"
 #include "model.h"
 #include "motion.h"
@@ -94,7 +97,7 @@ extern "C" void re4dc_model_assets_changed();
     }
 
 // A relocated pointer into main memory.
-#define PTR_OK(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define PTR_OK(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 extern "C" {
 void OSReport(const char* fmt, ...);
@@ -158,6 +161,10 @@ static inline void U8Set(u8& d, u8 v)
 // alpha_omit 0xFF.
 cModel::cModel()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     AtariInfoConstruct(&atari);
     LightAreaInit(&litArea);
     alpha_omit = 0xFF;
@@ -290,6 +297,10 @@ void cModel::releaseJoint()
 // world matrices at the model position; initialises world_old.
 void cModel::setPartsOffset(void* bin)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cParts* p = pList;
     ModelDataHead* rec;
     Vec pos;
@@ -1238,6 +1249,10 @@ void cModel::debugSkeletonDisp()
 // Appends a model info (extra parts model: weapon, head, clothes) to the model's chain.
 void cModel::addModel(cModelInfo* info)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cModelInfo* p;
 
     if (pModelInfo == NULL) {
@@ -1304,6 +1319,10 @@ void cModel::drawAllBoundingBox(cModelInfo* info)
 // New model info: white colour, identity matrix, visible, opaque.
 cModelInfo::cModelInfo() : cUnit(1)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_info_retire(this);
+#endif
+
     static u32 col = 0xFFFFFFFF;
 
     colorWord = U32Get(col);
@@ -1315,8 +1334,16 @@ cModelInfo::cModelInfo() : cUnit(1)
 // Sets (and relocates) the texture palette.
 void cModelInfo::setTplAddr(void* tpl)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_info_retire(this);
+#endif
+
     tpl_addr = tpl;
     calcTplAddr((TEXPalette*) tpl);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_info_adopt(this);
+#endif
+
 }
 
 // Sets an additional texture palette (nAddTex textures appended to the model's texture indices).
@@ -1408,6 +1435,10 @@ static void AddShadowModel(int em, int sh)
 // Removes (and destroys) the model info whose data is `data` from the chain; 0 when absent.
 int cModel::deleteModelData(ModelData* data)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cModelInfo* prev = NULL;
     cModelInfo* info = pModelInfo;
 
@@ -1431,6 +1462,10 @@ int cModel::deleteModelData(ModelData* data)
 // Removes and destroys a model info from the chain; 0 when absent.
 int cModel::deleteModelInfo(cModelInfo* target)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cModelInfo* prev = NULL;
     cModelInfo* info = pModelInfo;
 
@@ -1531,6 +1566,10 @@ void calcModelAddr(ModelData* d)
 // Inverse of calcModelAddr: pointers back to offsets (before the file is moved or saved).
 void calcModelOffset(ModelData* d)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_data_move(d);
+#endif
+
     u8* base = (u8*) d;
 
     if ((int) d->pClr >= 0) {
@@ -1556,6 +1595,10 @@ void calcModelOffset(ModelData* d)
 // The bin moved by `ofs` bytes (block.cpp compaction): shift its pointers.
 void slideModelAddr(u32 addr, int ofs)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_data_move((void*)addr);
+#endif
+
     ModelData* d = (ModelData*) addr;
 
     if ((int) d->pClr >= 0) {
@@ -1604,6 +1647,10 @@ void calcTplAddr(TEXPalette* tpl)
 // Inverse of calcTplAddr.
 void calcTplOffset(TEXPalette* tpl)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_data_move(tpl);
+#endif
+
     u32 i;
 
     if ((int) tpl->descriptorArray >= 0) {
@@ -1624,6 +1671,10 @@ void calcTplOffset(TEXPalette* tpl)
 // Shifts a relocated TPL's pointers by ofs.
 void slideTplAddr(void* p, int ofs)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_data_move(p);
+#endif
+
     TEXPalette* tpl = (TEXPalette*) p;
     u32 i;
 
@@ -1642,6 +1693,10 @@ void slideTplAddr(void* p, int ofs)
 // Destroys every model info of the chain.
 void cModel::releaseModelInfo()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cModelInfo* info = pModelInfo;
 
     while (info) {
@@ -1686,6 +1741,10 @@ int cModel::makePartsList(int n)
 // Binds the motion blend table and flip table of a version 0x20030818 model file to the MotionWork.
 void cModel::setJointInfo(void* bin)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     ModelData* d = (ModelData*) bin;
 
     if (d->version == 0x20030818) {
@@ -1708,6 +1767,10 @@ void cModel::setJointInfo(void* bin)
 // Frees the parts from index `no` to the end (0 = all, clearing pParts/nParts).
 void cModel::releasePartsList(int no)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_model_changed(this);
+#endif
+
     cParts* p;
     cParts* prev;
 
@@ -1951,6 +2014,10 @@ cModelInfo* cModInfoMgr::create(void* bin, void* tpl)
             info->be_flag |= 2;
         }
         getBoundingBox(info->pData, &info->bound);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        re4dc_actor_info_adopt(info);
+#endif
+
 #if defined(RE4DC_GAME) && !defined(__PPC__)
         re4dc_model_assets_changed();
 #endif

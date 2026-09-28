@@ -129,7 +129,7 @@ OtData* MakeOtData(void* data)
 {
     OtPrim* p = (OtPrim*) GetPrimBuff(sizeof(OtPrim));
 
-    if ((u32) p < 0x80000000 || (u32) p > 0x82FFFFFF) {
+    if ((u32) p < RE4_MEM_LO || (u32) p > RE4_MEM_HI) {
         return 0;
     }
     p->data = data;

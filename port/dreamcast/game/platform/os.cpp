@@ -153,6 +153,41 @@ static OSThread* threadOf(kthread_t* kt)
 }
 
 // The current thread leaves the CPU until its suspend count is zero.
+
+// KOS ages runnable threads: thd_calc_prio halves a thread's priority number
+// for every 2^thd_ageing_ms_log2 ms (128 ms at HZ 100) since it was last
+// scheduled in, so a thread parked for a while outranks everything the moment
+// it becomes ready and the next tick pre-empts the game task mid-frame (the
+// task then sleeps on pCTask after the scheduler reset it: the title.dat
+// stall). The GameCube rules are strict priorities, so the age of a thread is
+// reset whenever it becomes ready and every vblank while it waits its turn.
+static void freshen(kthread_t* kt)
+{
+    if (kt != NULL) {
+        kt->cpu_time.scheduled = timer_ms_gettime64();
+    }
+}
+
+static void freshenReady(void)
+{
+    for (int i = 0; i < g_threadCount; i++) {
+        kthread_t* kt = g_threads[i]->kt;
+        if (kt != NULL && kt->state == STATE_READY) {
+            freshen(kt);
+        }
+    }
+    if (g_mainThread.kt != NULL && g_mainThread.kt->state == STATE_READY) {
+        freshen(g_mainThread.kt);
+    }
+}
+
+extern "C" void re4dc_threads_freshen(void)
+{
+    int old = irq_disable();
+    freshenReady();
+    irq_restore(old);
+}
+
 static void parkSelf(OSThread* t)
 {
     int old = irq_disable();
@@ -202,6 +237,7 @@ static int unpark(OSThread* t)
     kt->wait_obj = NULL;
     kt->wait_msg = NULL;
     kt->state = STATE_READY;
+    freshen(kt);
     thd_add_to_runnable(kt, false);
     t->state = OS_THREAD_STATE_READY;
     if (irq_inside_int()) {
@@ -483,7 +519,10 @@ static void afterWake(void)
 
 void OSWakeupThread(OSThreadQueue* queue)
 {
+    int old = irq_disable();
     genwait_wake_all(queue);
+    freshenReady();
+    irq_restore(old);
     afterWake();
 }
 
@@ -690,9 +729,12 @@ void OSInitAlarm(void) {}
 // Boot diagnostics: where every game thread is parked (saved PC of each KOS
 // thread, and the interrupted PC for the running one); called from the
 // vblank handler while the boot is being traced.
+extern "C" void re4dc_task_dump(void) __attribute__((weak));  // game-side task table (scheduler.cpp)
+
 void re4dc_threads_dump(void)
 {
     irq_context_t* cur = irq_get_context();
+    if (re4dc_task_dump) re4dc_task_dump();
     re4dc_log("threads: running %s pc=%08lx pr=%08lx\n", thd_current ? thd_current->label : "?",
               cur ? (unsigned long) cur->pc : 0ul, cur ? (unsigned long) cur->pr : 0ul);
     for (int i = 0; i < g_threadCount; i++) {
@@ -700,8 +742,9 @@ void re4dc_threads_dump(void)
         if (t->kt == NULL) {
             continue;
         }
-        re4dc_log("  thread %d kos-state %d os-state %d suspend %ld gate %ld pc=%08lx pr=%08lx\n", i,
-                  (int) t->kt->state, (int) t->state, (long) t->suspend, (long) t->gateCount,
+        re4dc_log("  thread %d os %p tid %d kos-state %d wait %s%p os-state %d suspend %ld pc=%08lx pr=%08lx\n", i,
+                  (void*) t, (int) t->kt->tid, (int) t->kt->state,
+                  t->kt->wait_obj == &g_gate ? "gate " : "", t->kt->wait_obj, (int) t->state, (long) t->suspend,
                   (unsigned long) t->kt->context.pc, (unsigned long) t->kt->context.pr);
         // Return addresses left on the thread's stack (no frame pointers: a
         // scan for text addresses between the saved SP and the stack top).

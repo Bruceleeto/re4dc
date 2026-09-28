@@ -1,3 +1,9 @@
+#ifndef RE4DC_PS2_WORLD_DRAW
+#define RE4DC_PS2_WORLD_DRAW 0
+#endif
+#if RE4DC_PS2_WORLD_DRAW
+#include "include/native_ps2_world.h"
+#endif
 // Recovered scroll objects -> D349 native static room packages (v4 AoS20).
 //
 // The source still decides everything about an object: setObj creates and
@@ -934,10 +940,22 @@ void light_part(MeshView& v,const re4dc::room::MeshRecord& mesh,re4dc::room::Mes
                 const float z=mesh.origin[2]+float(corner.z)*mesh.step[2];
                 float n[3];oct_normal(corner.color&0xfffU,n);
                 const float* nm=p.lighting->normal_matrix;
+#if RE4DC_GROUND_LIGHT_FIX&1
+                // GROUND_LIGHT_FIX bit 1: light with the transformed normal at unit length, as GX does (Dolphin's
+                // vertex shader normalises it). The source normal matrix carries the placement scale: r101's
+                // ground layers are placed at scale 10, so their normals came out 0.1 long (ambient-only ground).
+                float t[3]={nm[0]*n[0]+nm[1]*n[1]+nm[2]*n[2],nm[4]*n[0]+nm[5]*n[1]+nm[6]*n[2],nm[8]*n[0]+nm[9]*n[1]+nm[10]*n[2]};
+                const float t2=t[0]*t[0]+t[1]*t[1]+t[2]*t[2];
+                if(t2>0.0f){const float r=1.0f/std::sqrt(t2);t[0]*=r;t[1]*=r;t[2]*=r;}
+                re4dc::render::evaluate_prepared_source_lighting(
+                    m[0]*x+m[1]*y+m[2]*z+m[3],m[4]*x+m[5]*y+m[6]*z+m[7],m[8]*x+m[9]*y+m[10]*z+m[11],
+                    t[0],t[1],t[2],*p.lighting,lights,color,rgb);
+#else
                 re4dc::render::evaluate_prepared_source_lighting(
                     m[0]*x+m[1]*y+m[2]*z+m[3],m[4]*x+m[5]*y+m[6]*z+m[7],m[8]*x+m[9]*y+m[10]*z+m[11],
                     nm[0]*n[0]+nm[1]*n[1]+nm[2]*n[2],nm[4]*n[0]+nm[5]*n[1]+nm[6]*n[2],nm[8]*n[0]+nm[9]*n[1]+nm[10]*n[2],
                     *p.lighting,lights,color,rgb);
+#endif
             }
             corner.color=pack1555(rgb,color[3]);
         }
@@ -1178,6 +1196,9 @@ extern "C" void re4dc_static_bind(const void* object,unsigned room,int block,uns
 }
 
 extern "C" void re4dc_static_retire_owner(int block){
+#if RE4DC_PS2_WORLD_DRAW
+    if(block==-1)re4dc_ps2_world_retire();
+#endif
     const unsigned index=view_index(block);
     if(index<kViews && views[index].attempted)retire(views[index]);
 #if RE4DC_NATIVE_MESH
@@ -1185,6 +1206,9 @@ extern "C" void re4dc_static_retire_owner(int block){
 #endif
 }
 extern "C" void re4dc_static_retire_all(){
+#if RE4DC_PS2_WORLD_DRAW
+    re4dc_ps2_world_retire();
+#endif
     for(auto& v:views)if(v.attempted)retire(v);
 #if RE4DC_NATIVE_MESH
     for(auto& v:mesh_views)if(v.attempted)retire(v);

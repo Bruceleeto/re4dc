@@ -310,6 +310,12 @@ static void overlay_load(u32 lo, u32 limit, unsigned* reloc_us)
 }
 #endif
 
+#if RE4DC_SS_UI_ORDER
+// Same owner that fences/saves/restores the area. The model/UI compositor borrows
+// its current frame state only; no second subscreen lifetime or state cache.
+extern "C" int re4dc_ss_ui_order() { return swapped ? 1 : 0; }
+#endif
+
 // SubScreenAramRead replacement (game start): the area layout, from the disc file sizes.
 extern "C" void re4dc_subscreen_aram_init(SubScreenWork* wk)
 {

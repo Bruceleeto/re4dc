@@ -46,6 +46,8 @@ void* re4dc_gx_fifo(void);
 // emulator; re4dc_stage is the last platform stage reached.
 void re4dc_log(const char* fmt, ...);
 void re4dc_watch_set(const void* addr, unsigned long words);
+// Game-side state report for the scripted input fixture (b < 0: one value).
+void re4dc_fixture_state(const char* name, int a, int b);
 extern int re4dc_diag;  // heavy periodic diagnostics (thread dumps) on
 extern unsigned char re4dc_dvd_buff[0x20000];  // DVD read staging area (GameCube 0x80350000)
 void re4dc_set_stage(unsigned long stage);

@@ -33,6 +33,7 @@
 #if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
 #include "esp.h"
 #include "espgen.h"
+#include "logic_trace_effects.h"
 extern EspgenWork* EspgenArray;   // espgen.cpp
 extern u32 nEspgen;
 #endif
@@ -231,23 +232,14 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     re4dc_log("LU t=%u n=%u e=%u es=%08x ef=%08x em=%08x o=%u os=%08x of=%08x om=%08x c=%08x\n",
               (unsigned) pG->Frame_cnt, samples, ne, es.h, ef.h, em.h, no, os.h, of.h, om.h, cam.h);
 #if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
-    // Effect behaviour (every live esp slot and effect generator): the scalar fields, without the
-    // owner / model / parent pointers, the vptr, the derived work and m_Mat (built by the draw).
-    Fnv ep, eg;
+    // Effect schema 2: ep contains discrete state, epf contains float bits.
+    // Typed field access fixes GCC's cEsp vptr layout (m_Be_flg is at 0x10).
+    Fnv ep, epf, eg;
     unsigned nep = 0, neg = 0;
     if (g_pEspSys && g_pEspSys->pEspBuf) {
         for (u32 i = 0; i < g_pEspSys->nEsp; i++) {
-            const unsigned char* b = g_pEspSys->pEspBuf + i * 0x150;
-            if (!(b[0x0C] & 1)) {
-                continue;
-            }
-            ep.word(i);
-            ep.words(b + 0x00, 8);             // Core_flg, kind, owner, Call_no
-            ep.words(b + 0x0C, 0x10);          // Be_flg .. Tool_flg
-            ep.words(b + 0x20, 4);             // Guid of the attached model
-            ep.words(b + 0x28, 0xBC - 0x28);   // Parts_no .. Radius
-            ep.words(b + 0xEC, 8);             // shimmer / mask animation
-            nep++;
+            const cEsp* e = reinterpret_cast<const cEsp*>(g_pEspSys->pEspBuf + i * 0x150);
+            if (re4dc_trace_effect(ep, epf, i, *e)) ++nep;
         }
     }
     for (u32 i = 0; EspgenArray && i < nEspgen; i++) {
@@ -261,9 +253,9 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
         neg++;
     }
     re4dc_log("LX t=%u n=%u ec=%08x/%u sl=%08x/%u sa=%08x/%u dm=%08x/%u lq=%08x/%u lp=%08x sq=%08x/%u "
-              "ep=%08x/%u eg=%08x/%u\n",
+              "ep=%08x/%u eg=%08x/%u epf=%08x ev=2\n",
               (unsigned) pG->Frame_cnt, samples, g_dt[0].h, g_dtn[0], g_dt[1].h, g_dtn[1], g_dt[2].h, g_dtn[2],
-              g_dt[3].h, g_dtn[3], g_dt[4].h, g_dtn[4], g_dt[5].h, g_dt[6].h, g_dtn[6], ep.h, nep, eg.h, neg);
+              g_dt[3].h, g_dtn[3], g_dt[4].h, g_dtn[4], g_dt[5].h, g_dt[6].h, g_dtn[6], ep.h, nep, eg.h, neg, epf.h);
     for (int k = 0; k < 8; ++k) {
         g_dt[k] = Fnv();
         g_dtn[k] = 0;

@@ -597,7 +597,7 @@ static void edit_name()
     name = pWork->nameTbl[pWork->top + pWork->row];
     // exits by goto: a `break` would let expand_end_loop rotate the range test to the bottom
     while (1) {
-        if ((u32) name >= 0x80000000 && (u32) name <= 0x82FFFFFF) {
+        if ((u32) name >= RE4_MEM_LO && (u32) name <= RE4_MEM_HI) {
             if (i >= 0) {
                 eprintf(0x68, y, 0, 0, "%s", name);
             }
@@ -955,7 +955,7 @@ static void edit_litmask()
         pWork->sub2 = 1;
     }
     eprintf(0x40, 0x8C, 4, 0, "MODEL PROPATY");
-    if ((u32) LightMgr.getWorkPtr(pWork->id) >= 0x80000000 && (u32) LightMgr.getWorkPtr(pWork->id) <= 0x82FFFFFF &&
+    if ((u32) LightMgr.getWorkPtr(pWork->id) >= RE4_MEM_LO && (u32) LightMgr.getWorkPtr(pWork->id) <= RE4_MEM_HI &&
         (LightMgr.getWorkPtr(pWork->id)->be_flag & 1)) {
         eprintf(0x40, 0x9A, 0, 0, "LIGHT-%02d %s", pWork->id,
                 (obj->LightInfo.SelectMask & (1 << pWork->id)) ? "ENABLE" : "DISABLE");
@@ -1896,7 +1896,7 @@ static void printEditTable()
             // outranks `no+1` (10 refs/144) for r25. The codeless insn restores the count (39 vs 145).
             asm volatile("");
             n = pWork->nameTbl[no];
-            if ((u32) n >= 0x80000000 && (u32) n <= 0x82FFFFFF) {
+            if ((u32) n >= RE4_MEM_LO && (u32) n <= RE4_MEM_HI) {
                 strncpy(name, n, 7);
             }
             name[7] = 0;

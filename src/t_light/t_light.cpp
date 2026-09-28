@@ -26,7 +26,7 @@ void ToolLight()
     TutilInitDefault();
     tool = new cLightTool;
     Block.dispAllBlock(1);
-    if ((u32) tool >= 0x80000000 && (u32) tool <= 0x82FFFFFF) {
+    if ((u32) tool >= RE4_MEM_LO && (u32) tool <= RE4_MEM_HI) {
         int ret;
 
         TOOL_FLAG(OFS_DEBUG_FLG) |= 0x20000000;

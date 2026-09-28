@@ -1,0 +1,51 @@
+// Include exactly once in coarse_actor.cpp under ACTOR_TRANSACTION.
+// Asset bytes are checked on their first admission, before any native header.
+// Later checks compare their complete immutable descriptors. Source archive
+// lifetime and live material checks remain separate and mandatory.
+#include "coarse_actor_geometry_once.h"
+namespace {
+struct ActorImmutableChunk {
+    re4dc_source::ChunkInput input{};
+    re4dc_source::ChunkProof proof{};
+    re4dc_source::BlobError error{};
+    unsigned state=0; // 0 unseen, 1 validating, 2 terminal (pass OR failure)
+};
+constexpr unsigned kActorImmutableChunks=46;
+ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks];
+
+bool actor_same_span(const re4dc_source::ByteSpan& a,
+                     const re4dc_source::ByteSpan& b) {
+    return a.data==b.data && a.size==b.size;
+}
+bool actor_same_chunk(const re4dc_source::ChunkInput& a,
+                      const re4dc_source::ChunkInput& b) {
+    // Do not memcmp a structure: padding is not an identity field.
+    return actor_same_span(a.positions,b.positions) &&
+        actor_same_span(a.normals,b.normals) && actor_same_span(a.uv,b.uv) &&
+        actor_same_span(a.stream,b.stream) && actor_same_span(a.weights,b.weights) &&
+        a.position_count==b.position_count && a.normal_count==b.normal_count &&
+        a.palette_count==b.palette_count && a.triangles==b.triangles && a.bones==b.bones;
+}
+}
+
+extern "C" re4dc_source::BlobError re4dc_actor_immutable_chunk_proof(
+    unsigned asset_id,const re4dc_source::ChunkInput& input,
+    re4dc_source::ChunkProof& output) {
+    using re4dc_source::BlobError;
+    output={};
+    if(!asset_id || asset_id>kActorImmutableChunks)return BlobError::Array;
+    auto& entry=actor_immutable_chunks[asset_id-1];
+    if(entry.state==0) {
+        // There are no callbacks or threads in preflight_chunk. The in-progress
+        // state nevertheless refuses re-entry rather than exposing an empty proof.
+        entry.state=1;
+        entry.input=input;
+        entry.error=re4dc_source::preflight_chunk(input,entry.proof);
+        entry.state=2;
+    }
+    // An ID cannot be rebound, including after a failed first qualification.
+    // New compile-time asset variants require their own ID/table revision.
+    if(entry.state!=2 || !actor_same_chunk(entry.input,input))return BlobError::Array;
+    if(entry.error==BlobError::None)output=entry.proof;
+    return entry.error;
+}

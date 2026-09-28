@@ -17,6 +17,7 @@ static int g_black = 1;
 
 extern "C" void re4dc_audio_frame(void);
 extern "C" void re4dc_threads_dump(void);
+extern "C" void re4dc_threads_freshen(void);
 extern int re4dc_diag;
 
 extern "C" volatile unsigned long re4dc_stage;
@@ -103,6 +104,7 @@ static void stallReport(unsigned long stage)
 static void vblankHandler(uint32_t code, void* data)
 {
     watchPoll();
+    re4dc_threads_freshen();
     (void) code;
     (void) data;
     unsigned long prev = re4dc_stage;

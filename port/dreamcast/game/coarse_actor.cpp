@@ -14,6 +14,9 @@ extern "C" void re4dc_log(const char*, ...);
 extern "C" void GXGetProjectionv(float*);
 extern "C" void GXGetViewportv(float*);
 extern "C" void re4dc_bind_actor_frame();
+#if RE4DC_ACTOR_TRANSACTION
+extern "C" int re4dc_actor_hair_texture_key(const Re4dcUiImage*,unsigned*,unsigned*);
+#endif
 extern "C" int re4dc_coarse_leon_texture_ready(const Re4dcUiImage*,unsigned,unsigned);
 
 #if RE4DC_COARSE_GANADO
@@ -122,6 +125,9 @@ extern "C" int re4dc_coarse_actor_source(const void* info,Re4dcActorSource* out)
     return 0;
 }
 extern "C" int re4dc_coarse_actor_texture_key(const Re4dcUiImage* i,unsigned* c,unsigned* f) {
+#if RE4DC_ACTOR_TRANSACTION
+    if(re4dc_actor_hair_texture_key(i,c,f))return 1;
+#endif
 #if RE4DC_COARSE_GANADO
     if(re4dc_coarse_ganado_texture_key(i,c,f))return 1;
 #endif
@@ -270,3 +276,5 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
         pG->Frame_cnt,drawn,triangles,mask,fallback,rejected,missing_texture);
     return 1;
 }
+
+#include "coarse_actor_owner_leon.inc"

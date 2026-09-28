@@ -561,7 +561,11 @@ static inline void EmRoutineSet(cEm* em, int r0, int r1, int r2, int r3)
     em->r_no_3 = r3;
 }
 
+#if defined(__PPC__)
 #define G_ROOM_ID32 (*(u32*) &pG->stage_no)
+#else
+#define G_ROOM_ID32 (pG->room_id32)
+#endif
 
 // Struct-member view of pSys (global.h pGS): its load stays below a preceding store (em10_R1_C_SawHit).
 struct SystemWorkPtr {

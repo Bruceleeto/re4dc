@@ -6,8 +6,11 @@
 #include <dc/maple/controller.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "re4dc_platform.h"
+#include "re4dc_pad_prompts.h"
+#include "re4dc_manual_pages.h"
 #if RE4DC_VMU_DEBUG_SLOT
 extern "C" unsigned re4dc_dbgslot_pad(unsigned buttons);  // dbgslot_bridge.cpp
 #endif
@@ -218,16 +221,67 @@ static u16 re4dcBlockDebugChords(u16 b, int dbg, Re4dcPadMap* m)
 }
 
 
-// Scripted input fixture: /cd/dc/padscript.txt lists "frame buttons hold"
-// lines (retrace count at which the press starts, GameCube PAD_* button bits
-// in hex, frames held). PADRead ORs a running entry into port 0, so a boot
-// through the card check / title screens is reproducible without a player.
-struct PadScriptEntry { u32 frame; u16 buttons; u16 hold; };
+// Scripted input fixture: /cd/dc/padscript.txt lists
+//   frame buttons hold [state=value [timeout]]
+// per line: the retrace count at which the press becomes due ("+N" = N frames
+// after the previous delivered press), GameCube PAD_* button bits in hex,
+// frames held, and optionally the game state the press is meant for. A
+// qualified press is delivered at the first due frame at which the named
+// state holds and is dropped (logged) once `timeout` frames (default 600)
+// pass without it, so the script never pushes a button into the wrong
+// screen. Game code reports its states through re4dc_fixture_state (card
+// screen, title state); every transition and every delivered or dropped
+// press is logged with its frame, separately from real controller input.
+// An optional first directive "clock source" uses pG->Frame_cnt for due/hold/
+// timeout scheduling. Absolute entries then align boot fixtures across renderer
+// variants without changing the game's counter, tasks or state. State-transition
+// logs still report retraces; the script load explicitly labels its own clock.
+// /cd/dc/diag.txt switches on the heavy periodic diagnostics (thread dumps).
+struct PadScriptEntry { u32 frame; u16 buttons; u16 hold; int relative; char state[16]; int value_a, value_b; u32 timeout; int done; };
 static PadScriptEntry g_script[64];
 static int g_scriptCount = -1;  // -1: not loaded yet
+static u32 g_lastDelivered;
+static bool g_scriptSourceClock; // opt-in fixture clock; never modifies source time
+static int g_scriptActive = -1;   // entry currently held down
+
+struct FixtureState { char name[16]; int a, b; };
+static FixtureState g_states[8];
+static int g_stateCount;
 int re4dc_diag;
 
 extern "C" u32 re4dc_vi_retrace_count(void);
+extern "C" unsigned re4dc_fixture_source_frame(void);
+
+extern "C" void re4dc_fixture_state(const char* name, int a, int b)
+{
+    int i;
+    for (i = 0; i < g_stateCount; i++) {
+        if (strcmp(g_states[i].name, name) == 0) break;
+    }
+    if (i == g_stateCount) {
+        if (g_stateCount >= 8) return;
+        g_stateCount++;
+        strncpy(g_states[i].name, name, 15);
+        g_states[i].a = -1;
+        g_states[i].b = -1;
+    }
+    if (g_states[i].a == a && g_states[i].b == b) return;
+    g_states[i].a = a;
+    g_states[i].b = b;
+    if (b >= 0) re4dc_log("fixture: state %s=%d/%d at frame %lu" "\n", name, a, b, (unsigned long) re4dc_vi_retrace_count());
+    else re4dc_log("fixture: state %s=%d at frame %lu" "\n", name, a, (unsigned long) re4dc_vi_retrace_count());
+}
+
+static int stateHolds(const PadScriptEntry* e)
+{
+    if (!e->state[0]) return 1;
+    for (int i = 0; i < g_stateCount; i++) {
+        if (strcmp(g_states[i].name, e->state) == 0) {
+            return g_states[i].a == e->value_a && (e->value_b < 0 || g_states[i].b == e->value_b);
+        }
+    }
+    return 0;
+}
 
 static void loadScript(void)
 {
@@ -240,7 +294,7 @@ static void loadScript(void)
     }
     file_t f = fs_open("/cd/dc/padscript.txt", O_RDONLY);
     if (f < 0) return;
-    static char text[2048];
+    static char text[4096];
     ssize_t n = fs_read(f, text, sizeof(text) - 1);
     fs_close(f);
     if (n <= 0) return;
@@ -249,30 +303,76 @@ static void loadScript(void)
     while (line && *line && g_scriptCount < 64) {
         char* next = strchr(line, '\n');
         if (next) *next++ = 0;
-        unsigned frame, buttons, hold;
-        if (*line != '#' && sscanf(line, "%u %x %u", &frame, &buttons, &hold) == 3) {
-            g_script[g_scriptCount].frame = frame;
-            g_script[g_scriptCount].buttons = (u16) buttons;
-            g_script[g_scriptCount].hold = (u16) hold;
-            g_scriptCount++;
+        while (*line == ' ' || *line == '\t') line++;
+        char* hash = strchr(line, '#');
+        if (hash) *hash = 0;
+        char* end = line + strlen(line);
+        while (end > line && (end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t')) *--end = 0;
+        if (strcmp(line, "clock source") == 0 && g_scriptCount == 0) {
+            g_scriptSourceClock = true;
+            line = next;
+            continue;
+        }
+        unsigned frame, buttons, hold, timeout = 600;
+        char state[32] = "";
+        int relative = line[0] == '+';
+        int got = sscanf(line + relative, "%u %x %u %31s %u", &frame, &buttons, &hold, state, &timeout);
+        if (got >= 3) {
+            PadScriptEntry* e = &g_script[g_scriptCount++];
+            memset(e, 0, sizeof(*e));
+            e->frame = frame;
+            e->relative = relative;
+            e->buttons = (u16) buttons;
+            e->hold = (u16) hold;
+            e->timeout = timeout;
+            e->value_a = e->value_b = -1;
+            char* eq = strchr(state, '=');
+            if (got >= 4 && eq) {
+                *eq++ = 0;
+                strncpy(e->state, state, 15);
+                e->value_a = atoi(eq);
+                char* slash = strchr(eq, '/');
+                if (slash) e->value_b = atoi(slash + 1);
+            }
         }
         line = next;
     }
-    re4dc_log("pad: script /cd/dc/padscript.txt: %d entries\n", g_scriptCount);
+    re4dc_log("fixture: /cd/dc/padscript.txt: %d entries, %s clock\n", g_scriptCount, g_scriptSourceClock ? "source" : "retrace");
 }
 
 static u16 scriptButtons(void)
 {
     if (g_scriptCount < 0) loadScript();
-    u32 now = re4dc_vi_retrace_count();
-    u16 b = 0;
-    for (int i = 0; i < g_scriptCount; i++) {
-        if (now >= g_script[i].frame && now < g_script[i].frame + g_script[i].hold) {
-            if (now == g_script[i].frame) re4dc_log("pad: script press %04x at frame %lu\n", g_script[i].buttons, (unsigned long) now);
-            b |= g_script[i].buttons;
-        }
+    u32 now = g_scriptSourceClock ? re4dc_fixture_source_frame() : re4dc_vi_retrace_count();
+    if (g_scriptActive >= 0) {
+        PadScriptEntry* e = &g_script[g_scriptActive];
+        if (now < e->frame + e->hold) return e->buttons;
+        g_scriptActive = -1;
     }
-    return b;
+    // the next pending entry, in file order: a script is a sequence
+    for (int i = 0; i < g_scriptCount; i++) {
+        PadScriptEntry* e = &g_script[i];
+        if (e->done) continue;
+        u32 due = e->relative ? g_lastDelivered + e->frame : e->frame;
+        if (now < due) return 0;
+        if (stateHolds(e)) {
+            e->done = 1;
+            e->frame = now;
+            g_scriptActive = i;
+            g_lastDelivered = now;
+            re4dc_log("fixture: delivered %04x at frame %lu (entry %d%s%s)" "\n", e->buttons, (unsigned long) now, i,
+                      e->state[0] ? " for " : "", e->state);
+            return e->buttons;
+        }
+        if (now >= due + e->timeout) {
+            e->done = 1;
+            re4dc_log("fixture: dropped %04x (entry %d): state %s=%d/%d never held between frames %lu and %lu" "\n",
+                      e->buttons, i, e->state, e->value_a, e->value_b, (unsigned long) due, (unsigned long) now);
+            continue;
+        }
+        return 0;  // waiting for the state, in order
+    }
+    return 0;
 }
 
 extern "C" {
@@ -310,6 +410,24 @@ unsigned re4dc_pad_movie_buttons(void)
 }
 #endif
 
+#if RE4DC_PAD_PROMPTS
+// Set only by the existing real sample, after mapping has made its decision.
+// A C/Z-only pad and a fixture-only port deliberately remain UNKNOWN.
+static unsigned prompt_kind[4], prompt_context[4];
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+static unsigned manual_standard[4];
+extern "C" unsigned re4dc_pad_manual_standard(unsigned index){
+    return index<4 ? manual_standard[index] : 0;
+}
+#endif
+unsigned re4dc_pad_prompt_kind(unsigned index, int live_zoom)
+{
+    if(index>=4 || (live_zoom && prompt_context[index]!=RE4DC_PAD_CTX_ZOOM))
+        return RE4DC_PROMPT_UNKNOWN;
+    return prompt_kind[index];
+}
+#endif
+
 u32 PADRead(PADStatus* status)
 {
     // The sound driver's audio-frame callback (audio_stub.cpp): once per game
@@ -326,6 +444,15 @@ u32 PADRead(PADStatus* status)
         maple_device_t* dev = maple_enum_type(i, MAPLE_FUNC_CONTROLLER);
         const cont_state_t* st = dev ? (const cont_state_t*) maple_dev_status(dev) : NULL;
         static const cont_state_t idle = {};
+#if RE4DC_PAD_PROMPTS
+        const int prompt_real = dev && st;
+        // Clear before every poll, including absence and failed status reads.
+        prompt_kind[i]=RE4DC_PROMPT_UNKNOWN;
+        prompt_context[i]=RE4DC_PAD_CTX_NATIVE;
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+        manual_standard[i]=0;
+#endif
+#endif
         if (dev != lastDev[i]) {  // plugged / unplugged / swapped: classify the pad again
             lastDev[i] = dev;
             memset(&maps[i], 0, sizeof(maps[i]));
@@ -346,17 +473,33 @@ u32 PADRead(PADStatus* status)
         PADStatus mapped;
         u8 wasDual = maps[i].dual;
         re4dcMapPad(&in, i == 0 ? ctx0 : RE4DC_PAD_CTX_NATIVE, capsDual, &maps[i], &mapped);
+#if RE4DC_PAD_PROMPTS
+        if(prompt_real) {
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+            // Exact full standard capabilities, not merely D-pad presence.
+            // Fixture-only, unknown, failed reads and dual mappings stay false.
+            manual_standard[i]=!maps[i].dual && cont_is_type(dev,CONT_TYPE_STANDARD_CONTROLLER)==1;
+#endif
+            prompt_context[i]=i==0 ? ctx0 : RE4DC_PAD_CTX_NATIVE;
+            // These inspect the already enumerated device metadata, not a new
+            // input poll. Exact ==1 excludes the API's invalid-device -1.
+            if(!maps[i].dual && cont_has_capabilities(dev,CONT_CAPABILITIES_DPAD)==1)
+                prompt_kind[i]=RE4DC_PROMPT_DPAD;
+            else if(maps[i].dual && cont_has_capabilities(dev,CONT_CAPABILITIES_SECONDARY_ANALOG)==1)
+                prompt_kind[i]=RE4DC_PROMPT_SECOND_ANALOG;
+        }
+#endif
         if (maps[i].dual != wasDual) re4dc_log("pad %d: dual-analog mapping (C-stick = joy2, Z = C/Z)\n", i);
         u16 b = mapped.button;
         if (st->buttons & CONT_Z) b |= PAD_TRIGGER_Z;
-        b |= scripted;
         {
             static u16 lastLogged[4];
             if (b != lastLogged[i]) {
-                re4dc_log("pad %d: buttons %04x\n", i, (unsigned) b);
+                re4dc_log("pad %d: real buttons %04x\n", i, (unsigned) b);
                 lastLogged[i] = b;
             }
         }
+        b |= scripted;
         p->button = b;
         if (i == 0 && !RE4DC_DEBUG_PAD) {  // debug chords come off the real bits only; fixture bits pass
             u16 real = mapped.button | ((st->buttons & CONT_Z) ? PAD_TRIGGER_Z : 0);

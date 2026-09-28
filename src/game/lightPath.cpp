@@ -5,7 +5,7 @@
 #include "db_log.h"
 
 // pointer to game memory (0x80000000 .. 0x82FFFFFF)
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 // Total byte size of the path block (header, offset table and the last string up to its 0xFF).
 u32 cLightPathHeader::getSize()

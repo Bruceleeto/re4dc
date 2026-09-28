@@ -19,6 +19,10 @@
 #include "eprintf.h"
 #include "tpl.h"
 #include "tv_mode.h"
+#include "re4dc_manual_pages.h"
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+extern "C" int re4dc_draw_manual_pages(GXTexObj*,short,short,short,short,short);
+#endif
 #if !defined(__PPC__)
 #include "re4dc_platform.h"
 #include "native_ui.h"
@@ -128,7 +132,7 @@ struct OSLowMem {
     }
 #endif
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 #line 30 "D:/Bio4/Prog/main_sub.cpp"
 
@@ -568,7 +572,7 @@ void DrawTpl(TEXPalette* tpl, int x, int y, int w, int h)
     CLUTHeader* clut;
     u32 addr = (u32) tpl;
 
-    if (addr < 0x80000000 || addr > 0x82FFFFFF) {
+    if (addr < RE4_MEM_LO || addr > RE4_MEM_HI) {
         return;
     }
     desc = (TEXDescriptor*) (tpl + 1);
@@ -588,7 +592,7 @@ void DrawTpl(TEXPalette* tpl, int x, int y, int w, int h)
         }
     }
     hdr = desc->textureHeader;
-    if ((u32) hdr > 0x82FFFFFF) {
+    if ((u32) hdr > RE4_MEM_HI) {
         return;
     }
     if (hdr->format - 8 <= 1) {
@@ -641,6 +645,9 @@ void DrawTexture(GXTexObj* obj, s16 x, s16 y, s16 z, s16 w, s16 h)
     GXSetVtxDesc(13, 1);
     GXSetVtxAttrFmt(0, 9, 1, 3, 0);
     GXSetVtxAttrFmt(0, 13, 1, 4, 0);
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+    if(re4dc_draw_manual_pages(obj,x,y,z,w,h))return;
+#endif
     GXBegin(0x80, 0, 4);
     x2 = x + w;
     y2 = y + h;

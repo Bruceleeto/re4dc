@@ -27,6 +27,11 @@
 //     that palette. Anything that needs pPosBuf/pNrmBuf (the generic path)
 //     first materializes them with the source's own CalcSk1_x.
 #include "native_actor.hpp"
+#if RE4DC_ACTOR_TRANSACTION
+#include "actor_native_owner.h"
+#endif
+
+#include "actor_lifetime.h"
 #ifndef RE4DC_ACTOR_LOG
 #define RE4DC_ACTOR_LOG 0
 #endif
@@ -59,6 +64,11 @@
 // COARSE_ONE_SUBMIT (game30.mk): re4dc_actor_submit_chunks, one TA window per coarse actor (end of file).
 #ifndef RE4DC_COARSE_ONE_SUBMIT
 #define RE4DC_COARSE_ONE_SUBMIT 0
+#endif
+// COARSE_GATE_ONCE (game30.mk; with COARSE_ONE_SUBMIT): the window path's fog gate keeps a chunk on one palette
+// entry's proof (one_chunk, end of file).
+#ifndef RE4DC_COARSE_GATE_ONCE
+#define RE4DC_COARSE_GATE_ONCE 0
 #endif
 
 #ifndef RE4DC_ACTOR_ASM
@@ -1243,6 +1253,11 @@ SkinEntry* find_skin(const void* info, const void* positions) {
     return nullptr;
 }
 
+
+#if RE4DC_ACTOR_TRANSACTION
+#include "include/native_actor_owner_registry.inc"
+#endif
+
 // ---------------------------------------------------------- info context --
 enum Mode : unsigned { kRigid = 0, kSource = 1, kSkin = 2 };
 struct Frame {  // per (info, matrices) per frame
@@ -1281,9 +1296,20 @@ bool same_words(const float* a, const float* b, unsigned n) {
 // (skin matrices, cached per Frame) come from the top; per-submit scratch
 // (a transient conversion) from the bottom and is released by the submit.
 unsigned workspace_top = 0, workspace_end = 0;
+#if RE4DC_ACTOR_TRANSACTION
+#include "include/native_actor_owner_workspace.inc"
+#endif
+
 void* scratch(unsigned bytes) {  // per submit
+#if RE4DC_ACTOR_TRANSACTION
+    if(bytes>UINT32_MAX-31u)return nullptr;
+    bytes=(bytes+31u)&~31u;
+    const unsigned end=workspace_scratch_limit();
+    if(!workspace || workspace_top>end || bytes>end-workspace_top)return nullptr;
+#else
     bytes = (bytes + 31U) & ~31U;
     if (!workspace || workspace_top + bytes > workspace_end) return nullptr;
+#endif
     void* p = workspace + workspace_top; workspace_top += bytes; return p;
 }
 void* frame_table(unsigned bytes) {  // until the next re4dc_actor_frame
@@ -2990,6 +3016,7 @@ BakeUse bake_prepare(Part& e, const Lights& L, const BlobHeader& b, unsigned rs,
             if (prop) { ++stats.bake_scaled; return kBakeScaled; }
         }
     }
+    Re4dcActorStreamMutation mutation(&b,e.p.stream_bytes);
     // Rebake: light every level-0 record into its colour field.
     const auto* table = reinterpret_cast<const MeshletInfo*>(base + sizeof(BlobHeader));
     u16* records = reinterpret_cast<u16*>(base + b.rec4 * 4U);
@@ -3267,7 +3294,13 @@ const BlobHeader* convert(const Re4dcModelPart& p) {
     // In place: built in scratch with the GX list's size as the limit.
     {
         u8* out = static_cast<u8*>(scratch(p.stream_bytes));
-        const unsigned room = (workspace_end - workspace_top) & ~31U;
+        const unsigned room = (
+#if RE4DC_ACTOR_TRANSACTION
+        workspace_scratch_limit()>=workspace_top?workspace_scratch_limit()-workspace_top:0u
+#else
+        workspace_end - workspace_top
+#endif
+        ) & ~31U;
         u8* work = out && room ? static_cast<u8*>(scratch(room)) : nullptr;
         if (!work) { ++stats.workspace_misses; workspace_top = mark; return nullptr; }
         const bool opaque = p.blend == 0;
@@ -3285,6 +3318,7 @@ const BlobHeader* convert(const Re4dcModelPart& p) {
             if (kLodBuild && opaque && lod_budget_frame) out[2] |= kLodPending;  // levels: relod()
             unsigned size = c.bytes();
             if (prelit_candidate(p)) size = add_bake_field(out, size, p.stream_bytes);
+            Re4dcActorStreamMutation mutation(p.stream,p.stream_bytes);
             std::memcpy(const_cast<u8*>(p.stream), out, size);
             ++stats.conversions;
             if (c.level_count()) ++stats.lod_parts;
@@ -3292,10 +3326,22 @@ const BlobHeader* convert(const Re4dcModelPart& p) {
         }
     }
     // Larger than the GX list: a blob for this submit only (released by it).
-    const unsigned room = (workspace_end - workspace_top) & ~31U;
+    const unsigned room = (
+#if RE4DC_ACTOR_TRANSACTION
+        workspace_scratch_limit()>=workspace_top?workspace_scratch_limit()-workspace_top:0u
+#else
+        workspace_end - workspace_top
+#endif
+        ) & ~31U;
     const unsigned want = std::min((p.stream_bytes * 2U + 1024U + 31U) & ~31U, room / 2U);
     u8* out = static_cast<u8*>(scratch(want));
-    const unsigned rest = (workspace_end - workspace_top) & ~31U;
+    const unsigned rest = (
+#if RE4DC_ACTOR_TRANSACTION
+        workspace_scratch_limit()>=workspace_top?workspace_scratch_limit()-workspace_top:0u
+#else
+        workspace_end - workspace_top
+#endif
+        ) & ~31U;
     u8* work = out && rest ? static_cast<u8*>(scratch(rest)) : nullptr;
     if (!work) { ++stats.workspace_misses; workspace_top = mark; return nullptr; }
     Converter c(p, sort, out, want, Arena{work, rest}, false);  // per submit: no LOD, unbaked
@@ -3323,6 +3369,7 @@ void relod(const Re4dcModelPart& p, bool crowd_part) {
         for (unsigned i = 0; i < table[m].n.indices(); ++i) strips += lists[table[m].index + i] >> 7;
     }
     if (triangles >= kLodMinTriangles && !lod_take(triangles)) return;
+    Re4dcActorStreamMutation mutation(p.stream,p.stream_bytes);
     stream[2] &= u8(~kLodPending);
     if (triangles < kLodMinTriangles) return;
     const unsigned stride = (p.flags & 0x80000000U) ? 8U : 6U;
@@ -3331,7 +3378,13 @@ void relod(const Re4dcModelPart& p, bool crowd_part) {
     const unsigned mark = workspace_top;
     u8* gx = static_cast<u8*>(scratch(gx_bytes));
     u8* out = gx ? static_cast<u8*>(scratch(p.stream_bytes)) : nullptr;
-    const unsigned room = (workspace_end - workspace_top) & ~31U;
+    const unsigned room = (
+#if RE4DC_ACTOR_TRANSACTION
+        workspace_scratch_limit()>=workspace_top?workspace_scratch_limit()-workspace_top:0u
+#else
+        workspace_end - workspace_top
+#endif
+        ) & ~31U;
     u8* work = out && room ? static_cast<u8*>(scratch(room)) : nullptr;
     if (!work) { ++stats.workspace_misses; workspace_top = mark; return; }
     u8* w = gx;
@@ -3379,6 +3432,10 @@ void relod(const Re4dcModelPart& p, bool crowd_part) {
 }  // namespace
 
 extern "C" void re4dc_actor_frame(void* memory, unsigned bytes) {
+#if RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_owner_retire(); // before workspace rebinding
+#endif
+
     workspace = static_cast<unsigned char*>(memory);
     workspace_bytes = memory ? bytes & ~31U : 0;
     workspace_top = 0; workspace_end = workspace_bytes;
@@ -3427,11 +3484,29 @@ extern "C" void re4dc_actor_test_lod_ladder(const float* f) {
 
 extern "C" int re4dc_actor_skin_register(unsigned frame, const void* info, const void* position_buffer,
                                          const float* palette, unsigned entries) {
-    if (frame != skin_frame) { skin_frame = frame; skin_count = 0; }
+    if (frame != skin_frame) {
+#if RE4DC_ACTOR_TRANSACTION
+        owned_skin_clear();owned_skin_invalidate_frames();
+#endif
+        skin_frame = frame; skin_count = 0;
+    }
     if (!palette || !entries) return 0;
+#if RE4DC_ACTOR_TRANSACTION
+    for(unsigned i=0;i<skin_count;++i)if(owned_skins[i].serial && owned_skins[i].info==info)return 0;
+#endif
     // Lazy (no arrays): the info's latest Trans() wins, as its pPosBuf would.
     if (!position_buffer)
-        if (SkinEntry* e = find_skin(info, nullptr)) { *e = {info, nullptr, palette, entries, 0}; ++stats.skin_registered; return 1; }
+        if (SkinEntry* e = find_skin(info, nullptr)) {
+#if RE4DC_ACTOR_TRANSACTION
+            if(owned_skins[unsigned(e-skins)].serial)return 0;
+#endif
+            *e = {info, nullptr, palette, entries, 0}; ++stats.skin_registered; return 1;
+        }
+#if RE4DC_ACTOR_TRANSACTION
+    for(unsigned i=0;i<skin_count;++i)if(!skins[i].info && !owned_skins[i].serial){
+        skins[i]={info,position_buffer,palette,entries,0};++stats.skin_registered;return 1;
+    }
+#endif
     if (skin_count == kSkins) return 0;
     skins[skin_count++] = {info, position_buffer, palette, entries, 0};
     ++stats.skin_registered;
@@ -3850,6 +3925,9 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
 #if !RE4DC_ACTOR_DIRECT || RE4DC_ACTOR_UV16 || !RE4DC_NATIVE_ACTOR_SKIN_LAZY || (defined(RE4DC_TA_GUARD) && RE4DC_TA_GUARD)
 #error "COARSE_ONE_SUBMIT needs NATIVE_ACTOR_DIRECT=1 NATIVE_ACTOR_SKIN_LAZY=1 NATIVE_ACTOR_UV16=0 TA_GUARD=0 (a window is one guarded part)"
 #endif
+#if RE4DC_COARSE_GATE_ONCE && (!RE4DC_AVK || !RE4DC_ACTOR_FOG_GATE)
+#error "COARSE_GATE_ONCE needs ACTOR_VTX_KERNEL=1 and ACTOR_FOG_GATE=1 (the kernel's fog gate loop)"
+#endif
 extern "C" void re4dc_log(const char* fmt, ...);
 // native_ui.cpp (COARSE_ONE_SUBMIT): re4dc_model_direct_begin for a part the caller has just reserved.
 extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart*, const Re4dcModelPacket*, Re4dcModelDirect*);
@@ -3876,6 +3954,47 @@ bool one_qualifies(const Re4dcModelPart& p, const SkinEntry*& se, Re4dcActorSour
 
 // The screen rows of the last matrix set (screen_rows is a function of the three matrices' words).
 struct OneScreen { bool valid = false; float modelview[12], projection[7], viewport[6], M[3][4]; };
+
+#if RE4DC_COARSE_GATE_ONCE
+// COARSE_GATE_ONCE: the fog gate's keep proof. The gate loop in one_chunk (re4dc_actor_submit's rev 5 loop) sets
+// T = -max(-3e38, y_k) over the Frame's palette entries k, y_k = entry k's view z (a NaN y_k is skipped), and
+// G = max(0, mz sqrt(S)) >= 0, and culls when T - G (|c| + r) > cull_far. For every entry k whose y_k is not NaN,
+// T <= -y_k; with r >= 0, G (|c| + r) is >= 0 or NaN, so the depth is <= T (IEEE subtraction of a non-negative
+// number rounds to <= T) or NaN, and neither culls. So -y_0 <= cull_far, y_0 being entry 0's z by the loop's own
+// four instructions (the same bits), proves that the loop keeps the chunk, and the loop is skipped. The Frame
+// records T = -y_0 and G = 0: a later submission of the same Frame (same info and matrices, this frame; the same
+// blob and cull depth) decides keep again, as the loop's T and G would make it.
+float gate_entry_z(const float* m, const float* P) {
+    float y;
+    const float* pm = m + 8;
+    const float* pd = P + 9;
+    __asm__(
+        "mov     #4,r0\n\t"
+        "fmov.s  @%[m]+,fr12\n\t"     /* m8 */
+        "fmov.s  @%[m]+,fr13\n\t"     /* m9 */
+        "fmov.s  @%[m]+,fr14\n\t"     /* m10 */
+        "fmov.s  @%[m]+,fr15\n\t"     /* m11 */
+        "fmov.s  @(r0,%[d]),fr4\n\t"  /* P10 */
+        "fmov.s  @%[d]+,fr0\n\t"      /* P9 */
+        "fmul    fr13,fr4\n\t"
+        "fmac    fr0,fr12,fr4\n\t"
+        "fmov.s  @(r0,%[d]),fr0\n\t"  /* P11 */
+        "fmac    fr0,fr14,fr4\n\t"
+        "fadd    fr15,fr4\n\t"         /* y = entry 0's z */
+        "fmov    fr4,%[y]\n"
+        : [m] "+r"(pm), [d] "+r"(pd), [y] "=f"(y)
+        : "m"(*reinterpret_cast<const float(*)[12]>(m)), "m"(*reinterpret_cast<const float(*)[12]>(P))
+        : "r0", "fr0", "fr4", "fr12", "fr13", "fr14", "fr15");
+    return y;
+}
+#if RE4DC_COARSE_GATE_ONCE == 2
+// =2 (check build): the proof is computed and counted, the gate loop still decides (proof_cull: chunks the loop culls
+// that the proof kept, must stay 0).
+struct GateOnceCheck {
+    unsigned proofs, loops, proof_cull, log_frame;
+} gate1_chk{};
+#endif
+#endif
 
 // prepare_frame() for a part one_qualifies() accepted: its kSkin branch with lazy_skin()'s entry and source
 // (re4dc_actor_skin_palette finds the same entry), the same cache search, victim, fields and skin table.
@@ -3976,7 +4095,11 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     const u8* base = reinterpret_cast<const u8*>(blob);
     ++stats.handled;
     if (p.cull == 3) { re4dc_model_result(0, 0, 0); return 1; }
+#if RE4DC_ACTOR_TRANSACTION
+    if (!owned_submission && re4dc_model_defer_part(&p)) { ++stats.deferred; return 1; }
+#else
     if (re4dc_model_defer_part(&p)) { ++stats.deferred; return 1; }
+#endif
 
     Frame& f = one_frame(p, near_distance, far_distance, *se, src, w.screen);
 #if RE4DC_ACTOR_FOG_GATE
@@ -3985,6 +4108,22 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
         const float* m = p.modelview; const float* c = blob->center;
         float depth = -1.0f;  // least view depth (-z) of the part's drawn vertices, if known
         if (f.palette && f.palette_entries) {  // f.mode == kSkin
+#if RE4DC_COARSE_GATE_ONCE
+            // COARSE_GATE_ONCE: entry 0 proves keep (gate_entry_z), or the loop decides.
+            bool proven = false;
+            if (!f.gate_ready && blob->radius >= 0.0f) {
+                const float y0 = gate_entry_z(m, f.palette);
+                proven = -y0 <= cull_far;
+#if RE4DC_COARSE_GATE_ONCE == 1
+                if (proven) { f.gate_ready = true; f.gate_T = -y0; f.gate_G = 0.0f; }
+#else
+                ++(proven ? gate1_chk.proofs : gate1_chk.loops);
+#endif
+            }
+#if RE4DC_COARSE_GATE_ONCE == 1
+            if (!proven) {
+#endif
+#endif
             if (!f.gate_ready) {
                 const float mz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
                 float T = 3.0e38f, G = 0.0f;
@@ -4123,6 +4262,11 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
                 f.gate_ready = true; f.gate_T = T; f.gate_G = G;
             }
             depth = f.gate_T - f.gate_G * (std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) + blob->radius);
+#if RE4DC_COARSE_GATE_ONCE == 1
+            }
+#elif RE4DC_COARSE_GATE_ONCE == 2
+            if (proven && depth > cull_far) ++gate1_chk.proof_cull;  // the loop culls what entry 0 kept: must stay 0
+#endif
         }
         ++fog_gate_tests;
         if (frame_serial - fog_gate_log >= 600U) {
@@ -4364,8 +4508,19 @@ extern "C" unsigned re4dc_actor_submit_chunks(Re4dcModelPart* part, const Re4dcA
                   one_chk.header_mismatch, one_chk.result_mismatch, one_chk.headers);
     }
 #endif
+#if RE4DC_COARSE_GATE_ONCE == 2
+    if (frame_serial - gate1_chk.log_frame >= 120U) {
+        gate1_chk.log_frame = frame_serial;
+        re4dc_log("GATE1CHK frame=%u proofs=%u loops=%u proof_cull=%u\n", frame_serial, gate1_chk.proofs,
+                  gate1_chk.loops, gate1_chk.proof_cull);
+    }
+#endif
     return done;
 }
+
+#if RE4DC_ACTOR_TRANSACTION
+#include "include/native_actor_owner_submit.inc"
+#endif
 #endif
 
 #if defined(RE4DC_ACTOR_TEST)

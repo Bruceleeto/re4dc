@@ -31,6 +31,9 @@
 #include "pl_sub.h"
 #include "eprintf.h"
 #include "title.h"
+#if !defined(__PPC__)
+#include "re4dc_platform.h"
+#endif
 
 extern "C" void OSReport(const char* fmt, ...);
 extern "C" void* memcpy(void* dst, const void* src, unsigned int n);
@@ -76,7 +79,11 @@ static inline u32 omkFlagChk(u32 no)
 }
 
 // stage_prev/room_prev written as one u16 through a plain pointer (aliases pG like G_ROOM_ID).
+#if defined(__PPC__)
 #define G_ROOM_ID_PREV (*(u16*) &pG->stage_prev)
+#else
+#define G_ROOM_ID_PREV (pG->room_id_prev)
+#endif
 
 // Sub-file of the core archive (pG->pArc): `ofs + (u32) arc` (integer arithmetic, ofs first).
 #define G_ARC_PTR(field) ((void*) (pG->pArc->field + (u32) pG->pArc))
@@ -149,6 +156,9 @@ void Title_task()
         }
 #endif
         titleFuncTbl[w->Rno0](w);
+#if !defined(__PPC__)
+        re4dc_fixture_state("title", w->Rno0, w->Rno1);
+#endif
         TaskSleep(1);
     }
 }

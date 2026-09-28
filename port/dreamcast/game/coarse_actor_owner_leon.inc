@@ -1,0 +1,119 @@
+// Appended to coarse_actor.cpp. No copied private mesh arrays.
+#if RE4DC_ACTOR_TRANSACTION
+#include "coarse_actor_transaction.h"
+#include "actor_material_owner.h"
+#include "actor_lifetime.h"
+#include "actor_material_policy.h"
+#include "leon_hair_runs.h"
+#if !RE4DC_COARSE_SOURCE_ACTORS || !RE4DC_COARSE_ONE_SUBMIT || RE4DC_COARSE_SKIN_FTRV != 1 || !RE4DC_NATIVE_ACTOR_FAST
+#error ACTOR_TRANSACTION requires the source ledger, ONE_SUBMIT and SKIN_FTRV=1 native path
+#endif
+#if RE4DC_ACTOR_SWAP || RE4DC_FRONT_NATIVE >= 2
+#error ACTOR_TRANSACTION is incompatible with duplicate-draw/replay adapters
+#endif
+namespace {
+unsigned owner_binding_revision;
+cModel* owner_root_parts;
+unsigned hair_tokens[3];
+const Re4dcUiImage hair_colours[2]={{&hair_tokens[0],nullptr,64,128,14,0xffffffffu,0},{&hair_tokens[1],nullptr,64,128,14,0xffffffffu,0}};
+const Re4dcUiImage hair_mask{&hair_tokens[2],nullptr,64,128,0,0xffffffffu,0};
+constexpr unsigned hair_colour_crc[2]={0xac381b1a,0x7a9de1fd},hair_colour_fnv[2]={0x3ade84b1,0x0e415f15};
+constexpr unsigned hair_pair_crc[2]={0xfc24a99c,0x9cf7f055},hair_pair_fnv[2]={0x03d13534,0xd40aae38};
+bool owner_leon_bind(cModel* m) {
+    if(!m || m->id || m->nParts!=119 || !m->pList || !m->pParts || (m->be_flag&0x4000))return false;
+    // Current dual archive/model adoption records supply exact role identity,
+    // including hidden infos. No signature scan or pointer-only positive cache.
+    if(!re4dc_actor_role_bindings(m,0x100,infos,8) || !re4dc_actor::exact_infos(m->pModelInfo,infos,8))return false;
+    const unsigned revision=re4dc_actor_binding_revision(m);if(!revision)return false;
+    if(owner!=m || owner_serial!=m->serial || owner_parts!=m->pList || owner_root_parts!=m->pParts || owner_binding_revision!=revision) {
+        cParts* part=m->pList;
+        for(unsigned i=0;i<119;++i) {
+            if(!part)return false;parts[i]=part;
+            for(unsigned j=0;j<12;++j)if(!__builtin_isfinite((&part->lt_inv_mat[0][0])[j]) ||
+                __builtin_fabsf((&part->lt_inv_mat[0][0])[j]-leon4k::bind[i][j])>.01f)return false;
+            part=part->pList;
+        }
+        if(part)return false;
+        owner=m;owner_serial=m->serial;owner_parts=m->pList;owner_root_parts=m->pParts;owner_binding_revision=revision;
+    }
+    for(unsigned i=0;i<119;++i)for(unsigned j=0;j<12;++j)
+        if(!__builtin_isfinite((&parts[i]->lt_inv_mat[0][0])[j]) ||
+           !__builtin_isfinite((&parts[i]->mat[0][0])[j]))return false;
+    return true;
+}
+int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
+    if(!owner_leon_bind(m) || !skin_init())return 0;
+    for(unsigned i=0;i<8;++i)if(p.info[i]!=infos[i] || !output[i])return 0;
+    Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
+    alignas(32) float invx[16];coarse_inv_xmtrx(inv,invx);
+    for(unsigned u=0;u<skin_used;++u) {
+        const unsigned b=skin_bone[u];
+        skin_jobs[u]={&parts[b]->mat[0][0],&parts[b]->lt_inv_mat[0][0],bone_T[b]};
+    }
+    re4dc_coarse_skin_bones(invx,skin_jobs,skin_used);
+    for(unsigned i=0;i<8;++i) {
+        re4dc_coarse_skin_groups(skin_stream+skin_first[i],skin_groups[i],&bone_T[0][0],output[i],leon4k::chunks[i].palette_count);
+        for(unsigned j=0;j<leon4k::chunks[i].palette_count*12;++j)if(!__builtin_isfinite(output[i][j]))return 0;
+    }
+    return 1;
+}
+}
+extern "C" int re4dc_actor_plan_leon(cModel* m,Re4dcActorPlan* out) {
+    if(!m || !out || m->id || m->ot_type!=7 || !owner_leon_bind(m))return 0;
+    Re4dcActorPlan p{};p.count=8;p.appearance=0x100;p.image=image;p.crc=crc;p.fnv=fnv;p.palettes=owner_leon_palettes;
+#define RE4DC_LEON_OWNER(role,prefix) re4dc_actor::plan_chunk(p,role,infos[role],leon4k::chunks[role],RE4DC_OWNER_INPUT(leon4k,prefix,leon4k::chunks[role],119))
+    RE4DC_LEON_OWNER(0,i0);RE4DC_LEON_OWNER(1,i1);RE4DC_LEON_OWNER(2,i2);RE4DC_LEON_OWNER(3,i3);
+    RE4DC_LEON_OWNER(4,i4);RE4DC_LEON_OWNER(5,i5);RE4DC_LEON_OWNER(6,i6);RE4DC_LEON_OWNER(7,i7);
+#undef RE4DC_LEON_OWNER
+    if(p.palette_bytes!=32000 || p.workspace_bytes!=26112)return 0;
+    p.material_count=3;
+    p.materials[0].image=image;p.materials[0].crc=crc;p.materials[0].fnv=fnv;
+    for(unsigned i=0;i<2;++i) {
+        auto& mat=p.materials[i+1];mat.image=hair_colours[i];mat.mask=hair_mask;
+        mat.crc=hair_pair_crc[i];mat.fnv=hair_pair_fnv[i];
+        // Source attr04: alpha>0, SRC_ALPHA/INV_SRC_ALPHA, LEQUAL/write,
+        // same-UV I4 mask, repeat/bilinear. Routing is not shader acceptance.
+        mat.material_flags=4;mat.blend=0;mat.depth_mode=RE4DC_ACTOR_LEON_NATIVE_LOOK?1u:0u;
+        mat.mask_ref=0;mat.mask_same_uv=1;mat.wrap_s=mat.wrap_t=1;
+        // The default-off native-look policy disables hair depth writes. This
+        // prevents transparent texels writing depth and intentionally differs
+        // from GC depthwrite+alpha-test. Exact-source policy stays unadmitted.
+    }
+    for(unsigned i=0;i<8;++i)p.immutable_asset_id[i]=i+1;
+    for(unsigned i=0;i<7;++i) {
+        const auto& c=p.input[i];auto& r=p.runs[p.run_count++];
+        r.role=i;r.immutable_asset_id=i+1;r.triangles=c.triangles;r.uv=c.uv;r.stream=c.stream;
+    }
+    for(const auto& run:leon_hair_runs::runs) {
+        auto& r=p.runs[p.run_count++];r.role=7;r.material=run.material;r.immutable_asset_id=run.asset_id;r.triangles=run.triangles;
+        r.uv={leon_hair_runs::uv,sizeof(leon_hair_runs::uv)};r.stream={run.stream,run.bytes};
+    }
+    if((re4dc_actor_material_runs_capability(&p)&3u)!=3u)return 0;
+    *out=p;return 1;
+}
+extern "C" int re4dc_actor_hair_texture_key(const Re4dcUiImage* i,unsigned* c,unsigned* f) {
+    if(!i || !c || !f || i->palette || i->palette_bytes || i->palette_format!=0xffffffffu || i->width!=64 || i->height!=128)return 0;
+    for(unsigned k=0;k<2;++k)if(i->pixels==hair_colours[k].pixels && i->format==14){*c=hair_colour_crc[k];*f=hair_colour_fnv[k];return 1;}
+    if(i->pixels==hair_mask.pixels && i->format==0){*c=0x94e9dc56;*f=0x070dc44a;return 1;}
+    return 0;
+}
+extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p) {
+    if(!p || p->appearance!=0x100 || p->count!=8 || p->material_count!=3 || p->run_count!=21 ||
+       p->input[7].palette_count!=229 || p->immutable_asset_id[7]!=8 || !p->info[7] || !(p->info[7]->be_flag&0x40))return 0;
+    for(unsigned k=0;k<14;++k) {
+        const auto& want=leon_hair_runs::runs[k];const auto& r=p->runs[7+k];
+        if(r.role!=7 || r.material!=want.material || r.immutable_asset_id!=29+k || r.triangles!=want.triangles ||
+           r.uv.data!=leon_hair_runs::uv || r.uv.size!=sizeof(leon_hair_runs::uv) || r.stream.data!=want.stream || r.stream.size!=want.bytes)return 0;
+    }
+    for(unsigned k=0;k<2;++k) {
+        const auto& m=p->materials[k+1];
+        if(m.image.pixels!=hair_colours[k].pixels || m.mask.pixels!=hair_mask.pixels || m.crc!=hair_pair_crc[k] || m.fnv!=hair_pair_fnv[k] ||
+           m.image.width!=64 || m.image.height!=128 || m.image.format!=14 || m.mask.width!=64 || m.mask.height!=128 || m.mask.format!=0 ||
+           m.material_flags!=4 || m.blend || m.depth_mode!=(RE4DC_ACTOR_LEON_NATIVE_LOOK?1u:0u) || m.mask_ref || m.mask_same_uv!=1 || m.wrap_s!=1 || m.wrap_t!=1)return 0;
+    }
+    return 3u|(RE4DC_ACTOR_LEON_NATIVE_LOOK?4u:0u); // routing/order/native-look; live material certificate still gates admission
+}
+#include "coarse_actor_geometry_once.inc"
+#include "coarse_actor_transaction.inc"
+#include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy
+#endif

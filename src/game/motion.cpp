@@ -1605,6 +1605,119 @@ int hermiteFast(HermitePrm* prm, Vec* out, u16* hist)
     }
     return ret;
 }
+
+#if defined(RE4DC_HF_ASM) && RE4DC_HF_ASM
+extern "C" int re4dc_hf_run(HermitePrm*, Vec*, u16*);
+extern "C" void re4dc_log(const char*, ...);
+static_assert(__builtin_offsetof(HermitePrm, frame) == 0);
+static_assert(__builtin_offsetof(HermitePrm, maxFrame) == 4);
+static_assert(__builtin_offsetof(HermitePrm, flags) == 8);
+static_assert(__builtin_offsetof(HermitePrm, type) == 12);
+static_assert(__builtin_offsetof(HermitePrm, key) == 16);
+static_assert(sizeof(Vec) == 12 && sizeof(u16) == 2);
+#if RE4DC_HF_ASM == 2
+u32 hfaCalls, hfaRun, hfaCold, hfaType[16], hfaMisOut, hfaMisHist, hfaMisRet;
+// Check-mode-only boundary cases exercise the actual SH-4 kernel before a
+// gameplay call: all supported layouts, 2/4-byte key alignment, history search,
+// reverse/ignore-history flags, wrap/clamp and restoration on cold exits.
+static void hfaPut16(u8* p, u16 x) { p[0]=(u8)x; p[1]=(u8)(x>>8); }
+static void hfaPutFloat(u8* p, f32 x) { __builtin_memcpy(p,&x,4); }
+static void hfaSelfTest()
+{
+    u32 checked=0, cold=0;
+    const int types[3]={0,5,6};
+    const u32 flags[8]={0,1,4,5,8,9,12,13};
+    const f32 frames[7]={0.0f,1.5f,4.0f,6.25f,8.0f,12.0f,13.0f};
+    for (int ti=0; ti<3; ++ti) for (int align=0; align<=2; align+=2) {
+        alignas(4) u8 storage[160];
+        u8* key=storage+align; u8* p=key;
+        const int type=types[ti], stride=hfStride[type];
+        for (int axis=0; axis<3; ++axis) {
+            hfaPut16(p,3); hfaPut16(p+2,0); hfaPut16(p+4,4); hfaPut16(p+6,8);
+            p+=8;
+            for (int k=0;k<3;++k,p+=stride) {
+                if (type==0) {
+                    hfaPutFloat(p,(f32)(axis*11+k*3-17)*0.125f);
+                    hfaPutFloat(p+4,(f32)(k*5-axis*3+2)*0.0625f);
+                    hfaPutFloat(p+8,(f32)(axis*7-k*2-3)*0.03125f);
+                } else {
+                    hfaPut16(p,(u16)(s16)(-31001+k*10000+axis*177));
+                    if (type==5) {
+                        hfaPut16(p+2,(u16)(s16)(30001-k*377-axis*500));
+                        hfaPut16(p+4,(u16)(s16)(-19001+k*397+axis*299));
+                    } else {p[2]=(u8)(s8)(113-k*31-axis*7);p[3]=(u8)(s8)(-117+k*17+axis*9);}
+                }
+            }
+        }
+        for (int fi=0;fi<8;++fi) for (int f=0;f<7;++f) for (int hi=0;hi<3;++hi) {
+            HermitePrm prm={frames[f],12.0f,flags[fi],(u8)type,{0,0,0},key};
+            u16 a[3]={(u16)hi,(u16)hi,(u16)hi}, b[3]={(u16)hi,(u16)hi,(u16)hi};
+            Vec expected={16.25f,-33.0f,45.5f},actual=expected;
+            const int rr=hermiteFast(&prm,&expected,a), ar=re4dc_hf_run(&prm,&actual,b);
+            if (rr!=ar || __builtin_memcmp(&expected,&actual,12) || __builtin_memcmp(a,b,6)) {
+                re4dc_log("HFA_SELFTEST FAIL type=%d align=%d flags=%u frame=%d hist=%d rr=%d ar=%d\n",type,align,flags[fi],f,hi,rr,ar);
+                __builtin_trap();
+            }
+            ++checked;
+        }
+        for (int which=0;which<4;++which) {
+            HermitePrm prm={which==3 ? 9.0f : 1.5f,12.0f,0,(u8)type,{0,0,0},key};
+            u16 before[3]={0,0,0};if(which<3)before[which]=3;
+            u16 hist[3]={before[0],before[1],before[2]};
+            Vec beforeOut={16.25f,-33.0f,45.5f},actual=beforeOut;
+            const int ar=re4dc_hf_run(&prm,&actual,hist);
+            if(ar!=-1 || __builtin_memcmp(&beforeOut,&actual,12) || __builtin_memcmp(before,hist,6)) {
+                re4dc_log("HFA_SELFTEST COLD FAIL type=%d align=%d which=%d ar=%d\n",type,align,which,ar);
+                __builtin_trap();
+            }
+            ++cold;
+        }
+    }
+    re4dc_log("HFA_SELFTEST normal=%u cold_restore=%u mismatch=0\n",checked,cold);
+}
+
+#endif
+int hermiteSelected(HermitePrm* prm, Vec* out, u16* hist)
+{
+#if RE4DC_HF_ASM == 2
+    static bool selfChecked;
+    if (!selfChecked) { hfaSelfTest(); selfChecked=true; }
+#endif
+    const int type = prm->type;
+    if ((type != 0 && type != 5 && type != 6) || ((u32)prm->key & 1))
+        return hermiteFast(prm, out, hist);
+#if RE4DC_HF_ASM == 2
+    const u16 before[3] = {hist[0], hist[1], hist[2]};
+    Vec expected;
+    const int rr = hermiteFast(prm, &expected, hist);
+    const u16 after[3] = {hist[0], hist[1], hist[2]};
+    hist[0] = before[0]; hist[1] = before[1]; hist[2] = before[2];
+#endif
+    int ret = re4dc_hf_run(prm, out, hist);
+#if RE4DC_HF_ASM == 2
+    if (ret < 0) ++hfaCold; else ++hfaRun;
+#endif
+    // A cold exit restores the caller's original output and history. The C
+    // body owns invalid-history errors and cross-axis stale-pair run-outs.
+    if (ret < 0) ret = hermiteFast(prm, out, hist);
+#if RE4DC_HF_ASM == 2
+    u32 a[3], b[3];
+    __builtin_memcpy(a, &expected, 12); __builtin_memcpy(b, out, 12);
+    hfaMisOut += (a[0]!=b[0]) + (a[1]!=b[1]) + (a[2]!=b[2]);
+    hfaMisHist += (after[0]!=hist[0]) + (after[1]!=hist[1]) + (after[2]!=hist[2]);
+    hfaMisRet += rr != ret;
+    ++hfaType[type];
+    if ((++hfaCalls & 0xfff) == 0)
+        re4dc_log("HFA calls=%u run=%u cold=%u t0=%u t5=%u t6=%u mismatch_out=%u hist=%u ret=%u\n",
+                  hfaCalls,hfaRun,hfaCold,hfaType[0],hfaType[5],hfaType[6],hfaMisOut,hfaMisHist,hfaMisRet);
+    if (hfaMisOut || hfaMisHist || hfaMisRet) __builtin_trap();
+#endif
+    return ret;
+}
+#else
+#define hermiteSelected hermiteFast
+#endif
+
 #if RE4DC_HERMITE_FAST == 2
 extern "C" void re4dc_log(const char* fmt, ...);
 u32 hfCalls, hfMisOut, hfMisHist, hfMisRet;
@@ -1620,7 +1733,7 @@ int HermiteInterpolation(HermitePrm* prm, Vec* out, u16* hist)
     hist[0] = h0[0];
     hist[1] = h0[1];
     hist[2] = h0[2];
-    const int fr = hermiteFast(prm, out, hist);
+    const int fr = hermiteSelected(prm, out, hist);
     u32 a[3], b[3];
     __builtin_memcpy(a, &ro, 12);
     __builtin_memcpy(b, out, 12);
@@ -1633,7 +1746,7 @@ int HermiteInterpolation(HermitePrm* prm, Vec* out, u16* hist)
     }
     return fr;
 #else
-    return hermiteFast(prm, out, hist);
+    return hermiteSelected(prm, out, hist);
 #endif
 }
 #endif

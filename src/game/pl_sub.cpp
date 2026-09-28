@@ -29,7 +29,7 @@ f32 GetDistance(Vec& v0, Vec& v1);               // game/sub2.cpp (second overlo
 
 extern void (*Pl_func_tbl[7])(cPlayer*);       // game/player.cpp
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 // Stores through references: scalar MEMs, so pG is reloaded after each of them (the original
 // reloads pG after every store to a GlobalWork field in this unit).

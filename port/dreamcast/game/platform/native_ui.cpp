@@ -1,5 +1,14 @@
+#ifndef RE4DC_PS2_WORLD_DRAW
+#define RE4DC_PS2_WORLD_DRAW 0
+#endif
+#if RE4DC_PS2_WORLD_DRAW
+#include "include/native_ps2_world.h"
+#endif
 // Narrow ID-quad backend. Reuses the scene Package and owned storage reader.
 // Candidate scope: common unmasked UI; unsupported effects are counted/rejected.
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+#include "actor_lifetime.h"
+#endif
 #include <kos.h>
 #include <dc/sq.h>
 #include <fcntl.h>
@@ -10,6 +19,17 @@
 #include <new>
 #include <cstddef>
 #include <algorithm>
+#ifndef RE4DC_ACTOR_TRANSACTION
+#define RE4DC_ACTOR_TRANSACTION 0
+#endif
+#if RE4DC_ACTOR_TRANSACTION
+#include "include/actor_resource_lease.h"
+#endif
+#include "re4dc_pad_prompts.h"
+#include "re4dc_manual_pages.h"
+#if RE4DC_PAD_PROMPTS
+#include "binocular_art_keys.h"
+#endif
 #ifndef RE4DC_D349_RENDERER_STACK
 #define RE4DC_D349_RENDERER_STACK 0
 #endif
@@ -155,6 +175,12 @@ struct Source { Re4dcUiImage image{}; Key key{}; };
 // bytes from the optional source-key lookup cache, not the game heap/queue.
 // An uncached source descriptor still resolves through its existing owner table.
 Entry entries[kTextureCount]; Source sources[kSourceCount]; unsigned nsource;
+#if RE4DC_ACTOR_TRANSACTION
+re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)))
+#else
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame)
+#endif
 // EFFECT_SPRITES=1 (effects30.mk; default off = previous image): native effect sprites
 // (re4dc_effect_sprite below).
 #ifndef RE4DC_EFFECT_SPRITES
@@ -215,6 +241,16 @@ EnemyIdentity enemy_identities[4];
 alignas(32) unsigned char frame_storage[kQuadCount*sizeof(Re4dcUiQuad)];
 Re4dcUiQuad* const quads=reinterpret_cast<Re4dcUiQuad*>(frame_storage);
 Entry* handles[kQuadCount]; unsigned nquad,frame,used,peak,staging_peak;
+#ifndef RE4DC_SS_UI_ORDER
+#define RE4DC_SS_UI_ORDER 0
+#endif
+#if RE4DC_SS_UI_ORDER
+#if !RE4DC_D349_RENDERER_STACK || !RE4DC_PVR_STREAM
+#error SS_UI_ORDER requires the existing streamed source renderer
+#endif
+bool ui_order;unsigned quads_flushed;
+extern "C" int re4dc_ss_ui_order(); // actual swapped-area owner, not a UI guess
+#endif
 #if RE4DC_D349_RENDERER_STACK
 // Only selected lights and current channel/matrix parameters are snapshotted.
 // Identical state is shared within this frame; no unselected eight-light copy
@@ -662,6 +698,9 @@ bool direct_open;               // re4dc_model_direct_begin/end: SQ held
 unsigned direct_parts,direct_slots;
 #endif
 pvr_list_t stream_list=PVR_LIST_TR_POLY;
+#if RE4DC_PS2_WORLD_DRAW
+unsigned stream_closed_lists,stream_pass_logs,world_barrier_logs;
+#endif
 #if RE4DC_D349_RENDERER_STACK
 pvr_list_t desired_list=PVR_LIST_OP_POLY;
 #endif
@@ -711,6 +750,9 @@ void stream_open() {
 #endif
 #endif
     pvr_scene_begin();
+#if RE4DC_PS2_WORLD_DRAW
+    stream_closed_lists=0;
+#endif
 #if RE4DC_TA_GUARD
     guard_scene_begin();
 #endif
@@ -733,8 +775,26 @@ void stream_select(pvr_list_t list){
     if(!stream_scene){stream_open();return;}
     if(stream_list==list)return;
     // End the old list once. Never reopen it or replay source ModelRender.
+#if RE4DC_PS2_WORLD_DRAW
+    if(stream_closed_lists&(1u<<unsigned(list))){
+        re4dc_log("PS2PASS closed frame=%u from=%u to=%u mask=%x finished=%u\n",
+            frame,unsigned(stream_list),unsigned(list),stream_closed_lists,unsigned(source_draws_finished));
+        re4dc_missing("native closed pass requested");
+    }
+    if(stream_pass_logs<12 || !(frame%120)){
+        ++stream_pass_logs;
+        re4dc_log("PS2PASS switch frame=%u from=%u to=%u mask=%x\n",
+            frame,unsigned(stream_list),unsigned(list),stream_closed_lists);
+    }
+#endif
     sq_lock((void*)PVR_TA_INPUT);
+#if RE4DC_PS2_WORLD_DRAW
+    if(pvr_list_finish()<0)re4dc_missing("native pass transition failed");
+    stream_closed_lists|=1u<<unsigned(stream_list);
+    if(pvr_list_begin(list)<0)re4dc_missing("native pass transition failed");
+#else
     if(pvr_list_finish()<0 || pvr_list_begin(list)<0)re4dc_missing("native pass transition failed");
+#endif
     sq_unlock();stream_list=list;
 #if RE4DC_TA_HASH
     ta_hash_marker(list);
@@ -963,7 +1023,32 @@ inline unsigned source_slot(const Re4dcUiImage& i){
 }
 static_assert(kSourceCount<255 && kTextureCount<255);
 #endif
+#if RE4DC_PAD_PROMPTS
+// Private immutable addresses are presentation identities, never source pixels.
+// A malformed descriptor using one of these addresses is rejected, not hashed.
+static Re4dcUiImage prompt_image(unsigned i) {
+    return {&re4dc_binocular_art[i],nullptr,36,36,5,0xffffffffU,0};
+}
+static int prompt_image_key(const Re4dcUiImage& image,Key& key) {
+    for(unsigned i=0;i<2;++i)if(image.pixels==&re4dc_binocular_art[i]) {
+        if(!same_image(image,prompt_image(i)))return -1;
+        key={re4dc_binocular_art[i].crc,re4dc_binocular_art[i].fnv};
+        return 1;
+    }
+    return 0;
+}
+#endif
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+#include "manual_pages_keys.inc"
+#endif
 int external_image_key(const Re4dcUiImage& image,Key& external) {
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+    const int manual=manual_page_key(image,external);if(manual)return manual;
+#endif
+#if RE4DC_PAD_PROMPTS
+    const int prompt=prompt_image_key(image,external);
+    if(prompt)return prompt;
+#endif
 #if RE4DC_COARSE_LEON
     if(re4dc_coarse_actor_texture_key(&image,&external.crc,&external.fnv))return 1;
 #endif
@@ -1069,6 +1154,10 @@ extern "C" int re4dc_std_texture(unsigned i,unsigned out[5]);
 #define RE4DC_TEX_PATH(buf,key) std::sprintf(buf,"/cd/dc/tex/%08x-%08x.re4tex",(key).crc,(key).fnv)
 #endif
 void close_entry(Entry& entry) {
+#if RE4DC_ACTOR_TRANSACTION
+    // Revoke before freeing/fencing storage; forced retirement is observable.
+    actor_texture_leases.retire_entry(unsigned(&entry-entries));
+#endif
     if(entry.valid) used-=entry.package.vram_bytes();
     entry.package.close();entry.valid=false;
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
@@ -1106,7 +1195,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         // pinned uploads. Retrying such a load every frame stalls the frame loop.
         unsigned pw=8,ph=8;while(pw<image.width)pw*=2;while(ph<image.height)ph*=2;
         const unsigned least=std::min(pw*ph*2,2048+pw*ph/4);
-        unsigned pinned=0;for(const auto& e:entries)if(e.valid && e.frame==frame)pinned+=e.package.vram_bytes();
+        unsigned pinned=0;for(const auto& e:entries)if(e.valid && RE4DC_ENTRY_PINNED(e))pinned+=e.package.vram_bytes();
         if(pinned+least>vram_budget){++vram_rejects;RE4DC_PROFILE_COUNT(TextureBudgetFailures,1);return nullptr;}
     }
 #endif
@@ -1120,7 +1209,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     Entry* slot=nullptr;
     for(auto& e:entries) if(!e.valid){slot=&e;break;}
-    if(!slot) for(auto& e:entries) if(e.frame!=frame && (!slot || e.frame<slot->frame)) slot=&e;
+    if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
     if(!slot) {RE4DC_PROFILE_COUNT(TextureNoSlot,1);return nullptr;}
 #if RE4DC_TEX_RESIDENT
     // Never evict a resident texture for a package that is not on the disc:
@@ -1159,7 +1248,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     // Without a pipeline, re4dc_ui_begin() quiesced the render before this frame.
     auto evict=[slot]{
         Entry* victim=nullptr;
-        for(auto& e:entries) if(&e!=slot && e.valid && e.frame!=frame && (!victim || e.frame<victim->frame)) victim=&e;
+        for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
         if(!victim) return false;
         RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);++reclaimed;return true;
     };
@@ -1228,7 +1317,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         if(ok) {
             while(used+h.data_size>kVramBudget) {
                 Entry* victim=nullptr;
-                for(auto& e:entries) if(e.valid && e.frame!=frame && (!victim || e.frame<victim->frame)) victim=&e;
+                for(auto& e:entries) if(e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
                 if(!victim) {RE4DC_PROFILE_COUNT(TextureBudgetFailures,1);ok=false;break;} RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);
             }
         }
@@ -1372,6 +1461,54 @@ Entry* resolve(const Re4dcUiImage& image,const Re4dcModelPart* masked,bool pin){
     const bool indexed=image.format==8 || image.format==9;
     const void* mask_pixels=mask?mask->pixels:nullptr;const void* mask_palette=mask?mask->palette:nullptr;
     const unsigned a=unsigned(reinterpret_cast<std::uintptr_t>(image.pixels)),b=unsigned(reinterpret_cast<std::uintptr_t>(mask_pixels));
+#if RE4DC_UI_QUAD_LEAN
+    // UI_QUAD_LEAN (make-room F1; exact): two ways, the hashed slot and its partner (slot ^ 1). In the r101 square two
+    // pairs of images (HUD / character) shared a slot and evicted each other every frame: 4 full resolves per drawn
+    // tick (identity tables, memcmp, palette copies). A hit is the same whole-descriptor + stamp + live-palette test
+    // in either way, so it returns the entry the full path resolves; only where a handle is kept changes. A miss
+    // refills the way that holds this descriptor (a changed palette), else a stale way, else the older fill.
+    // =2 also runs the full path on every hit and compares the entry ("UQL handle" lines); =3 is =2 with the handles
+    // folded onto 8 slots (4 pairs), a stress check that exercises both ways and the refill choice.
+    {
+#if RE4DC_UI_QUAD_LEAN==3
+        const unsigned slot=((a>>5)^(a>>13)^(b>>6)^(shape>>11))&7U;
+#else
+        const unsigned slot=((a>>5)^(a>>13)^(b>>6)^(shape>>11))&255U;
+#endif
+        Handle* const way[2]={&handle_table[slot],&handle_table[slot^1U]};
+        for(unsigned w=0;w<2;++w){
+            Handle& h=*way[w];
+            if(h.pixels==image.pixels && h.shape==shape && h.palette==image.palette && h.mask_pixels==mask_pixels &&
+               h.mask_shape==mask_shape && h.mask_palette==mask_palette && h.stamp>handle_reset && h.stamp>entry_closed[h.entry] &&
+               h.palette_bytes==image.palette_bytes && (!indexed || palette_same(unsigned(&h-handle_table),image))){
+                Entry& e=entries[h.entry];
+                RE4DC_TOUCH(e);
+#if RE4DC_UI_QUAD_LEAN>=2
+                {
+                    static unsigned hits[2],mismatch;
+                    ++hits[w];
+                    Entry* ref=resolve_full(image,masked,pin);
+                    if(ref!=&e && mismatch++<8)re4dc_log("UQL handle MISMATCH way=%u entry=%d full=%d\n",w,int(&e-entries),ref?int(ref-entries):-1);
+                    if(((hits[0]+hits[1])&4095)==0)re4dc_log("UQL handle hits=%u,%u misses=%u mismatch=%u\n",hits[0],hits[1],handle_misses,mismatch);
+                }
+#endif
+                ++handle_hits;RE4DC_PROFILE_COUNT(TextureHits,1);return &e;
+            }
+        }
+        ++handle_misses;
+        Entry* e=resolve_full(image,masked,pin);
+        if(e){
+            auto same=[&](const Handle& x){return x.pixels==image.pixels && x.shape==shape && x.palette==image.palette &&
+                x.mask_pixels==mask_pixels && x.mask_shape==mask_shape && x.mask_palette==mask_palette;};
+            auto stale=[&](const Handle& x){return !(x.stamp>handle_reset && x.stamp>entry_closed[x.entry]);};
+            Handle& h=same(*way[0])?*way[0]:same(*way[1])?*way[1]:stale(*way[0])?*way[0]:stale(*way[1])?*way[1]:
+                      way[0]->stamp<=way[1]->stamp?*way[0]:*way[1];
+            h={image.pixels,image.palette,mask_pixels,mask_palette,shape,mask_shape,++handle_clock,(unsigned char)(e-entries),(unsigned short)image.palette_bytes};
+            if(indexed)palette_keep(unsigned(&h-handle_table),image);
+        }
+        return e;
+    }
+#endif
     Handle& h=handle_table[((a>>5)^(a>>13)^(b>>6)^(shape>>11))&255U];
     if(h.pixels==image.pixels && h.shape==shape && h.palette==image.palette && h.mask_pixels==mask_pixels &&
        h.mask_shape==mask_shape && h.mask_palette==mask_palette && h.stamp>handle_reset && h.stamp>entry_closed[h.entry] &&
@@ -1446,7 +1583,7 @@ void preload_identities(){
     const unsigned loads=preload_loads,skipped=preload_skipped;
     const unsigned budget=(RE4DC_UI_VRAM?vram_budget:kVramBudget),reserve=RE4DC_TEX_RESIDENT_RESERVE_KB*1024U;
     unsigned pinned=0,pinned_bytes=0;
-    for(const auto& e:entries)if(e.valid && e.frame==frame){++pinned;pinned_bytes+=e.package.vram_bytes();}
+    for(const auto& e:entries)if(e.valid && RE4DC_ENTRY_PINNED(e)){++pinned;pinned_bytes+=e.package.vram_bytes();}
     const unsigned limit=kTextureCount>RE4DC_TEX_RESIDENT_RESERVE_SLOTS+pinned?kTextureCount-RE4DC_TEX_RESIDENT_RESERVE_SLOTS-pinned:0;
     const unsigned byte_limit=budget>reserve+pinned_bytes?budget-reserve-pinned_bytes:0;
     unsigned n=0,resident=0,bytes=0; // resident: already uploaded, pinned for the loop
@@ -1607,6 +1744,22 @@ void vram_census(const char* where){
 // freed or uploaded: it may be referenced by the scene not yet resolved.
 extern "C" void re4dc_pvr_vram_fence(){present_fence();}
 #endif
+#if RE4DC_PAD_PROMPTS
+extern "C" int re4dc_ui_binocular_prompt(const Re4dcUiImage* original,unsigned kind,Re4dcUiImage* out){
+    if(!frame_ready || !original || !out || kind<1 || kind>2 ||
+       original->width!=36 || original->height!=36)return 0;
+    Key source{};
+    if(!image_key(*original,source) || source.crc!=0x11cdf896U || source.fnv!=0x15c51351U)return 0;
+    const Re4dcUiImage image=prompt_image(kind-1);
+    // Load through the normal bounded cache and pin until this scene completes.
+    // Missing, invalid or unaffordable packages leave the original glyph intact.
+    if(!load(image,true))return 0;
+    *out=image;return 1;
+}
+#endif
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+#include "manual_pages_native.inc"
+#endif
 extern "C" void re4dc_ui_invalidate_sources(){sources_reset();re4dc_model_reset_draw_plans();}
 #if RE4DC_TA_DOUBLEBUF && RE4DC_PVR_PIPELINE
 // Sub-screen backing open (subscreen_backing.cpp), before it writes bank 1: the open scene is
@@ -1634,7 +1787,7 @@ extern "C" void re4dc_ui_ta_double_bank_later(){if(!ta_double)ta_double_wanted=t
 // upload is fenced by close()). Returns its VRAM bytes, 0 when none is left.
 extern "C" unsigned re4dc_ui_reclaim_one(){
     Entry* victim=nullptr;
-    for(auto& e:entries) if(e.valid && e.frame!=frame && (!victim || e.frame<victim->frame)) victim=&e;
+    for(auto& e:entries) if(e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
     if(!victim) return 0;
     const unsigned bytes=victim->package.vram_bytes();
     RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);
@@ -1693,7 +1846,7 @@ int vram_claim(unsigned bytes,bool movie){
         unsigned since_probe=0;
         while(!ok){
             Entry* victim=nullptr;
-            for(auto& e:entries) if(e.valid && (fell_back || (!forced && e.frame!=frame)) && (!victim || e.frame<victim->frame)) victim=&e;
+            for(auto& e:entries) if(e.valid && (fell_back || (!forced && !RE4DC_ENTRY_PINNED(e))) && (!victim || e.frame<victim->frame)) victim=&e;
             if(!victim){ok=since_probe && fits();break;}
             const unsigned vb=victim->package.vram_bytes();
             released_bytes+=vb;++released;since_probe+=vb?vb:1;
@@ -1767,6 +1920,8 @@ extern "C" void re4dc_ui_unbind_option(){re4dc_model_unbind_draw_owner(&option_i
 // retains them. Their explicit source release/overwrite boundaries clear views.
 extern "C" int re4dc_ui_bind_player(void* archive,unsigned bytes){
     sources_reset();bool ok=player_identities.adopt(archive,bytes);
+    if(ok)re4dc_actor_archive_adopt(&player_identities,archive,bytes,1);
+    else re4dc_actor_archive_retire(&player_identities);
     if(ok)re4dc_model_bind_draw_owner(&player_identities,archive,bytes,0);
 #if RE4DC_TEX_RESIDENT
     if(ok)preload_pending=true;
@@ -1776,6 +1931,8 @@ extern "C" int re4dc_ui_bind_player(void* archive,unsigned bytes){
 }
 extern "C" int re4dc_ui_bind_weapon(void* archive,unsigned bytes){
     sources_reset();bool ok=weapon_identities.adopt(archive,bytes);
+    if(ok)re4dc_actor_archive_adopt(&weapon_identities,archive,bytes,3);
+    else re4dc_actor_archive_retire(&weapon_identities);
     if(ok)re4dc_model_bind_draw_owner(&weapon_identities,archive,bytes,0);
 #if RE4DC_TEX_RESIDENT
     if(ok)preload_pending=true;
@@ -1783,12 +1940,13 @@ extern "C" int re4dc_ui_bind_weapon(void* archive,unsigned bytes){
     else re4dc_model_unbind_draw_owner(&weapon_identities);
     re4dc_log("native weapon identities: %s count=%u archive=%u\n",ok?"ok":"REJECTED",weapon_identities.count(),bytes);return ok;
 }
-extern "C" void re4dc_ui_unbind_player(){re4dc_model_unbind_draw_owner(&player_identities);player_identities.clear();sources_reset();}
-extern "C" void re4dc_ui_unbind_weapon(){re4dc_model_unbind_draw_owner(&weapon_identities);weapon_identities.clear();sources_reset();}
+extern "C" void re4dc_ui_unbind_player(){re4dc_actor_archive_retire(&player_identities);re4dc_model_unbind_draw_owner(&player_identities);player_identities.clear();sources_reset();}
+extern "C" void re4dc_ui_unbind_weapon(){re4dc_actor_archive_retire(&weapon_identities);re4dc_model_unbind_draw_owner(&weapon_identities);weapon_identities.clear();sources_reset();}
 extern "C" int re4dc_ui_bind_enemy(void* archive,unsigned bytes){
     re4dc::texture::SourceIdentityTable table;
     if(!table.adopt(archive,bytes))return 0;
     if(!table.count()) {
+        re4dc_actor_archive_adopt(archive,archive,bytes,2);
         re4dc_model_bind_draw_owner(archive,archive,bytes,1);
         return 1; // ordinary archive; no texture view needed
     }
@@ -1799,11 +1957,13 @@ extern "C" int re4dc_ui_bind_enemy(void* archive,unsigned bytes){
 #if RE4DC_TEX_RESIDENT
     preload_pending=true;
 #endif
+    re4dc_actor_archive_adopt(archive,archive,bytes,2);
     re4dc_model_bind_draw_owner(archive,archive,bytes,1);
     re4dc_log("native enemy identities: count=%u archive=%u metadata_owner=enemy upload_staging=0\n",table.count(),bytes);
     return 1;
 }
 extern "C" void re4dc_ui_unbind_enemy(void* archive){
+    re4dc_actor_archive_retire(archive);
 #if RE4DC_D349_RENDERER_STACK
     if(deferred_first){reset_deferred();stream_aborted=true;}
 #endif
@@ -1814,6 +1974,7 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     sources_reset();
 }
 extern "C" void re4dc_ui_retire_room(){
+    re4dc_actor_archive_retire_transient();
 #if RE4DC_MODEL_SLAB_LATCH
     model_slab_failed=false;
 #endif
@@ -2033,7 +2194,12 @@ extern "C" void re4dc_ui_glyph(const Re4dcUiGlyph* g){
     if(g->format!=8 || !g->sheet || g->cw<=0 || g->cw>32 || g->ch<=0 || g->ch>32 || !g->sheet_w || !g->sheet_h ||
        (g->sheet_w&7) || (g->sheet_h&7)){++glyph_unsupported;return;}
     if(nglyph==kGlyphCapacity){++glyph_dropped;return;}
+    #if RE4DC_SS_UI_ORDER
+    // A submitted glyph run is immutable, even if the next source command is text.
+    const bool extend=nquad>quads_flushed && handles[nquad-1]==kGlyphRun && quads[nquad-1].image.width+quads[nquad-1].image.height==nglyph;
+#else
     const bool extend=nquad && handles[nquad-1]==kGlyphRun && quads[nquad-1].image.width+quads[nquad-1].image.height==nglyph;
+#endif
 #if RE4DC_D349_RENDERER_STACK
     if(!extend && (nquad+1)*sizeof(Re4dcUiQuad)>deferred_top){++glyph_dropped;return;}
 #else
@@ -2133,6 +2299,9 @@ unsigned pace_skipped_frames;   // skipped iterations: frame + this = iterations
 // re4dc_ui_begin; the frame is not begun (frame_ready=false: every emission entry returns before
 // any work, no texture is resolved or uploaded, no preload, no fog), `frame` does not advance.
 extern "C" void re4dc_ui_begin_skip(){
+#if RE4DC_SS_UI_ORDER
+    ui_order=false;quads_flushed=0;
+#endif
     re4dc_model_preparation_frame();
 #if RE4DC_D349_RENDERER_STACK
     if(deferred_first)re4dc_missing("source pose queue crossed frame reset");
@@ -2161,6 +2330,15 @@ extern "C" void re4dc_ui_begin(){
 #if RE4DC_D349_RENDERER_STACK
     if(deferred_first)re4dc_missing("source pose queue crossed frame reset");
     reset_deferred();source_draws_finished=false;desired_list=PVR_LIST_OP_POLY;
+#if RE4DC_SS_UI_ORDER
+    ui_order=re4dc_ss_ui_order()!=0;quads_flushed=0;
+#if RE4DC_ROUTE_MOVIES
+    if(movie_texture && movie_picture)ui_order=false;
+#endif
+    // Subscreen models and prior 2D art share one source-ordered TR stream.
+    // The ordinary gameplay OP/TR/deferred policy remains the same.
+    if(ui_order){source_draws_finished=true;desired_list=PVR_LIST_TR_POLY;}
+#endif
 #endif
 #if RE4DC_PVR_STREAM
     if(stream_scene || stream_retire)re4dc_missing("native previous frame unresolved");
@@ -2169,6 +2347,9 @@ extern "C" void re4dc_ui_begin(){
     if(model_diagnostic==1 && frame%120==0)
         re4dc_log("native model DIAGNOSTIC boundary: frame=%u previous_bytes=%u committed_parts=%u invalid=%u resource=%u overflow=%u presented=%u\n",frame,model_used*32,model_parts,model_invalid,model_resource,model_overflow,model_presented);
     nquad=0;model_used=0;++frame;
+#if RE4DC_ACTOR_TRANSACTION
+    actor_texture_leases.retire_frame(); // submitted pins retain normal GPU fencing
+#endif
 #if RE4DC_NATIVE_MES
     nglyph=0;
 #endif
@@ -2209,7 +2390,33 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
 #else
     if(nquad==kQuadCount){++dropped;return;}
 #endif
+#if RE4DC_UI_QUAD_LEAN
+    {
+        // UI_QUAD_LEAN (game30.mk, make-room F1; exact): std::isfinite on the bits. A coordinate is Inf / NaN
+        // exactly when its exponent field is all ones, and then (bits & 0x7f800000) + 0x00800000 carries into bit
+        // 31; any smaller exponent leaves bit 31 clear. One pass over the 16 words instead of a __unordsf2 call and a
+        // compare per coordinate. =2 also runs the original test and compares the verdicts ("UQL fin" lines).
+        typedef std::uint32_t quad_word __attribute__((may_alias));
+        const quad_word* xy=reinterpret_cast<const quad_word*>(q->xy);
+        const quad_word* uv=reinterpret_cast<const quad_word*>(q->uv);
+        std::uint32_t top=0;
+        for(unsigned n=0;n<8;++n) top|=((xy[n]&0x7f800000U)+0x00800000U)|((uv[n]&0x7f800000U)+0x00800000U);
+#if RE4DC_UI_QUAD_LEAN>=2
+        {
+            static unsigned tests,rejects,mismatch;
+            bool ref=false;
+            for(unsigned n=0;n<8;++n) if(!std::isfinite(q->xy[n]) || !std::isfinite(q->uv[n])) {ref=true;break;}
+            rejects+=ref;
+            if(ref!=((top&0x80000000U)!=0) && mismatch++<8)
+                re4dc_log("UQL fin MISMATCH isfinite=%d bits=%d\n",ref?0:1,(top&0x80000000U)?0:1);
+            if((++tests&2047)==0) re4dc_log("UQL fin tests=%u rejects=%u mismatch=%u\n",tests,rejects,mismatch);
+        }
+#endif
+        if(top&0x80000000U) {++unsupported;return;}
+    }
+#else
     for(unsigned n=0;n<8;++n) if(!std::isfinite(q->xy[n]) || !std::isfinite(q->uv[n])) {++unsupported;return;}
+#endif
     if(!drawn && !nquad) re4dc_log("native UI: first quad xy=%d,%d color=%08x\n",(int)q->xy[0],(int)q->xy[1],q->color);
     // Source texture storage can be retired by the following TaskScheduler.
     // Resolve/upload while the OT consumer still owns valid source pointers.
@@ -2242,6 +2449,56 @@ void pace_note_draw(int mode){
     stream_send(v,n*32);
 }
 #endif
+#if RE4DC_SS_UI_ORDER
+// Same quad bytes/header path as final present; source model barriers can consume
+// a prefix without dropping/reordering the unconsumed UI or reallocating storage.
+static void ui_draw_quad(unsigned i){
+        if(!handles[i])return;
+#if RE4DC_NATIVE_MES
+        if(handles[i]==kGlyphRun){glyph_draw_run(quads[i].image.width,quads[i].image.height);return;}
+#endif
+        const auto& q=quads[i];const auto& t=handles[i]->package.textures()[0];
+#if RE4DC_UI_HEADERS
+        // Stable HUD/UI elements: the header (texture binding, blend) is compiled
+        // once per cache entry and blend mode; later frames only write vertices.
+        pvr_poly_hdr_t header;
+        if(handles[i]->ui_header_key==q.blend){header=handles[i]->ui_header;}
+        else {
+#endif
+        unsigned fmt=re4dc::texture::pvr_format(t);
+        pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,fmt,t.width,t.height,
+                            handles[i]->package.pvr_texture(0),PVR_FILTER_BILINEAR);
+        c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+        const pvr_blend_mode_t src[]={PVR_BLEND_SRCALPHA,PVR_BLEND_SRCALPHA,PVR_BLEND_ONE,PVR_BLEND_DESTCOLOR,PVR_BLEND_DESTCOLOR};
+        const pvr_blend_mode_t dst[]={PVR_BLEND_INVSRCALPHA,PVR_BLEND_ONE,PVR_BLEND_ONE,PVR_BLEND_ONE,PVR_BLEND_ZERO};
+        c.blend.src=src[q.blend];c.blend.dst=dst[q.blend];c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.uv_clamp=PVR_UVCLAMP_UV;
+#if RE4DC_UI_HEADERS
+        pvr_poly_compile(&header,&c);
+        handles[i]->ui_header=header;handles[i]->ui_header_key=q.blend;
+        }
+#else
+        pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);
+#endif
+        alignas(32) pvr_vertex_t commands[5]{};std::uint32_t count;
+        re4dc::render::begin_pvr_packet(commands,count,header);
+        pvr_vertex_t* v=commands+count;const unsigned order[]={0,1,3,2};
+        for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
+            v[n].x=q.xy[2*j];v[n].y=q.xy[2*j+1];v[n].z=1.0f;
+            v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
+#if RE4DC_PVR_STREAM
+        stream_send(commands,sizeof(commands));
+#else
+        re4dc::render::submit_pvr(commands,sizeof(commands));
+#endif
+        ++drawn;
+
+}
+static void ui_order_flush(){
+    if(re4dc_vi_black() || stream_aborted)return;
+    stream_select(PVR_LIST_TR_POLY);
+    while(quads_flushed<nquad && !stream_aborted)ui_draw_quad(quads_flushed++);
+}
+#endif
 extern "C" void re4dc_ui_present(){
     RE4DC_PROFILE_SCOPE(UiDrain);
     if(!frame_ready)return;
@@ -2264,6 +2521,10 @@ extern "C" void re4dc_ui_present(){
 #else
     constexpr bool movie_override=false;
 #endif
+#if RE4DC_SS_UI_ORDER
+    if(frame%120==0)re4dc_log("native UI order: frame=%u active=%u flushed=%u queued=%u\n",frame,unsigned(ui_order),quads_flushed,nquad);
+    for(unsigned i=quads_flushed;i<nquad && !movie_override && !re4dc_vi_black();++i)ui_draw_quad(i);
+#else
     for(unsigned i=0;i<nquad && !movie_override && !re4dc_vi_black();++i){
         if(!handles[i])continue;
 #if RE4DC_NATIVE_MES
@@ -2304,6 +2565,7 @@ extern "C" void re4dc_ui_present(){
 #endif
         ++drawn;
     }
+#endif
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG && RE4DC_PVR_STREAM
     {int pace_mode;if(re4dc_pace_note(&pace_mode) && !re4dc_vi_black())pace_note_draw(pace_mode);}
 #endif
@@ -2683,6 +2945,9 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
     pvr_list_t list=PVR_LIST_TR_POLY;
 #if RE4DC_D349_RENDERER_STACK
     if(stream_aborted)return 0;
+#if RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+#endif
     list=draining_parts?draining_list:select_model_pass(p);
     stream_select(list);
 #endif
@@ -2845,6 +3110,41 @@ extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart* p,const R
     const int begun=re4dc_model_direct_begin(p,out);
     model_reserved=nullptr; // a nested-part refusal returns before packet_begin takes it
     return begun;
+}
+#endif
+#if RE4DC_ACTOR_TRANSACTION
+// One immutable, non-paletted reviewed atlas. The lease pins the real upload,
+// not a descriptor pointer. Source frame/room/primitive ownership is additional.
+extern "C" int re4dc_actor_texture_acquire(const Re4dcUiImage* image,unsigned crc,unsigned fnv,Re4dcActorTextureLease* out){
+    if(!image || !out || out->slot || out->serial || !frame_ready || stream_aborted || direct_open || !actor_texture_leases.available())return 0;
+    const Key key{crc,fnv};Entry* e=load(*image,false,&key);
+    if(!e || !e->valid || !(e->key==key) || !e->package.upload_complete() || e->package.header().texture_count!=1 || !e->package.pvr_texture(0))return 0;
+    const auto& t=e->package.textures()[0];
+    if(t.width!=image->width || t.height!=image->height || t.format>re4dc::texture::kArgb4444)return 0;
+    return actor_texture_leases.acquire(unsigned(e-entries),frame,*out)?1:0;
+}
+extern "C" int re4dc_actor_texture_validate(const Re4dcActorTextureLease* lease){
+    unsigned index;
+    return lease && frame_ready && !stream_aborted && !direct_open &&
+        actor_texture_leases.resolve(*lease,frame,index) && entries[index].valid && entries[index].package.upload_complete() && entries[index].package.pvr_texture(0);
+}
+extern "C" int re4dc_actor_texture_commit(const Re4dcActorTextureLease* lease){
+    // Call before the first TA header. From this point even a released ticket
+    // leaves the ordinary submitted-scene pin intact until normal retirement.
+    if(!re4dc_actor_texture_validate(lease))return 0;
+    unsigned index;if(!actor_texture_leases.resolve(*lease,frame,index))return 0;
+    entries[index].frame=frame;return 1;
+}
+extern "C" void re4dc_actor_texture_release(Re4dcActorTextureLease* lease){
+    if(lease)actor_texture_leases.release(*lease);
+}
+extern "C" void re4dc_actor_texture_retire_all(){
+    actor_texture_leases.retire_frame(); // never clears submitted Entry::frame pins
+}
+#include "include/native_ui_actor_material.inc"
+extern "C" int re4dc_actor_stream_state(Re4dcActorStreamState* out){
+    if(!out || !frame_ready || stream_aborted)return 0;
+    *out={frame,model_invalid,model_resource,model_overflow};return 1;
 }
 #endif
 #if RE4DC_COARSE_LEON && !RE4DC_COARSE
@@ -3194,6 +3494,62 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 #if RE4DC_COARSE_WORLD & 8
 extern "C" void re4dc_coarse_world_flush();
 #endif
+#if RE4DC_PS2_WORLD_DRAW
+// Called only between owned actor material runs, before one_chunk creates any
+// packet/scratch reservation or resolves its Entry. Never call from packet_begin
+// or stream_select: those callers can hold an uncommitted Entry and shared scratch.
+extern "C" int re4dc_ps2_world_before_owned_tr(const Re4dcModelPart* part){
+    if(!part || !frame_ready || stream_aborted || direct_open || model_used)return 0;
+    if(select_model_pass(part)!=PVR_LIST_TR_POLY || !re4dc_ps2_world_pending())return 1;
+    if(stream_scene && stream_list==PVR_LIST_TR_POLY){
+        re4dc_log("PS2PASS late-world frame=%u mask=%x\n",frame,stream_closed_lists);
+        return 0; // existing transaction failure discards this incomplete scene
+    }
+    if(world_barrier_logs<8 || !(frame%120)){
+        ++world_barrier_logs;
+        re4dc_log("PS2PASS barrier frame=%u from=%u scene=%u\n",frame,unsigned(stream_list),unsigned(stream_scene));
+    }
+    // Keep the single PT window before either PS2 or owned-actor TR. The final
+    // source drain still calls both idempotent flushes if there is no owned TR.
+    re4dc_static_flush_impostors();
+    re4dc_ps2_world_flush();
+    return frame_ready && !stream_aborted && !direct_open && !model_used;
+}
+// Included once at native_ui.cpp global scope, after the normal packet APIs.
+// Explicit keys reach the existing loader; submitted Entry::frame pins preserve
+// its TA/render-fence lifetime. No pointer hash, preload, private VRAM or lease.
+extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,Re4dcModelPacket* out){
+    if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
+       !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+    const Key key{crc,fnv};
+    const Re4dcUiImage image{&key,nullptr,width,height,5,0,0};
+    Entry* handle=load(image,false,&key);
+    if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
+    const auto& t=handle->package.textures()[0];
+    if(t.width!=width || t.height!=height)return 0; // repeated UVs cannot use padding
+    const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
+    stream_select(list);
+    if(stream_aborted)return 0;
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,list,re4dc::texture::pvr_format(t),t.width,t.height,handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
+    c.gen.culling=PVR_CULLING_NONE; // authored cull already applied after clipping
+    c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+    c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
+    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.txr.env=PVR_TXRENV_MODULATEALPHA;
+    c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
+    c.txr.uv_clamp=PVR_UVCLAMP_NONE;
+#if RE4DC_NATIVE_FOG
+    c.gen.fog_type=PVR_FOG_TABLE;
+#endif
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+    model_pending=model_used+count;model_handle=handle;
+    out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
+    out->u_scale=out->v_scale=1;
+    return 1;
+}
+#endif
 extern "C" void re4dc_model_finish_source_draws(){
     RE4DC_PROFILE_SCOPE(TranslucentDrain);
 #if RE4DC_TREE_IMPOSTOR
@@ -3201,6 +3557,9 @@ extern "C" void re4dc_model_finish_source_draws(){
 #if RE4DC_COARSE_WORLD & 8
     re4dc_coarse_world_flush();     // COARSE_WORLD trees (coarse_world.cpp): the same PT window
 #endif
+#endif
+#if RE4DC_PS2_WORLD_DRAW
+    re4dc_ps2_world_flush(); // after all existing PT, before ordinary source TR
 #endif
 #if RE4DC_D349_RENDERER_STACK
     if(!deferred_first){source_draws_finished=true;return;}

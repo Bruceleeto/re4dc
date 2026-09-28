@@ -19,6 +19,10 @@ extern "C" void GXGetProjectionv(float*);
 extern "C" void GXGetViewportv(float*);
 #if RE4DC_NATIVE_ACTOR
 #include "native_actor.hpp"
+#if RE4DC_ACTOR_TRANSACTION
+#include "actor_native_owner.h"
+#endif
+
 extern "C" void* re4dc_prim_tail(unsigned bytes,unsigned reserve);
 #endif
 namespace {
@@ -30,8 +34,16 @@ namespace {
 // (3622 positions x 12 + 2785 normals x 4 = 54,604 B); a larger or unfunded
 // info declines to the generic path.
 unsigned actor_frame=~0U;
+#if RE4DC_ACTOR_TRANSACTION
+bool actor_frame_live;
+#endif
 void bind_actor_frame(){
+#if RE4DC_ACTOR_TRANSACTION
+    if(actor_frame_live && actor_frame==pG->Frame_cnt)return;
+    actor_frame_live=true;
+#else
     if(actor_frame==pG->Frame_cnt)return;
+#endif
     actor_frame=pG->Frame_cnt;
     constexpr unsigned kBytes=56*1024,kReserve=16*1024;
 #if RE4DC_NATIVE_ACTOR_FAST
@@ -66,9 +78,16 @@ float scroll_u,scroll_v;
 #if RE4DC_COARSE_LEON
 extern "C" int re4dc_coarse_actor_source(const void*,Re4dcActorSource*);
 extern "C" void re4dc_bind_actor_frame(){bind_actor_frame();}
+#if RE4DC_ACTOR_TRANSACTION
+extern "C" void re4dc_actor_model_frame_retire(){actor_frame_live=false;}
+#endif
 #endif
 // Unskinned source arrays of an info, for draw-time skinning (NATIVE_ACTOR_SKIN).
 extern "C" int re4dc_actor_model_source(const void* info_ptr,Re4dcActorSource* out){
+#if RE4DC_ACTOR_TRANSACTION
+    if(re4dc_actor_owned_source(info_ptr,pG->Frame_cnt,out))return 1;
+#endif
+
 #if RE4DC_COARSE_LEON
     if(re4dc_coarse_actor_source(info_ptr,out))return 1;
 #endif

@@ -16,6 +16,20 @@ extern "C" { unsigned long long re4dc_motion_wait_total_us; }
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#ifndef RE4DC_MOTION_LEASE_LEAN
+#define RE4DC_MOTION_LEASE_LEAN 0
+#endif
+// Explicit resource policy, separate from source evaluation and archive lifetime.
+// Zero keeps the qualified hot-resident policy and contributes no new code.
+#ifndef RE4DC_MOTION_PRESSURE_BYTES
+#define RE4DC_MOTION_PRESSURE_BYTES 0
+#endif
+#if RE4DC_MOTION_PRESSURE_BYTES
+static_assert(RE4DC_MOTION_PRESSURE_BYTES >= 65536 &&
+              RE4DC_MOTION_PRESSURE_BYTES <= 1048576 &&
+              RE4DC_MOTION_PRESSURE_BYTES % 32 == 0,
+              "motion pressure budget must be 64 KiB..1 MiB, aligned to 32");
+#endif
 #ifndef RE4DC_MOTION_INDEX
 #define RE4DC_MOTION_INDEX 0
 #endif
@@ -78,12 +92,21 @@ unsigned prefix(const unsigned char* p) { unsigned n=p[2];return ((3+3*n+3)&~3U)
 }
 // Called with IRQ exclusion for ownership, independent of the I/O mutex. The
 // native OS cancellation hook drains these scopes before destroying a thread.
+#if RE4DC_MOTION_LEASE_LEAN
+Owner* owner_add() {
+    int old=irq_disable();const void* me=thd_current;
+    for(auto& o:owners) if(o.thread==me) { ++o.leases;irq_restore(old);return &o; }
+    for(auto& o:owners) if(!o.leases) { o={me,1};irq_restore(old);return &o; }
+    irq_restore(old);fail("motion owner capacity");
+}
+#else
 void owner_add() {
     int old=irq_disable();const void* me=thd_current;
     for(auto& o:owners) if(o.thread==me) { ++o.leases;irq_restore(old);return; }
     for(auto& o:owners) if(!o.leases) { o={me,1};irq_restore(old);return; }
     irq_restore(old);fail("motion owner capacity");
 }
+#endif
 void owner_drop() {
     int old=irq_disable();
     for(auto& o:owners) if(o.thread==thd_current && o.leases) {
@@ -93,7 +116,32 @@ void owner_drop() {
     irq_restore(old);fail("motion lease owner mismatch");
 }
 struct Locked {
+#if RE4DC_MOTION_LEASE_LEAN
+    // This guard's count keeps the static slot occupied across mutex_lock and
+    // until its destructor. Retaining a lease need not find that same slot again.
+    Owner* owner;
+    Locked():owner(owner_add()) { mutex_lock(&lock); }
+    void retain_lease() {
+        int old=irq_disable();
+        if(owner->thread!=thd_current || !owner->leases) {
+            irq_restore(old);fail("motion lease owner mismatch");
+        }
+#if RE4DC_MOTION_LEASE_LEAN == 2
+        Owner* found=nullptr;
+        for(auto& o:owners)if(o.thread==thd_current) { found=&o;break; }
+        if(found!=owner) { irq_restore(old);fail("motion lease owner shadow mismatch"); }
+        static unsigned checked=0;
+        const bool report=(++checked & 4095U)==0;
+#endif
+        ++owner->leases;
+        irq_restore(old);
+#if RE4DC_MOTION_LEASE_LEAN == 2
+        if(report)re4dc_log("MOTION_LEASE_CHECK calls=%u mismatch=0\n",checked);
+#endif
+    }
+#else
     Locked() { owner_add();mutex_lock(&lock); }
+#endif
     ~Locked() { mutex_unlock(&lock);owner_drop(); }
 };
 const unsigned char* record(const Binding& b,unsigned i) { return b.records+20*i; }
@@ -109,12 +157,43 @@ void release_binding(Binding& b) {
     stats.metadata_bytes-=aligned(b.count*sizeof(Slot));stats.hot_bytes-=b.hot_bytes;
     re4dc_motion_free(b.slots);b={};
 }
+#if RE4DC_MOTION_PRESSURE_BYTES
+// Called only under Locked, before a miss allocates its payload. Archive and
+// proxy identities, slot tables, pins, and source MotionWork stay untouched.
+// A hot flag remains a preload hint here, rather than a permanent RAM lease.
+// Each iteration removes a positive-sized entry, so at most 4*255 iterations.
+void pressure_room_for(unsigned bytes) {
+    if(re4dc_motion_current_heap()!=4)fail("motion pressure outside owning room heap");
+#if RE4DC_SUBSCREEN
+    if(hold)return; // suspended room cells must never be read/freed by eviction
+#endif
+    if(bytes>RE4DC_MOTION_PRESSURE_BYTES)fail("motion pressure clip exceeds budget");
+    while(stats.resident_bytes>RE4DC_MOTION_PRESSURE_BYTES-bytes) {
+        Binding* victim=nullptr;unsigned index=0;
+        std::uint64_t oldest=~std::uint64_t(0);
+        for(auto& q:bindings) {
+            if(!q.archive)continue;
+            for(unsigned j=0;j<q.count;++j) {
+                const auto& slot=q.slots[j];
+                if(slot.data && !slot.pins && slot.used<oldest) {
+                    victim=&q;index=j;oldest=slot.used;
+                }
+            }
+        }
+        if(!victim)fail("motion pressure live leases exceed budget");
+        discard(*victim,index);++stats.evictions;
+    }
+}
+#endif
 unsigned* load(Binding& b,unsigned i) {
     const auto* e=record(b,i);auto& s=b.slots[i];
     if(s.data) { ++stats.hits;s.used=++stamp; }
     else {
         ++stats.misses;const auto started=timer_us_gettime64();
         const unsigned size=word(e+4),bytes=aligned(size);
+#if RE4DC_MOTION_PRESSURE_BYTES
+        pressure_room_for(bytes);
+#else
 #if RE4DC_SUBSCREEN
         while(!hold && b.resident+bytes>b.budget) {
 #else
@@ -128,6 +207,7 @@ unsigned* load(Binding& b,unsigned i) {
             if(victim==b.count)fail("motion working set exceeds qualified budget");
             discard(b,victim);++stats.evictions;
         }
+#endif
         if(re4dc_motion_current_heap()!=4)fail("motion miss outside owning room heap");
         auto* data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
         if(!data)fail("motion key allocation");
@@ -230,11 +310,18 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     stats.metadata_bytes+=meta;stats.hot_bytes+=hot;
     for(unsigned i=0;i<count;++i)if(word(record(*b,i)+16))load(*b,i);
     re4dc_log("motion bind: archive=%u entries=%u hot=%u cache-budget=%u metadata=%u\n",bytes,count,hot,b->budget,meta);
+#if RE4DC_MOTION_PRESSURE_BYTES
+    re4dc_log("motion pressure: cap=%u resident=%u peak=%u pinned=%u evictions=%u loads=%u\n",
+        unsigned(RE4DC_MOTION_PRESSURE_BYTES),stats.resident_bytes,stats.peak_cache_bytes,
+        stats.pinned_bytes,stats.evictions,stats.loads);
+#endif
     return 1;
 }
 extern "C" int re4dc_motion_acquire(const void* header,unsigned** table) {
     if(!header)return 0;
+#if !RE4DC_MOTION_LEASE_LEAN
     const auto started=timer_us_gettime64();
+#endif
     Locked guard;
     if(!stats.metadata_bytes)return 0;
     const auto p=reinterpret_cast<std::uintptr_t>(header);
@@ -254,9 +341,15 @@ extern "C" int re4dc_motion_acquire(const void* header,unsigned** table) {
 #endif
             *table=load(b,i);auto& s=b.slots[i];
             if(!s.pins++) { stats.pinned_bytes+=word(record(b,i)+4);if(stats.pinned_bytes>stats.peak_pinned_bytes)stats.peak_pinned_bytes=stats.pinned_bytes; }
+#if RE4DC_MOTION_LEASE_LEAN
+            guard.retain_lease();
+            // worst_wait_us keeps actual miss/load timing; hit-path timing was
+            // telemetry only. The load() timers and I/O probe are unchanged.
+#else
             owner_add();
             const auto wait=timer_us_gettime64()-started;
             if(wait>stats.worst_wait_us)stats.worst_wait_us=wait;
+#endif
             return bno*256+i+1;
         }
     }

@@ -1217,6 +1217,10 @@ void CameraControl::Move()
         if (((CameraMotion*) extra)->end == 1) {
             if (extra) {
                 delete extra;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+                // Placement storage is retired; the next cut must not destroy it again.
+                extra = NULL;
+#endif
             }
             r0 = 0;
         }
@@ -2439,6 +2443,12 @@ int CameraControl::IsMotionEnd()
 // Places the camera motion in the world through `mat` (event position).
 void CameraControl::setMotionBaseMatPtr(Mtx* mat)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Event teardown can clear its base matrix after the motion has retired.
+    if (!extra) {
+        return;
+    }
+#endif
     ((CameraMotion*) extra)->base_mat = mat;
 }
 

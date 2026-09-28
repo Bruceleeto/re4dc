@@ -182,6 +182,7 @@ bool gate_init(unsigned a) {
     }
     return gate_state[a] == 1;
 }
+#if RE4DC_COARSE_GATE_ONCE != 1
 // ||A|| (spectral) <= sqrt(max row sum of |A^T A|): exact for orthogonal columns (rotation x scale).
 inline float gate_scale(const float (*A)[4]) {
     float s = 0.0f;
@@ -256,6 +257,190 @@ unsigned gate_cull(cModel* m, unsigned app, cModelInfo* const* infos, cParts* co
     if (gate_visible && culled == gate_visible) ++gate_culled_actors;
     return culled;
 }
+#endif
+#if RE4DC_COARSE_GATE_ONCE
+// COARSE_GATE_ONCE (render only; game30.mk): gate_cull's decisions and modelviews, bit for bit, with less work.
+// - The view constants (far, near, screen rows) are rebuilt only when the projection / viewport words change.
+// - A visible chunk whose info matrix repeats (word for word) the last one concatenated takes that chunk's
+//   modelview (the same PSMTXConcat pair on the same three matrices), and a repeated modelview keeps the gate
+//   matrix G and its norms (the same operations on the same inputs): one G per actor when its infos agree.
+// - A ball evaluates only the planes still undecided (planes &= out never sets a bit), each by gate_cull's own
+//   expression. Its radius term rho (which needs the bone's scale) is computed only when the centre does not
+//   settle every live plane: rho >= 4 or NaN (g.r, scale >= 0) and norm >= 0 or NaN, so rho x norm is >= 0 or
+//   NaN, and a centre with d0 >= 0 (d1 >= 0; d2 <= 0 or d3 <= 0; d2 <= 0 or d4 <= 0; d2 <= far), or a NaN
+//   there, leaves the left (top; right; bottom; far) bit clear whatever rho is (IEEE rounding is monotone).
+// - The scale's Gram A^T A is symmetric: (A^T A)_ij and (A^T A)_ji are the same three products (multiplication
+//   commutes) summed in the same order, so six dot products give the nine entries' bits.
+// =2 (check build): gate_cull runs first as the reference (its counters restored), then this one decides; masks
+// and modelviews are compared and every scale / kept G is recomputed ("GATE1 PREGATE" lines, mismatches 0).
+inline float gate_scale_sym(const float (*A)[4]) {
+    const float g00 = A[0][0] * A[0][0] + A[1][0] * A[1][0] + A[2][0] * A[2][0];
+    const float g01 = A[0][0] * A[0][1] + A[1][0] * A[1][1] + A[2][0] * A[2][1];
+    const float g02 = A[0][0] * A[0][2] + A[1][0] * A[1][2] + A[2][0] * A[2][2];
+    const float g11 = A[0][1] * A[0][1] + A[1][1] * A[1][1] + A[2][1] * A[2][1];
+    const float g12 = A[0][1] * A[0][2] + A[1][1] * A[1][2] + A[2][1] * A[2][2];
+    const float g22 = A[0][2] * A[0][2] + A[1][2] * A[1][2] + A[2][2] * A[2][2];
+    const float a01 = __builtin_fabsf(g01), a02 = __builtin_fabsf(g02), a12 = __builtin_fabsf(g12);
+    float s = 0.0f, row;
+    row = __builtin_fabsf(g00) + a01 + a02; if (row > s) s = row;
+    row = a01 + __builtin_fabsf(g11) + a12; if (row > s) s = row;
+    row = a02 + a12 + __builtin_fabsf(g22); if (row > s) s = row;
+    return __builtin_sqrtf(s);
+}
+// gate_cull's G and norms for one modelview.
+void gate_matrix(const float (*rows)[3], const float (*mv)[4], const Mtx inv, float (*G)[4], float* norm) {
+    float M[3][4];
+    for (unsigned r = 0; r < 3; ++r)
+        for (unsigned c = 0; c < 4; ++c) M[r][c] = rows[r][0] * mv[0][c] + rows[r][1] * mv[1][c] + rows[r][2] * mv[2][c];
+    for (unsigned r = 0; r < 3; ++r) {
+        for (unsigned c = 0; c < 3; ++c) G[r][c] = M[r][0] * inv[0][c] + M[r][1] * inv[1][c] + M[r][2] * inv[2][c];
+        G[r][3] = M[r][0] * inv[0][3] + M[r][1] * inv[1][3] + M[r][2] * inv[2][3] + M[r][3];
+    }
+    for (unsigned c = 0; c < 4; ++c) { G[3][c] = G[0][c] - 640.0f * G[2][c]; G[4][c] = G[1][c] - 480.0f * G[2][c]; }
+    for (unsigned f = 0; f < 5; ++f) norm[f] = __builtin_sqrtf(G[f][0] * G[f][0] + G[f][1] * G[f][1] + G[f][2] * G[f][2]);
+}
+struct GateView { bool valid, ok; unsigned P[7], V[6]; float far, rows[3][3]; };
+GateView gate_view;
+#if RE4DC_COARSE_GATE_ONCE == 2
+unsigned g1_calls, g1_mask_mismatch, g1_visible_mismatch, g1_mv_mismatch, g1_mv_reused, g1_g_reused, g1_g_mismatch,
+    g1_view_reused, g1_scales, g1_scale_mismatch, g1_rho, g1_rho_skipped;
+#endif
+unsigned gate_cull_once(cModel* m, unsigned app, cModelInfo* const* infos, cParts* const* parts, const Mtx inv, Mtx* mv) {
+    gate_visible = 0;
+    int last = -1;  // the last visible chunk whose modelview was concatenated
+    for (unsigned i = 0; i < 4; ++i) {
+        if (!visible(infos[i])) continue;
+        if (last >= 0 && !std::memcmp(infos[i]->mat, infos[last]->mat, sizeof(Mtx))) {
+            std::memcpy(mv[i], mv[last], sizeof(Mtx));
+#if RE4DC_COARSE_GATE_ONCE == 2
+            ++g1_mv_reused;
+#endif
+        } else {
+            Mtx pm;
+            PSMTXConcat(m->pParts->mat, infos[i]->mat, pm);
+            PSMTXConcat(pG->Cam.v_mat, pm, mv[i]);
+            last = int(i);
+        }
+        gate_visible |= 1U << i;
+    }
+    ++gate_actors;
+    if (!gate_init(app) || stress_layout) { ++gate_ungated; return 0; }
+    float P[7], V[6];
+    GXGetProjectionv(P); GXGetViewportv(V);
+    GateView& gv = gate_view;
+    if (!gv.valid || std::memcmp(gv.P, P, sizeof(P)) || std::memcmp(gv.V, V, sizeof(V))) {
+        gv.valid = true; std::memcpy(gv.P, P, sizeof(P)); std::memcpy(gv.V, V, sizeof(V));
+        gv.ok = false;
+        if (!(P[0] != 0.0f || !(V[2] > 0.0f) || !(V[3] > 0.0f))) {
+            const float far = P[6] / P[5], near = P[6] / (P[5] - 1.0f);
+            if (!(!(near > 0.0f) || !(far > near) || !(far < 3.0e38f))) {
+                const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2], cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
+                const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx}, {0.0f, -240.0f * P[3], -240.0f * P[4] - cy},
+                                          {0.0f, 0.0f, -1.0f}};
+                std::memcpy(gv.rows, rows, sizeof(rows));
+                gv.far = far; gv.ok = true;
+            }
+        }
+    }
+#if RE4DC_COARSE_GATE_ONCE == 2
+    else ++g1_view_reused;
+#endif
+    if (!gv.ok) return 0;
+    const float far = gv.far;
+    float scale[kBones];
+    unsigned have[2] = {0, 0};
+    unsigned culled = 0;
+    float G[5][4], norm[5];
+    int gfor = -1;  // the chunk whose modelview G and norm were built from
+    for (unsigned i = 0; i < 4; ++i) {
+        if (!((gate_visible >> i) & 1U)) continue;
+        ++gate_chunks;
+        const unsigned n = gate_count[app][i], first = gate_first[app][i];
+        if (!n) continue;
+        if (gfor >= 0 && !std::memcmp(mv[i], mv[gfor], sizeof(Mtx))) {
+#if RE4DC_COARSE_GATE_ONCE == 2
+            ++g1_g_reused;
+            float G2[5][4], norm2[5];
+            gate_matrix(gv.rows, mv[i], inv, G2, norm2);
+            if (std::memcmp(G2, G, sizeof(G)) || std::memcmp(norm2, norm, sizeof(norm))) ++g1_g_mismatch;
+#endif
+        } else {
+            gate_matrix(gv.rows, mv[i], inv, G, norm);
+            gfor = int(i);
+        }
+        unsigned planes = 31;  // left, top, right, bottom, far
+        for (unsigned j = 0; j < n && planes; ++j) {
+            const GateBall& g = gate_ball[first + j];
+            const unsigned b = gate_bone[first + j];
+            const float (*A)[4] = parts[b]->mat;
+            float w[3];
+            for (unsigned r = 0; r < 3; ++r) w[r] = A[r][0] * g.c[0] + A[r][1] * g.c[1] + A[r][2] * g.c[2] + A[r][3];
+            float d[5];
+            if (planes & 1U) d[0] = G[0][0] * w[0] + G[0][1] * w[1] + G[0][2] * w[2] + G[0][3];
+            if (planes & 2U) d[1] = G[1][0] * w[0] + G[1][1] * w[1] + G[1][2] * w[2] + G[1][3];
+            if (planes & 28U) d[2] = G[2][0] * w[0] + G[2][1] * w[1] + G[2][2] * w[2] + G[2][3];
+            if (planes & 4U) d[3] = G[3][0] * w[0] + G[3][1] * w[1] + G[3][2] * w[2] + G[3][3];
+            if (planes & 8U) d[4] = G[4][0] * w[0] + G[4][1] * w[1] + G[4][2] * w[2] + G[4][3];
+            // The live planes the centre alone does not settle (every other live bit of out is 0).
+            const unsigned open = ((planes & 1U) && d[0] < 0.0f ? 1U : 0U) | ((planes & 2U) && d[1] < 0.0f ? 2U : 0U) |
+                                  ((planes & 4U) && d[2] > 0.0f && d[3] > 0.0f ? 4U : 0U) |
+                                  ((planes & 8U) && d[2] > 0.0f && d[4] > 0.0f ? 8U : 0U) |
+                                  ((planes & 16U) && d[2] > far ? 16U : 0U);
+            if (!open) {
+#if RE4DC_COARSE_GATE_ONCE == 2
+                ++g1_rho_skipped;
+#endif
+                planes = 0;
+                break;
+            }
+#if RE4DC_COARSE_GATE_ONCE == 2
+            ++g1_rho;
+#endif
+            if (!((have[b >> 5] >> (b & 31)) & 1U)) {
+                scale[b] = gate_scale_sym(A); have[b >> 5] |= 1U << (b & 31);
+#if RE4DC_COARSE_GATE_ONCE == 2
+                ++g1_scales;
+                const float ref = gate_scale(A);
+                if (std::memcmp(&ref, &scale[b], sizeof(ref))) ++g1_scale_mismatch;
+#endif
+            }
+            const float rho = g.r * scale[b] * 1.002f + 4.0f;
+            unsigned out = 0;
+            if ((open & 1U) && d[0] + rho * norm[0] < 0.0f) out |= 1;
+            if ((open & 2U) && d[1] + rho * norm[1] < 0.0f) out |= 2;
+            if (open & 28U) {
+                const float wmin = d[2] - rho * norm[2];
+                if ((open & 4U) && wmin > 0.0f && d[3] - rho * norm[3] > 0.0f) out |= 4;
+                if ((open & 8U) && wmin > 0.0f && d[4] - rho * norm[4] > 0.0f) out |= 8;
+                if ((open & 16U) && wmin > far) out |= 16;
+            }
+            planes &= out;
+        }
+        if (planes) { culled |= 1U << i; ++gate_culled_chunks; }
+    }
+    if (gate_visible && culled == gate_visible) ++gate_culled_actors;
+    return culled;
+}
+#if RE4DC_COARSE_GATE_ONCE == 2
+unsigned gate_cull_checked(cModel* m, unsigned app, cModelInfo* const* infos, cParts* const* parts, const Mtx inv, Mtx* mv) {
+    const unsigned c0 = gate_actors, c1 = gate_ungated, c2 = gate_chunks, c3 = gate_culled_chunks, c4 = gate_culled_actors;
+    Mtx ref_mv[4];
+    const unsigned ref = gate_cull(m, app, infos, parts, inv, ref_mv), ref_visible = gate_visible;
+    gate_actors = c0; gate_ungated = c1; gate_chunks = c2; gate_culled_chunks = c3; gate_culled_actors = c4;
+    const unsigned got = gate_cull_once(m, app, infos, parts, inv, mv);
+    ++g1_calls;
+    if (got != ref) ++g1_mask_mismatch;
+    if (gate_visible != ref_visible) ++g1_visible_mismatch;
+    for (unsigned i = 0; i < 4; ++i)
+        if (((gate_visible >> i) & 1U) && std::memcmp(mv[i], ref_mv[i], sizeof(Mtx))) ++g1_mv_mismatch;
+    return got;
+}
+#else
+inline unsigned gate_cull_checked(cModel* m, unsigned app, cModelInfo* const* infos, cParts* const* parts, const Mtx inv, Mtx* mv) {
+    return gate_cull_once(m, app, infos, parts, inv, mv);
+}
+#endif
+#endif
 #if RE4DC_COARSE_PREGATE == 2
 void gate_note(unsigned app, unsigned i, bool skipped, unsigned emitted) {
     if (skipped) {
@@ -450,7 +635,11 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
 #endif
 #if RE4DC_COARSE_PREGATE
     Mtx gate_mv[4];
+#if RE4DC_COARSE_GATE_ONCE
+    const unsigned gate_skip=gate_cull_checked(m,app,infos,parts,inv,gate_mv);
+#else
     const unsigned gate_skip=gate_cull(m,app,infos,parts,inv,gate_mv);
+#endif
 #if RE4DC_COARSE_PREGATE == 1
     // Every visible chunk skipped: no bones either (the chunk loop below skips each of them).
     if(!gate_visible || gate_skip!=gate_visible){
@@ -656,6 +845,13 @@ extern "C" void re4dc_coarse_ganado_end(){
         re4dc_log("COARSE_PREGATE t=%u actors=%u culled_actors=%u chunks=%u culled_chunks=%u ungated=%u\n",
             pG->Frame_cnt,gate_actors,gate_culled_actors,gate_chunks,gate_culled_chunks,gate_ungated);
 #endif
+#if RE4DC_COARSE_GATE_ONCE == 2
+    // COARSE_GATE_ONCE=2: gate_cull_once against gate_cull (mismatches must be 0) and how often each shortcut ran.
+    if(pG->Frame_cnt%120==0)
+        re4dc_log("GATE1 PREGATE t=%u calls=%u mask_mismatch=%u visible_mismatch=%u mv_mismatch=%u mv_reused=%u g_reused=%u g_mismatch=%u view_reused=%u scales=%u scale_mismatch=%u rho=%u rho_skipped=%u\n",
+            pG->Frame_cnt,g1_calls,g1_mask_mismatch,g1_visible_mismatch,g1_mv_mismatch,g1_mv_reused,g1_g_reused,g1_g_mismatch,
+            g1_view_reused,g1_scales,g1_scale_mismatch,g1_rho,g1_rho_skipped);
+#endif
 #endif
 #if RE4DC_COARSE_GANADO_CAST == 2
     if(pG->Frame_cnt%120==0){
@@ -675,3 +871,5 @@ extern "C" void re4dc_coarse_ganado_end(){
 }
 
 extern "C" int re4dc_coarse_ganado_layout(){return stress_layout;}
+
+#include "coarse_actor_owner_ganado.inc"

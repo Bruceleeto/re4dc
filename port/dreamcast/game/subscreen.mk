@@ -40,6 +40,13 @@ SUBSCREEN ?= 0
 W11_FIXTURE ?= 0
 SUBSCREEN_OVL ?= 0
 SS_POOL_HIGH ?= 0
+# Source-ordered UI/model compositing only while the subscreen area is swapped.
+SS_UI_ORDER ?= 0
+ifeq ($(SS_UI_ORDER),1)
+ifneq ($(SUBSCREEN),1)
+$(error SS_UI_ORDER=1 requires SUBSCREEN=1)
+endif
+endif
 ifeq ($(SUBSCREEN),1)
 ifneq ($(TA_DOUBLEBUF),0)
 # The backing borrows bank 1 while a sub screen is open: TA_DOUBLEBUF=1 switches the TA to one bank
@@ -61,7 +68,7 @@ endif
 $(OBJDIR)/subscreen.h: subscreen-force
 	@mkdir -p $(dir $@)
 	@if [ "$(SUBSCREEN_TA_SWITCH)" = 1 ]; then test "$$($(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-nm -g --defined-only $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a | grep -c ' T _pvr_set_vbuf_doublebuf$$')" -eq 1 || { echo 'SUBSCREEN=1 with TA_DOUBLEBUF=1 requires the KOS vbuf-switch patch (patches/kos-804b319-vbuf-switch.patch)' >&2; exit 1; }; fi
-	@printf '#define RE4DC_SUBSCREEN %s\n#define RE4DC_W11_FIXTURE %s\n#define RE4DC_SUBSCREEN_OVL %s\n#define RE4DC_SS_POOL_HIGH %s\n' '$(SUBSCREEN)' '$(W11_FIXTURE)' '$(SUBSCREEN_OVL)' '$(SS_POOL_HIGH)' > $@.tmp
+	@printf '#define RE4DC_SUBSCREEN %s\n#define RE4DC_W11_FIXTURE %s\n#define RE4DC_SUBSCREEN_OVL %s\n#define RE4DC_SS_POOL_HIGH %s\n#define RE4DC_SS_UI_ORDER %s\n' '$(SUBSCREEN)' '$(W11_FIXTURE)' '$(SUBSCREEN_OVL)' '$(SS_POOL_HIGH)' '$(SS_UI_ORDER)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 # A knob change regenerates the module list.

@@ -14,8 +14,13 @@ struct CRoomInfo {
     union {
         u16 roomNo;  // 0x02  stage << 8 | room
         struct {
+#if defined(__PPC__)
             u8 stage;  // 0x02
             u8 room;   // 0x03
+#else
+            u8 room;   // the same u16 in little-endian byte order
+            u8 stage;
+#endif
         };
     };
     Vec pos;        // 0x04

@@ -13,6 +13,12 @@
 // the world OTs (0 .. SUBSCRN_NEAR) with re4dc_coarse_draw(); effects, HUD, messages, filters and
 // the letterbox keep their source OTs. Render() runs before the next tick's moves, so the records
 // read here are the state of the image's own tick.
+#ifndef RE4DC_PS2_WORLD_DRAW
+#define RE4DC_PS2_WORLD_DRAW 0
+#endif
+#if RE4DC_PS2_WORLD_DRAW
+#include "platform/include/native_ps2_world.h"
+#endif
 #include "global.h"
 #include "player.h"
 #include "pl_npc.h"
@@ -60,11 +66,21 @@ extern "C" void re4dc_coarse_ganado_begin();
 extern "C" void re4dc_coarse_ganado_end();
 extern "C" int re4dc_coarse_ganado_layout();
 #endif
+#ifndef RE4DC_COARSE_SOURCE_ACTORS
+#define RE4DC_COARSE_SOURCE_ACTORS 0
+#endif
+#if RE4DC_COARSE_SOURCE_ACTORS
+extern "C" int re4dc_coarse_source_actors_ready();
+extern "C" int re4dc_coarse_source_actor_route(const void*);
+#endif
 namespace {
 constexpr float kNear = 40.0f;         // clip plane, mm in front of the eye
 constexpr float kFar = 25000.0f;       // block cull distance (FOG_FAR: opaque fog there)
 constexpr unsigned kSplit = 30000;     // vertices per header (native_ui's store-queue window)
 constexpr unsigned kMaxPolys = 1u << 16;
+#if RE4DC_PS2_WORLD_DRAW
+bool g_ps2_world=false; // current ordinary coarse image only
+#endif
 unsigned char g_seen[kMaxPolys / 8];   // polygons of this piece already drawn (blocks overlap)
 // Invisible walls. Collision walls are one-sided (the normal faces the side they hold back) and the
 // game's line tests are too: the camera's (cameraHitCheck, from its target to the lens) only meets
@@ -506,6 +522,9 @@ void draw_blocks(Out& o, cSat* sat, const cSatBlock* b, const PieceView& pv, con
 void draw_world(Out& o)
 {
     for (u32 i = 0; i < SatMgr.nArray; ++i) {
+#if RE4DC_PS2_WORLD_DRAW
+        if(i==0 && g_ps2_world)continue; // replaces diagnostic collision drawing only
+#endif
 #if RE4DC_COARSE_WORLD & 128
         if (i == 0 && g_world) {
             continue;   // K0: the world data covers every piece-0 polygon (coarse_world.h kCover); drawing only
@@ -609,6 +628,11 @@ void blob(Out& o, const Vec& at, float r)
 
 void draw_model(Out& o, cModel* m, std::uint32_t rgb, float t)
 {
+#if RE4DC_COARSE_SOURCE_ACTORS
+    // Both source-handled and invalid membership suppress this substitute.
+    // Invalid membership is logged by the owner and invalidates the candidate.
+    if(re4dc_coarse_source_actor_route(m)!=0)return;
+#endif
     bool crowd_layout=false;
 #if RE4DC_COARSE_GANADO
     crowd_layout=re4dc_coarse_ganado_layout() && m->id>=0x10 && m->id<=0x20;
@@ -759,10 +783,20 @@ extern "C" int re4dc_coarse_tick(int dropped)
 // Render() of a coarse image: the whole opaque view, before the effect / HUD OTs.
 extern "C" void re4dc_coarse_draw(void)
 {
+#if RE4DC_COARSE_SOURCE_ACTORS
+    // Validate all actors before the first coarse TA header; no late source retry.
+    if(!re4dc_coarse_source_actors_ready())return;
+#endif
     if (!pG || !SatMgr.pArray) {
         return;
     }
     const std::uint64_t t0 = timer_us_gettime64();
+#if RE4DC_PS2_WORLD_DRAW
+    // Texture/file work must precede coarse_begin acquiring the TA store queues.
+    setup_camera();
+    if(re4dc_fog_note_far)re4dc_fog_note_far(View._zfar);
+    g_ps2_world=re4dc_ps2_world_draw(G_ROOM_ID,g_S,View._zfar)!=0;
+#endif
     Out o{re4dc_coarse_begin(1), 0, 0};
     if (!o.sq) {
         return;
@@ -770,7 +804,9 @@ extern "C" void re4dc_coarse_draw(void)
     if (re4dc_fog_note_far) {
         re4dc_fog_note_far(View._zfar);   // as a native model draw would: the fog table's far (FOG_FAR)
     }
+    #if !RE4DC_PS2_WORLD_DRAW
     setup_camera();
+    #endif
 #if RE4DC_COARSE >= 2
     // COARSE=2 (diagnostic): the first images log the camera, Leon's projected root and the first
     // world triangle (native_ui logs the stream state at re4dc_coarse_begin).

@@ -67,7 +67,7 @@ static inline u8 LightInfoShape(cLightInfo* li) { return li->Flag; }
         cLightInfo* li = &(m)->LightInfo;                                           \
         if (li->PartsNo > 0) {                                                          \
             cModel* p = (m)->getPartsPtr(li->PartsNo - 1);                              \
-            if ((u32) p < 0x80000000 || (u32) p > 0x82FFFFFF) {                     \
+            if ((u32) p < RE4_MEM_LO || (u32) p > RE4_MEM_HI) {                     \
                 pLog->err(0, 0, msg, LightInfoParts(&(m)->LightInfo));              \
                 p = (m);                                                            \
             }                                                                       \
@@ -1199,7 +1199,7 @@ int shadowChkInFrustum(ShadowMng* mng, cModel* m)
     }
     if (li->PartsNo > 0) {
         cModel* p = m->getPartsPtr(li->PartsNo - 1);
-        if ((u32) p < 0x80000000 || (u32) p > 0x82FFFFFF) {
+        if ((u32) p < RE4_MEM_LO || (u32) p > RE4_MEM_HI) {
             pLog->err(0, 0, "shadowChkInFrustum() cCoord NO ERR %d", li->PartsNo);
             p = m;
         }

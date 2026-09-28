@@ -468,7 +468,7 @@ void cManager<T>::destroyAll()
 template <class T>
 inline void cManager<T>::destroy(T* p)
 {
-    if ((u32)p < 0x80000000 || (u32)p > 0x82FFFFFF) {
+    if ((u32)p < RE4_MEM_LO || (u32)p > RE4_MEM_HI) {
         if (p != 0) {
             log("%s::destroy() ERROR, INVALID  PTR %08X", name, p);
         }

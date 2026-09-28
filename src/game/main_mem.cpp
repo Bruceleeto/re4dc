@@ -5,6 +5,9 @@
 // another with MemReplaceHeap; heaps can be suspended (descriptor backed up) and resumed.
 // mem_alloc tags every block with "MAD" + file(line) for MemCheckUsedHeap; Debug_alloc serves
 // the tools from the current debug heap. operator new/delete route here.
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+#include "actor_lifetime.h"
+#endif
 #include "types.h"
 #include "global.h"
 #include "main_mem.h"
@@ -184,6 +187,10 @@ void SystemMemInit()
 // Clears the 13 heap slots and the suspend backups.
 void memInitHeapTbl()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_forget_all();
+#endif
+
     int i;
 
     for (i = 0; i < MEM_HEAP_NUM; i++) {
@@ -346,6 +353,9 @@ int MemDestroyHeap(int no)
     }
     OSReport("-- MemDestroyHeap %d  ", no);
     if (Heap[no].handle >= 0) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        re4dc_actor_forget_range((void*)Heap[no].start,Heap[no].end-Heap[no].start);
+#endif
         OSDestroyHeap(Heap[no].handle);
         Heap[no].handle = -1;
         OSReport("succeed!!\n");
@@ -515,6 +525,12 @@ void Mem_free_h(void* p, int heap)
         heap = CurrentHeap;
     }
     if (memCheckHeapActive(heap)) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        if(p) {
+            const int bytes=((OSHeapCell*)((u8*)p-0x20))->size;
+            if(bytes>=0x20)re4dc_actor_forget_range(p,(unsigned)bytes-0x20);
+        }
+#endif
         OSFreeToHeap(__OSCurrHeap, p);
     }
 }
@@ -590,6 +606,12 @@ void Debug_free_h(void* p, int heap)
         heap = CurrentDbgHeap;
     }
     if (memCheckHeapActive(heap)) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        if(p) {
+            const int bytes=((OSHeapCell*)((u8*)p-0x20))->size;
+            if(bytes>=0x20)re4dc_actor_forget_range(p,(unsigned)bytes-0x20);
+        }
+#endif
         memclr_asm(p, ((OSHeapCell*) ((u8*) p - 0x20))->size - 0x20);
         OSFreeToHeap(Heap[CurrentDbgHeap].handle, p);
     }
@@ -731,7 +753,7 @@ void MemCheckUsedHeap()
         y1 = (u32) ((f32) ((u32) cell + cell->size - start) * 400.0f / (f32) size) + 1;
 
         u8* tag = (u8*) cell + cell->size - 0x20;
-        if ((s32) tag >= 0 || (u32) tag > 0x82FFFFFF) {
+        if ((s32) tag >= 0 || (u32) tag > RE4_MEM_HI) {
             break;
         }
         if (MEM_TAG_OK(tag)) {
@@ -745,7 +767,7 @@ void MemCheckUsedHeap()
         ey += 14;
         next = cell->next;
         if (next != NULL && next->next != NULL &&
-            ((s32) next->next >= 0 || (u32) next->next > 0x82FFFFFF)) {
+            ((s32) next->next >= 0 || (u32) next->next > RE4_MEM_HI)) {
             pLog->err(0, 0, "heap next err:%-18s %6x %08x", tag + 4, cell->size - 0x20, cell);
             pLog->err(0, 0, "next addr    : %08x", cell->next);
 #line 770
@@ -807,7 +829,7 @@ void MemCheckUsedHeap()
     if (CurrentHeap == 4) {
         for (cell = cell_dll; cell != NULL; cell = cell->next) {
             u8* tag = (u8*) cell + cell->size - 0x20;
-            if ((s32) tag >= 0 || (u32) tag > 0x82FFFFFF) {
+            if ((s32) tag >= 0 || (u32) tag > RE4_MEM_HI) {
                 break;
             }
             if (MEM_TAG_OK(tag)) {
@@ -821,7 +843,7 @@ void MemCheckUsedHeap()
             }
             next = cell->next;
             if (next != NULL && next->next != NULL &&
-                ((s32) next->next >= 0 || (u32) next->next > 0x82FFFFFF)) {
+                ((s32) next->next >= 0 || (u32) next->next > RE4_MEM_HI)) {
                 pLog->err(0, 0, "heap next err:%-18s %6x %08x", tag + 4, cell->size - 0x20, cell);
                 pLog->err(0, 0, "next addr    : %08x", cell->next);
 #line 870
@@ -830,7 +852,7 @@ void MemCheckUsedHeap()
         }
         for (cell = cell_stage; cell != NULL; cell = cell->next) {
             u8* tag = (u8*) cell + cell->size - 0x20;
-            if ((s32) tag >= 0 || (u32) tag > 0x82FFFFFF) {
+            if ((s32) tag >= 0 || (u32) tag > RE4_MEM_HI) {
                 break;
             }
             if (MEM_TAG_OK(tag)) {
@@ -844,7 +866,7 @@ void MemCheckUsedHeap()
             }
             next = cell->next;
             if (next != NULL && next->next != NULL &&
-                ((s32) next->next >= 0 || (u32) next->next > 0x82FFFFFF)) {
+                ((s32) next->next >= 0 || (u32) next->next > RE4_MEM_HI)) {
                 pLog->err(0, 0, "heap next err:%-18s %6x %08x", tag + 4, cell->size - 0x20, cell);
                 pLog->err(0, 0, "next addr    : %08x", cell->next);
 #line 904
@@ -853,7 +875,7 @@ void MemCheckUsedHeap()
         }
         for (cell = cell_game; cell != NULL; cell = cell->next) {
             u8* tag = (u8*) cell + cell->size - 0x20;
-            if ((s32) tag >= 0 || (u32) tag > 0x82FFFFFF) {
+            if ((s32) tag >= 0 || (u32) tag > RE4_MEM_HI) {
                 break;
             }
             if (MEM_TAG_OK(tag)) {
@@ -867,7 +889,7 @@ void MemCheckUsedHeap()
             ey += 14;
             next = cell->next;
             if (next != NULL && next->next != NULL &&
-                ((s32) next->next >= 0 || (u32) next->next > 0x82FFFFFF)) {
+                ((s32) next->next >= 0 || (u32) next->next > RE4_MEM_HI)) {
                 pLog->err(0, 0, "heap next err:%-18s %6x %08x", tag + 4, cell->size - 0x20, cell);
                 pLog->err(0, 0, "next addr    : %08x", cell->next);
 #line 938
@@ -876,7 +898,7 @@ void MemCheckUsedHeap()
         }
         for (cell = cell_main; cell != NULL; cell = cell->next) {
             u8* tag = (u8*) cell + cell->size - 0x20;
-            if ((s32) tag >= 0 || (u32) tag > 0x82FFFFFF) {
+            if ((s32) tag >= 0 || (u32) tag > RE4_MEM_HI) {
                 break;
             }
             if (MEM_TAG_OK(tag)) {
@@ -890,7 +912,7 @@ void MemCheckUsedHeap()
             ey += 14;
             next = cell->next;
             if (next != NULL && next->next != NULL &&
-                ((s32) next->next >= 0 || (u32) next->next > 0x82FFFFFF)) {
+                ((s32) next->next >= 0 || (u32) next->next > RE4_MEM_HI)) {
                 pLog->err(0, 0, "heap next err:%-18s %6x %08x", tag + 4, cell->size - 0x20, cell);
                 pLog->err(0, 0, "next addr    : %08x", cell->next);
 #line 974

@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "vmu_store.h"
+#include "vmu_dialog.h"
 #include "lz_small.h"
 #include "re4dc_platform.h"
 
@@ -96,6 +97,9 @@ struct Session {
     s32 len, ofs;
 };
 Session ss{};
+#if RE4DC_VMU_DIALOG
+#include "vmu_dialog_session.inc"
+#endif
 
 void name_of(int file, char which, char* out)
 {
@@ -206,6 +210,9 @@ int op_mount()
     return CARD_RESULT_READY;
 #else
     int rc = vmus_pick(&ss.st);
+#if RE4DC_VMU_DIALOG
+    card_dialog_publish(false);
+#endif
     if (rc) return map(rc);
     rc = vmus_mount(&ss.st, ss.work + kRootOff, ss.work + kFatOff, ss.work + kDirOff);
     if (rc == VMUS_NOFS) return CARD_RESULT_READY;  // mounted, unusable: CARDCheckAsync reports it
@@ -454,6 +461,9 @@ void* worker(void*)
     re4dc_log("card-vmu: op=%s file=%d vbl=%u rc=%d\n", kOpName[ss.op], ss.file,
               (unsigned) (re4dc_vi_retrace_count() - ss.t0), rc);
     ss.result = rc;
+#if RE4DC_VMU_DIALOG
+    card_dialog_publish(rc == CARD_RESULT_READY);
+#endif
     ss.busy = 0;
     return nullptr;
 }
@@ -486,6 +496,9 @@ s32 start(Op op, int file, void* buf, s32 len, s32 ofs)
     ss.polls = 0;
     ss.t0 = re4dc_vi_retrace_count();
     ss.busy = 1;
+#if RE4DC_VMU_DIALOG
+    card_dialog_begin();
+#endif
     kthread_attr_t a;
     memset(&a, 0, sizeof(a));
     a.stack_ptr = ss.work + kStackOff;
@@ -526,10 +539,22 @@ extern "C" {
 
 void CARDInit(void) {}
 
+#if RE4DC_VMU_DIALOG
+int re4dc_vmu_dialog_snapshot(Re4dcVmuDialogSnapshot* out)
+{
+    return card_dialog_read(out);
+}
+#endif
+
 s32 CARDProbeEx(s32 chan, s32* memSize, s32* sectorSize)
 {
     if (chan != 0 || ss.busy == 2) return CARD_RESULT_NOCARD;
-    if (!device_ok()) return CARD_RESULT_NOCARD;
+    if (!device_ok()) {
+#if RE4DC_VMU_DIALOG
+        card_dialog_clear();
+#endif
+        return CARD_RESULT_NOCARD;
+    }
     if (memSize) *memSize = 4;
     if (sectorSize) *sectorSize = 0x2000;
     return CARD_RESULT_READY;
@@ -543,6 +568,9 @@ s32 CARDMountAsync(s32 chan, void* work, void* detach, void* attach)
     ss.work = static_cast<u8*>(work);
     memset(ss.created, 0, sizeof(ss.created));
     ss.st = VmuStore{};
+#if RE4DC_VMU_DIALOG
+    card_dialog_clear();
+#endif
     return start(kMount, -1, nullptr, 0, 0);
 }
 
@@ -553,6 +581,9 @@ s32 CARDUnmount(s32 chan)
     ss.busy = 0;
     ss.work = nullptr;   // the game frees its work area after this
     ss.st = VmuStore{};
+#if RE4DC_VMU_DIALOG
+    card_dialog_clear();
+#endif
     return CARD_RESULT_READY;
 }
 
@@ -729,6 +760,11 @@ extern "C" int re4dc_quality_cfg_store(const Re4dcQualityCfg* rec)
 #else
     if (ss.busy) return 0;
     join();
+#if RE4DC_VMU_DIALOG
+    // The independent title writer may change this device through another FAT.
+    // Keep presentation counts unknown until the next fresh CARD mount.
+    card_dialog_clear();
+#endif
     u8* mem = (u8*) mem_alloc(kCfgBufBytes, __FILE__, __LINE__, 0, 13);
     if (!mem) {
         re4dc_log("card-vmu: cfg NOMEM (%u B)\n", kCfgBufBytes);

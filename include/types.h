@@ -1,6 +1,17 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+// Main-memory bounds of the pointer sanity checks spread over the game
+// (VALID_PTR / PTR_INVALID / inline range tests): GameCube MEM1 on the
+// PowerPC build, the Dreamcast's 16 MB of RAM (P1, cached) on the SH-4.
+#if defined(__PPC__)
+#define RE4_MEM_LO 0x80000000
+#define RE4_MEM_HI 0x82FFFFFF
+#else
+#define RE4_MEM_LO 0x8C000000
+#define RE4_MEM_HI 0x8CFFFFFF
+#endif
+
 typedef signed char s8;
 typedef signed short s16;
 typedef signed long s32;

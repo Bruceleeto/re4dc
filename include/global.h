@@ -170,6 +170,7 @@ struct GlobalWork {
     u8 language;           // 0x4F93  game language (main: pSys->language; title: language_tbl[])
     u32 play_time;         // 0x4F94  seconds (SetGameTime accumulates into it)
     u32 peseta;            // 0x4F98  money (ss_shop buy/sell, item pickups; PlSelect swaps it with peseta_bak)
+#if defined(__PPC__)
     union {
         u32 room_id32;     // 0x4F9C  stage/room and the two bytes after them as one word (em_set EmSetDie: `& 0xFFFF0000`)
         u16 room_id;       // 0x4F9C  stage << 8 | room as one halfword (obj14: room 004 test)
@@ -187,6 +188,33 @@ struct GlobalWork {
             u8 room_prev;  // 0x4FA1
         };
     };
+#else
+    // Little-endian target: the same words (room_id32 = stage << 24 | room << 16 |
+    // Part << 8 | JumpPoint, room_id = stage << 8 | room) with the byte fields in
+    // the order that keeps every reading of the word correct. The aliasing
+    // macros (G_ROOM_ID, G_ROOM_ID32, G_ROOM_ID_PREV, GS_ROOM_ID ...) name the
+    // word members on this target instead of casting the first byte's address.
+    union {
+        u32 room_id32;
+        struct {
+            u16 room_id_lo;    // Part << 8 | JumpPoint
+            u16 room_id;       // stage << 8 | room
+        };
+        struct {
+            u8 JumpPoint;
+            u8 Part;
+            u8 room_no;
+            u8 stage_no;
+        };
+    };
+    union {
+        u16 room_id_prev;
+        struct {
+            u8 room_prev;
+            u8 stage_prev;
+        };
+    };
+#endif
     u8 Part_old;              // 0x4FA2  copy of x4F9E (room_jmp)
     s8 em_list_no;          // 0x4FA3  enemy list currently loaded (stage.cpp), -1 = none
     u16 pl_life;           // 0x4FA4  (compared as s16 by the debug tools)
@@ -194,10 +222,24 @@ struct GlobalWork {
     u16 ashley_life;          // 0x4FA8  Ashley
     u16 ashley_life_max;      // 0x4FAA
     u8 pad_4FAC[4];
+#if defined(__PPC__)
     u8 weapon_no;             // 0x4FB0  equipped weapon (cPlayer::weaponLoad(no, type))
     u8 weapon_type;           // 0x4FB1
     u8 bullet_type;        // 0x4FB2  equipped weapon slot num >> 13 (sscrn SubScreenExit re-arms when it changed)
     u8 weapon_lv_power;    // 0x4FB3  firepower tune level (em_dm_val: WeaponLevelTbl column, clamped to 7)
+#else
+    // Little-endian target: G_WEP_ID (player.h) reads these four bytes as one
+    // word (weapon_no << 24 | weapon_type << 16 | ...); see room_id32 above.
+    union {
+        u32 weapon_id32;
+        struct {
+            u8 weapon_lv_power;
+            u8 bullet_type;
+            u8 weapon_type;
+            u8 weapon_no;
+        };
+    };
+#endif
     u8 weapon_lv_speed;    // 0x4FB4  firing speed tune level (PlShotFrameTbl column; item cItemMgr::arm)
     u8 weapon_lv_blt;      // 0x4FB5  capacity tune level (item cItemMgr::arm)
     u8 pad_4FB6[2];
@@ -267,7 +309,11 @@ struct SystemSaveWork {
 extern SystemSaveWork SystemSave;
 
 // stage_no/room_no read as one u16 (stage << 8 | room), as cRoomData::getRoomSavePtr wants it.
+#if defined(__PPC__)
 #define G_ROOM_ID (*(u16*) &pG->stage_no)
+#else
+#define G_ROOM_ID (pG->room_id)
+#endif
 
 // Flag helpers. The original sets/clears bits through an inline helper taking a reference: the
 // store is then a plain scalar access, so GCC 2.95 assumes it may clobber `pG` and reloads it

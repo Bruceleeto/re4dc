@@ -11,6 +11,10 @@
 #include "ctrl.h"
 #include "global.h"
 #include "model.h"
+#if RE4DC_ACTOR_TRANSACTION
+#include "coarse_actor_transaction.h"
+#endif
+
 #include "em.h"
 #include "obj.h"
 #include "camera.h"
@@ -102,11 +106,11 @@ struct Weight {
     u8 wht[4]; // 0x04  percent
 };
 
-#define PTR_INVALID(p) ((s32) (p) >= 0 || (u32) (p) > 0x82FFFFFF)
+#define PTR_INVALID(p) ((s32) (p) >= 0 || (u32) (p) > RE4_MEM_HI)
 // Written as shifts, not `& ~0x1F`: combine folds (x >> 5) << 5 into an AND whose mask is narrowed by
 // nonzero_bits (u16 * 6 -> rlwinm 0,12,26), which a literal `& ~0x1F` never gets.
 #define ALIGN32(x) ((((x) + 0x1F) >> 5) << 5)
-#define PTR_INVALID2(p) ((u32) (p) - 0x80000000 > 0x02FFFFFF)
+#define PTR_INVALID2(p) ((u32) (p) - RE4_MEM_LO > (RE4_MEM_HI - RE4_MEM_LO))
 #define HALT()                                                    \
     {                                                             \
         OSReport("HALT %s(%d)\n", __FILE__, __LINE__);            \
@@ -489,6 +493,12 @@ extern "C" int re4dc_pace_drop_models;  // v2: this tick's image is dropped (no 
 // port/dreamcast/game/coarse.cpp (COARSE): in-room play images drawn from gameplay records. Such a
 // tick's presentation stages run as for a dropped image; Render() of the image draws the coarse view.
 extern "C" int re4dc_coarse_tick(int dropped);
+#ifndef RE4DC_COARSE_SOURCE_OBJECTS
+#define RE4DC_COARSE_SOURCE_OBJECTS 0
+#endif
+#if RE4DC_COARSE_SOURCE_OBJECTS
+extern "C" void re4dc_log(const char*, ...);
+#endif
 extern "C" int re4dc_coarse_image;
 extern "C" void re4dc_coarse_draw(void);
 static int coarseTick;
@@ -505,6 +515,179 @@ extern "C" int re4dc_esp_logic_only, re4dc_esp_logic_queued;
 extern "C" void re4dc_pace_check(int phase);
 #endif
 #endif
+#ifndef RE4DC_COARSE_SOURCE_ACTORS
+#define RE4DC_COARSE_SOURCE_ACTORS 0
+#endif
+#if RE4DC_COARSE_SOURCE_ACTORS
+#if !RE4DC_COARSE || RE4DC_PACE_CATCHUP < 2 || !RE4DC_ATCHK_LIST
+#error COARSE_SOURCE_ACTORS requires coarse, catchup2 and alive-list generations
+#endif
+#include "coarse_source_frame.h"
+extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
+extern "C" void* re4dc_prim_tail(unsigned,unsigned);
+extern "C" void re4dc_log(const char*,...);
+namespace {
+using re4dc_source::FrameIdentity;
+using re4dc_source::ModelIdentity;
+using re4dc_source::ModelPath;
+using re4dc_source::Membership;
+re4dc_source::FrameLedger sourceActorLedger;
+unsigned sourceActorEpoch,sourceActorFailures,sourceActorCount;
+unsigned sourceActorPrimBase,sourceActorPrimBytes,sourceActorPrimBuffer;
+bool sourceActorActive;
+#if RE4DC_ACTOR_TRANSACTION
+// re4dc_coarse_image is a consumed Trans-to-Render handoff, not a callback
+// lifetime. Only this scope grants ownership at original Render OT callbacks.
+bool sourceActorRenderActive;
+struct SourceActorRenderScope {
+    bool previous;
+    unsigned epoch;
+    explicit SourceActorRenderScope(bool enabled)
+        :previous(sourceActorRenderActive),epoch(sourceActorEpoch) {
+        sourceActorRenderActive=enabled;
+    }
+    ~SourceActorRenderScope() {
+        // A primitive retirement during a nested scope cannot resurrect it.
+        sourceActorRenderActive=previous && epoch==sourceActorEpoch && sourceActorActive;
+    }
+};
+#endif
+
+bool sourceActorRam(const void* p) {
+#if defined(__sh__)
+    const auto a=reinterpret_cast<std::uintptr_t>(p);
+    return a>=RE4_MEM_LO && a<=RE4_MEM_HI-sizeof(cModel);
+#else
+    return p!=nullptr; // host harness supplies actual objects, never guest addresses
+#endif
+}
+void sourceActorFailure(unsigned reason) {
+    ++sourceActorFailures;
+    if(sourceActorFailures<=8 || !(pG->Frame_cnt%120))
+        re4dc_log("SOURCE_ACTORS_FAIL t=%u reason=%u count=%u\n",
+            unsigned(pG->Frame_cnt),reason,sourceActorFailures);
+}
+void sourceActorRetire() {
+#if RE4DC_ACTOR_TRANSACTION
+    sourceActorRenderActive=false;
+    re4dc_actor_transaction_retire();
+#endif
+    sourceActorLedger.retire();
+    sourceActorActive=false;sourceActorCount=0;
+    if(sourceActorEpoch!=UINT32_MAX)++sourceActorEpoch;
+}
+bool sourceActorIdentity(FrameIdentity& now) {
+    unsigned generation,cells,bytes,stale,refused;
+    // A replaced primitive owner must not make borrowed old storage readable,
+    // even when frame/room numbers or the manager lists have not changed.
+    if(sourceActorActive && (unsigned(pG->prim_cnt)!=sourceActorPrimBase ||
+       unsigned(pG->nPrim)!=sourceActorPrimBytes || unsigned(pG->vtx_buf_no)!=sourceActorPrimBuffer))return false;
+    if(sourceActorEpoch==UINT32_MAX ||
+       !re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || !generation)return false;
+    now={unsigned(pG->Frame_cnt),(unsigned(pG->stage_no)<<8)|pG->room_no,
+        generation,sourceActorEpoch,unsigned(re4dc_alive_gen[1]),unsigned(re4dc_alive_gen[2])};
+    return true;
+}
+ModelIdentity sourceActorModel(cModel* m) {
+    const unsigned manager=m==(cModel*)pPL?0u:m==(cModel*)pSUB?1u:2u;
+    return {reinterpret_cast<std::uintptr_t>(m),unsigned(m->serial),manager};
+}
+ModelPath sourceActorPath(cModel* m) {
+#if RE4DC_ACTOR_TRANSACTION
+    // Every model receives its original source callback once. Native ownership
+    // is chosen later, at the original OT callback, after native UI begin.
+    return ModelPath::Source;
+#else
+    // Class-only first step. Reviewed adapter state/lease admission is separate.
+    return m==(cModel*)pPL || (m!=(cModel*)pSUB && m->id>=0x10 && m->id<=0x20)
+        ?ModelPath::Coarse:ModelPath::Source;
+#endif
+}
+// 1=selective plan; 0=early full-source safety image; -1=malformed source list.
+int sourceActorPlan() {
+
+#if RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_transaction_retire();
+#endif
+    sourceActorLedger.retire();sourceActorActive=false;sourceActorCount=0;
+    FrameIdentity now{};
+    if(!sourceActorIdentity(now)){sourceActorFailure(1);return 0;}
+    unsigned count=0;
+    bool player_seen=!pPL,partner_seen=!pSUB;
+    for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
+        if(!sourceActorRam(u) || count>=EmMgr.nArray || count>=4096){sourceActorFailure(2);return -1;}
+        ++count;player_seen|=u==(cUnit*)pPL;partner_seen|=u==(cUnit*)pSUB;
+    }
+    if(count>re4dc_source::FrameLedger::MaxEntries || !player_seen || !partner_seen){sourceActorFailure(3);return 0;}
+    std::size_t bytes=0;
+    if(!re4dc_source::FrameLedger::storage_bytes(count,bytes)){sourceActorFailure(4);return 0;}
+    // Existing primitive owner; preserve the actor workspace's established reserve.
+    void* storage=count?re4dc_prim_tail(unsigned(bytes),16*1024):nullptr;
+    if(count && !storage){sourceActorFailure(5);return 0;}
+    if(!sourceActorLedger.begin(storage,bytes,count,now)){sourceActorFailure(6);return 0;}
+    for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
+        cModel* m=(cModel*)u;
+        if(!sourceActorLedger.append(now,sourceActorModel(m),sourceActorPath(m),0)) {
+            sourceActorFailure(7);sourceActorLedger.retire();return -1;
+        }
+    }
+    if(!sourceActorLedger.seal(now)){sourceActorFailure(8);sourceActorLedger.retire();return -1;}
+    sourceActorPrimBase=unsigned(pG->prim_cnt);sourceActorPrimBytes=unsigned(pG->nPrim);
+    sourceActorPrimBuffer=unsigned(pG->vtx_buf_no);
+    sourceActorCount=count;sourceActorActive=true;
+    return 1;
+}
+bool sourceActorPrepare() {
+    if(!sourceActorActive){sourceActorFailure(9);return false;}
+    FrameIdentity now{};
+    if(!sourceActorIdentity(now)){sourceActorFailure(10);return false;}
+    unsigned count=0;
+    for(cUnit* u=EmMgr.pAlive;u;) {
+        if(!sourceActorRam(u) || count++>=EmMgr.nArray || count>re4dc_source::FrameLedger::MaxEntries){sourceActorFailure(11);return false;}
+        cUnit* current=u;u=u->pNext; // preserve original cached-next traversal
+        cModel* m=(cModel*)current;
+        if(sourceActorPath(m)==ModelPath::Coarse)continue;
+        re4dc_source::PreparationTicket ticket{};
+        const ModelIdentity model=sourceActorModel(m);
+        if(!sourceActorLedger.claim(now,ticket) || !(ticket.model==model)){sourceActorFailure(12);return false;}
+        emTrans(m); // original visibility, material animation, skinning and both OTs
+        FrameIdentity after{};
+        if(!sourceActorIdentity(after) || !sourceActorLedger.complete(after,ticket,sourceActorModel(m))){sourceActorFailure(13);return false;}
+    }
+    if(!sourceActorLedger.ready(now)){sourceActorFailure(14);return false;}
+    return true;
+}
+}
+extern "C" int re4dc_coarse_source_actors_ready() {
+    FrameIdentity now{};
+    if(!sourceActorActive || !sourceActorIdentity(now) || !sourceActorLedger.ready(now)){sourceActorFailure(15);return 0;}
+    unsigned count=0;bool player_seen=!pPL,partner_seen=!pSUB;
+    for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
+        if(!sourceActorRam(u) || count++>=EmMgr.nArray || count>re4dc_source::FrameLedger::MaxEntries){sourceActorFailure(16);return 0;}
+        cModel* m=(cModel*)u;
+        const auto membership=sourceActorLedger.membership(now,sourceActorModel(m));
+        const auto want=sourceActorPath(m)==ModelPath::Coarse?Membership::Coarse:Membership::SourceHandled;
+        if(membership!=want){sourceActorFailure(17);return 0;}
+        player_seen|=m==(cModel*)pPL;partner_seen|=m==(cModel*)pSUB;
+    }
+    if(count!=sourceActorCount || !player_seen || !partner_seen){sourceActorFailure(18);return 0;}
+    return 1;
+}
+// 0=coarse,1=source callback handled,2=invalid diagnostic (never ribbon fallback).
+extern "C" int re4dc_coarse_source_actor_route(const void* object) {
+    FrameIdentity now{};cModel* m=(cModel*)object;
+    if(!sourceActorActive || !sourceActorRam(m) || !sourceActorIdentity(now)){sourceActorFailure(19);return 2;}
+    const auto membership=sourceActorLedger.membership(now,sourceActorModel(m));
+    if(membership==Membership::SourceHandled)return 1;
+    if(membership==Membership::Coarse)return 0;
+    sourceActorFailure(20);return 2;
+}
+#endif
+
+#if RE4DC_ACTOR_TRANSACTION
+#include "source_actor_owner_hooks.inc"
+#endif
+
 void Trans()
 {
     u8* primStart = (u8*) pG->prim_base;
@@ -513,6 +696,19 @@ void Trans()
 
 #if RE4DC_COARSE
     coarseTick = re4dc_coarse_tick(re4dc_pace_drop_models);
+#if RE4DC_COARSE_SOURCE_ACTORS
+
+#if RE4DC_ACTOR_TRANSACTION
+    re4dc_actor_transaction_retire();
+#endif
+    sourceActorLedger.retire();sourceActorActive=false;
+    if(coarseTick && !re4dc_pace_drop_models) {
+        // Full/check source path wins before any PTS presentation stage is skipped.
+        const int plan=RE4DC_PACE_CHECK?0:sourceActorPlan();
+        if(plan<=0) {coarseTick=0;re4dc_coarse_image=0;}
+        if(plan<0)return; // explicit malformed-list failure; never rewalk a cycle
+    }
+#endif
 #endif
 #if RE4DC_FRONT_LEAN && defined(__sh__)
     g_leanSkippedNum = 0;
@@ -626,6 +822,31 @@ void Trans()
     }
 #if RE4DC_PACE_CATCHUP >= 2
     }
+#if RE4DC_COARSE && (RE4DC_COARSE_SOURCE_OBJECTS || RE4DC_COARSE_SOURCE_ACTORS)
+    // Coarse draw_actors has no ObjMgr path. Restore the original preparation
+    // and OTs for non-scenery source objects at their ordinary model boundary.
+    // The original full/check branch above wins, so no object is prepared twice.
+    else if (coarseTick && !re4dc_pace_drop_models) {
+#if RE4DC_COARSE_SOURCE_OBJECTS
+        unsigned source_calls=0, scenery_skipped=0;
+        func = objTrans;
+        for (u = ObjMgr.pAlive; u != 0;) {
+            cUnit* cur = u;
+            u = u->pNext; // original traversal captures next before the callback
+            cModel* model = (cModel*) cur;
+            if (model->kindid == 2) { ++scenery_skipped; continue; }
+            func(model); // source visibility, culling, materials, skin and OT order
+            ++source_calls;
+        }
+        if (!(pG->Frame_cnt % 120))
+            re4dc_log("SOURCE_OBJECTS t=%u calls=%u scenery_skipped=%u\n",
+                unsigned(pG->Frame_cnt),source_calls,scenery_skipped);
+#endif
+#if RE4DC_COARSE_SOURCE_ACTORS
+        if(!sourceActorPrepare())sourceActorLedger.retire();
+#endif
+    }
+#endif
 #if RE4DC_PACE_CHECK
     if (paceDrop) {
         re4dc_pace_check(1);
@@ -1309,6 +1530,10 @@ void Render()
 #if RE4DC_COARSE
     const int coarse = re4dc_coarse_image;
     re4dc_coarse_image = 0;
+#if RE4DC_ACTOR_TRANSACTION
+    // RAII clears/restores the gate on normal completion and every early return.
+    SourceActorRenderScope sourceActorRenderScope(coarse!=0);
+#endif
 #endif
 #if RE4DC_PACE_CATCHUP >= 2
     // Skipped whole: the letterbox bit below is set here and cleared at the end of Render().
@@ -1413,6 +1638,10 @@ void ModelRender(cModel* m)
 #endif
 #if RE4DC_FRONT_NATIVE && defined(__sh__)
     int frontNative = frontNativeOk(m);
+#if RE4DC_ACTOR_TRANSACTION
+    if(re4dc_actor_transaction_candidate(m))frontNative=0;
+#endif
+
 #if RE4DC_FRONT_NATIVE < 2
     if (frontNative) {
         frontNativeRender(m, 0);
@@ -1540,6 +1769,13 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     }
     efbDone = 0;
     matSet = 0;
+#if RE4DC_ACTOR_TRANSACTION
+    if(!flag) {
+        const int owned=re4dc_actor_transaction_draw(m);
+        if(owned<0)return; // caller still restores alpha state and shaderReset
+        if(owned>0)info=nullptr; // original postlude still executes below
+    }
+#endif
     while (info != 0) {
         ModelData* d;
         void* tex;
@@ -3466,6 +3702,9 @@ static void alphaSetup(cModel* m, ModelPart* part, cModelInfo* info, int thermo)
 // allocation pointer.
 void SetPrimBuffPtr()
 {
+#if RE4DC_COARSE_SOURCE_ACTORS
+    sourceActorRetire(); // before even the no-buffer return or any storage reuse
+#endif
     GxWork* gx = GXWORK();
 
     if (pG->prim_cnt == 0) {

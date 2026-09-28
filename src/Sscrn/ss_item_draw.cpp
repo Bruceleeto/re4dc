@@ -102,14 +102,14 @@ void ss_Draw_tpl_local(TEXPalette* tpl, u32 id, int x, int y, int w, int h)
     if ((u32) d < 0x80000000) {
         return;
     }
-    if ((u32) d > 0x82FFFFFF) {
+    if ((u32) d > RE4_MEM_HI) {
         return;
     }
     th = d->textureHeader;
     if ((u32) th < 0x80000000) {
         return;
     }
-    if ((u32) th > 0x82FFFFFF) {
+    if ((u32) th > RE4_MEM_HI) {
         return;
     }
     if (th->format == 8 || th->format == 9) {
@@ -119,7 +119,7 @@ void ss_Draw_tpl_local(TEXPalette* tpl, u32 id, int x, int y, int w, int h)
         if ((u32) ch < 0x80000000) {
             return;
         }
-        if ((u32) ch > 0x82FFFFFF) {
+        if ((u32) ch > RE4_MEM_HI) {
             return;
         }
         GXInitTlutObj(&tlut, ch->data, ch->format, ch->numEntries);

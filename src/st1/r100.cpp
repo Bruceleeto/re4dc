@@ -984,6 +984,58 @@ static void r100_StreanChk()
     }
 }
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_R100_DEFER_EVENTS
+// Exact qualified debug-disc s03/s20 only. Packet/callback review is recorded in
+// the event checkpoint. They create presentation bodies, not gameplay actors;
+// neither has SetPl/SetList/Func/QTE packets. The source caller below owns the
+// actual enemy activation, combat, poses, flags, trap creation and exit rules.
+// A changed/missing reference is a failure, never an implicit successful skip.
+static bool r100DeferredPresentation(int no)
+{
+    if (pG->room_id != 0x100 || pG->pl_type != 0 || pG->game_costume != 0 ||
+        (no != 0 && no != 3)) {
+        return false;
+    }
+    if (!pPL || pG->pl_costume != 0 || pG->weapon_no != 2 || pG->weapon_type != 0 ||
+        pSubEm || !W->em || W->em == errEm || EvtMgr.NowExeEvtName[0] ||
+        (pG->Status_flg[2] & 0x00090000) ||
+        (W->evt[no] && W->evt[no]->m_addr &&
+         !re4dc_event_file_range((u32) W->evt[no]->m_addr, W->evt[no]->m_size))) {
+        re4dc_missing("r100 deferred presentation state is outside reviewed contract");
+        __builtin_trap();
+    }
+    const u32 bytes = no == 0 ? 1341504U : 689632U;
+    const u32 certificate = no == 0 ? 0xf14c8dddU : 0x4a3b7ce9U;
+    if (!re4dc_event_file_reference(r100_evtName[no], bytes, certificate)) {
+        re4dc_log("deferred r100 event: unqualified %s bytes=%u\n", r100_evtName[no], bytes);
+        re4dc_missing("r100 deferred presentation reference mismatch");
+        __builtin_trap();
+    }
+    return true;
+}
+
+// Presentation resources were never installed, so no font/model/light/effect
+// pointers or mutable enemy snapshot exist to restore. Keep the lasting source
+// end behavior; the unchanged outer SceEventEnd restores scene ownership.
+static void r100EndDeferredPresentation(int no)
+{
+    SndEventInit();
+    if (no == 0) {
+        // ExeEndEvt clears the real player's motion for s03. Its caller then
+        // replaces the temporary event body's terminal position and heading.
+        Vec pos = pPL->pos;
+        Vec rot = pPL->ang;
+        pPL->zeroPartsPosInit(&pos, &rot);
+    }
+    // s20's source StatusFlag 0x800 deliberately preserves the player pose.
+    SndEventEnd();
+    pG->System_flg |= 0x40;
+    freeEvent(no, 0);
+    re4dc_log("deferred r100 event: %s completion=source-caller resident_event_bytes=0 enemy_swap=0\n",
+              r100_evtName[no]);
+}
+#endif
+
 // The player looks at the car: the s03 event, then the Ganado and the player are placed.
 static void r100_Sce_look()
 {
@@ -992,11 +1044,19 @@ static void r100_Sce_look()
     void* evt;
     cEm* em;
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_R100_DEFER_EVENTS
+    const bool deferred = r100DeferredPresentation(0);
+#endif
     SceEventStart(0);
     SceAtSetEnable(0xA, 0);
     RsfSet(G_ROOM_ID, 3);
     pG->System_flg |= 0x400;
     SceSleep(2);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_R100_DEFER_EVENTS
+    if (deferred) {
+        r100EndDeferredPresentation(0);
+    } else
+#endif
     if (readEvent(0, 1, &evt)) {
         EvtMgr.SetEvt(evt, (u32*) 0);
         while (EvtMgr.IsAliveEvt(&EvtMgr.NowExeEvtKey, 0, 0)) {
@@ -1052,10 +1112,18 @@ static void r100_Sce_zombi_dead(cEm* em)
     while (SceCheckEventStart() == 0) {
         SceSleep(1);
     }
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_R100_DEFER_EVENTS
+    const bool deferred = r100DeferredPresentation(3);
+#endif
     SceEventStart(0);
     SndRoomStrStop(0);
     DC.setAramSort(0);
     r100_em_set();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_R100_DEFER_EVENTS
+    if (deferred) {
+        r100EndDeferredPresentation(3);
+    } else
+#endif
     if (readEvent(3, 1, &evt)) {
         EvtMgr.SetEvt(evt, (u32*) &ev);
         ev->StatusFlag |= 0x800;

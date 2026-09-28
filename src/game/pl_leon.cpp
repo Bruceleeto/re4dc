@@ -32,7 +32,7 @@ extern u8 pl_fs_tbl[];   // game/foot_shadow_tbl.cpp (incomplete type: full addr
         RE4DC_HALT_STORE();                                       \
     }
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 // Store through a reference: a scalar (non-struct) MEM, so pG is reloaded after every store.
 static inline void PSet(void*& d, void* v) { d = v; }

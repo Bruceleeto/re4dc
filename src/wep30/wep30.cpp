@@ -12,7 +12,7 @@
 #include "esp.h"
 #include "pad.h"
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 void PlGrenadeMove(cPlayer* pl);   // wep/pl_grenade.cpp
 cObjWep* equipWeapon(cPlayer* pl);

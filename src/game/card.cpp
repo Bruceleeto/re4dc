@@ -33,6 +33,14 @@
 #include "hermite.h"
 #include "room_data.h"
 
+#ifndef RE4DC_VMU_DIALOG
+#define RE4DC_VMU_DIALOG 0
+#endif
+#if RE4DC_VMU_DIALOG
+#include "vmu_dialog.h"
+#include "vmu_dialog_text.inc"
+#endif
+
 typedef s64 OSTime;
 
 struct OSCalendarTime {
@@ -2212,6 +2220,7 @@ void cCard::MainLoop(int arg)
             if (cur != last) {
                 last = cur;
                 re4dc_log("card: mode %d state %d/%d/%d err %d sel %d\n", arg, m_Rno0, m_Rno1, m_Rno2, m_ErrCode, cMes.mes[0].m_sel);
+                re4dc_fixture_state("card", m_Rno0, m_Rno1);
             }
         }
 #endif
@@ -3109,6 +3118,9 @@ void cCard::cardMesSet(int no, int slot, u32 attr)
 {
     MesPos* p = &mes_pos_tbl[pSys->language][no];
     cMes.MesSet(p->no, p->x, p->y, attr | 0x01020051, slot, 0, 4);
+#if RE4DC_VMU_DIALOG
+    cardVmuDialogMessage(p->no, slot, m_SlotNo);
+#endif
 }
 
 // Relocates an in-file TPL in place (offsets -> pointers).

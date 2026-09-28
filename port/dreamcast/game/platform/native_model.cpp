@@ -395,6 +395,11 @@ struct Builder {
                 nx=m[0]*n[0]+m[1]*n[1]+m[2]*n[2];
                 ny=m[4]*n[0]+m[5]*n[1]+m[6]*n[2];
                 nz=m[8]*n[0]+m[9]*n[1]+m[10]*n[2];
+#if RE4DC_GROUND_LIGHT_FIX&2
+                // GROUND_LIGHT_FIX bit 2: unit-length lighting normal, as GX (Dolphin) lights. Raw S8/64 normals are
+                // ~1.97 long at scale 1 and ~0.2 at r101's scale-10 ground placements before this.
+                {const float q=nx*nx+ny*ny+nz*nz;if(q>0.0f){const float r=1.0f/std::sqrt(q);nx*=r;ny*=r;nz*=r;}}
+#endif
                 ++work_stats.normal_transforms;
                 if(shared_normal){shared_normal->serial=normal_serial;shared_normal->value[0]=nx;shared_normal->value[1]=ny;shared_normal->value[2]=nz;}
                 }

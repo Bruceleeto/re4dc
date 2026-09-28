@@ -19,15 +19,33 @@ bool exact(file_t f,void* dst,unsigned n) {
     while(n) { auto got=fs_read(f,p,n);if(got<=0 || unsigned(got)>n)return false;p+=got;n-=got; }
     return true;
 }
-struct Copy { const unsigned char* crc; unsigned index; unsigned char* out; };
+struct Copy {
+    const unsigned char* crc;
+    unsigned index;
+    unsigned char* out;
+    unsigned chunk_used;
+    unsigned remaining;
+};
 bool consume(const unsigned char* p,std::size_t n,void* opaque) {
     auto& c=*static_cast<Copy*>(opaque);
     stats.bytes_read+=n;
-    if(net_crc32le(p,n)!=word(c.crc+4*c.index++))return false;
-    if(c.out) { std::memcpy(c.out,p,n);c.out+=n; }
+    if(n>c.remaining)return false;
+    while(n) {
+        const auto room=chunk_bytes-c.chunk_used;
+        const auto take=n<room?n:room;
+        // The final allocation remains private until transfer succeeds. Keep
+        // certificate boundaries independent of the storage bounce size.
+        std::memcpy(c.out,p,take);
+        c.out+=take;p+=take;n-=take;
+        c.chunk_used+=take;c.remaining-=take;
+        if(c.chunk_used==chunk_bytes || !c.remaining) {
+            if(net_crc32le(c.out-c.chunk_used,c.chunk_used)!=word(c.crc+4*c.index++))return false;
+            c.chunk_used=0;
+        }
+    }
     return true;
 }
-bool transfer(const char* name,unsigned bytes,void* dst) {
+bool transfer(const char* name,unsigned bytes,void* dst,unsigned expected_certificate=0) {
     if(!re4dc_event_file_name(name) || !bytes || bytes>max_bytes || (bytes&31))return false;
     Re4dcIoScope io;
     char path[96],sidecar[104];
@@ -42,19 +60,20 @@ bool transfer(const char* name,unsigned bytes,void* dst) {
     if(!ok || std::memcmp(table,"R4EVDREF",8) || word(table+8)!=1 ||
        word(table+12)!=bytes || word(table+16)!=chunk_bytes || word(table+20)!=count ||
        word(table+24)!=net_crc32le(reinterpret_cast<const unsigned char*>(name),std::strlen(name)) ||
-       word(table+28)!=net_crc32le(table+32,4*count))return false;
+       word(table+28)!=net_crc32le(table+32,4*count) ||
+       (expected_certificate && expected_certificate!=net_crc32le(table,length)))return false;
     file_t f=fs_open(path,O_RDONLY);if(f<0)return false;
-    Copy c{table+32,0,static_cast<unsigned char*>(dst)};
+    Copy c{table+32,0,static_cast<unsigned char*>(dst),0,bytes};
     ok=fs_total(f)==static_cast<ssize_t>(bytes);
     // A preload is a qualified immutable reference, not a wasted full-file
     // read into the bounce buffer. Data becomes usable only after install.
-    if(ok && dst)ok=re4dc::storage::read_chunks(f,bytes,consume,&c) && c.index==count;
+    if(ok && dst)ok=re4dc::storage::read_chunks(f,bytes,consume,&c) && !c.remaining && c.index==count;
     fs_close(f);
     return ok;
 }
-int run(const char* name,unsigned bytes,void* dst) {
+int run(const char* name,unsigned bytes,void* dst,unsigned expected_certificate=0) {
     const auto start=timer_us_gettime64();
-    bool ok=transfer(name,bytes,dst);
+    bool ok=transfer(name,bytes,dst,expected_certificate);
     const auto elapsed=timer_us_gettime64()-start;
     const unsigned us=elapsed>0xffffffffULL?0xffffffffU:unsigned(elapsed);
     if(us>stats.worst_wait_us)stats.worst_wait_us=us;
@@ -75,6 +94,12 @@ extern "C" int re4dc_event_file_name(const char* name) {
     return 1;
 }
 extern "C" int re4dc_event_file_prepare(const char* n,unsigned b) { return run(n,b,nullptr); }
+// The caller owns a source-reviewed completion contract for this exact qualified
+// conversion. This reads only its existing EVQ certificate/file size: no event
+// bytes are activated and no mutable ARAM or enemy snapshot is manufactured.
+extern "C" int re4dc_event_file_reference(const char* n,unsigned b,unsigned certificate_crc) {
+    return certificate_crc ? run(n,b,nullptr,certificate_crc) : 0;
+}
 extern "C" int re4dc_event_file_install(const char* n,unsigned b,void* dst) { return dst?run(n,b,dst):0; }
 extern "C" void re4dc_event_file_moved() { ++stats.moves; }
 extern "C" const Re4dcEventFileStats* re4dc_event_file_stats() { return &stats; }

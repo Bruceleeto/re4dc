@@ -7,7 +7,7 @@
 #include "light.h"
 #include "esp.h"
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 void PlRifleMove(cPlayer* pl);   // wep/pl_rifle.cpp
 cObjWep* equipWeapon(cPlayer* pl);

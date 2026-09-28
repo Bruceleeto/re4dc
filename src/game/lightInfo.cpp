@@ -6,7 +6,7 @@
 #include "math_sub.h"
 
 // pointer to game memory (0x80000000 .. 0x82FFFFFF)
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 // Empty info: no lights, no masks, zero volume.
 cLightInfo::cLightInfo()

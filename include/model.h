@@ -1,6 +1,9 @@
 #ifndef MODEL_H
 #define MODEL_H
 
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+#include "actor_lifetime.h"
+#endif
 #include "types.h"
 #include "vec.h"
 #include "cManager.h"
@@ -188,6 +191,10 @@ public:
     struct TEXPalette* pAddTpl;  // 0x120  additional texture palette (addTplAddr)
 
     cModelInfo();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+    virtual ~cModelInfo() { re4dc_actor_info_retire(this); }
+#endif
+
     void setTplAddr(void* tpl);   // pTpl = tpl, relocated
     void addTplAddr(void* tpl);
     void setSpecular(u8 r, u8 g, u8 b);   // specular colour of every part
@@ -340,7 +347,12 @@ public:
     cModInfoMgr();
     virtual void* memAlloc(u32 size) { return MemAlloc(size, 1); }
     virtual void memFree(void* p) { MemFree(p); }
-    virtual void memClear(cModelInfo* p, u32 size) { memclr_asm(p, size); }
+    virtual void memClear(cModelInfo* p, u32 size) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        re4dc_actor_forget_range(p,size);
+#endif
+        memclr_asm(p,size);
+    }
     virtual void log(const char* fmt, ...);
     virtual int construct(cModelInfo* p, u32 id);
 
@@ -513,7 +525,11 @@ public:
     };
 
     cModel();
-    virtual ~cModel() {}
+    virtual ~cModel() {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
+        re4dc_actor_model_retire(this);
+#endif
+    }
     virtual void matUpdate();
     virtual void move();
     virtual void setNoSuspend(int on);

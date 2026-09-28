@@ -42,22 +42,15 @@ struct Lock {
     ~Lock() { vmufs_mutex_unlock(); }
 };
 
-// The same 32x32 16-colour placeholder icon as tools/vmusave.py default_icon().
+// The native and host writers share one fixed, endian-independent icon asset.
 void build_icon(unsigned char* hdr_pal, unsigned char* px)
 {
-    static const uint16_t pal[4] = {0x0000, 0xF311, 0xFCCB, 0xFA22};
-    for (int i = 0; i < 16; ++i) {
-        const uint16_t c = i < 4 ? pal[i] : 0xF000;
-        hdr_pal[2 * i] = (unsigned char) c;
-        hdr_pal[2 * i + 1] = (unsigned char) (c >> 8);
-    }
-    memset(px, 0, 512);
-    for (int y = 0; y < 32; ++y)
-        for (int x = 0; x < 32; ++x) {
-            const int c = (x == 0 || x == 31 || y == 0 || y == 31) ? 2 : (x >= 10 && x <= 21 && y >= 10 && y <= 21) ? 3 : 1;
-            const int i = y * 32 + x;
-            px[i >> 1] |= (i & 1) ? c : c << 4;
-        }
+    static const unsigned char icon[] = {
+#include "vmu_save_icon.inc"
+    };
+    static_assert(sizeof(icon) == 32 + 512, "VMU icon must contain one palette and frame");
+    memcpy(hdr_pal, icon, 32);
+    memcpy(px, icon + 32, 512);
 }
 }  // namespace
 

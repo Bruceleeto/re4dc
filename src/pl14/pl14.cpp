@@ -46,7 +46,7 @@ u16 MotionMoveF(cModel* m, int flag) asm("MotionMove");
 
 #line 1 "D:/Bio4/Prog/pl14.cpp"
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 #define SUBARC(no) PL_ARC_PTR(subSelf->subArc, no)
 #define OARC(no) PL_ARC_PTR(owner->subArc, no)
 #define EM ((cEm*) this)

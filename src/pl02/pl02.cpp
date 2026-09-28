@@ -25,7 +25,7 @@ extern f32 adaHairWindS[14];
 extern f32 adaHairWindR[14];
 extern CLOTH_AT_SET adaHairAt[6];
 
-#define VALID_PTR(p) ((u32) (p) >= 0x80000000 && (u32) (p) <= 0x82FFFFFF)
+#define VALID_PTR(p) ((u32) (p) >= RE4_MEM_LO && (u32) (p) <= RE4_MEM_HI)
 
 // Store through a reference: a scalar (non-struct) MEM, so pG is reloaded after every store.
 static inline void PSet(void*& d, void* v) { d = v; }

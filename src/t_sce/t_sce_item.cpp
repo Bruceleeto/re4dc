@@ -1180,7 +1180,7 @@ static void tSceItemDataInput_item_ETedit()
         it->rot.z = pW->editArea.u.eye.open;
         it->rot.x = pW->editArea.u.eye.ang_x;
         it->rot.y = pW->editArea.u.eye.ang_y;
-        if (!((u32) it->pModel < 0x80000000 || (u32) it->pModel > 0x82FFFFFF)) {
+        if (!((u32) it->pModel < RE4_MEM_LO || (u32) it->pModel > RE4_MEM_HI)) {
             if (it->rot.z > 0.0f) {
                 it->pModel->ang.x = it->rot.x;
                 it->pModel->ang.y = it->rot.y;

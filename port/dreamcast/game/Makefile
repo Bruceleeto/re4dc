@@ -164,6 +164,18 @@ $(OBJDIR)/aica-audio.h: aica-audio-force
 	@rm -f $@.tmp
 $(OBJDIR)/platform/audio_stub.o: $(OBJDIR)/aica-audio.h
 $(OBJDIR)/platform/audio_stub.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/aica-audio.h
+# MOTION_LEASE_LEAN=1 removes acquire-only telemetry timers and reuses the
+# guard's existing owner slot for its extra lease; =2 compares the source lookup.
+# Counts, mutex/pins/release order and cancellation ownership remain unchanged.
+MOTION_LEASE_LEAN ?= 0
+.PHONY: motion-lease-lean-force
+$(OBJDIR)/motion-lease-lean.h: motion-lease-lean-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_MOTION_LEASE_LEAN %s\n' '$(MOTION_LEASE_LEAN)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/platform/native_motion.o: $(OBJDIR)/motion-lease-lean.h
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/motion-lease-lean.h
 # MOTION_FAST_READ=1: motion keys read straight into their aligned residency block (one GD
 # stream command + a block-cache tail) instead of one GD command per sector (W10).
 MOTION_FAST_READ ?= 0
@@ -330,7 +342,30 @@ $(OBJDIR)/event-files.h: event-files-force
 	@rm -f $@.tmp
 $(OBJDIR)/src/game/datactrl.o: $(OBJDIR)/event-files.h
 $(OBJDIR)/src/game/datactrl.o: GAME_CPPFLAGS += -include $(OBJDIR)/event-files.h
+# Only the two reviewed r100 story presentations; source combat/post-event
+# continuation remains in r100.cpp. Other events retain the reference path.
+R100_DEFER_EVENTS ?= 0
+.PHONY: r100-defer-force
+$(OBJDIR)/r100-defer.h: r100-defer-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_R100_DEFER_EVENTS %s\n' '$(R100_DEFER_EVENTS)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/mod/st1_0/src/st1/r100.o: $(OBJDIR)/r100-defer.h
+$(OBJDIR)/mod/st1_0/src/st1/r100.o: GAME_CPPFLAGS += -include $(OBJDIR)/r100-defer.h
 SDK_CFLAGS = -w $(GAME_OPT) -Iplatform/sdk -I$(ROOT)/include
+# Nothing uses C++ exceptions or RTTI; their tables are ~362 KB of image, which
+# lets the 13 MiB arena request fit (D367: source heap +256 KiB, KOS +~100 KB).
+# FP instruction streams are unchanged in all 1,155 FP functions (fmac pairing).
+NO_EH ?= 0
+ifeq ($(NO_EH),1)
+NO_EH_FLAGS = -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-threadsafe-statics
+GAME_CPPFLAGS += $(NO_EH_FLAGS)
+PLATFORM_CPPFLAGS += $(NO_EH_FLAGS)
+SDK_CFLAGS += -fno-unwind-tables -fno-asynchronous-unwind-tables
+endif
+# Opt-in game-side CPU knobs and the determinism trace (default off: no effect).
+include game30.mk
 
 KOS_GCCVER_MIN = 12.0.0
 include $(KOS_BASE)/Makefile.rules
@@ -347,18 +382,6 @@ $(OBJDIR)/platform/%.o: platform/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(PLATFORM_CPPFLAGS) -MMD -MP -c $< -o $@
 
-# Nothing uses C++ exceptions or RTTI; their tables are ~362 KB of image, which
-# lets the 13 MiB arena request fit (D367: source heap +256 KiB, KOS +~100 KB).
-# FP instruction streams are unchanged in all 1,155 FP functions (fmac pairing).
-NO_EH ?= 0
-ifeq ($(NO_EH),1)
-NO_EH_FLAGS = -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-threadsafe-statics
-GAME_CPPFLAGS += $(NO_EH_FLAGS)
-PLATFORM_CPPFLAGS += $(NO_EH_FLAGS)
-SDK_CFLAGS += -fno-unwind-tables -fno-asynchronous-unwind-tables
-endif
-# Opt-in game-side CPU knobs and the determinism trace (default off: no effect).
-include game30.mk
 platform/sdk/gen/%.c: $(ROOT)/src/lib/%.c platform/sdk/strip_cw_asm.py
 	@mkdir -p $(dir $@)
 	python3 platform/sdk/strip_cw_asm.py $< $@
@@ -805,3 +828,5 @@ include blender30.mk
 include tahash.mk
 # D367 frame pacing (PACE_CATCHUP; default off: no effect).
 include pace.mk
+# Frozen source candidate controls, after all prerequisite defaults.
+include demo_candidate.mk

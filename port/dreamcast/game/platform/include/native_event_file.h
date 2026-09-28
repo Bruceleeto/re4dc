@@ -11,6 +11,9 @@ struct Re4dcEventFileStats {
 extern "C" {
 int re4dc_event_file_name(const char* name);
 int re4dc_event_file_prepare(const char* name, unsigned bytes);
+// Binds an explicitly reviewed deferred-presentation contract to the existing
+// qualification certificate. Unknown identities must keep the normal path.
+int re4dc_event_file_reference(const char* name, unsigned bytes, unsigned certificate_crc);
 int re4dc_event_file_install(const char* name, unsigned bytes, void* destination);
 void re4dc_event_file_moved();
 const Re4dcEventFileStats* re4dc_event_file_stats();

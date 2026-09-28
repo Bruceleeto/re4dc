@@ -2163,7 +2163,13 @@ int EventMgr::construct(Event* p, u32 id)
     Event* e;
     int no;
 
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Native constructors do not return the placement address. Retain the
+    // manager's actual allocation instead of reading an unspecified register.
+    e = new (p) Event((u8) id);
+#else
     e = p->ctorI(id);
+#endif
     if (e) {
         no = EvtWorkNo(this, e);
         e->effNo = no;

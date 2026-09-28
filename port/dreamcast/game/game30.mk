@@ -81,6 +81,14 @@ endif
 GAME_PWC_DIAG ?= 0
 GAME_ATCHK ?= 0
 GAME_MOTION_INDEX ?= 0
+# Resource candidate, not a math/performance optimization. Explicit aggregate
+# motion-key payload cap; 0 retains the original hot-resident policy. 262144 is
+# the opening-memory-r1 candidate, pending normal-route/STRICT/I/O qualification.
+# Hot payloads may be reloaded after unpinned eviction; archives/proxies remain.
+MOTION_PRESSURE_BYTES ?= 0
+ifneq ($(MOTION_PRESSURE_BYTES),0)
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_PRESSURE_BYTES=$(MOTION_PRESSURE_BYTES)
+endif
 # GAME_SINCOS=1 (design-logic P6, needs GAME_TRIG=1): RotMatrix and the SDK rotation builders take sin and
 #                    cos of one angle from re4dc_sincosf (game30_trig.c: one |x| test and argument reduction,
 #                    the same kernels): bit-identical by construction, all 2^32 inputs checked on the host
@@ -455,6 +463,32 @@ UI_PALETTE_SLOTS ?= 0
 ifneq ($(UI_PALETTE_SLOTS),0)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_PALETTE_SLOTS=$(UI_PALETTE_SLOTS)
 endif
+# UI_QUAD_LEAN=1 (make-room F1, HUD; exact): re4dc_ui_submit tests the 16 coordinates for Inf / NaN on their
+#                exponent bits (was a __unordsf2 call and a compare per coordinate: ~320 calls per drawn tick in
+#                the r101 square); re4dc_draw_id_quad projects its corners with GXProject's own x / y
+#                expressions inline (same -O1 -ffp-contract=off flags; no call, no unused depth); the texture
+#                handles are two-way (slot and slot ^ 1: two image pairs evicted each other every frame, 4 full
+#                resolves per drawn tick). =2 check build: both ways, verdicts, x / y and entries compared
+#                ("UQL fin" / "UQL xy" / "UQL handle" lines); =3 is =2 with the handles folded onto 8 slots
+#                (a stress check of both ways and the refill choice).
+# Controller-aware presentation only; source input and timing are untouched.
+# Copy prompt headers to platform/include before enabling; default-off build
+# must be object-compared before promotion. Manual art is separately gated.
+PAD_PROMPTS ?= 0
+PAD_PROMPT_MANUAL_ART ?= 0
+ifneq ($(PAD_PROMPTS),0)
+GAME_CPPFLAGS += -DRE4DC_PAD_PROMPTS=1
+PLATFORM_CPPFLAGS += -DRE4DC_PAD_PROMPTS=1
+ifneq ($(PAD_PROMPT_MANUAL_ART),0)
+GAME_CPPFLAGS += -DRE4DC_PAD_PROMPT_MANUAL_ART=1
+PLATFORM_CPPFLAGS += -DRE4DC_PAD_PROMPT_MANUAL_ART=1
+endif
+endif
+UI_QUAD_LEAN ?= 0
+ifneq ($(UI_QUAD_LEAN),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_QUAD_LEAN=$(UI_QUAD_LEAN)
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_UI_QUAD_LEAN=$(UI_QUAD_LEAN)
+endif
 # LINK_ORDER=<file> (G; exact, code placement only): an ld --section-ordering-file that puts the hot
 #                    input sections first in .text (tools/d367/ordgen_c3.py from hwproject evidence: call
 #                    chains clustered to the 8 KB direct-mapped I-cache, placed by density). The r101-square
@@ -624,6 +658,29 @@ $(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_ui.o: PLATFORM_
 ifeq ($(shell grep -c re4dc_model_direct_begin_reserved platform/native_ui.cpp),0)
 $(error COARSE_ONE_SUBMIT needs native_ui.cpp's re4dc_model_direct_begin_reserved)
 endif
+endif
+# COARSE_GATE_ONCE=1 (needs COARSE_ONE_SUBMIT, ACTOR_VTX_KERNEL, ACTOR_FOG_GATE=1; render only, exact): the coarse
+#                   characters' gates decide the same and send the same words with less work. In
+#                   re4dc_actor_submit_chunks the fog gate keeps a chunk whose first palette entry already proves it
+#                   (its entry loop runs only otherwise).
+#                   With COARSE_PREGATE=1 the cast Ganado pregate rebuilds its view constants only when the
+#                   projection changes, builds one gate matrix per actor when the chunks' info matrices agree (word
+#                   for word), evaluates only the undecided planes of a ball and its radius term only when the centre
+#                   leaves one open, and takes the scale from the symmetric Gram. =2: check build, the previous paths
+#                   run beside ("GATE1CHK" / "GATE1 PREGATE" lines; mismatches and proof_cull stay 0).
+COARSE_GATE_ONCE ?= 0
+ifneq ($(COARSE_GATE_ONCE),0)
+ifeq ($(COARSE_ONE_SUBMIT),0)
+$(error COARSE_GATE_ONCE needs COARSE_ONE_SUBMIT)
+endif
+ifeq ($(filter-out 0,$(ACTOR_VTX_KERNEL)),)
+$(error COARSE_GATE_ONCE needs ACTOR_VTX_KERNEL (the kernel's fog gate loop))
+endif
+ifneq ($(ACTOR_FOG_GATE),1)
+$(error COARSE_GATE_ONCE needs ACTOR_FOG_GATE=1)
+endif
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_COARSE_GATE_ONCE=$(COARSE_GATE_ONCE)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_COARSE_GATE_ONCE=$(COARSE_GATE_ONCE)
 endif
 ifneq ($(COARSE),0)
 ifneq ($(PACE_CATCHUP),2)
@@ -1421,4 +1478,85 @@ $(OBJDIR)/src/game/em.o: GAME_CPPFLAGS += -include $(OBJDIR)/act-cap.h
 $(OBJDIR)/act_cap.o: act_cap.cpp $(OBJDIR)/act-cap.h
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -include $(OBJDIR)/act-cap.h -MMD -MP -c $< -o $@
+endif
+
+# GROUND_LIGHT_FIX=bits (look-gaps ground 2026-09-26; render-only, default off): light with the transformed normal at
+# unit length, as GX does (Dolphin's vertex shader normalises the first transformed normal before lighting). The
+# source normal matrix is inverse-transpose(view x placement) and carries the placement scale: r101's ground layers
+# (BINs 2-5, 12, 46, 54, 70 ...) are placed at scale 10, so their normals were 0.1 long and the ground was lit at about
+# ambient only (try-it D2: the GameCube ground 1.3-3.2x brighter than every port path). 1: native mesh prelight
+# (native_static light_part, once per part at its first draw). 2: the generic GX path (native_model; raw S8/64
+# normals are ~1.97 long at scale 1: try-it D8's over-lit walls). 3: both. 0 (default) builds nothing.
+GROUND_LIGHT_FIX ?= 0
+ifneq ($(GROUND_LIGHT_FIX),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_GROUND_LIGHT_FIX=$(GROUND_LIGHT_FIX)
+$(OBJDIR)/platform/native_model.o: PLATFORM_CPPFLAGS += -DRE4DC_GROUND_LIGHT_FIX=$(GROUND_LIGHT_FIX)
+endif
+
+# Default-off register Hermite kernel; 2 checks each admitted call against C.
+GAME_HF_ASM ?= 0
+ifneq ($(GAME_HF_ASM),0)
+ifeq ($(GAME_HERMITE_FAST),0)
+$(error GAME_HF_ASM needs GAME_HERMITE_FAST)
+endif
+PLATFORM_OBJS += $(OBJDIR)/platform/hf_sh4.o
+$(OBJDIR)/platform/hf_sh4.o: platform/hf_sh4.S
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -DRE4DC_HF_PF=$(GAME_HF_PF) -c $< -o $@
+$(OBJDIR)/src/game/motion.o: GAME_CPPFLAGS += -DRE4DC_HF_ASM=$(GAME_HF_ASM)
+endif
+
+# Draw original non-scenery objects on coarse images; candidate, default off.
+COARSE_SOURCE_OBJECTS ?= 0
+ifneq ($(COARSE_SOURCE_OBJECTS),0)
+ifneq ($(COARSE_SOURCE_OBJECTS),1)
+$(error COARSE_SOURCE_OBJECTS must be 0 or 1)
+endif
+ifneq ($(COARSE),1)
+$(error COARSE_SOURCE_OBJECTS needs COARSE=1)
+endif
+ifneq ($(PACE_CATCHUP),2)
+$(error COARSE_SOURCE_OBJECTS needs PACE_CATCHUP=2)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_COARSE_SOURCE_OBJECTS=$(COARSE_SOURCE_OBJECTS)
+endif
+
+# Unsupported source actors on coarse images; unqualified candidate, default off.
+COARSE_SOURCE_ACTORS ?= 0
+ifneq ($(COARSE_SOURCE_ACTORS),0)
+ifneq ($(COARSE_SOURCE_ACTORS),1)
+$(error COARSE_SOURCE_ACTORS must be 0 or 1)
+endif
+ifneq ($(COARSE),1)
+$(error COARSE_SOURCE_ACTORS requires COARSE=1)
+endif
+ifneq ($(PACE_CATCHUP),2)
+$(error COARSE_SOURCE_ACTORS requires PACE_CATCHUP=2)
+endif
+ifeq ($(GAME_ATCHK_LIST),0)
+$(error COARSE_SOURCE_ACTORS requires enabled GAME_ATCHK_LIST generations)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_COARSE_SOURCE_ACTORS=$(COARSE_SOURCE_ACTORS)
+endif
+
+# Full authored PS2 r101 world consumer, default off; no gameplay/source suppression.
+PS2_WORLD_DRAW ?= 0
+ifneq ($(PS2_WORLD_DRAW),0)
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error PS2_WORLD_DRAW must be 0 or 1)
+endif
+ifneq ($(COARSE),1)
+$(error PS2_WORLD_DRAW needs COARSE=1)
+endif
+ifneq ($(COARSE_WORLD),0)
+$(error PS2_WORLD_DRAW replaces the diagnostic world; use COARSE_WORLD=0)
+endif
+ifneq ($(PVR_STREAM),1)
+$(error PS2_WORLD_DRAW needs PVR_STREAM=1)
+endif
+ifneq ($(TREE_IMPOSTOR),1)
+$(error PS2_WORLD_DRAW needs TREE_IMPOSTOR=1 for the existing PT list)
+endif
+$(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 endif

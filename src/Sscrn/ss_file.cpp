@@ -23,6 +23,8 @@
 #include "db_log.h"
 #include "sscrn.h"
 #include "ss_main.h"
+#include "re4dc_pad_prompts.h"
+#include "re4dc_manual_pages.h"
 
 extern "C" {
 int sprintf(char* s, const char* fmt, ...);
@@ -180,6 +182,12 @@ static int file_tpl_x = 0;
 static int file_tpl_y = 0x38;
 static int file_tpl_w = 0x280;
 static int file_tpl_h = 0x150;
+#if RE4DC_PAD_PROMPTS
+#include "manual_camera_prompt.inc"
+#endif
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+#include "manual_pages_file.inc"
+#endif
 
 static int file_read_req;
 static int file_tpl_req;
@@ -559,6 +567,9 @@ void SsFileMain::quit(SUB_SCREEN* wk)
     if (disp) {
         delete disp;
     }
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+    file_manual_retire();
+#endif
     Mem_free(wk->pTplDat);
     Mem_free(wk->pFileWk);
     sscrn_file_out_init(wk);
@@ -841,7 +852,13 @@ void MessageDisplay::init(SUB_SCREEN* wk)
         break;
     }
     fw = wk->pFileWk;
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+    file_manual_retire(); // a new display session cannot borrow the previous page
+#endif
     cMes.MesSet(fw->msgBase + fw->page, x, y, fw->attr, 0, fw->x7, 4);
+#if RE4DC_PAD_PROMPTS
+    file_prompt_bind(fw);
+#endif
     IdSub.unitPtr(0, 0x1D)->be_flag |= 8;
     IdSub.unitPtr(0, 0x1E)->be_flag |= 8;
     IdSub.unitPtr(0, 0x1E)->rev_flag &= ~0xF;
@@ -873,6 +890,12 @@ void MessageDisplay::move(SUB_SCREEN* wk)
     case 0:
         if (Key.trg & 0x40000000) {
             if (tplFirst == 0) {
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+                // A completed page has no writer: keep its qualified picture
+                // through the original close animation. Pending reads must
+                // revoke before cancel, even if completion races this frame.
+                if(tplState!=0)file_manual_retire();
+#endif
                 Dvd.ReadCancel(file_tpl_req, 0x40);
             }
             state = 1;
@@ -910,6 +933,9 @@ void MessageDisplay::move(SUB_SCREEN* wk)
     CHANGE:
         if (page != fw->page) {
             cMes.MesSet(fw->msgBase + fw->page, x, y, fw->attr, 0, fw->x7, 4);
+#if RE4DC_PAD_PROMPTS
+    file_prompt_bind(fw);
+#endif
             SndCall(0, 0x22, 0, 0, 0, 0);
         }
         break;
@@ -924,6 +950,9 @@ void MessageDisplay::move(SUB_SCREEN* wk)
         }
         break;
     }
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+    file_prompt_refresh(fw,state!=0);
+#endif
     no = fw->fileNo;
     cur = getTplName(no - 1, page);
     nxt = getTplName(no - 1, fw->page);
@@ -947,19 +976,45 @@ void MessageDisplay::move(SUB_SCREEN* wk)
             sprintf(file_tpl_name, "SS/___/f%02dA.tpl", no);
             setLangExt3(file_tpl_name + 3);
             file_tpl_name[10] = nxt + 0x60;
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+            file_manual_begin(fw,no,nxt);
+#endif
 #line 1338 "D:/Bio4/Prog/ss_file.cpp"
             *pReq = DVD_READ_N(file_tpl_name, wk->pTplDat, 0, 0, 0, 0x10);
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+            file_manual_request=*pReq;
+#endif
         }
         tplState = 2;
         break;
     case 2:
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+        {
+        int loaded_bytes=0;
+        const int ready=Dvd.ReadCheck(file_tpl_req,&loaded_bytes,0,0);
+        if(ready) {
+            const int manual_page_moved=file_manual_finish(wk,fw,file_tpl_req,ready,loaded_bytes);
+#else
         if (Dvd.ReadCheck(file_tpl_req, 0, 0, 0)) {
+#endif
             tplFirst = 0;
             tplState = 0;
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+            // Completion wins the original branch before cur!=nxt is checked.
+            // A successful tracked read of the previous picture must not make
+            // the changed page look loaded. Case 1 requests it next frame.
+            if(manual_page_moved && cur!=nxt)tplState=1;
+#endif
         } else if (cur != nxt) {
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+            file_manual_retire();
+#endif
             Dvd.ReadCancel(file_tpl_req, 0x40);
             tplState = 1;
         }
+#if RE4DC_PAD_PROMPT_MANUAL_ART
+        }
+#endif
         break;
     }
     {
