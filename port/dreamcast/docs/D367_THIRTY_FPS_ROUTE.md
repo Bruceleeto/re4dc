@@ -353,6 +353,24 @@ the runtime needs:
 - Report: /root/probe/d367-agents/original-tryit-20260926/compare/REPORT.md. The look-gaps job
   (/root/probe/d367-agents/look-gaps-20260926/) is diagnosing the ground, the fires and a PVR Filter00.
 
+Progress 2026-09-28. **Landed r19 -> r21** (user: "Yes land"): the Codex continuation's playability tree r19
+(4fb68a8: actor transaction/owner path, the PS2 r101 world drawer PS2_WORLD_DRAW, manual pages, pad prompts, VMU
+dialog), r20 (8745fac: PS2_WORLD_KERNEL, UI_HUD_MASK), r21 (09e6175: the PS2 world converted to R4IM v3 and drawn by
+MeshDraw, PS2_WORLD_MESH; 64-vertex meshlets and UI_HUD_LENS_ALPHA=230 user-adopted; MEMPROF) and coarse_finite
+(36e28e0). All knobs default off; the r21 recipe is tools/d367/build-r21.sh. A clean build of 36e28e0 passes STRICT vs
+r20k3w over ticks 0..1941 (kite-r21land). Private source data stays outside git: ganado_source_extras.h and
+vmu_dialog_english.inc come from the private asset dir (VMU_DIALOG_TEXT_DIR, default COARSE_ACTOR_ASSET_DIR). The shared
+checkout's dirty overlay: 57 of its 71 modified files now equal dreamcast-port; 14 still differ.
+**Release split (kite fight, frames 600..720, hw ms/frame):** traced builds carry ~30 ms of trace/diagnostics (r21
+traced 128.4, release 98.7). Never-draw twin (PACE_FORCE=A needs PACE_MODE=smooth; PACE_MODE=off disables it) 45.9
+with 16.9 of vsync wait: **G ~29.0**; **R ~69.7** = world 21.9, characters ~35 (actor path 18.4 + skin/palettes ~16.6),
+UI 4.1, copies 3.6, KOS idle 2.2, isfinite ~2.6 (+ call overhead), TA submit 0.5. coarse_finite: 98.7 -> **93.3**.
+The memory-copy item below is ~4 ms in release (the 15-19 ms figures were traced builds). World: 23.8k vertices and
+~5,200 strips a frame; PS2 strips average 4.4 corners because UV seams stop joins (position-only keys: 6.7), so
+per-strip overhead is about half the world's cost. Order by expected gain: characters (cl), world strips/emit, G 29 -> 24.
+Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
+objects: the first coarse_finite arm ran with a stale coarse_ganado.o).
+
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
 FOG_FAR 18000 instead of the approved 25 m (square plan, "Corrections"; the stride 7 + 25 m re-baseline is running).
