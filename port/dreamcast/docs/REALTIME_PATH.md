@@ -26,7 +26,7 @@ D353 checkpoint as reuse/evidence references.
 Earlier bridge-cache/admission instructions, prelighting postponements and
 per-component priorities are superseded. Their measurements and rejected
 experiments remain in the checkpoints and
-[the D362 plan snapshot](https://github.com/stevedamnvan/re4/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/port/dreamcast/docs/REALTIME_PATH.md).
+[the D362 plan snapshot](https://github.com/stevedamnvan/re4dc/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/port/dreamcast/docs/REALTIME_PATH.md).
 
 ## Measurement contract
 

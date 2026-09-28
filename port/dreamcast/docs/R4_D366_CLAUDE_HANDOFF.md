@@ -15,7 +15,7 @@ the operator resumes. This preserves the current sequence, not another roadmap.
 - Implementation HEAD entering this handoff: e02e264e7ff9ed4d1f2839ac924e4fdf020ec9ad.
   A subsequent documentation-only commit records this pause. Inspect live HEAD;
   these are references, not reset targets.
-- Remote: https://github.com/stevedamnvan/re4.git.
+- Remote: https://github.com/stevedamnvan/re4dc.git.
 - **75 inherited modified/untracked source/build/fixture files remain.** Their
   pause hashes are /root/probe/d366-native-cutover/pause-inherited-before.json.
   They were neither authored nor committed by this slice. Never broadly stage,

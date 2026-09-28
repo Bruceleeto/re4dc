@@ -160,7 +160,7 @@ identities; the old D305 generic build recipe is not the current control. Separa
 candidate outputs and capture windows. Check disk space before full disc builds;
 preserved disc deltas need their named, hash-verified base. Keep video audio.
 
-Remote: `https://github.com/stevedamnvan/re4.git`. Keep assets/evidence private;
+Remote: `https://github.com/stevedamnvan/re4dc.git`. Keep assets/evidence private;
 commit only reviewed owned code/docs. Preserve uncommitted event/source work;
 its presence is not permission to stage it with this cutover.
 
@@ -185,5 +185,5 @@ its presence is not permission to stage it with this cutover.
   or assume an old running-agent report is live. Stove `14dd633` remains rejected.
 
 Full historical handoff and build identities remain in
-[the D362 snapshot](https://github.com/stevedamnvan/re4/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/CLAUDE.md) and the named checkpoints.
+[the D362 snapshot](https://github.com/stevedamnvan/re4dc/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/CLAUDE.md) and the named checkpoints.
 This concise handoff replaces their stale execution instructions, not their evidence.

@@ -6,7 +6,7 @@ the existing native package pipeline. GC and PS2 are first-class visual inputs;
 D362 ends standalone lossless scavenging. Older numbers below are dated evidence.
 
 Earlier allocation checkpoints and obsolete next-task text remain in the
-[D362 plan snapshot](https://github.com/stevedamnvan/re4/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md)
+[D362 plan snapshot](https://github.com/stevedamnvan/re4dc/blob/62414dc39feccc949af4b3ed29053be9fde4d5fc/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md)
 and their named checkpoint files. They are historical evidence, not execution order.
 
 ## Current decision
@@ -360,7 +360,7 @@ checking it in the actual execution environment.
 
 The previous PS2-oracle-only policy, D4 estimates, R4 deliverable ordering and
 historical measurement ledger remain accessible in the
-[pre-amendment R4 plan](https://github.com/stevedamnvan/re4/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md).
+[pre-amendment R4 plan](https://github.com/stevedamnvan/re4dc/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md).
 Separate checkpoint evidence and source-audit documents are unchanged. Their
 obsolete restrictions do not postpone the active native cutover or its
 authorized GC/PS2 visual-input selection.

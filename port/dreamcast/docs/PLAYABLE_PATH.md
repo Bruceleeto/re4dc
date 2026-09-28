@@ -516,9 +516,9 @@ Final acceptance still requires responsive human control and physical hardware.
 ## Historical evidence, not current instructions
 
 The previous 30-second r100 brief, source-ownership ledger, hashes, and deadline
-fallback are preserved in the [pre-amendment PLAYABLE_PATH](https://github.com/stevedamnvan/re4/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/PLAYABLE_PATH.md).
-The pre-amendment [REALTIME_PATH](https://github.com/stevedamnvan/re4/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/REALTIME_PATH.md)
-and [R4 plan](https://github.com/stevedamnvan/re4/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md)
+fallback are preserved in the [pre-amendment PLAYABLE_PATH](https://github.com/stevedamnvan/re4dc/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/PLAYABLE_PATH.md).
+The pre-amendment [REALTIME_PATH](https://github.com/stevedamnvan/re4dc/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/REALTIME_PATH.md)
+and [R4 plan](https://github.com/stevedamnvan/re4dc/blob/b7d29e3fe9ba58b807ef2146776b09caf1acbaea/port/dreamcast/docs/R4_ASSET_RESIDENCY_PLAN.md)
 retain their former measurement ledgers. All separate checkpoint documents and
 private evidence remain untouched. Their old task order, single-scene scope,
 20-FPS integration prerequisite, and PS2-oracle-only restriction are not active
