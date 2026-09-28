@@ -29,7 +29,7 @@ bool owner_leon_bind(cModel* m) {
         cParts* part=m->pList;
         for(unsigned i=0;i<119;++i) {
             if(!part)return false;parts[i]=part;
-            for(unsigned j=0;j<12;++j)if(!__builtin_isfinite((&part->lt_inv_mat[0][0])[j]) ||
+            for(unsigned j=0;j<12;++j)if(!coarse_finite((&part->lt_inv_mat[0][0])[j]) ||
                 __builtin_fabsf((&part->lt_inv_mat[0][0])[j]-leon4k::bind[i][j])>.01f)return false;
             part=part->pList;
         }
@@ -37,8 +37,8 @@ bool owner_leon_bind(cModel* m) {
         owner=m;owner_serial=m->serial;owner_parts=m->pList;owner_root_parts=m->pParts;owner_binding_revision=revision;
     }
     for(unsigned i=0;i<119;++i)for(unsigned j=0;j<12;++j)
-        if(!__builtin_isfinite((&parts[i]->lt_inv_mat[0][0])[j]) ||
-           !__builtin_isfinite((&parts[i]->mat[0][0])[j]))return false;
+        if(!coarse_finite((&parts[i]->lt_inv_mat[0][0])[j]) ||
+           !coarse_finite((&parts[i]->mat[0][0])[j]))return false;
     return true;
 }
 int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
@@ -53,7 +53,7 @@ int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) 
     re4dc_coarse_skin_bones(invx,skin_jobs,skin_used);
     for(unsigned i=0;i<8;++i) {
         re4dc_coarse_skin_groups(skin_stream+skin_first[i],skin_groups[i],&bone_T[0][0],output[i],leon4k::chunks[i].palette_count);
-        for(unsigned j=0;j<leon4k::chunks[i].palette_count*12;++j)if(!__builtin_isfinite(output[i][j]))return 0;
+        for(unsigned j=0;j<leon4k::chunks[i].palette_count*12;++j)if(!coarse_finite(output[i][j]))return 0;
     }
     return 1;
 }

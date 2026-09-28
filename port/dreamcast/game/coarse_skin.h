@@ -8,6 +8,10 @@
 #pragma once
 #include <cstring>
 
+// Finite test on the exponent bits: the same answer as __builtin_isfinite, which on this target is a
+// libgcc __unordsf2 call per float (2.9 hw ms/frame in the kite fight from the bone-matrix guards).
+inline bool coarse_finite(float f) { unsigned u; std::memcpy(&u, &f, 4); return (u & 0x7f800000U) != 0x7f800000U; }
+
 struct CoarseBoneJob { const float* P; const float* B; float* T; };
 extern "C" void re4dc_coarse_skin_bones(const float* inv, const CoarseBoneJob* jobs, unsigned n);
 extern "C" void re4dc_coarse_skin_groups(const void* stream, unsigned groups, const float* T, float* out, unsigned entries);

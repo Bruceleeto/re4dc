@@ -174,7 +174,7 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
         part.source={c.positions.data,c.normals.data,c.position_count,c.normal_count,c.palette_count,0};
         Mtx pm,mv;PSMTXConcat(m->pParts->mat,info->mat,pm);PSMTXConcat(pG->Cam.v_mat,pm,mv);
         std::memcpy(part.mv,mv,sizeof(mv));
-        for(float f:part.mv)if(!__builtin_isfinite(f))return actor_decline(*r,failed);
+        for(float f:part.mv)if(!coarse_finite(f))return actor_decline(*r,failed);
         part.chunk={info,c.stream.data,c.uv.data,part.mv,unsigned(c.stream.size),c.position_count,c.normal_count};
         bindings[order]={info,part.source,palettes[i],c.palette_count};
         // Expand materials in this role's source order, not texture-key order.

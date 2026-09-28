@@ -60,8 +60,8 @@ bool owner_ganado_bind(cModel* m) {
     for(unsigned r=0;r<count;++r)
         if(re4dc_actor_role_source_bin(m,infos[r],bound->appearance,r)!=owner_source_bin[slot][r])return false;
     for(unsigned i=0;i<kBones;++i)for(unsigned j=0;j<12;++j)
-        if(!__builtin_isfinite((&bound->parts[i]->lt_inv_mat[0][0])[j]) ||
-           !__builtin_isfinite((&bound->parts[i]->mat[0][0])[j]))return false;
+        if(!coarse_finite((&bound->parts[i]->lt_inv_mat[0][0])[j]) ||
+           !coarse_finite((&bound->parts[i]->mat[0][0])[j]))return false;
     owner_current_slot=slot;return true;
 }
 const ganado_extra::Chunk* owner_original_chunk(unsigned role) {
@@ -91,7 +91,7 @@ int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output
         if(p.input[i].palette_count!=palettes)return 0;
         if(source)re4dc_coarse_skin_groups(source->groups,source->group_count,&bone_T[0][0],output[i],palettes);
         else re4dc_coarse_skin_groups(skin_stream+skin_first[a][i],skin_groups[a][i],&bone_T[0][0],output[i],palettes);
-        for(unsigned j=0;j<palettes*12;++j)if(!__builtin_isfinite(output[i][j]))return 0;
+        for(unsigned j=0;j<palettes*12;++j)if(!coarse_finite(output[i][j]))return 0;
     }
     return 1;
 }

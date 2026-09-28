@@ -144,7 +144,7 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
         const bool face=RE4DC_ACTOR_LEON_NATIVE_LOOK && row.appearance==256 && row.role==3;
         if(i->pShape && !readable(i->pShape,4))return Error::BadRange;
         for(const auto& shape:i->shape) {
-            if(!__builtin_isfinite(shape.rate) || (shape.data && !readable(shape.data,4)))return Error::BadRange;
+            if(!coarse_finite(shape.rate) || (shape.data && !readable(shape.data,4)))return Error::BadRange;
             if(shape.rate!=0.0f && (!face || !shape.data))return Error::LiveModifier;
         }
         out.required|=Morph;
