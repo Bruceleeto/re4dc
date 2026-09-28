@@ -121,12 +121,6 @@ extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
     q.color=((unsigned)(u8)u->col[3]<<24)|((unsigned)(u8)u->col[0]<<16)|
             ((unsigned)(u8)u->col[1]<<8)|(u8)u->col[2];
     q.blend=u->blend_type; q.masked=u->tex_flag & 1;
-#if RE4DC_UI_HUD_MASK && RE4DC_UI_HUD_MASK_DIAG
-    // TEMPORARY diagnostic (Claude r20): the first masked quads' source ids.
-    if(q.masked){static unsigned diag;if(diag<16){++diag;
-        re4dc_log("HUDDIAG quad trans=%u tex=%02x/%u mask=%02x/%u blend=%u w=%u h=%u fmt=%u pal=%u/%u\n",unsigned(u->trans_type),unsigned(u->texId),unsigned(u->texNo),
-            unsigned(u->maskId),unsigned(u->maskNo),unsigned(q.blend),q.image.width,q.image.height,q.image.format,q.image.palette_format,q.image.palette_bytes);}}
-#endif
 #if RE4DC_UI_HUD_MASK
     // Source IdCommonTrans only: exact constant core colour + two HUD masks.
     // Keep live vertices/UV/colour/blend and the original OT callback order.

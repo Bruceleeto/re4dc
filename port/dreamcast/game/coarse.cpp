@@ -244,6 +244,9 @@ void setup_camera()
     GXGetProjectionv(P);
     GXGetViewportv(V);
     const float* m = &pG->Cam.v_mat[0][0];
+#if RE4DC_PS2_WORLD_MESH
+    re4dc_ps2_mesh_camera(m, P, V); // the PS2 world's MeshDraw path needs view, projection, viewport
+#endif
     const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2];
     const float cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
     const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx},

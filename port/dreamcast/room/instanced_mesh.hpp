@@ -33,6 +33,9 @@ namespace re4dc::room {
 // 12-bit octahedral source normal until the runtime lights its part, then
 // ARGB1555. MeshPart::reserved is that part's lit flag (0 in the file).
 constexpr std::uint32_t kColorOctNormal=1;
+// Header reserved[0] = 2 (convert_lod color_mode="prelit", tools/ps2_world_r4im.py): every colour slot
+// is already the corner's final ARGB1555; the palette is one unused word. Only adopt(..., prelit=true).
+constexpr std::uint32_t kColorArgb1555=2;
 constexpr std::uint16_t kIndexedMeshlet=0x8000U; // v3 Meshlet::strip_count flag
 struct MeshHeader {
     char magic[4];
@@ -132,7 +135,8 @@ public:
     // Validates every offset, range, strip length/index and palette index once;
     // afterwards the draw path trusts the tables. data must be 4-byte aligned.
     // lod: the caller draws v2 levels (and still accepts v1); otherwise v1 only.
-    bool adopt(const std::uint8_t* data,std::uint32_t size,bool lod=false){
+    // prelit: the package must use kColorArgb1555 (and nothing else may).
+    bool adopt(const std::uint8_t* data,std::uint32_t size,bool lod=false,bool prelit=false){
         close();
         if(size<sizeof(MeshHeader) || (reinterpret_cast<std::uintptr_t>(data)&3U))return fail("size");
         std::memcpy(&h_,data,sizeof(h_));
@@ -158,9 +162,9 @@ public:
             for(unsigned m=0;m<h_.mesh_count;++m)if(data[l_.class_offset+m]>=kClassRules)return fail("class");
         if(!h_.palette_count || h_.palette_count>65536U)return fail("palette");
         data_=data;
-        if(h_.reserved[0]!=kColorOctNormal)return fail("color encoding");
+        if(h_.reserved[0]!=(prelit?kColorArgb1555:kColorOctNormal))return fail("color encoding");
         if(h_.palette_count>16U)return fail("palette");
-        for(unsigned i=0;i<h_.vertex_count;++i)if((vertices()[i].color>>12)>=h_.palette_count)return fail("color");
+        if(!prelit)for(unsigned i=0;i<h_.vertex_count;++i)if((vertices()[i].color>>12)>=h_.palette_count)return fail("color");
         for(unsigned i=0;i<h_.part_count;++i)if(parts()[i].reserved)return fail("part state");
         for(unsigned m=0;m<h_.mesh_count;++m){
             const auto& r=meshes()[m];

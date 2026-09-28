@@ -39,6 +39,7 @@ MESHLET = struct.Struct("<IIIHH6H")        # 28 bytes
 VERTEX = struct.Struct("<6H")              # 12 bytes
 MAX_MESHLET_VERTICES = 256
 COLOR_OCT_NORMAL = 1  # header reserved[0]: colour slot = palette<<12 | oct normal, lit at runtime
+COLOR_ARGB1555 = 2    # header reserved[0]: colour slot = prelit ARGB1555 (--color prelit; PS2 world)
 MAX_STRIP = 255
 
 
@@ -694,7 +695,8 @@ def surface(tris, positions):
 def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS, cluster_world=20000.0,
                 cluster_tris_max=768, cards=DEFAULT_CARDS, min_gain=0.5, max_levels=5, bias=None,
                 substitutes=None, export_dir=None, replacements=None, floor=None, share=False,
-                classes=None, class_auto=False, class_rules=None, cluster_trees=None, cluster_bins=None):
+                classes=None, class_auto=False, class_rules=None, cluster_trees=None, cluster_bins=None,
+                source=None, color_mode="oct"):
     """entries as convert(); scales: {(owner, bin): world scale} (largest
     placement scale, default 1) so that errors are chosen in world units.
     bias: {(owner, bin): factor}; stored level errors are multiplied by it, so
@@ -711,7 +713,12 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
     index table (R4IM v3, INDEXED_MESHLET; room/instanced_mesh.hpp).
     classes: {(owner, bin): MESH_CLASSES code}; class_auto: untagged BINs get
     tree (card field or replaced BIN) or auto_class(); class_rules: {code:
-    (full_dm, cull_dm)}. Without any of the three the package is unchanged."""
+    (full_dm, cull_dm)}. Without any of the three the package is unchanged.
+    source: callable(path) -> parse_bin()-shaped dict, in place of parse_bin(path.read_bytes()) (a
+    non-BIN source such as the PS2 world, tools/ps2_world_r4im.py).
+    color_mode: "oct" (default: palette index + octahedral normal, lit at runtime) or "prelit": the
+    colour slot is the corner's final ARGB1555 (source color() 8-bit RGBA, color_scale ignored), header
+    reserved[0] = COLOR_ARGB1555 and a one-word palette; the runtime lights nothing."""
     mesh_lod = _mesh_lod()
     # cluster_trees: {(owner, bin)} grove BINs whose clusters are formed per tree (tree_groups)
     cluster_trees = set(cluster_trees or ())
@@ -743,6 +750,11 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
 
     def slot_of(color, normal):
         r, g, b, a = color
+        if color_mode == "prelit":
+            if not palette:
+                palette.append(0xFFFFFFFF)
+            q = lambda v: min(31, max(0, round(v * 31 / 255)))
+            return (0x8000 if a >= 128 else 0) | (q(r) << 10) | (q(g) << 5) | q(b)
         argb = (a << 24) | (min(255, round(r * color_scale)) << 16) | \
                (min(255, round(g * color_scale)) << 8) | min(255, round(b * color_scale))
         if argb not in palette_index:
@@ -753,7 +765,7 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
         return (palette_index[argb] << 12) | oct12(normal)
 
     for owner, common, bin_no, path in entries:
-        src = parse_bin(path.read_bytes())
+        src = source(path) if source else parse_bin(path.read_bytes())
         replaced = (owner, bin_no) in replacements
         if replaced:
             src = replace_source(src, replacements[(owner, bin_no)])
@@ -1000,7 +1012,8 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
     header = HEADER.pack(MAGIC, VERSION_SHARE if shared_vertices[1] else VERSION_LOD, total, zlib.crc32(body),
                          len(meshes), len(parts), len(meshlets), len(vertices), len(index_bytes), len(palette),
                          offsets["mesh"], offsets["part"], offsets["meshlet"], offsets["vertex"],
-                         offsets["index"], offsets["palette"], COLOR_OCT_NORMAL, 0, 0, 0)
+                         offsets["index"], offsets["palette"],
+                         COLOR_ARGB1555 if color_mode == "prelit" else COLOR_OCT_NORMAL, 0, 0, 0)
     blob = header + body
     summary = dict(package_bytes=total, meshes=len(meshes), parts=len(parts), meshlets=len(meshlets),
                    vertices=len(vertices), strip_bytes=len(index_bytes), palette=len(palette),

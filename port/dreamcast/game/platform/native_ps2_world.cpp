@@ -3,6 +3,9 @@
 #ifndef RE4DC_PS2_WORLD_DRAW
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
+#ifndef RE4DC_PS2_WORLD_MESH
+#define RE4DC_PS2_WORLD_MESH 0
+#endif
 #ifndef RE4DC_PS2_WORLD_KERNEL
 #define RE4DC_PS2_WORLD_KERNEL 0
 #endif
@@ -24,6 +27,9 @@ extern "C" void re4dc_static_free(void*);
 extern "C" int re4dc_static_heap_free();
 extern "C" unsigned re4dc_ui_frame();
 extern "C" void re4dc_log(const char*,...);
+#if defined(RE4DC_MEMPROF) && RE4DC_MEMPROF
+extern "C" void re4dc_memprof_log(unsigned frame,unsigned frames); // platform/memprof.cpp
+#endif
 extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
 extern "C" void re4dc_profile_source(re4dc::profile::Source*);
 extern "C" int re4dc_ps2_world_packet(unsigned,unsigned,unsigned,unsigned,unsigned,Re4dcModelPacket*);
@@ -608,6 +614,15 @@ public:
 }}}
 extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float far){
     using namespace re4dc::room::ps2;
+#if RE4DC_PS2_WORLD_MESH
+    // PS2_WORLD_MESH: the converted R4IM package (native_static.cpp); the .r4p is never loaded.
+    (void)screen;state.pending=false;
+    if(room!=0x101){re4dc_ps2_mesh_retire();return 0;}
+    if(!finite_word(far) || far<=40)return fallback(3);
+    state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=far<25000?far:25000;
+    const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
+    return drawn?1:fallback(4);
+#endif
     state.pending=false;auto& owner=storage();Owner now{};
     if(room!=0x101 || !current(nullptr,now) || now.room!=room){owner.retire();return 0;}
     if(!owner.live()){
@@ -640,7 +655,18 @@ extern "C" int re4dc_ps2_world_pending(){
 extern "C" void re4dc_ps2_world_flush(){
     using namespace re4dc::room::ps2;
     if(!state.pending || state.frame!=re4dc_ui_frame() || state.flushed==state.frame)return;
-    state.flushed=state.frame;state.pending=false;WorldDraw draw(storage());
+    state.flushed=state.frame;state.pending=false;
+#if defined(RE4DC_MEMPROF) && RE4DC_MEMPROF
+    if(!(state.frame%120))re4dc_memprof_log(state.frame,120);
+#endif
+#if RE4DC_PS2_WORLD_MESH
+    {
+        const bool pt=re4dc_ps2_mesh_draw(1,state.far)!=0,tr=re4dc_ps2_mesh_draw(2,state.far)!=0;
+        if(!(state.frame%120) || !pt || !tr)re4dc_ps2_mesh_log(state.frame);
+        return;
+    }
+#endif
+    WorldDraw draw(storage());
 #if RE4DC_PS2_WORLD_KERNEL
     const bool pt=draw.draw_kernel(1),tr=draw.draw_kernel(2);
 #else
@@ -657,6 +683,9 @@ extern "C" void re4dc_ps2_world_flush(){
     }
 }
 extern "C" void re4dc_ps2_world_retire(){
+#if RE4DC_PS2_WORLD_MESH
+    re4dc_ps2_mesh_retire();
+#endif
     using namespace re4dc::room::ps2;state.pending=false;state.frame=~0u;state.owner={};state.attempted={};state.fallbacks=0;storage().retire();
 #if RE4DC_PS2_WORLD_KERNEL
     light_cache_free();

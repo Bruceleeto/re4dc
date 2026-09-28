@@ -3,11 +3,7 @@ extern "C" int re4dc_ui_hud_mask_submit(const Re4dcUiQuad* q,const Re4dcUiImage*
     if(!q || !mask || q->masked!=1 || q->blend>1 ||
        q->image.width!=32 || q->image.height!=32 || q->image.format!=8 ||
        q->image.palette_format!=2 || q->image.palette_bytes!=32 ||
-       mask->width!=64 || mask->height!=64 || mask->palette_format!=2){
-#if RE4DC_UI_HUD_MASK_DIAG
-        static unsigned d0;if(d0<8){++d0;re4dc_log("HUDDIAG reject=shape mask=%ux%u fmt=%u pal=%u/%u\n",mask?mask->width:0,mask?mask->height:0,mask?mask->format:0,mask?mask->palette_format:0,mask?mask->palette_bytes:0);}
-#endif
-        return 0;}
+       mask->width!=64 || mask->height!=64 || mask->palette_format!=2)return 0;
     unsigned index;
     if(mask->format==9 && mask->palette_bytes==512)index=0;
     else if(mask->format==8 && mask->palette_bytes==32)index=1;
@@ -20,13 +16,16 @@ extern "C" int re4dc_ui_hud_mask_submit(const Re4dcUiQuad* q,const Re4dcUiImage*
     if(!image_key(q->image,color_key) || !image_key(*mask,mask_key) ||
        color_key.crc!=0x0565aab7U || color_key.fnv!=0xd85a337bU ||
        mask_key.crc!=(index?0x4453f667U:0x8f6b4eb2U) ||
-       mask_key.fnv!=(index?0x45bfa53fU:0x8081114fU)){
-#if RE4DC_UI_HUD_MASK_DIAG
-        static unsigned d1;if(d1<8){++d1;re4dc_log("HUDDIAG reject=identity color=%08x-%08x mask=%08x-%08x index=%u\n",color_key.crc,color_key.fnv,mask_key.crc,mask_key.fnv,index);}
-#endif
-        return 0;}
+       mask_key.fnv!=(index?0x45bfa53fU:0x8081114fU))return 0;
     Re4dcUiQuad prepared=*q;
     prepared.image=hud_mask_image(index);prepared.masked=0;
+#if RE4DC_UI_HUD_LENS_ALPHA
+    // UI_HUD_LENS_ALPHA (user, 2026-09-28: a more opaque lens): the dark backing pair's alpha is raised
+    // to at least this value, so a bright world behind the lens no longer shows the unlit digit segments
+    // as "88". The source colour's RGB is kept; the amber lens pair (1) is unchanged.
+    if(index==0 && (prepared.color>>24)<unsigned(RE4DC_UI_HUD_LENS_ALPHA))
+        prepared.color=(prepared.color&0x00ffffffU)|(unsigned(RE4DC_UI_HUD_LENS_ALPHA)<<24);
+#endif
     const unsigned before=nquad;
     re4dc_ui_submit(&prepared);
     // One proof of actual queue admission per pair. Missing/invalid/resource

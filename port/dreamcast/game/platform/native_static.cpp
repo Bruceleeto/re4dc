@@ -4,6 +4,14 @@
 #if RE4DC_PS2_WORLD_DRAW
 #include "include/native_ps2_world.h"
 #endif
+#ifndef RE4DC_PS2_WORLD_MESH
+#define RE4DC_PS2_WORLD_MESH 0
+#endif
+// MESH_DEPTH_CULL: the meshlet fast path drops a strip whose corners all lie outside one depth
+// plane instead of clipping it to nothing (exact). On with PS2_WORLD_MESH.
+#ifndef RE4DC_MESH_DEPTH_CULL
+#define RE4DC_MESH_DEPTH_CULL RE4DC_PS2_WORLD_MESH
+#endif
 // Recovered scroll objects -> D349 native static room packages (v4 AoS20).
 //
 // The source still decides everything about an object: setObj creates and
@@ -463,6 +471,9 @@ bool locate(const Re4dcModelPart& p,Located& out){
 }
 
 // Strip emission shared by package and mesh draws: one source part's packet.
+#if RE4DC_PS2_WORLD_MESH
+extern "C" int re4dc_ps2_world_direct_begin(const unsigned* key,Re4dcModelDirect* out); // native_ui.cpp
+#endif
 struct Emitter {
     const Re4dcModelPart& p;
     float mv[12];  // package -> view: group bounds
@@ -475,6 +486,9 @@ struct Emitter {
     bool streaming=false,bound=false,submitted=false;
     bool vertex_alpha=false; // corner alpha from the colour palette (source vertex alpha)
     re4dc::render::ClipParameters clip{};
+#if RE4DC_PS2_WORLD_MESH
+    const unsigned* ps2=nullptr; // PS2_WORLD_MESH part: {crc, fnv, width, height, pass, cull}; binds by key, not by p
+#endif
 #if RE4DC_HW_LEAN
     float proj_bx=0,proj_by=0; // project()'s viewport offsets in 640x480 pixels
     void set_clip(){
@@ -520,7 +534,11 @@ struct Emitter {
 #if RE4DC_MESH_DIRECT
         if(direct){
             Re4dcModelDirect out{};
+#if RE4DC_PS2_WORLD_MESH
+            if(!(ps2?re4dc_ps2_world_direct_begin(ps2,&out):re4dc_model_direct_begin(&p,&out)))return false;
+#else
             if(!re4dc_model_direct_begin(&p,&out))return false;
+#endif
             sq=out.sq;submitted=true;
             packet.vertices=out.scratch;packet.capacity=out.scratch_capacity;
             packet.u_scale=out.u_scale;packet.v_scale=out.v_scale;
@@ -1043,6 +1061,11 @@ struct MeshDraw : Emitter {
             input+=n-2;
             vp::StripCodes c{0,0};
             if(screen)c=vp::codes(outcodes,s,n);
+#if RE4DC_MESH_DEPTH_CULL
+            // Every corner outside the same depth plane (nearer than near, which includes behind the
+            // camera, or past far): the clipper would emit nothing, so the strip is dropped here.
+            if(c.all&depth){stats.vertices+=n;++stats.strips_culled;s+=n;continue;}
+#endif
             if((c.any&depth) || n>limit){
                 if(n<=limit)stats.vertices+=n;
                 const int result=clip_strip(base,batch,s,n);
@@ -1129,7 +1152,12 @@ struct MeshDraw : Emitter {
     }
 #endif
     int run(){
+#if RE4DC_PS2_WORLD_MESH
+        // A PS2 part has no source image to reserve against; its direct bind checks the frame state.
+        if(!ps2 && !re4dc_model_packet_reserve(&p,&packet)){++stats.reserve_rejects;return 0;}
+#else
         if(!re4dc_model_packet_reserve(&p,&packet)){++stats.reserve_rejects;return 0;}
+#endif
         streaming=re4dc_model_packet_streaming()!=0;
 #if RE4DC_HW_LEAN
         set_clip();
@@ -1968,3 +1996,169 @@ extern "C" int re4dc_static_submit(const Re4dcModelPart* part){
     (void)part;return 0;
 #endif
 }
+
+#if RE4DC_PS2_WORLD_MESH
+// PS2_WORLD_MESH (game30.mk, render only): the PS2 r101 world converted offline to R4IM v3 (prelit
+// ARGB1555 corners) plus an R4PW placement sidecar (tools/ps2_world_r4im.py), drawn by MeshDraw: cluster
+// LOD, the transform-once meshlet fast path and direct TA submission; nothing is lit at runtime. The
+// package is this path's own static allocation (not the room's), so a room reload keeps it; the room's
+// retire (re4dc_ps2_world_retire) frees it. native_ps2_world.cpp routes draw/flush here.
+namespace {
+struct Ps2Part { std::uint32_t crc,fnv; std::uint16_t width,height; std::uint8_t pass,cull,texture,reserved; };
+struct Ps2Placement { std::uint16_t mesh,placement; float affine[12]; };
+struct Ps2Head { char magic[4]; std::uint32_t version,placements,parts,meshes,crc,reserved[2]; };
+static_assert(sizeof(Ps2Part)==16 && sizeof(Ps2Placement)==52 && sizeof(Ps2Head)==32);
+struct Ps2Counts { unsigned placements,culled,parts,native,fallback,aborts; float near,far,cull_far; };
+struct Ps2World {
+    re4dc::room::MeshPackage package;
+    unsigned char* storage=nullptr; unsigned bytes=0;
+    const Ps2Part* parts=nullptr; const Ps2Placement* placements=nullptr; unsigned nplacements=0;
+    const std::uint32_t* lut=nullptr; re4dc::room::CompactVertex12* gather=nullptr;
+    float view[12]{},projection[7]{},viewport[6]{}; bool camera=false,attempted=false;
+    Ps2Counts count[3]{};
+} ps2w;
+std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
+    std::uint32_t c=~0U;
+    for(unsigned i=0;i<n;++i){c^=p[i];for(unsigned b=0;b<8;++b)c=(c>>1)^(0xedb88320U&(0U-(c&1U)));}
+    return ~c;
+}
+bool ps2_open(){
+    if(ps2w.storage)return true;
+    if(ps2w.attempted)return false;
+    ps2w.attempted=true;
+    const file_t fm=fs_open("/cd/dc/native/r101/ps2-world.re4mesh",O_RDONLY);
+    const file_t fp=fs_open("/cd/dc/native/r101/ps2-world.r4pw",O_RDONLY);
+    const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
+    const unsigned mbytes=(msize+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
+    const int before=re4dc_static_heap_free();
+    auto* s=msize && psize>=sizeof(Ps2Head)?static_cast<unsigned char*>(re4dc_static_alloc(total)):nullptr;
+    bool ok=s && fs_read(fm,s,msize)==ssize_t(msize) && fs_read(fp,s+mbytes,psize)==ssize_t(psize);
+    if(fm!=FILEHND_INVALID)fs_close(fm);
+    if(fp!=FILEHND_INVALID)fs_close(fp);
+    const char* why=ok?nullptr:s?"read":"missing or no heap";
+    if(ok && !ps2w.package.adopt(s,msize,true,true)){why=ps2w.package.error();ok=false;}
+    Ps2Head h{};
+    if(ok){
+        std::memcpy(&h,s+mbytes,sizeof(h));
+        const auto& mh=ps2w.package.header();
+        const unsigned body=psize-unsigned(sizeof(h));
+        if(std::memcmp(h.magic,"R4PW",4) || h.version!=1 || h.parts!=mh.part_count || h.meshes!=mh.mesh_count ||
+           body!=h.parts*sizeof(Ps2Part)+h.placements*sizeof(Ps2Placement) || ps2_crc32(s+mbytes+sizeof(h),body)!=h.crc){why="sidecar";ok=false;}
+    }
+    if(ok){
+        ps2w.parts=reinterpret_cast<const Ps2Part*>(s+mbytes+sizeof(h));
+        ps2w.placements=reinterpret_cast<const Ps2Placement*>(ps2w.parts+h.parts);
+        for(unsigned i=0;i<h.parts && ok;++i){
+            const auto& q=ps2w.parts[i];
+            ok=q.pass<=2 && q.cull<=2 && q.width && q.height && q.width<=1024 && q.height<=1024;
+        }
+        for(unsigned i=0;i<h.placements && ok;++i){
+            const auto& q=ps2w.placements[i];ok=q.mesh<h.meshes;
+            for(float f:q.affine)ok=ok && re4dc::render::is_finite(f);
+        }
+        if(!ok)why="sidecar records";
+    }
+    if(!ok){
+        ps2w.package.close();if(s)re4dc_static_free(s);ps2w.parts=nullptr;ps2w.placements=nullptr;
+        re4dc_log("PS2MESH open failed: %s mesh=%u sidecar=%u heap=%d\n",why?why:"?",msize,psize,before);
+        return false;
+    }
+    ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_MESH_FASTPATH
+    auto* lut=reinterpret_cast<std::uint32_t*>(s+mbytes+pbytes);re4dc::vp::build_lut(lut);ps2w.lut=lut;
+#endif
+    ps2w.gather=reinterpret_cast<re4dc::room::CompactVertex12*>(s+mbytes+pbytes+kLutBytes);
+    const auto& mh=ps2w.package.header();
+    re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
+        total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
+    return true;
+}
+// 1 complete, 0 a part fell back (not drawn) or the camera is unusable, -1 aborted after publishing.
+int ps2_pass(unsigned pass,float zfar){
+    auto& c=ps2w.count[pass];c={};
+    const float* P=ps2w.projection;
+    if(P[0]!=0 || ps2w.viewport[2]<=0 || ps2w.viewport[3]<=0)return 0;
+    const float near=P[6]/(P[5]-1),far=P[6]/P[5];
+    if(!re4dc::render::is_finite(near)||!re4dc::render::is_finite(far)||near<=0||far<=near)return 0;
+    float cull_far=far;
+    if(zfar>near && zfar<cull_far)cull_far=zfar;
+    if(cull_far>25000.0f)cull_far=25000.0f; // native_ps2_world.cpp's far
+#if RE4DC_NATIVE_FOG
+    if(fog_now.far>near && fog_now.far<cull_far)cull_far=fog_now.far; // hidden by the fog ramp
+#endif
+    c.near=near;c.far=far;c.cull_far=cull_far;
+    Re4dcModelPart part{};
+    std::memcpy(part.projection,P,sizeof(part.projection));std::memcpy(part.viewport,ps2w.viewport,sizeof(part.viewport));
+    part.alpha_state=255;part.source_key[2]=1;
+    const float px_x=320.0f*std::fabs(P[1]),px_y=240.0f*std::fabs(P[3]);
+    const float px=px_x>px_y?px_x:px_y;
+#if RE4DC_QUALITY
+    const float lod_px=re4dc_quality()->lod_px;
+#else
+    const float lod_px=float(RE4DC_MESH_LOD_PX);
+#endif
+    const auto& pk=ps2w.package;
+    for(unsigned i=0;i<ps2w.nplacements;++i){
+        const auto& pl=ps2w.placements[i];const auto& mesh=pk.meshes()[pl.mesh];
+        bool any=false;
+        for(unsigned k=0;k<mesh.part_count && !any;++k)any=ps2w.parts[mesh.first_part+k].pass==pass;
+        if(!any)continue;
+        ++c.placements;
+        float mv[12];concat(ps2w.view,pl.affine,mv);
+        const re4dc::render::DrawBounds bounds{{mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},
+                                               {mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]}};
+        if(!re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)){++c.culled;continue;}
+        const float grid[12]={mesh.step[0],0,0,mesh.origin[0], 0,mesh.step[1],0,mesh.origin[1], 0,0,mesh.step[2],mesh.origin[2]};
+        float mvq[12];concat(mv,grid,mvq);
+        float scale=0;
+        for(unsigned r=0;r<3;++r){
+            const float n=mv[4*r]*mv[4*r]+mv[4*r+1]*mv[4*r+1]+mv[4*r+2]*mv[4*r+2];
+            if(n>scale)scale=n;
+        }
+        const float lod_scale=std::sqrt(scale)*px/lod_px;
+        for(unsigned k=0;k<mesh.part_count;++k){
+            const unsigned index=mesh.first_part+k;const auto& meta=ps2w.parts[index];
+            if(meta.pass!=pass)continue;
+            ++c.parts;part.cull=meta.cull;
+            MeshDraw d{{part,{},near,far},pk,pk.parts()[index],ps2w.lut,ps2w.gather};
+            d.alpha=0xff000000U;d.vertex_alpha=false;d.cull_far=cull_far;d.direct=true;
+            d.part_index=index;d.lod_scale=lod_scale;
+            std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
+            const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
+            const int result=d.run();
+            d.end_direct(); // before any abort: releases the store queues
+            if(result>0)++c.native;
+            else if(result<0){re4dc_model_packet_abort();++c.aborts;return -1;}
+            else ++c.fallback;
+        }
+    }
+    return c.fallback?0:1;
+}
+}
+extern "C" void re4dc_ps2_mesh_camera(const float* view,const float* projection,const float* viewport){
+    std::memcpy(ps2w.view,view,sizeof(ps2w.view));
+    std::memcpy(ps2w.projection,projection,sizeof(ps2w.projection));
+    std::memcpy(ps2w.viewport,viewport,sizeof(ps2w.viewport));
+    ps2w.camera=true;
+}
+extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
+    if(pass>2 || !ps2w.camera || !ps2_open())return 0;
+    return ps2_pass(pass,zfar)>0;
+}
+extern "C" void re4dc_ps2_mesh_log(unsigned frame){
+    for(unsigned p=0;p<3;++p){
+        const auto& c=ps2w.count[p];
+        re4dc_log("PS2MESH frame=%u pass=%u placements=%u culled=%u parts=%u native=%u fallback=%u aborts=%u near=%d far=%d cull_far=%d\n",
+            frame,p,c.placements,c.culled,c.parts,c.native,c.fallback,c.aborts,int(c.near),int(c.far),int(c.cull_far));
+    }
+    re4dc_log("PS2MESH frame=%u strips=%u culled=%u clipped=%u vertices=%u clusters=%u/%u lod=%u,%u,%u,%u\n",frame,
+        stats.strips,stats.strips_culled,stats.strips_clipped,stats.vertices,stats.clusters_visible,stats.clusters_culled,
+        stats.lod_draws[0],stats.lod_draws[1],stats.lod_draws[2],stats.lod_draws[3]);
+}
+extern "C" void re4dc_ps2_mesh_retire(){
+    ps2w.package.close();
+    if(ps2w.storage)re4dc_static_free(ps2w.storage);
+    ps2w.storage=nullptr;ps2w.bytes=0;ps2w.parts=nullptr;ps2w.placements=nullptr;ps2w.nplacements=0;
+    ps2w.lut=nullptr;ps2w.gather=nullptr;ps2w.attempted=false;
+}
+#endif

@@ -1593,10 +1593,6 @@ $(error UI_HUD_MASK must be 0 or 1)
 endif
 $(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_UI_HUD_MASK=$(UI_HUD_MASK)
 $(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HUD_MASK=$(UI_HUD_MASK)
-# UI_HUD_MASK_DIAG=1 (temporary test diagnostic): logs the first masked quads and the helper's reject reason.
-UI_HUD_MASK_DIAG ?= 0
-$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_UI_HUD_MASK_DIAG=$(UI_HUD_MASK_DIAG)
-$(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HUD_MASK_DIAG=$(UI_HUD_MASK_DIAG)
 UI_HUD_MASK_STAMP := $(OBJDIR)/ui-hud-mask.txt
 .PHONY: ui-hud-mask-force
 $(UI_HUD_MASK_STAMP): ui-hud-mask-force
@@ -1605,3 +1601,41 @@ $(UI_HUD_MASK_STAMP): ui-hud-mask-force
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/ui_bridge.o $(OBJDIR)/platform/native_ui.o: $(UI_HUD_MASK_STAMP)
+
+# PS2_WORLD_MESH (render only, default off): the PS2 r101 world converted offline to R4IM v3 + an R4PW
+# placement sidecar (tools/ps2_world_r4im.py; staged as dc/native/r101/ps2-world.re4mesh / .r4pw) and drawn
+# by native_static.cpp's MeshDraw (cluster LOD, the meshlet fast path, direct TA) instead of
+# native_ps2_world.cpp's own path. The .r4p is not loaded. Prelit ARGB1555 corners: nothing lit at runtime.
+PS2_WORLD_MESH ?= 0
+ifneq ($(PS2_WORLD_MESH),0)
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error PS2_WORLD_MESH needs PS2_WORLD_DRAW=1)
+endif
+ifneq ($(NATIVE_MESH)$(MESH_LOD)$(MESH_DIRECT)$(TA_DIRECT),1111)
+$(error PS2_WORLD_MESH needs NATIVE_MESH=1 MESH_LOD=1 MESH_DIRECT=1 TA_DIRECT=1)
+endif
+$(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
+endif
+# MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
+# first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
+MESH_CLASSIFY ?= 0
+ifneq ($(MESH_CLASSIFY),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLASSIFY=$(MESH_CLASSIFY)
+endif
+# UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
+# minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".
+UI_HUD_LENS_ALPHA ?= 0
+ifneq ($(UI_HUD_LENS_ALPHA),0)
+ifneq ($(UI_HUD_MASK),1)
+$(error UI_HUD_LENS_ALPHA needs UI_HUD_MASK=1)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HUD_LENS_ALPHA=$(UI_HUD_LENS_ALPHA)
+endif
+# MEMPROF=1 (diagnostic builds only): wrap memset/memcpy and log the heaviest call sites by bytes every
+# 120 frames (platform/memprof.cpp; logged from native_ps2_world.cpp's flush).
+MEMPROF ?= 0
+ifneq ($(MEMPROF),0)
+GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
+$(OBJDIR)/platform/memprof.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMPROF=1
+endif

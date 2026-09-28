@@ -3594,6 +3594,60 @@ extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned wi
 }
 #endif
 #endif
+#if RE4DC_PS2_WORLD_DRAW && RE4DC_PS2_WORLD_MESH
+// PS2_WORLD_MESH (native_static.cpp): re4dc_ps2_world_packet's texture bind and pass header, with the
+// part's cull (0 none, 1 CCW, 2 CW, as re4dc_model_packet_begin maps a part's cull), sent by store queue
+// as re4dc_model_direct_begin does. key: crc, fnv, width, height, pass, cull.
+extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* out){
+#if RE4DC_TA_DIRECT
+    if(direct_open){re4dc_missing("native direct part nested");return 0;}
+    if(!k || !out || k[4]>2 || k[5]>2 || !frame_ready || stream_aborted ||
+       !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+    const Key key{k[0],k[1]};
+    const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
+    Entry* handle=load(image,false,&key);
+    if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
+    const auto& t=handle->package.textures()[0];
+    if(t.width!=k[2] || t.height!=k[3])return 0; // repeated UVs cannot use padding
+    const unsigned pass=k[4];
+    const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
+    stream_select(list);
+    if(stream_aborted)return 0;
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,list,re4dc::texture::pvr_format(t),t.width,t.height,handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
+    const pvr_cull_mode_t cull[]={PVR_CULLING_NONE,PVR_CULLING_CCW,PVR_CULLING_CW};
+    c.gen.culling=cull[k[5]];
+    c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+    c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
+    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.txr.env=PVR_TXRENV_MODULATEALPHA;
+    c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
+    c.txr.uv_clamp=PVR_UVCLAMP_NONE;
+#if RE4DC_NATIVE_FOG
+    c.gen.fog_type=PVR_FOG_TABLE;
+#endif
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+    model_pending=model_used+count;model_handle=handle;
+    if(!stream_scene)stream_open();
+    auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
+    const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
+    for(unsigned i=0;i<8;++i)sq[i]=words[i];
+#if RE4DC_TA_HASH
+    re4dc_ta_hash(words,32);
+#endif
+    sq_flush(sq);
+    direct_open=true;
+    model_handle->frame=frame; // the header is in the TA: pinned for this scene
+    ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
+    out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
+    out->u_scale=out->v_scale=1;
+    return 1;
+#else
+    (void)k;(void)out;return 0;
+#endif
+}
+#endif
 extern "C" void re4dc_model_finish_source_draws(){
     RE4DC_PROFILE_SCOPE(TranslucentDrain);
 #if RE4DC_TREE_IMPOSTOR
