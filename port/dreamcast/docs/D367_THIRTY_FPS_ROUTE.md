@@ -385,6 +385,23 @@ Standard uses QUALITY_LOD_PX = 5 px, MESH_LOD_PX only applies to Original): 10 p
 everywhere) 84.4, so world LOD is worth at most ~4 ms in the kite square (near geometry dominates).
 Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
 objects: the first coarse_finite arm ran with a stale coarse_ganado.o).
+**Warp tour (user: "use the warp tool in more places such as r100 and r101")**: fixtures under the private
+playability-r11-r1/tour/ (a shared turn/walk/run pad script; per-preset scripts close r101's post-bell call with A and
+the r101 entry "Playing Manual 2" with A x4 + B x3; the post-bell preset backs off the r103 door first). It found:
+(1) r100 after the ambush (r100-s20) HALTed at room frame ~600, "motion key allocation" (heap 4 full/fragmented while
+the key cache was under budget): **MOTION_OOM_EVICT** (41d0310) evicts LRU unpinned keys and retries; one event, runs
+to the end, STRICT, knob-off identical. The heap-4 shortage itself remains. (2) **r100 had no world in the r21 build**:
+coarse images skipped all source scenery and drew the grey collision view outside r101 (the only PS2 world package).
+**COARSE_SCENERY_FALLBACK** (0b68ee3) skips scenery only where re4dc_ps2_world_covers(room); other rooms draw their
+assetpipe Standard R4IM scenery, and the owned-actor TR barrier closes the tree-impostor PT window first (else "native
+closed pass requested"). STRICT, knob-off identical; r100 gate / east door / s20 draw textured and lit. The r100-bridge
+preset opens a cutscene (needs a longer lead-in). A per-room PS2 world package stays an optional upgrade (the r101
+chain in world-mesh-r21 is r101-hard-wired; r100/r103 PS2 exports exist under d353-ps2-r100-prelit and d367-agents/w9).
+Tour hw ms (release sfr = 0b68ee3 recipe + PC sampler; frames 400..880 of the tour walk; "work" = frame minus the
+vsync spin in main, which is ~0 in the CPU-bound kite fight): r101 entry 44.3 (work 36.2), r101 post-bell door 38.2
+(35.6), r100 gate after the radio 47.2 (40.4), r100 east door 45.6 (33.7), r100 s20 house after the ambush 76.7 (51.4);
+kite fight 88.4 (no spin). Render side dominates everywhere (game-render-side 19-42 + actors 5-15 hw ms); game logic
+0.8-7 hw ms outside the fight. So ordinary play is ~20 fps (work just over 33.3 ms), the heaviest views 15 fps or lower.
 
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
