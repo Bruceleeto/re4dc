@@ -314,10 +314,14 @@ unsigned* load(Binding& b,unsigned i) {
         char path[64];snprintf(path,sizeof(path),"/cd/dc/mot/%08x-%08x.fcv",word(e+8),word(e+12));
 #if RE4DC_MOTION_FAST_READ
         const int fast=fast_key_read(path,data,size);
-        if(fast>=0) {
-            if(unsigned(fast)!=size) { re4dc_motion_free(data);fail("motion key read"); }
+        if(fast>=0 && unsigned(fast)==size) {
             stats.bytes_read+=size;
         } else {
+            // Short (the stream request met another GD DMA in flight: "Previous DMA request is in
+            // progress") or unaligned: read the whole key again through the storage reader below.
+            static unsigned shorts;
+            if(fast>=0 && (++shorts<=8 || (shorts&63)==0))
+                re4dc_log("motion fast read short #%u: got=%d size=%u, storage read\n",shorts,fast,size);
 #endif
         auto result=re4dc::storage::read_file(arena,path);
         while(result.error && !std::strcmp(result.error,"storage reader re-entry") &&
