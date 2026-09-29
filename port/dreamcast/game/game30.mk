@@ -89,6 +89,12 @@ MOTION_PRESSURE_BYTES ?= 0
 ifneq ($(MOTION_PRESSURE_BYTES),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_PRESSURE_BYTES=$(MOTION_PRESSURE_BYTES)
 endif
+# MOTION_OOM_EVICT=1 (native_motion.cpp, default 0): a motion key whose room-heap allocation fails evicts
+# LRU unpinned keys and retries instead of halting (r100 after-ambush HALT, 2026-09-28). Logic-neutral.
+MOTION_OOM_EVICT ?= 0
+ifneq ($(MOTION_OOM_EVICT),0)
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_OOM_EVICT=$(MOTION_OOM_EVICT)
+endif
 # GAME_SINCOS=1 (design-logic P6, needs GAME_TRIG=1): RotMatrix and the SDK rotation builders take sin and
 #                    cos of one angle from re4dc_sincosf (game30_trig.c: one |x| test and argument reduction,
 #                    the same kernels): bit-identical by construction, all 2^32 inputs checked on the host

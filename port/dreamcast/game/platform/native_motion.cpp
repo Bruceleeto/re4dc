@@ -33,6 +33,13 @@ static_assert(RE4DC_MOTION_PRESSURE_BYTES >= 65536 &&
 #ifndef RE4DC_MOTION_INDEX
 #define RE4DC_MOTION_INDEX 0
 #endif
+// MOTION_OOM_EVICT=1: a key miss whose heap allocation fails (the room heap is full or fragmented,
+// e.g. r100's after-ambush state) evicts least-recently-used unpinned keys from every binding and
+// retries, instead of halting. Keys reload byte-identically (crc + fnv checked), so only I/O time
+// changes. Never while the sub screen holds the suspended heaps.
+#ifndef RE4DC_MOTION_OOM_EVICT
+#define RE4DC_MOTION_OOM_EVICT 0
+#endif
 
 namespace {
 constexpr unsigned kArchives=4, kEntries=255, kClipLimit=32768;
@@ -185,6 +192,34 @@ void pressure_room_for(unsigned bytes) {
     }
 }
 #endif
+#if RE4DC_MOTION_OOM_EVICT
+unsigned char* oom_evict_alloc(unsigned bytes) {
+#if RE4DC_SUBSCREEN
+    if(hold)return nullptr;
+#endif
+    static unsigned events;
+    unsigned evicted=0,freed=0;unsigned char* data=nullptr;
+    while(!data) {
+        Binding* victim=nullptr;unsigned index=0;
+        std::uint64_t oldest=~std::uint64_t(0);
+        for(auto& q:bindings) {
+            if(!q.archive)continue;
+            for(unsigned j=0;j<q.count;++j) {
+                const auto& slot=q.slots[j];
+                if(slot.data && !slot.pins && slot.used<oldest) { victim=&q;index=j;oldest=slot.used; }
+            }
+        }
+        if(!victim)break;
+        freed+=aligned(word(record(*victim,index)+4));
+        discard(*victim,index);++stats.evictions;++evicted;
+        data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
+    }
+    if(++events<=16 || (events&255)==0)
+        re4dc_log("motion oom evict #%u: need=%u evicted=%u freed=%u resident=%u %s\n",events,bytes,evicted,freed,
+                  stats.resident_bytes,data?"ok":"FAILED");
+    return data;
+}
+#endif
 unsigned* load(Binding& b,unsigned i) {
     const auto* e=record(b,i);auto& s=b.slots[i];
     if(s.data) { ++stats.hits;s.used=++stamp; }
@@ -210,6 +245,9 @@ unsigned* load(Binding& b,unsigned i) {
 #endif
         if(re4dc_motion_current_heap()!=4)fail("motion miss outside owning room heap");
         auto* data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
+#if RE4DC_MOTION_OOM_EVICT
+        if(!data)data=oom_evict_alloc(bytes);
+#endif
         if(!data)fail("motion key allocation");
         re4dc::storage::Arena arena;arena.init(data,bytes);
         char path[64];snprintf(path,sizeof(path),"/cd/dc/mot/%08x-%08x.fcv",word(e+8),word(e+12));
