@@ -48,6 +48,7 @@
 // SkyVertex, and each kWorldTex entry's bytes against its real size (renderer-contract.md Revision 2).
 // Revision 2 (R7): with backdrop segments the sky dome writes no depth, so a band farther than the dome (whose
 // horizon ring is 67-101 m from the world origin) is never hidden by it.
+#include "re4dc_screen.h"
 #include "coarse_scene.h"
 #include "coarse_world.h"
 #include "native_model.h"
@@ -193,8 +194,8 @@ inline unsigned zig(unsigned n, unsigned k) { return k == 0 ? 0 : (k & 1) ? (k +
 // whose vertices share a bit is wholly outside the view.
 inline unsigned outcode(float x, float y, float w)
 {
-    return (unsigned) (x < 0.0f) | (unsigned) (x > 640.0f * w) << 1 | (unsigned) (y < 0.0f) << 2 |
-           (unsigned) (y > 480.0f * w) << 3 | (unsigned) (w < kNear) << 4;
+    return (unsigned) (x < 0.0f) | (unsigned) (x > RE4DC_SCREEN_WF * w) << 1 | (unsigned) (y < 0.0f) << 2 |
+           (unsigned) (y > RE4DC_SCREEN_HF * w) << 3 | (unsigned) (w < kNear) << 4;
 }
 
 enum ClipKind { kClipUV16, kClipUV32, kClipUV32Offset, kClipUV16Col };
@@ -436,9 +437,9 @@ void set_sides(const CoarseView& v)
 {
     const float *X = v.S[0], *Y = v.S[1], *W = v.S[2];
     g_side[0] = norm3(X[0], X[1], X[2]);
-    g_side[1] = norm3(640.0f * W[0] - X[0], 640.0f * W[1] - X[1], 640.0f * W[2] - X[2]);
+    g_side[1] = norm3(RE4DC_SCREEN_WF * W[0] - X[0], RE4DC_SCREEN_WF * W[1] - X[1], RE4DC_SCREEN_WF * W[2] - X[2]);
     g_side[2] = norm3(Y[0], Y[1], Y[2]);
-    g_side[3] = norm3(480.0f * W[0] - Y[0], 480.0f * W[1] - Y[1], 480.0f * W[2] - Y[2]);
+    g_side[3] = norm3(RE4DC_SCREEN_HF * W[0] - Y[0], RE4DC_SCREEN_HF * W[1] - Y[1], RE4DC_SCREEN_HF * W[2] - Y[2]);
     g_side[4] = norm3(W[0], W[1], W[2]);
 }
 #endif
@@ -474,8 +475,8 @@ unsigned draw_shell(const CoarseView& v, const Shell& s, unsigned cull)
             float cx = c.c[0], cy = c.c[1], cw = c.c[2];
             mat_trans_single3_nodiv(cx, cy, cw);   // X' Y' W' at the centre
             const float* gn = g_side;
-            if (cx + c.r * gn[0] < 0.0f || 640.0f * cw - cx + c.r * gn[1] < 0.0f || cy + c.r * gn[2] < 0.0f ||
-                480.0f * cw - cy + c.r * gn[3] < 0.0f || cw + c.r * gn[4] < kNear) {
+            if (cx + c.r * gn[0] < 0.0f || RE4DC_SCREEN_WF * cw - cx + c.r * gn[1] < 0.0f || cy + c.r * gn[2] < 0.0f ||
+                RE4DC_SCREEN_HF * cw - cy + c.r * gn[3] < 0.0f || cw + c.r * gn[4] < kNear) {
                 g_st.groupsOff++;
             } else if (cw - c.r * gn[4] >= kNear) {
                 o.sq = emit_group(o.sq, P, sp, uv, c.nvtx);
@@ -685,8 +686,8 @@ void draw_mesh_groups(Emit& o, const CoarseView& v, const Mesh& m)
             float cx = c.c[0], cy = c.c[1], cw = c.c[2];
             mat_trans_single3_nodiv(cx, cy, cw);   // X' Y' W' at the centre
             const float* gn = g_side;
-            if (cx + c.r * gn[0] < 0.0f || 640.0f * cw - cx + c.r * gn[1] < 0.0f || cy + c.r * gn[2] < 0.0f ||
-                480.0f * cw - cy + c.r * gn[3] < 0.0f || cw + c.r * gn[4] < kNear) {
+            if (cx + c.r * gn[0] < 0.0f || RE4DC_SCREEN_WF * cw - cx + c.r * gn[1] < 0.0f || cy + c.r * gn[2] < 0.0f ||
+                RE4DC_SCREEN_HF * cw - cy + c.r * gn[3] < 0.0f || cw + c.r * gn[4] < kNear) {
                 g_st.groupsOff++;
             } else if (cw - c.r * gn[4] >= kNear) {
                 o.sq = emit_mesh_group<kUV32, kARGB>(o.sq, P, sp, uv16, uv32, col, c.nvtx);
@@ -1019,8 +1020,8 @@ unsigned draw_backdrops(const CoarseView& v)
         float cx = s.c[0], cy = s.c[1], cw = s.c[2];
         mat_trans_single3_nodiv(cx, cy, cw);   // X' Y' W' at the sphere's centre
         const float* gn = g_side;
-        if (cx + s.r * gn[0] < 0.0f || 640.0f * cw - cx + s.r * gn[1] < 0.0f || cy + s.r * gn[2] < 0.0f ||
-            480.0f * cw - cy + s.r * gn[3] < 0.0f || cw + s.r * gn[4] < kNear) {
+        if (cx + s.r * gn[0] < 0.0f || RE4DC_SCREEN_WF * cw - cx + s.r * gn[1] < 0.0f || cy + s.r * gn[2] < 0.0f ||
+            RE4DC_SCREEN_HF * cw - cy + s.r * gn[3] < 0.0f || cw + s.r * gn[4] < kNear) {
             continue;   // outside a side of the view
         }
         Emit o{re4dc_coarse_begin_mode(s.key[0], s.key[1], s.tw, s.th,
@@ -1161,9 +1162,9 @@ void queue_trees(const CoarseView& v)
             s[1] = y * iw;
             s[2] = iw;
             left += s[0] < 0.0f;
-            right += s[0] > 640.0f;
+            right += s[0] > RE4DC_SCREEN_WF;
             top += s[1] < 0.0f;
-            bottom += s[1] > 480.0f;
+            bottom += s[1] > RE4DC_SCREEN_HF;
         }
         if (!ok || left == 4 || right == 4 || top == 4 || bottom == 4) {
             continue;

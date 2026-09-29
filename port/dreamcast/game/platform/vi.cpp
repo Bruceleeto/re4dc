@@ -135,7 +135,11 @@ void VIInit(void)
         return;
     }
     done = 1;
+#if defined(RE4DC_SCREEN_W) && RE4DC_SCREEN_W == 320
+    vid_set_mode(DM_320x240, PM_RGB565);  // SCREEN_320 (game30.mk, test builds)
+#else
     vid_set_mode(DM_640x480, PM_RGB565);
+#endif
 #if defined(RE4DC_STALL_DIAG) && RE4DC_STALL_DIAG
     g_stallMain = thd_current;
 #endif

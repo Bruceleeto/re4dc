@@ -26,6 +26,7 @@
 //     buffer), positions/normals are skinned here from vtxOrig/nrmOrig with
 //     that palette. Anything that needs pPosBuf/pNrmBuf (the generic path)
 //     first materializes them with the source's own CalcSk1_x.
+#include "re4dc_screen.h"
 #include "native_actor.hpp"
 #if RE4DC_ACTOR_TRANSACTION
 #include "actor_native_owner.h"
@@ -1361,10 +1362,10 @@ void* frame_table(unsigned bytes) {  // until the next re4dc_actor_frame
 // the generic path's project() screen coordinates, W = -Zcamera.
 void screen_rows(const Re4dcModelPart& p, float M[3][4]) {
     const float* m = p.modelview; const float* P = p.projection; const float* V = p.viewport;
-    const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2];
-    const float cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
-    const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx},
-                              {0.0f, -240.0f * P[3], -240.0f * P[4] - cy},
+    const float cx = (V[0] + V[2] * 0.5f) * RE4DC_SCREEN_WF / V[2];
+    const float cy = (V[1] + V[3] * 0.5f) * RE4DC_SCREEN_HF / V[3];
+    const float rows[3][3] = {{RE4DC_SCREEN_HALF_WF * P[1], 0.0f, RE4DC_SCREEN_HALF_WF * P[2] - cx},
+                              {0.0f, -RE4DC_SCREEN_HALF_HF * P[3], -RE4DC_SCREEN_HALF_HF * P[4] - cy},
                               {0.0f, 0.0f, -1.0f}};
     for (unsigned r = 0; r < 3; ++r)
         for (unsigned c = 0; c < 4; ++c)
@@ -2162,8 +2163,8 @@ struct Projection { const float* p; const float* v; };
 void project(float& x, float& y, float& z, void* context) {
     const auto& c = *static_cast<const Projection*>(context);
     const float inv = 1.0f / (-z);
-    x = (c.v[2] * .5f * (c.p[1] * x + c.p[2] * z) * inv + c.v[0] + c.v[2] * .5f) * 640.f / c.v[2];
-    y = (-c.v[3] * .5f * (c.p[3] * y + c.p[4] * z) * inv + c.v[1] + c.v[3] * .5f) * 480.f / c.v[3];
+    x = (c.v[2] * .5f * (c.p[1] * x + c.p[2] * z) * inv + c.v[0] + c.v[2] * .5f) * RE4DC_SCREEN_WF / c.v[2];
+    y = (-c.v[3] * .5f * (c.p[3] * y + c.p[4] * z) * inv + c.v[1] + c.v[3] * .5f) * RE4DC_SCREEN_HF / c.v[3];
     z = inv;
 }
 
@@ -3881,7 +3882,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
             ++stats.culled_parts; re4dc_model_result(0, 0, 0); return 1;
         }
     }
-    Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, 640.0f, 480.0f, project, nullptr}};
+    Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF, project, nullptr}};
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
     if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
@@ -3940,7 +3941,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     const bool s16_uv = (p.flags & 0x80000000U) != 0;
     const float uv_scale = s16_uv ? 1.0f / 256.0f : 1.0f / 32768.0f;
     const PosConst k{0.0f, uv_scale * e.packet.u_scale, p.uv_offset[0] * e.packet.u_scale,
-                     uv_scale * e.packet.v_scale, p.uv_offset[1] * e.packet.v_scale, 640.0f, 480.0f,
+                     uv_scale * e.packet.v_scale, p.uv_offset[1] * e.packet.v_scale, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF,
                      near_distance, far_distance};
     e.colors = (p.alpha_state & 256) ? p.colors : nullptr;
     e.alpha = u32(p.alpha_state & 255) << 24;
@@ -4411,7 +4412,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
         for (unsigned mi = 0; mi < blob->meshlets; ++mi) bound += table[mi].n.triangles();
         if (w.slots + 6U * bound > 32767U) one_close(w);
     }
-    Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, 640.0f, 480.0f, project, nullptr}};
+    Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF, project, nullptr}};
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
     if (!w.open) {
@@ -4474,7 +4475,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     const bool s16_uv = (p.flags & 0x80000000U) != 0;
     const float uv_scale = s16_uv ? 1.0f / 256.0f : 1.0f / 32768.0f;
     const PosConst k{0.0f, uv_scale * e.packet.u_scale, p.uv_offset[0] * e.packet.u_scale,
-                     uv_scale * e.packet.v_scale, p.uv_offset[1] * e.packet.v_scale, 640.0f, 480.0f,
+                     uv_scale * e.packet.v_scale, p.uv_offset[1] * e.packet.v_scale, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF,
                      near_distance, far_distance};
     e.colors = (p.alpha_state & 256) ? p.colors : nullptr;
     e.alpha = u32(p.alpha_state & 255) << 24;

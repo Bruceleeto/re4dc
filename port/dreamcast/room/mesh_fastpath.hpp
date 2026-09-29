@@ -19,6 +19,7 @@
 // Emitter already owns between re4dc_model_packet_begin() and commit (the
 // frame owner's slab); the 2 KiB colour LUT lives in the mesh view's heap-4
 // allocation. No BSS/rodata growth beyond code.
+#include "re4dc_screen.h"
 #include <cstdint>
 #include <cstring>
 #include <dc/pvr.h>
@@ -85,7 +86,7 @@ struct Constants {
     AsmConstants f;                 // finish(): once per part, after bind()
     void finish(){
         f={0.0f,su*scale_u,(bu+off_u)*scale_u,sv*scale_v,(bv+off_v)*scale_v,
-           640.0f,480.0f,near_distance,far_distance};
+           RE4DC_SCREEN_WF,RE4DC_SCREEN_HF,near_distance,far_distance};
     }
 };
 
@@ -115,7 +116,7 @@ inline unsigned classify(const float bmin[3],const float bmax[3],const float m[1
     const auto inside=[&](float a,float b,float c){
         return a*view[0]+b*view[1]+c*view[2]-
             (__builtin_fabsf(a)*radius[0]+__builtin_fabsf(b)*radius[1]+__builtin_fabsf(c)*radius[2])>0.0f;};
-    const float ox=2*vp[0]/vp[2],oy=2*vp[1]/vp[3],mx=2.0f/640.0f,my=2.0f/480.0f;
+    const float ox=2*vp[0]/vp[2],oy=2*vp[1]/vp[3],mx=2.0f/RE4DC_SCREEN_WF,my=2.0f/RE4DC_SCREEN_HF;
     const bool in=inside(p[1],0,p[2]-1-ox+mx) && inside(-p[1],0,-p[2]-1+ox+mx) &&
                   inside(0,-p[3],-p[4]-1-oy+my) && inside(0,p[3],p[4]-1+oy+my);
     return in?kChecksNone:kChecksScreen;
@@ -142,7 +143,7 @@ inline void transform_c(const Vertex12* __restrict in,unsigned count,
         else {cache->u=((k.bu+float(in->u)*k.su)+k.off_u)*k.scale_u;cache->v=((k.bv+float(in->v)*k.sv)+k.off_v)*k.scale_v;}
         cache->argb=((k.lut[c>>8]|k.lut[256+(c&255U)])&k.and_mask)|k.or_bits;
         if(Checks!=kChecksNone){
-            unsigned code=(sx<0.0f?8U:0U)|(sx>640.0f?4U:0U)|(sy<0.0f?2U:0U)|(sy>480.0f?1U:0U);
+            unsigned code=(sx<0.0f?8U:0U)|(sx>RE4DC_SCREEN_WF?4U:0U)|(sy<0.0f?2U:0U)|(sy>RE4DC_SCREEN_HF?1U:0U);
             if(Checks&kChecksDepth)code=(code<<2)|(w<k.near_distance?2U:0U)|(w>k.far_distance?1U:0U);
             *oc++=std::uint8_t(code);
         }

@@ -17,6 +17,7 @@
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
 #if RE4DC_PS2_WORLD_DRAW
+#include "re4dc_screen.h"
 #include "platform/include/native_ps2_world.h"
 #endif
 #ifndef RE4DC_COARSE_SCENERY_FALLBACK
@@ -253,17 +254,17 @@ void setup_camera()
 #if RE4DC_PS2_WORLD_MESH
     re4dc_ps2_mesh_camera(m, P, V); // the PS2 world's MeshDraw path needs view, projection, viewport
 #endif
-    const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2];
-    const float cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
-    const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx},
-                              {0.0f, -240.0f * P[3], -240.0f * P[4] - cy},
+    const float cx = (V[0] + V[2] * 0.5f) * RE4DC_SCREEN_WF / V[2];
+    const float cy = (V[1] + V[3] * 0.5f) * RE4DC_SCREEN_HF / V[3];
+    const float rows[3][3] = {{RE4DC_SCREEN_HALF_WF * P[1], 0.0f, RE4DC_SCREEN_HALF_WF * P[2] - cx},
+                              {0.0f, -RE4DC_SCREEN_HALF_HF * P[3], -RE4DC_SCREEN_HALF_HF * P[4] - cy},
                               {0.0f, 0.0f, -1.0f}};
     for (unsigned r = 0; r < 3; ++r) {
         for (unsigned c = 0; c < 4; ++c) {
             g_S[r][c] = rows[r][0] * m[c] + rows[r][1] * m[4 + c] + rows[r][2] * m[8 + c];
         }
     }
-    g_focal = 320.0f * P[1];
+    g_focal = RE4DC_SCREEN_HALF_WF * P[1];
     g_eye = pG->Cam.param.pos;
     float dx = pG->Cam.param.at.x - g_eye.x, dz = pG->Cam.param.at.z - g_eye.z;
     const float l = __builtin_sqrtf(dx * dx + dz * dz);

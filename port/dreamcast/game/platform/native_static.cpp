@@ -2,6 +2,7 @@
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
 #if RE4DC_PS2_WORLD_DRAW
+#include "re4dc_screen.h"
 #include "include/native_ps2_world.h"
 #endif
 #ifndef RE4DC_PS2_WORLD_MESH
@@ -448,9 +449,9 @@ bool inverse(const float* m,float* out){
 // Combined screen matrix whose W is view depth: the same mapping as
 // native_model.cpp project() applied to modelview-space positions.
 void load_screen(const float* mv,const float* p,const float* v){
-    const float sx=640.0f/v[2],sy=480.0f/v[3];
-    const float row0[4]={320.0f*p[1],0,320.0f*p[2]-sx*(v[0]+v[2]*.5f),0};
-    const float row1[4]={0,-240.0f*p[3],-240.0f*p[4]-sy*(v[1]+v[3]*.5f),0};
+    const float sx=RE4DC_SCREEN_WF/v[2],sy=RE4DC_SCREEN_HF/v[3];
+    const float row0[4]={RE4DC_SCREEN_HALF_WF*p[1],0,RE4DC_SCREEN_HALF_WF*p[2]-sx*(v[0]+v[2]*.5f),0};
+    const float row1[4]={0,-RE4DC_SCREEN_HALF_HF*p[3],-RE4DC_SCREEN_HALF_HF*p[4]-sy*(v[1]+v[3]*.5f),0};
     const float row2[4]={0,0,1,0},row3[4]={0,0,-1,0};
     const float* rows[4]={row0,row1,row2,row3};
     alignas(32) static matrix_t screen;
@@ -500,11 +501,11 @@ struct Emitter {
     float proj_bx=0,proj_by=0; // project()'s viewport offsets in 640x480 pixels
     void set_clip(){
         const float* v=p.viewport;
-        proj_bx=(v[0]+v[2]*.5f)*640.f/v[2];proj_by=(v[1]+v[3]*.5f)*480.f/v[3];
-        clip={near,far,640,480,project,this};
+        proj_bx=(v[0]+v[2]*.5f)*RE4DC_SCREEN_WF/v[2];proj_by=(v[1]+v[3]*.5f)*RE4DC_SCREEN_HF/v[3];
+        clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,this};
     }
 #else
-    void set_clip(){clip={near,far,640,480,project,this};}
+    void set_clip(){clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,this};}
 #endif
 
     static void project(float& x,float& y,float& z,void* context){
@@ -523,8 +524,8 @@ struct Emitter {
 #else
         const float inv=1.0f/(-z);
 #endif
-        x=(v[2]*.5f*(p[1]*x+p[2]*z)*inv+v[0]+v[2]*.5f)*640.f/v[2];
-        y=(-v[3]*.5f*(p[3]*y+p[4]*z)*inv+v[1]+v[3]*.5f)*480.f/v[3];
+        x=(v[2]*.5f*(p[1]*x+p[2]*z)*inv+v[0]+v[2]*.5f)*RE4DC_SCREEN_WF/v[2];
+        y=(-v[3]*.5f*(p[3]*y+p[4]*z)*inv+v[1]+v[3]*.5f)*RE4DC_SCREEN_HF/v[3];
         z=inv;
     }
 #if RE4DC_MESH_DIRECT
@@ -613,7 +614,7 @@ struct Emitter {
                     out=re4dc::render::prepare_static_vertex(corner(base[index[local]]),batch,0.0f);
                     out.u=u(out.u);out.v=v(out.v);
                     if(!vertex_alpha)out.argb=(out.argb&0xffffffU)|alpha;
-                    outside&=(out.x<0?1U:0U)|(out.x>640.0f?2U:0U)|(out.y<0?4U:0U)|(out.y>480.0f?8U:0U);
+                    outside&=(out.x<0?1U:0U)|(out.x>RE4DC_SCREEN_WF?2U:0U)|(out.y<0?4U:0U)|(out.y>RE4DC_SCREEN_HF?8U:0U);
                     return true;
                 });
             stats.vertices+=count;
@@ -652,7 +653,7 @@ struct Emitter {
                 const float z=mvq[8]*c.x+mvq[9]*c.y+mvq[10]*c.z+mvq[11];
                 const float W=-z;
                 const float X=320.f*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-240.f*(pp[3]*y+pp[4]*z)+proj_by*W;
-                all&=(X<0.0f?1U:0U)|(X>640.0f*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>480.0f*W?8U:0U)|
+                all&=(X<0.0f?1U:0U)|(X>RE4DC_SCREEN_WF*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>RE4DC_SCREEN_HF*W?8U:0U)|
                      (W<near?16U:0U)|(W>far?32U:0U);
             }
             if(all){++stats.strips_culled;return 1;}
@@ -706,7 +707,7 @@ struct Draw : Emitter {
 #if RE4DC_HW_LEAN
         set_clip();
 #else
-        clip={near,far,640,480,project,static_cast<Emitter*>(this)};
+        clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,static_cast<Emitter*>(this)};
 #endif
         const auto* groups=package.compact_groups();
         const auto* batches=package.compact_batches();
@@ -1222,7 +1223,7 @@ struct MeshDraw : Emitter {
 #if RE4DC_HW_LEAN
         set_clip();
 #else
-        clip={near,far,640,480,project,static_cast<Emitter*>(this)};
+        clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,static_cast<Emitter*>(this)};
 #endif
         palette=nullptr; // lit ARGB1555 corners (light_part)
         batch.uv_bias[0]=part.uv_bias[0];batch.uv_bias[1]=part.uv_bias[1];
@@ -1731,10 +1732,10 @@ int mesh_impostor(MeshView& v,unsigned mesh_index,const re4dc::room::MeshPart& p
         if(!(-vz>near))return 0;
         const float inv=1.0f/(-vz);
         float* s=q.s[k];
-        s[0]=(V[2]*.5f*(P[1]*vx+P[2]*vz)*inv+V[0]+V[2]*.5f)*640.f/V[2];
-        s[1]=(-V[3]*.5f*(P[3]*vy+P[4]*vz)*inv+V[1]+V[3]*.5f)*480.f/V[3];
+        s[0]=(V[2]*.5f*(P[1]*vx+P[2]*vz)*inv+V[0]+V[2]*.5f)*RE4DC_SCREEN_WF/V[2];
+        s[1]=(-V[3]*.5f*(P[3]*vy+P[4]*vz)*inv+V[1]+V[3]*.5f)*RE4DC_SCREEN_HF/V[3];
         s[2]=inv;
-        left+=s[0]<0;right+=s[0]>640.0f;top+=s[1]<0;bottom+=s[1]>480.0f;
+        left+=s[0]<0;right+=s[0]>RE4DC_SCREEN_WF;top+=s[1]<0;bottom+=s[1]>RE4DC_SCREEN_HF;
     }
     impostor_queued=true;
     if(left==4 || right==4 || top==4 || bottom==4)return 1;
@@ -1772,10 +1773,10 @@ int tree_quad(MeshView& v,const re4dc::room::MeshRecord& mesh,StdImpt& t,const R
         if(!(-vz>near))return 0;
         const float inv=1.0f/(-vz);
         float* s=q.s[k];
-        s[0]=(V[2]*.5f*(P[1]*vx+P[2]*vz)*inv+V[0]+V[2]*.5f)*640.f/V[2];
-        s[1]=(-V[3]*.5f*(P[3]*vy+P[4]*vz)*inv+V[1]+V[3]*.5f)*480.f/V[3];
+        s[0]=(V[2]*.5f*(P[1]*vx+P[2]*vz)*inv+V[0]+V[2]*.5f)*RE4DC_SCREEN_WF/V[2];
+        s[1]=(-V[3]*.5f*(P[3]*vy+P[4]*vz)*inv+V[1]+V[3]*.5f)*RE4DC_SCREEN_HF/V[3];
         s[2]=inv;
-        left+=s[0]<0;right+=s[0]>640.0f;top+=s[1]<0;bottom+=s[1]>480.0f;
+        left+=s[0]<0;right+=s[0]>RE4DC_SCREEN_WF;top+=s[1]<0;bottom+=s[1]>RE4DC_SCREEN_HF;
     }
     if(left==4 || right==4 || top==4 || bottom==4)return 1;
     q.record=r;q.cell=std::uint16_t(cell);q.fog=p.source_key[2]?1:0;q.argb=impostor_color(v,mesh,*r);
@@ -1924,7 +1925,7 @@ int mesh_submit(const Re4dcModelPart& p){
             const float n=m[4*r]*m[4*r]+m[4*r+1]*m[4*r+1]+m[4*r+2]*m[4*r+2];
             if(n>scale)scale=n;
         }
-        const float px_x=320.0f*std::fabs(p.projection[1]),px_y=240.0f*std::fabs(p.projection[3]);
+        const float px_x=RE4DC_SCREEN_HALF_WF*std::fabs(p.projection[1]),px_y=RE4DC_SCREEN_HALF_HF*std::fabs(p.projection[3]);
         const float px=px_x>px_y?px_x:px_y;
         d.part_index=unsigned(part-v.package.parts());
 #if RE4DC_QUALITY
@@ -2150,7 +2151,7 @@ int ps2_pass(unsigned pass,float zfar){
     Re4dcModelPart part{};
     std::memcpy(part.projection,P,sizeof(part.projection));std::memcpy(part.viewport,ps2w.viewport,sizeof(part.viewport));
     part.alpha_state=255;part.source_key[2]=1;
-    const float px_x=320.0f*std::fabs(P[1]),px_y=240.0f*std::fabs(P[3]);
+    const float px_x=RE4DC_SCREEN_HALF_WF*std::fabs(P[1]),px_y=RE4DC_SCREEN_HALF_HF*std::fabs(P[3]);
     const float px=px_x>px_y?px_x:px_y;
 #if RE4DC_QUALITY
     const float lod_px=re4dc_quality()->lod_px;

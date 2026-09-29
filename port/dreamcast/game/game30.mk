@@ -112,6 +112,13 @@ $(OBJDIR)/platform/sk1_sh4.o: platform/sk1_sh4.S
 	@mkdir -p $(dir $@)
 	kos-cc $(KOS_CFLAGS) -c $< -o $@
 endif
+# SCREEN_320=1 (test builds; visible): render at 320x240 (KOS DM_320x240). Every screen mapping and clip
+#              bound takes platform/include/re4dc_screen.h's size; the 640x480 2D UI is halved at its emit sites.
+SCREEN_320 ?= 0
+ifneq ($(SCREEN_320),0)
+GAME_CPPFLAGS += -DRE4DC_SCREEN_W=320 -DRE4DC_SCREEN_H=240
+PLATFORM_CPPFLAGS += -DRE4DC_SCREEN_W=320 -DRE4DC_SCREEN_H=240
+endif
 # ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
 #                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
 ACTOR_STATS_LEAN ?= 0

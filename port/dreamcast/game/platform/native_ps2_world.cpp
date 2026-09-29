@@ -14,6 +14,7 @@
 #define RE4DC_PS2_WORLD_COLOR_ALL 0
 #endif
 #if RE4DC_PS2_WORLD_DRAW
+#include "re4dc_screen.h"
 #include <kos/fs.h>
 #include <fcntl.h>
 #include <dc/pvr.h>
@@ -70,7 +71,7 @@ unsigned channel(float f){return unsigned(clamp(f)*255.0f+0.5f);}
 unsigned color(const Vertex& v){return channel(v.a)<<24|channel(v.r)<<16|channel(v.g)<<8|channel(v.b);}
 float distance(const Vertex& v,unsigned plane){
     switch(plane){case 0:return v.w-40;case 1:return state.far-v.w;case 2:return v.x;
-        case 3:return 640*v.w-v.x;case 4:return v.y;default:return 480*v.w-v.y;}
+        case 3:return RE4DC_SCREEN_W*v.w-v.x;case 4:return v.y;default:return RE4DC_SCREEN_H*v.w-v.y;}
 }
 Vertex interpolate(const Vertex& a,const Vertex& b,float t){
     return {a.x+t*(b.x-a.x),a.y+t*(b.y-a.y),a.w+t*(b.w-a.w),
@@ -148,7 +149,7 @@ class WorldDraw {
             v.x=xyz[0];v.y=xyz[1];v.w=xyz[2];
             // Inflate the rejection boundary for SH4 float composition/rounding.
             // This only admits extra work; the triangle clipper remains authoritative.
-            const float margin=32+(std::fabs(v.x)+std::fabs(v.y)+640*std::fabs(v.w))*0.00001f;
+            const float margin=32+(std::fabs(v.x)+std::fabs(v.y)+RE4DC_SCREEN_W*std::fabs(v.w))*0.00001f;
             unsigned outside=0;for(unsigned k=0;k<6;++k)if(distance(v,k)<-margin)outside|=1u<<k;
             mask&=outside;
         }
@@ -316,7 +317,7 @@ public:
         Projected o;o.z=1/v.w;o.x=v.x*o.z;o.y=v.y*o.z;
         o.u=i16(uv)*(1.0f/256);o.v=i16(uv+2)*(1.0f/256);o.argb=argb;
         // Screen-edge outcode (=3): a triangle wholly past one edge is what the clipper empties.
-        o.out=(o.x<0?1u:0u)|(o.x>640?2u:0u)|(o.y<0?4u:0u)|(o.y>480?8u:0u);
+        o.out=(o.x<0?1u:0u)|(o.x>RE4DC_SCREEN_W?2u:0u)|(o.y<0?4u:0u)|(o.y>RE4DC_SCREEN_H?8u:0u);
         return o;
     }
     // The six planes in the range's local coordinates, built once per range.
@@ -329,9 +330,9 @@ public:
             case 0:for(unsigned j=0;j<3;++j)a[j]=screen[2][j];b=screen[2][3]-40;break;
             case 1:for(unsigned j=0;j<3;++j)a[j]=-screen[2][j];b=far-screen[2][3];break;
             case 2:for(unsigned j=0;j<3;++j)a[j]=screen[0][j];b=screen[0][3];break;
-            case 3:for(unsigned j=0;j<3;++j)a[j]=640*screen[2][j]-screen[0][j];b=640*screen[2][3]-screen[0][3];break;
+            case 3:for(unsigned j=0;j<3;++j)a[j]=RE4DC_SCREEN_W*screen[2][j]-screen[0][j];b=RE4DC_SCREEN_W*screen[2][3]-screen[0][3];break;
             case 4:for(unsigned j=0;j<3;++j)a[j]=screen[1][j];b=screen[1][3];break;
-            default:for(unsigned j=0;j<3;++j)a[j]=480*screen[2][j]-screen[1][j];b=480*screen[2][3]-screen[1][3];break;
+            default:for(unsigned j=0;j<3;++j)a[j]=RE4DC_SCREEN_H*screen[2][j]-screen[1][j];b=RE4DC_SCREEN_H*screen[2][3]-screen[1][3];break;
             }
         }
     }
@@ -344,7 +345,7 @@ public:
             centre[r]=ps.s[r][3];radius[r]=0;
             for(unsigned j=0;j<3;++j){centre[r]+=ps.s[r][j]*c[j];radius[r]+=ps.fs[r][j]*h[j];}
         }
-        const float margin=32+(std::fabs(centre[0])+radius[0]+std::fabs(centre[1])+radius[1]+640*(std::fabs(centre[2])+radius[2]))*0.00002f;
+        const float margin=32+(std::fabs(centre[0])+radius[0]+std::fabs(centre[1])+radius[1]+RE4DC_SCREEN_W*(std::fabs(centre[2])+radius[2]))*0.00002f;
         unsigned result=2;
         for(unsigned k=0;k<6;++k){
             const float* a=ps.a[k];
@@ -364,7 +365,7 @@ public:
             for(unsigned j=0;j<3;++j){centre[r]+=screen[r][j]*c[j];radius[r]+=std::fabs(screen[r][j])*h[j];}
         }
         // >= reject()'s per-corner margin at every box point, doubled for rounding.
-        const float margin=32+(std::fabs(centre[0])+radius[0]+std::fabs(centre[1])+radius[1]+640*(std::fabs(centre[2])+radius[2]))*0.00002f;
+        const float margin=32+(std::fabs(centre[0])+radius[0]+std::fabs(centre[1])+radius[1]+RE4DC_SCREEN_W*(std::fabs(centre[2])+radius[2]))*0.00002f;
         unsigned result=2;
         for(unsigned k=0;k<6;++k){
             float a[3],b;
@@ -372,9 +373,9 @@ public:
             case 0:for(unsigned j=0;j<3;++j)a[j]=screen[2][j];b=screen[2][3]-40;break;
             case 1:for(unsigned j=0;j<3;++j)a[j]=-screen[2][j];b=far-screen[2][3];break;
             case 2:for(unsigned j=0;j<3;++j)a[j]=screen[0][j];b=screen[0][3];break;
-            case 3:for(unsigned j=0;j<3;++j)a[j]=640*screen[2][j]-screen[0][j];b=640*screen[2][3]-screen[0][3];break;
+            case 3:for(unsigned j=0;j<3;++j)a[j]=RE4DC_SCREEN_W*screen[2][j]-screen[0][j];b=RE4DC_SCREEN_W*screen[2][3]-screen[0][3];break;
             case 4:for(unsigned j=0;j<3;++j)a[j]=screen[1][j];b=screen[1][3];break;
-            default:for(unsigned j=0;j<3;++j)a[j]=480*screen[2][j]-screen[1][j];b=480*screen[2][3]-screen[1][3];break;
+            default:for(unsigned j=0;j<3;++j)a[j]=RE4DC_SCREEN_H*screen[2][j]-screen[1][j];b=RE4DC_SCREEN_H*screen[2][3]-screen[1][3];break;
             }
             float d=b,e=0;for(unsigned j=0;j<3;++j){d+=a[j]*c[j];e+=std::fabs(a[j])*h[j];}
             if(d+e<-margin)return 0;
@@ -410,7 +411,7 @@ public:
         for(unsigned j=1;j+1<count;++j){
             const Vertex* v[3]={in,in+j,in+j+1};float x[3],y[3],z[3];unsigned oc=15;
             for(unsigned k=0;k<3;++k){z[k]=1/v[k]->w;x[k]=v[k]->x*z[k];y[k]=v[k]->y*z[k];
-                oc&=(x[k]<0?1u:0u)|(x[k]>640?2u:0u)|(y[k]<0?4u:0u)|(y[k]>480?8u:0u);}
+                oc&=(x[k]<0?1u:0u)|(x[k]>RE4DC_SCREEN_W?2u:0u)|(y[k]<0?4u:0u)|(y[k]>RE4DC_SCREEN_H?8u:0u);}
             if(oc){++stats.clipped;continue;}
             const float area=(x[1]-x[0])*(y[2]-y[0])-(y[1]-y[0])*(x[2]-x[0]);
             if((cull==0 && area>=0)||(cull==1 && area<=0)||area==0){++stats.culls;continue;}

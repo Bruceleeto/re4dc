@@ -9,6 +9,7 @@
 // reaches game logic. =2 (check build): the 874 adapter's matcher runs beside every attempt and "GCAST"
 // lines count both / cast only / 874 only / neither, per-role disagreements, the appearances drawn and
 // skeletons whose rest translations differ from the appearance's bind.
+#include "re4dc_screen.h"
 #include "global.h"
 #include "model.h"
 #include "native_actor.hpp"
@@ -211,8 +212,8 @@ unsigned gate_cull(cModel* m, unsigned app, cModelInfo* const* infos, cParts* co
     if (P[0] != 0.0f || !(V[2] > 0.0f) || !(V[3] > 0.0f)) return 0;
     const float far = P[6] / P[5], near = P[6] / (P[5] - 1.0f);
     if (!(near > 0.0f) || !(far > near) || !(far < 3.0e38f)) return 0;
-    const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2], cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
-    const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx}, {0.0f, -240.0f * P[3], -240.0f * P[4] - cy},
+    const float cx = (V[0] + V[2] * 0.5f) * RE4DC_SCREEN_WF / V[2], cy = (V[1] + V[3] * 0.5f) * RE4DC_SCREEN_HF / V[3];
+    const float rows[3][3] = {{RE4DC_SCREEN_HALF_WF * P[1], 0.0f, RE4DC_SCREEN_HALF_WF * P[2] - cx}, {0.0f, -RE4DC_SCREEN_HALF_HF * P[3], -RE4DC_SCREEN_HALF_HF * P[4] - cy},
                               {0.0f, 0.0f, -1.0f}};
     float scale[kBones];
     unsigned have[2] = {0, 0};
@@ -230,7 +231,7 @@ unsigned gate_cull(cModel* m, unsigned app, cModelInfo* const* infos, cParts* co
             for (unsigned c = 0; c < 3; ++c) G[r][c] = M[r][0] * inv[0][c] + M[r][1] * inv[1][c] + M[r][2] * inv[2][c];
             G[r][3] = M[r][0] * inv[0][3] + M[r][1] * inv[1][3] + M[r][2] * inv[2][3] + M[r][3];
         }
-        for (unsigned c = 0; c < 4; ++c) { G[3][c] = G[0][c] - 640.0f * G[2][c]; G[4][c] = G[1][c] - 480.0f * G[2][c]; }
+        for (unsigned c = 0; c < 4; ++c) { G[3][c] = G[0][c] - RE4DC_SCREEN_WF * G[2][c]; G[4][c] = G[1][c] - RE4DC_SCREEN_HF * G[2][c]; }
         for (unsigned f = 0; f < 5; ++f) norm[f] = __builtin_sqrtf(G[f][0] * G[f][0] + G[f][1] * G[f][1] + G[f][2] * G[f][2]);
         unsigned planes = 31;  // left, top, right, bottom, far
         for (unsigned j = 0; j < n && planes; ++j) {
@@ -296,7 +297,7 @@ void gate_matrix(const float (*rows)[3], const float (*mv)[4], const Mtx inv, fl
         for (unsigned c = 0; c < 3; ++c) G[r][c] = M[r][0] * inv[0][c] + M[r][1] * inv[1][c] + M[r][2] * inv[2][c];
         G[r][3] = M[r][0] * inv[0][3] + M[r][1] * inv[1][3] + M[r][2] * inv[2][3] + M[r][3];
     }
-    for (unsigned c = 0; c < 4; ++c) { G[3][c] = G[0][c] - 640.0f * G[2][c]; G[4][c] = G[1][c] - 480.0f * G[2][c]; }
+    for (unsigned c = 0; c < 4; ++c) { G[3][c] = G[0][c] - RE4DC_SCREEN_WF * G[2][c]; G[4][c] = G[1][c] - RE4DC_SCREEN_HF * G[2][c]; }
     for (unsigned f = 0; f < 5; ++f) norm[f] = __builtin_sqrtf(G[f][0] * G[f][0] + G[f][1] * G[f][1] + G[f][2] * G[f][2]);
 }
 struct GateView { bool valid, ok; unsigned P[7], V[6]; float far, rows[3][3]; };
@@ -334,8 +335,8 @@ unsigned gate_cull_once(cModel* m, unsigned app, cModelInfo* const* infos, cPart
         if (!(P[0] != 0.0f || !(V[2] > 0.0f) || !(V[3] > 0.0f))) {
             const float far = P[6] / P[5], near = P[6] / (P[5] - 1.0f);
             if (!(!(near > 0.0f) || !(far > near) || !(far < 3.0e38f))) {
-                const float cx = (V[0] + V[2] * 0.5f) * 640.0f / V[2], cy = (V[1] + V[3] * 0.5f) * 480.0f / V[3];
-                const float rows[3][3] = {{320.0f * P[1], 0.0f, 320.0f * P[2] - cx}, {0.0f, -240.0f * P[3], -240.0f * P[4] - cy},
+                const float cx = (V[0] + V[2] * 0.5f) * RE4DC_SCREEN_WF / V[2], cy = (V[1] + V[3] * 0.5f) * RE4DC_SCREEN_HF / V[3];
+                const float rows[3][3] = {{RE4DC_SCREEN_HALF_WF * P[1], 0.0f, RE4DC_SCREEN_HALF_WF * P[2] - cx}, {0.0f, -RE4DC_SCREEN_HALF_HF * P[3], -RE4DC_SCREEN_HALF_HF * P[4] - cy},
                                           {0.0f, 0.0f, -1.0f}};
                 std::memcpy(gv.rows, rows, sizeof(rows));
                 gv.far = far; gv.ok = true;

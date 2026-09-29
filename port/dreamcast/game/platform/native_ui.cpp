@@ -2,6 +2,7 @@
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
 #if RE4DC_PS2_WORLD_DRAW
+#include "re4dc_screen.h"
 #include "include/native_ps2_world.h"
 #endif
 // Narrow ID-quad backend. Reuses the scene Package and owned storage reader.
@@ -875,7 +876,7 @@ void hud_rect(HudBatch& b,float x,float y,float w,float h,std::uint32_t argb){
     for(unsigned k=0;k<4;++k){
         auto& v=b.v[b.n++];
         v.flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
-        v.x=xs[k];v.y=ys[k];v.z=1.0f;v.u=v.v=0;v.argb=argb;v.oargb=0;
+        v.x=RE4DC_UI_X(xs[k]);v.y=RE4DC_UI_Y(ys[k]);v.z=1.0f;v.u=v.v=0;v.argb=argb;v.oargb=0;
     }
 }
 void hud_number(HudBatch& b,float x,float y,unsigned value,bool tenths,std::uint32_t argb){
@@ -2183,7 +2184,7 @@ void glyph_draw_run(unsigned first,unsigned count){
         const float u[4]={u0,u0+g.cw/256.0f,u0,u0+g.cw/256.0f},v[4]={v0,v0,v0+g.ch/kH,v0+g.ch/kH};
         for(unsigned k=0;k<4;++k){
             pvr_vertex_t& p=buf[n++];
-            p.flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;p.x=x[k];p.y=y[k];p.z=1.0f;p.u=u[k];p.v=v[k];p.argb=g.argb;p.oargb=0;
+            p.flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;p.x=RE4DC_UI_X(x[k]);p.y=RE4DC_UI_Y(y[k]);p.z=1.0f;p.u=u[k];p.v=v[k];p.argb=g.argb;p.oargb=0;
         }
         ++glyph_drawn;
     }
@@ -2454,7 +2455,7 @@ void pace_note_draw(int mode){
     for(int k=0;k<3;++k){
         const float x=40.0f+k*36,y=40.0f,w=28.0f,h=16.0f;const std::uint32_t argb=k==mode?on[k]:0x60ffffffU;
         const float xs[4]={x,x,x+w,x+w},ys[4]={y+h,y,y+h,y};
-        for(unsigned j=0;j<4;++j){auto& q=v[n++];q.flags=j==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;q.x=xs[j];q.y=ys[j];q.z=1.0f;q.u=q.v=0;q.argb=argb;q.oargb=0;}
+        for(unsigned j=0;j<4;++j){auto& q=v[n++];q.flags=j==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;q.x=RE4DC_UI_X(xs[j]);q.y=RE4DC_UI_Y(ys[j]);q.z=1.0f;q.u=q.v=0;q.argb=argb;q.oargb=0;}
     }
     stream_send(v,n*32);
 }
@@ -2493,7 +2494,7 @@ static void ui_draw_quad(unsigned i){
         re4dc::render::begin_pvr_packet(commands,count,header);
         pvr_vertex_t* v=commands+count;const unsigned order[]={0,1,3,2};
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
-            v[n].x=q.xy[2*j];v[n].y=q.xy[2*j+1];v[n].z=1.0f;
+            v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=1.0f;
             v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
@@ -2566,7 +2567,7 @@ extern "C" void re4dc_ui_present(){
         re4dc::render::begin_pvr_packet(commands,count,header);
         pvr_vertex_t* v=commands+count;const unsigned order[]={0,1,3,2};
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
-            v[n].x=q.xy[2*j];v[n].y=q.xy[2*j+1];v[n].z=1.0f;
+            v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=1.0f;
             v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
@@ -3833,7 +3834,7 @@ void movie_draw(){
     re4dc::render::begin_pvr_packet(packet,count,header);
     const float x[]={0,640,0,640},y[]={0,0,480,480};
     for(unsigned i=0;i<4;++i){auto& v=packet[count+i];v.flags=i==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
-        v.x=x[i];v.y=y[i];v.z=1;v.u=(i&1)?(movie_width-0.5f)/512:0.5f/512;v.v=i>=2?(movie_height-0.5f)/256:0.5f/256;v.argb=0xffffffff;}
+        v.x=RE4DC_UI_X(x[i]);v.y=RE4DC_UI_Y(y[i]);v.z=1;v.u=(i&1)?(movie_width-0.5f)/512:0.5f/512;v.v=i>=2?(movie_height-0.5f)/256:0.5f/256;v.argb=0xffffffff;}
 #if RE4DC_PVR_STREAM
     stream_send(packet,sizeof(packet));
 #else

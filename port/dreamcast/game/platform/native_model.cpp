@@ -1,5 +1,6 @@
 // Narrow ModelData indexed-stream adapter, not a GX display-list interpreter.
 // Only an explicitly enabled base-texture diagnostic currently uses this path.
+#include "re4dc_screen.h"
 #include "native_model.h"
 #include "native_render_profile.hpp"
 #include "native_reuse_audit.hpp"
@@ -205,8 +206,8 @@ struct Projection { const float* p; const float* v; };
 void project(float& x,float& y,float& z,void* context){
     const auto& c=*(const Projection*)context;
     const float inv=1.0f/(-z);
-    x=(c.v[2]*.5f*(c.p[1]*x+c.p[2]*z)*inv+c.v[0]+c.v[2]*.5f)*640.f/c.v[2];
-    y=(-c.v[3]*.5f*(c.p[3]*y+c.p[4]*z)*inv+c.v[1]+c.v[3]*.5f)*480.f/c.v[3];
+    x=(c.v[2]*.5f*(c.p[1]*x+c.p[2]*z)*inv+c.v[0]+c.v[2]*.5f)*RE4DC_SCREEN_WF/c.v[2];
+    y=(-c.v[3]*.5f*(c.p[3]*y+c.p[4]*z)*inv+c.v[1]+c.v[3]*.5f)*RE4DC_SCREEN_HF/c.v[3];
     z=inv;
 }
 struct Builder {
@@ -690,7 +691,7 @@ extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
     if(!std::isfinite(near)||!std::isfinite(far)||near<=0||far<=near){re4dc_model_result(1,0,0);return;}
     if(p->cull==3){re4dc_model_result(0,0,0);return;}
     ++work_stats.part_preparations;
-    Builder b{*p,{},projection,{near,far,640,480,project,nullptr},0,0,
+    Builder b{*p,{},projection,{near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,nullptr},0,0,
               (p->flags&0x80000000U)?8U:6U,pow2_neg(p->shift)};
     b.clip.context=&b.projection;
 #if RE4DC_D349_RENDERER_STACK
