@@ -19,8 +19,8 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
 
 | # | Step | Status | Evidence / commit |
 |---|---|---|---|
-| 1 | MOTION_RESERVE (ambush: cold-clip slots at bind) onto the tip; ambush run | in progress | |
-| 2 | Effects: coarse mode hands qualified effects to EFFECT_SPRITES instead of markers; land EFFECT_ROOM | todo | |
+| 1 | MOTION_RESERVE (ambush: cold-clip slots at bind) onto the tip; ambush run | done | 8c000e81: on in build-r21.sh. Knob-off .text/.data == p9w; STRICT vs r20k3w 0..1941; r100-s20 ambush preset (s20 571/571, em21/em2a, post-house call, 5100 frames) no HALT / no OOM; New Game -> r100, r101 entry, r103 entry no HALT. Slabs 2x27584 (55 KB heap 4); the idle script used 0 (its 75 loads were hot clips): the reserve covers player-driven cold clips. Also landed default off: MOTION_USAGE_LOG, HEAP_REPLACE_LOG, HEAP_CENSUS |
+| 2 | Effects: coarse mode hands qualified effects to EFFECT_SPRITES instead of markers; land EFFECT_ROOM | in progress | |
 | 3 | POST_F00 (Filter00 glow + contrast) + PVR_DITHER | todo | |
 | 4 | Door loading U6 (DVD_WAIT, DVD_FDCACHE, IO_ALIGNED, TEX_KEEP); main-checkout extras (mkdisc.sh, tests, bake_room_prelit.py); PACE_PAGE vs the Options row | todo | |
 | 5 | r100 + r103 PS2 worlds: extraction -> ps2_world_r4im -> any-room PS2_WORLD_MESH runtime | todo | |
@@ -30,7 +30,7 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
 ## Known open items outside these steps
 
 - Dark / black Player's Manual pages (continuation RENDERING-RECOVERY-PLAN-20260928.md).
-- Diagnostics to land default-off or archive: HEAP_CENSUS, HEAP_REPLACE_LOG, POOL_PEAK_LOG, SKEL_AUDIT, COL_STATS,
+- Diagnostics to land default-off or archive (HEAP_CENSUS, HEAP_REPLACE_LOG landed 8c000e81): POOL_PEAK_LOG, SKEL_AUDIT, COL_STATS,
   SKEL_PF, IK_PASS, CAM_LOG, WQ_CAMLOG, MOTION_MISS_LOG, H4DIAG, ROUTE_ACTION_DIAG.
 - Codex 09-27 trials to check: GAME_MOTION_PROGRAM / COLLISION_QUERY_OBSERVER, COARSE_SOURCE_POLICY / SOURCE_CENSUS.
 - Not landing (rejected / superseded): CUT_GORE, scenery-trials CULL/FOG/TREE knobs, OT_GXNRM / OT_SKYNOFOG / OT_LOD0,

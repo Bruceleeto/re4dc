@@ -28,8 +28,7 @@ ambush reserve -> ACTOR_FOG_GATE gates -> SS_UI_ORDER. Findings:
   QUALITY_ASSETS: zero in-play loads per room (preload HUD/effects/overlays/texlow too, count loads since preload).
 - **Ambush (heap 4):** em21/em23/em2a motion streaming contract landed (bcfbf2b; also fixes le_mirror's registry
   regex, broken since e6f65cc). The runtime reserve (`MOTION_RESERVE`, cold slabs allocated at bind) and
-  `MOTION_USAGE_LOG` (first acquire per clip, to trim the em12 hot set of 952 KB) are in `warp/tree3`, not committed;
-  user disc `route-ambush-reserve` is the test.
+  `MOTION_USAGE_LOG` (first acquire per clip) landed 2026-09-29 (8c000e81, MOTION_RESERVE on in build-r21.sh).
 - **Standard gates (QUALITY_ASSETS TREE_IMPOSTOR MESH_TEXTURES):** STRICT std vs orig and orig vs base, 6191 ticks
   each; std fight 76.4 hw ms. The Original hw arms (and std quiet) were voided: hwproject staged its evidence dir
   without the joystick-off block and the user's DualSense drove them (fixed b951305). Reruns queued after pacing.
