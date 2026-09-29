@@ -399,6 +399,27 @@ int MemReplaceHeap(int from, int to)
     if (Heap[from].handle >= 0) {
         start = MemCheckHeapEnd(from);
         end = Heap[from].end;
+#if defined(RE4DC_HEAP_REPLACE_LOG) && RE4DC_HEAP_REPLACE_LOG
+        // Test only: the live cells that set the next heap's base (a save load started heap 2
+        // 2.93 MB higher than a new game). Logs the four highest-ending cells with their tags.
+        {
+            OSHeapDescriptor* d = HeapHead + Heap[from].handle;
+            u32 done = 0xFFFFFFFF;
+            for (int k = 0; k < 4; k++) {
+                OSHeapCell* best = NULL;
+                for (OSHeapCell* c = d->allocated; c != NULL; c = c->next) {
+                    const u32 e = (u32) c + c->size;
+                    if (e < done && (best == NULL || e > (u32) best + best->size)) best = c;
+                }
+                if (best == NULL) break;
+                const u8* t = (const u8*) best + best->size - 0x20;
+                re4dc_log("heap replace %d->%d: cell %08x size %u end %08x tag %s\n", from, to, (u32) best,
+                          (u32) best->size, (u32) best + best->size,
+                          (best->size >= 0x40 && !t[0] && t[1] == 'M' && t[2] == 'A' && t[3] == 'D') ? (const char*) t + 4 : "-");
+                done = (u32) best + best->size;
+            }
+        }
+#endif
         MemDestroyHeap(from);
     } else {
         start = Heap[to].start;
@@ -498,6 +519,47 @@ void* mem_alloc(u32 size, const char* file, int line, int flag, int heap)
     if (flag == 1 && p == NULL) {
         pLog->err(0, 0, "alloc[%x]:free[%x] %s", size, OSCheckHeap(Heap[heap].handle), str);
     }
+#if defined(RE4DC_HEAP_CENSUS) && RE4DC_HEAP_CENSUS
+    // Test only: the first failed heap-4 allocation logs what fills heap 4, bytes per tag.
+    if (p == NULL && heap == 4) {
+        static int census_done;
+        if (!census_done && Heap[heap].handle >= 0) {
+            census_done = 1;
+            enum { kTags = 128 };
+            static const char* tags[kTags];
+            static u32 bytes[kTags], cells[kTags];
+            int n = 0;
+            u32 total = 0, count = 0, free_total = 0, free_max = 0, free_cells = 0;
+            OSHeapDescriptor* d = HeapHead + Heap[heap].handle;
+            for (OSHeapCell* c = d->allocated; c != NULL; c = c->next) {
+                const u8* t = (const u8*) c + c->size - 0x20;
+                const char* k = (c->size >= 0x40 && !t[0] && t[1] == 'M' && t[2] == 'A' && t[3] == 'D') ? (const char*) t + 4 : "-";
+                int j = 0;
+                while (j < n && strcmp(tags[j], k) != 0) j++;
+                if (j == n) {
+                    if (n == kTags) j = kTags - 1, k = tags[j];
+                    else { tags[n] = k; bytes[n] = cells[n] = 0; n++; }
+                }
+                bytes[j] += c->size; cells[j]++;
+                total += c->size; count++;
+            }
+            for (OSHeapCell* c = d->free; c != NULL; c = c->next) {
+                free_total += c->size; free_cells++;
+                if ((u32) c->size > free_max) free_max = c->size;
+            }
+            re4dc_log("heap census 4: size %u allocated %u in %u cells, free %u in %u cells (largest %u), failed %u at %s\n",
+                      (u32) d->size, total, count, free_total, free_cells, free_max, size, file ? str : "untagged");
+            for (int r = 0; r < n; r++) {
+                int best = r;
+                for (int j = r + 1; j < n; j++) if (bytes[j] > bytes[best]) best = j;
+                const char* tt = tags[r]; tags[r] = tags[best]; tags[best] = tt;
+                u32 tb = bytes[r]; bytes[r] = bytes[best]; bytes[best] = tb;
+                u32 tc = cells[r]; cells[r] = cells[best]; cells[best] = tc;
+                re4dc_log("heap census 4: %8u bytes %4u cells %s\n", bytes[r], cells[r], tags[r]);
+            }
+        }
+    }
+#endif
     return p;
 }
 

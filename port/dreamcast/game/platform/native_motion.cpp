@@ -41,6 +41,13 @@ static_assert(RE4DC_MOTION_PRESSURE_BYTES >= 65536 &&
 #define RE4DC_MOTION_OOM_EVICT 0
 #endif
 
+#ifndef RE4DC_MOTION_RESERVE
+#define RE4DC_MOTION_RESERVE 0
+#endif
+#ifndef RE4DC_MOTION_USAGE_LOG
+#define RE4DC_MOTION_USAGE_LOG 0
+#endif
+
 namespace {
 constexpr unsigned kArchives=4, kEntries=255, kClipLimit=32768;
 struct Slot { unsigned char* data; unsigned pins; std::uint64_t used; };
@@ -48,6 +55,15 @@ struct Binding {
     unsigned char* archive; unsigned bytes;
     const unsigned char* records; unsigned count;
     Slot* slots; unsigned budget, hot_bytes, resident;
+#if RE4DC_MOTION_RESERVE
+    // MOTION_RESERVE=1: the cold part of the budget (two clips of the largest cold size) is
+    // allocated at bind, so a later miss never allocates from a full heap 4 (the r100 ambush:
+    // "motion key allocation" would trap). Cold loads take a free slab, else evict the LRU cold clip.
+    unsigned char* slab[2]; unsigned slab_bytes;
+#endif
+#if RE4DC_MOTION_USAGE_LOG
+    unsigned char* seen;   // first acquire per entry since bind (hot-set audit)
+#endif
 };
 struct Owner { const void* thread; unsigned leases; };
 Binding bindings[kArchives]{};
@@ -156,12 +172,29 @@ void discard(Binding& b,unsigned i) {
     auto& s=b.slots[i];if(!s.data)return;
     if(s.pins)fail("motion discard pinned");
     const unsigned bytes=aligned(word(record(b,i)+4));
-    re4dc_motion_free(s.data);s={};b.resident-=bytes;stats.resident_bytes-=bytes;
+#if RE4DC_MOTION_RESERVE
+    if(s.data!=b.slab[0] && s.data!=b.slab[1])   // a slab stays with the binding
+#endif
+    re4dc_motion_free(s.data);
+    s={};b.resident-=bytes;stats.resident_bytes-=bytes;
 }
+#if RE4DC_MOTION_RESERVE
+bool slab_busy(const Binding& b,const unsigned char* p) {
+    for(unsigned j=0;j<b.count;++j)if(b.slots[j].data==p)return true;
+    return false;
+}
+#endif
 void release_binding(Binding& b) {
     for(unsigned i=0;i<b.count;++i) if(b.slots[i].pins)fail("motion archive retired while pinned");
     for(unsigned i=0;i<b.count;++i)discard(b,i);
     stats.metadata_bytes-=aligned(b.count*sizeof(Slot));stats.hot_bytes-=b.hot_bytes;
+#if RE4DC_MOTION_RESERVE
+    for(auto* p:b.slab)if(p)re4dc_motion_free(p);
+    stats.metadata_bytes-=2*b.slab_bytes;
+#endif
+#if RE4DC_MOTION_USAGE_LOG
+    if(b.seen)re4dc_motion_free(b.seen);
+#endif
     re4dc_motion_free(b.slots);b={};
 }
 #if RE4DC_MOTION_PRESSURE_BYTES
@@ -206,6 +239,9 @@ unsigned char* oom_evict_alloc(unsigned bytes) {
             if(!q.archive)continue;
             for(unsigned j=0;j<q.count;++j) {
                 const auto& slot=q.slots[j];
+#if RE4DC_MOTION_RESERVE
+                if(slot.data==q.slab[0] || slot.data==q.slab[1])continue;   // evicting a slab user frees nothing
+#endif
                 if(slot.data && !slot.pins && slot.used<oldest) { victim=&q;index=j;oldest=slot.used; }
             }
         }
@@ -244,7 +280,32 @@ unsigned* load(Binding& b,unsigned i) {
         }
 #endif
         if(re4dc_motion_current_heap()!=4)fail("motion miss outside owning room heap");
-        auto* data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
+        unsigned char* data=nullptr;
+#if RE4DC_MOTION_RESERVE
+#if RE4DC_SUBSCREEN
+        if(!hold && b.slab_bytes && !word(e+16) && bytes<=b.slab_bytes) {
+#else
+        if(b.slab_bytes && !word(e+16) && bytes<=b.slab_bytes) {
+#endif
+            for(;;) {
+                for(auto* p:b.slab)if(!slab_busy(b,p)) { data=p;break; }
+                if(data)break;
+                unsigned victim=b.count;std::uint64_t oldest=~std::uint64_t(0);
+                for(unsigned j=0;j<b.count;++j) {
+                    const auto& q=b.slots[j];
+                    if((q.data==b.slab[0] || q.data==b.slab[1]) && !q.pins && q.used<oldest) { oldest=q.used;victim=j; }
+                }
+                if(victim==b.count)fail("motion reserve slabs pinned");
+                discard(b,victim);++stats.evictions;
+            }
+            static unsigned uses;
+            if(++uses<=4 || (uses&255)==0)
+                re4dc_log("motion reserve: use #%u bytes=%u slab=%u free=%s\n",uses,bytes,b.slab_bytes,
+                          (slab_busy(b,b.slab[0]) && slab_busy(b,b.slab[1]))?"0":"1");
+        }
+        if(!data)
+#endif
+        data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
 #if RE4DC_MOTION_OOM_EVICT
         if(!data)data=oom_evict_alloc(bytes);
 #endif
@@ -346,6 +407,21 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     // Hot entries are never LRU victims; a budget miss is explicit, not thrash.
     *b={a,bytes,mtc+32,count,slots,hot+2*largest,hot,0};
     stats.metadata_bytes+=meta;stats.hot_bytes+=hot;
+#if RE4DC_MOTION_RESERVE
+    if(largest) {
+        b->slab_bytes=aligned(largest);
+        for(auto*& p:b->slab) {
+            p=static_cast<unsigned char*>(re4dc_motion_alloc(b->slab_bytes));
+            if(!p) { re4dc_log("motion bind: reserve slab of %u failed\n",b->slab_bytes);release_binding(*b);return 0; }
+        }
+        stats.metadata_bytes+=2*b->slab_bytes;
+        re4dc_log("motion reserve: bind slabs=2x%u\n",b->slab_bytes);
+    }
+#endif
+#if RE4DC_MOTION_USAGE_LOG
+    b->seen=static_cast<unsigned char*>(re4dc_motion_alloc(aligned(count)));
+    if(b->seen)std::memset(b->seen,0,aligned(count));
+#endif
     for(unsigned i=0;i<count;++i)if(word(record(*b,i)+16))load(*b,i);
     re4dc_log("motion bind: archive=%u entries=%u hot=%u cache-budget=%u metadata=%u\n",bytes,count,hot,b->budget,meta);
 #if RE4DC_MOTION_PRESSURE_BYTES
@@ -378,6 +454,9 @@ extern "C" int re4dc_motion_acquire(const void* header,unsigned** table) {
         for(unsigned i=0;i<b.count;++i)if(word(record(b,i))==p-base) {
 #endif
             *table=load(b,i);auto& s=b.slots[i];
+#if RE4DC_MOTION_USAGE_LOG
+            if(b.seen && !b.seen[i]) { b.seen[i]=1;re4dc_log("motion use: archive=%u entry=%u bytes=%u hot=%u\n",b.bytes,i,word(record(b,i)+4),word(record(b,i)+16)); }
+#endif
             if(!s.pins++) { stats.pinned_bytes+=word(record(b,i)+4);if(stats.pinned_bytes>stats.peak_pinned_bytes)stats.peak_pinned_bytes=stats.pinned_bytes; }
 #if RE4DC_MOTION_LEASE_LEAN
             guard.retain_lease();
@@ -415,6 +494,9 @@ extern "C" unsigned re4dc_motion_forget_dead_heaps() {
     for(auto& b:bindings) {
         if(!b.archive)continue;
         if(b.slots && !re4dc_motion_owner_live(b.slots)) {
+#if RE4DC_MOTION_RESERVE
+            stats.metadata_bytes-=2*b.slab_bytes;
+#endif
             stats.metadata_bytes-=aligned(b.count*sizeof(Slot));stats.hot_bytes-=b.hot_bytes;b={};++n;continue;
         }
         b.resident=0;

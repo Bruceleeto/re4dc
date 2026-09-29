@@ -179,10 +179,25 @@ $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/moti
 # MOTION_FAST_READ=1: motion keys read straight into their aligned residency block (one GD
 # stream command + a block-cache tail) instead of one GD command per sector (W10).
 MOTION_FAST_READ ?= 0
+# MOTION_RESERVE=1: the two cold-clip slots of each motion binding are allocated at bind, so a
+# cold miss never allocates from a full heap 4 (r100 ambush). MOTION_USAGE_LOG=1 (diagnostic):
+# log each entry's first acquire ("motion use:") for the hot-set audit.
+MOTION_RESERVE ?= 0
+MOTION_USAGE_LOG ?= 0
+# HEAP_REPLACE_LOG=1 (test only): MemReplaceHeap logs the highest live cells of the heap it replaces.
+HEAP_REPLACE_LOG ?= 0
+ifeq ($(HEAP_REPLACE_LOG),1)
+$(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_HEAP_REPLACE_LOG=1
+endif
+# HEAP_CENSUS=1 (test only): the first failed heap-4 allocation logs heap 4's bytes per allocation tag.
+HEAP_CENSUS ?= 0
+ifeq ($(HEAP_CENSUS),1)
+$(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_HEAP_CENSUS=1
+endif
 .PHONY: motion-read-force
 $(OBJDIR)/motion-read.h: motion-read-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_MOTION_FAST_READ %s\n' '$(MOTION_FAST_READ)' > $@.tmp
+	@printf '#define RE4DC_MOTION_FAST_READ %s\n#define RE4DC_MOTION_RESERVE %s\n#define RE4DC_MOTION_USAGE_LOG %s\n' '$(MOTION_FAST_READ)' '$(MOTION_RESERVE)' '$(MOTION_USAGE_LOG)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_motion.o: $(OBJDIR)/motion-read.h
