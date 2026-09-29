@@ -614,13 +614,28 @@ public:
 };
 }}}
 // Rooms whose scenery the PS2 world package replaces (trans.cpp COARSE_SCENERY_FALLBACK).
+#if RE4DC_PS2_WORLD_ROOMS
+// PS2_WORLD_ROOMS (game30.mk): r100, r101 and r103, each from its own package (native_static.cpp ps2_open),
+// unless that package failed to open: then the room's own scenery draws.
+extern "C" int re4dc_ps2_mesh_failed(unsigned room);
+extern "C" void re4dc_ps2_mesh_select(unsigned room);
+extern "C" int re4dc_ps2_world_covers(unsigned room){
+    return (room==0x100 || room==0x101 || room==0x103) && !re4dc_ps2_mesh_failed(room);
+}
+#else
 extern "C" int re4dc_ps2_world_covers(unsigned room){return room==0x101;}
+#endif
 extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float far){
     using namespace re4dc::room::ps2;
 #if RE4DC_PS2_WORLD_MESH
     // PS2_WORLD_MESH: the converted R4IM package (native_static.cpp); the .r4p is never loaded.
     (void)screen;state.pending=false;
+#if RE4DC_PS2_WORLD_ROOMS
+    if(!re4dc_ps2_world_covers(room)){if(!re4dc_ps2_mesh_failed(room))re4dc_ps2_mesh_retire();return 0;}
+    re4dc_ps2_mesh_select(room);
+#else
     if(room!=0x101){re4dc_ps2_mesh_retire();return 0;}
+#endif
     if(!finite_word(far) || far<=40)return fallback(3);
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=far<25000?far:25000;
     const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
@@ -651,6 +666,16 @@ extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float
     // are not falsely called complete. PT/TR success is separately reported.
     return complete?1:fallback(4);
 }
+#if RE4DC_PS2_WORLD_MESH && RE4DC_PS2_WORLD_ROOMS >= 2
+// PS2_WORLD_ROOMS=2, an image the coarse path does not draw (native_static.cpp re4dc_ps2_mesh_source, camera
+// already set): pass 0 now; re4dc_ps2_world_flush draws PT / TR as for a coarse image.
+extern "C" int re4dc_ps2_world_source_draw(){
+    using namespace re4dc::room::ps2;
+    state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=25000;
+    const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
+    return drawn;
+}
+#endif
 extern "C" int re4dc_ps2_world_pending(){
     using namespace re4dc::room::ps2;
     return state.pending && state.frame==re4dc_ui_frame() && state.flushed!=state.frame;

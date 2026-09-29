@@ -73,6 +73,16 @@
 #ifndef RE4DC_NO_STD_SCENERY
 #define RE4DC_NO_STD_SCENERY 0
 #endif
+#ifndef RE4DC_PS2_WORLD_ROOMS
+#define RE4DC_PS2_WORLD_ROOMS 0
+#endif
+// The scenery-package skip + census: COARSE_NO_STD_SCENERY (the coarse world's room) or PS2_WORLD_ROOMS=2
+// (a room whose PS2 world package opened at its first scenery bind).
+#define RE4DC_NO_STD_ANY (RE4DC_NO_STD_SCENERY || RE4DC_PS2_WORLD_ROOMS >= 2)
+#if RE4DC_PS2_WORLD_ROOMS >= 2
+extern "C" int re4dc_ps2_mesh_preload(unsigned room);                  // below (PS2_WORLD_MESH)
+extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p); // below
+#endif
 #if RE4DC_NO_STD_SCENERY
 #if !RE4DC_NATIVE_MESH
 #error COARSE_NO_STD_SCENERY skips the NATIVE_MESH scenery package (game30.mk)
@@ -891,7 +901,7 @@ const MeshEntry* find_entry(const void* object,unsigned& owner){
     return nullptr;
 }
 
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
 // COARSE_NO_STD_SCENERY: the room whose package bind_mesh skipped, and a census of the calls that would have
 // read it while in that room, by the image kind the tick latched (coarse.cpp -> re4dc_std_scenery_tick):
 // reads[kind][reader], kind 1 coarse image / 0 other; reader 0 re4dc_static_submit scroll part (mesh_submit),
@@ -905,12 +915,18 @@ struct NoStd {
     unsigned ticks=0;
 };
 NoStd no_std;
+void no_std_log(const char* when);
 bool no_std_skip(unsigned room){
+#if RE4DC_PS2_WORLD_ROOMS >= 2
+    if(no_std.room!=~0U && no_std.room!=room){no_std_log("leave");no_std=NoStd();}
+    if(no_std.room!=room && !re4dc_ps2_mesh_preload(room))return false; // no PS2 world: the scenery package
+#else
     if(room!=re4dc_coarse_world_room())return false;
+#endif
     if(no_std.room!=room){
         no_std.room=room;
-        re4dc_log("native mesh: no-std room=%x%02x: scenery package not opened (COARSE_NO_STD_SCENERY) heap4=%d\n",
-            room>>8,room&255U,re4dc_static_heap_free());
+        re4dc_log("native mesh: no-std room=%x%02x: scenery package not opened (%s) heap4=%d\n",
+            room>>8,room&255U,RE4DC_NO_STD_SCENERY?"COARSE_NO_STD_SCENERY":"PS2_WORLD_ROOMS=2",re4dc_static_heap_free());
     }
     ++no_std.binds;
     return true;
@@ -939,8 +955,8 @@ void bind_mesh(const void* object,unsigned room,int block,unsigned bin,unsigned 
     const unsigned index=view_index(block);
     if(index>=kViews || !(RE4DC_NATIVE_STATIC_OWNERS&(1U<<index)) ||
        (common && !(RE4DC_NATIVE_STATIC_OWNERS&(1U<<kCommonView)))){++stats.unowned_binds;return;}
-#if RE4DC_NO_STD_SCENERY
-    if(no_std_skip(room))return;   // the coarse world draws this room: no package, no binding
+#if RE4DC_NO_STD_ANY
+    if(no_std_skip(room))return;   // the coarse world / PS2 world draws this room: no package, no binding
 #endif
     MeshView& owner=mesh_views[index];
     if(!open(owner,index,room))return;
@@ -1302,12 +1318,12 @@ extern "C" void re4dc_static_retire_all(){
 #if RE4DC_NATIVE_MESH
     for(auto& v:mesh_views)if(v.attempted)retire(v);
 #endif
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
     if(no_std.room!=~0U){no_std_log("leave");no_std=NoStd();}
 #endif
 }
 extern "C" const Re4dcStaticStats* re4dc_static_stats(){return &stats;}
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
 // coarse.cpp re4dc_coarse_tick(), once per Trans(): 1 when this tick's image (drawn by the next Render()) is coarse.
 extern "C" void re4dc_std_scenery_tick(int coarse){
     no_std.coarse=coarse;
@@ -1394,7 +1410,7 @@ extern "C" void re4dc_static_flush_impostors(){
 // ran): the mesh then never reads source lighting again (trans.cpp).
 extern "C" int re4dc_static_mesh_lit(const void* object,unsigned vertices,unsigned parts){
 #if RE4DC_NATIVE_MESH
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
     no_std_read(1,nullptr);
 #endif
     if(!stats.owners_open)return 0;
@@ -1427,7 +1443,7 @@ extern "C" float re4dc_fog_far_for_gate(float zfar);
 // skip the model's render setup with identical pixels.
 extern "C" int re4dc_static_gate(const void* object,const float mv[12],const float projection[7],float zfar){
 #if RE4DC_NATIVE_MESH
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
     no_std_read(2,nullptr);
 #endif
     if(!stats.owners_open)return 0;
@@ -1986,8 +2002,12 @@ extern "C" int re4dc_static_submit(const Re4dcModelPart* part){
     const unsigned frame=re4dc_ui_frame();
     log_stats(frame);
 #if RE4DC_NATIVE_MESH
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_ANY
     if(p.static_geometry)no_std_read(0,&p);
+#endif
+#if RE4DC_PS2_WORLD_ROOMS >= 2
+    // An image the coarse path does not draw: the PS2 world where the skipped package would have drawn.
+    if(p.static_geometry && no_std.room!=~0U && !no_std.coarse)re4dc_ps2_mesh_source(no_std.room,p);
 #endif
     return mesh_submit(p);
 #endif
@@ -2077,18 +2097,37 @@ struct Ps2World {
     const std::uint32_t* lut=nullptr; re4dc::room::CompactVertex12* gather=nullptr;
     float view[12]{},projection[7]{},viewport[6]{}; bool camera=false,attempted=false;
     Ps2Counts count[3]{};
+#if RE4DC_PS2_WORLD_ROOMS
+    unsigned room=0,want=0x101; // package loaded / attempted for; the room re4dc_ps2_mesh_select asks for
+#endif
 } ps2w;
 std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
     std::uint32_t c=~0U;
     for(unsigned i=0;i<n;++i){c^=p[i];for(unsigned b=0;b<8;++b)c=(c>>1)^(0xedb88320U&(0U-(c&1U)));}
     return ~c;
 }
+#if RE4DC_PS2_WORLD_ROOMS
+void ps2_free();
+#endif
 bool ps2_open(){
+#if RE4DC_PS2_WORLD_ROOMS
+    if((ps2w.storage || ps2w.attempted) && ps2w.room!=ps2w.want)ps2_free(); // another room's package
+#endif
     if(ps2w.storage)return true;
     if(ps2w.attempted)return false;
     ps2w.attempted=true;
+#if RE4DC_PS2_WORLD_ROOMS
+    ps2w.room=ps2w.want;
+    char mpath[48],ppath[48];
+    snprintf(mpath,sizeof(mpath),"/cd/dc/native/r%03x/ps2-world.re4mesh",ps2w.room);
+    snprintf(ppath,sizeof(ppath),"/cd/dc/native/r%03x/ps2-world.r4pw",ps2w.room);
+    re4dc_log("PS2MESH room=%03x open\n",ps2w.room);
+    const file_t fm=fs_open(mpath,O_RDONLY);
+    const file_t fp=fs_open(ppath,O_RDONLY);
+#else
     const file_t fm=fs_open("/cd/dc/native/r101/ps2-world.re4mesh",O_RDONLY);
     const file_t fp=fs_open("/cd/dc/native/r101/ps2-world.r4pw",O_RDONLY);
+#endif
     const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
     const unsigned mbytes=(msize+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
     const int before=re4dc_static_heap_free();
@@ -2222,4 +2261,34 @@ extern "C" void re4dc_ps2_mesh_retire(){
     ps2w.storage=nullptr;ps2w.bytes=0;ps2w.parts=nullptr;ps2w.placements=nullptr;ps2w.nplacements=0;
     ps2w.lut=nullptr;ps2w.gather=nullptr;ps2w.attempted=false;
 }
+#if RE4DC_PS2_WORLD_ROOMS
+namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
+#if RE4DC_PS2_WORLD_ROOMS >= 2
+// bind_mesh (room entry, file I/O allowed): open this room's PS2 world before its scenery package would open.
+extern "C" int re4dc_ps2_mesh_preload(unsigned room){
+    if(room!=0x100 && room!=0x101 && room!=0x103)return 0;
+    ps2w.want=room;
+    return ps2_open();
+}
+extern "C" int re4dc_ps2_world_source_draw();   // native_ps2_world.cpp: pass 0 now, PT / TR at the flush
+extern "C" int re4dc_coarse_source_camera(float view[12],float projection[7],float viewport[6]); // coarse.cpp
+// re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
+extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
+    static unsigned last=~0U,images=0;
+    const unsigned frame=re4dc_ui_frame();
+    (void)p; // an unbound scenery part carries no camera (world / view are the binding's): the game's
+    if(frame==last || !ps2w.storage || ps2w.room!=room)return;
+    last=frame;
+    float view[12],projection[7],viewport[6];
+    if(!re4dc_coarse_source_camera(view,projection,viewport))return;
+    re4dc_ps2_mesh_camera(view,projection,viewport);
+    const int drawn=re4dc_ps2_world_source_draw();
+    if(++images<=8 || !(images%120))re4dc_log("PS2MESH source image frame=%u room=%03x drawn=%d images=%u\n",frame,room,drawn,images);
+}
+#endif
+// The room the next ps2_open serves (native_ps2_world.cpp, before each draw).
+extern "C" void re4dc_ps2_mesh_select(unsigned room){ps2w.want=room;}
+// This room's package was tried and did not open: its own scenery draws (re4dc_ps2_world_covers).
+extern "C" int re4dc_ps2_mesh_failed(unsigned room){return ps2w.attempted && !ps2w.storage && ps2w.room==room;}
+#endif
 #endif

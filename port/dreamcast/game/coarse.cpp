@@ -788,6 +788,23 @@ extern "C" unsigned re4dc_coarse_world_room()
     return coarse_world::kRoom;
 }
 #endif
+#if !RE4DC_NO_STD_SCENERY && RE4DC_PS2_WORLD_ROOMS >= 2
+extern "C" void re4dc_std_scenery_tick(int coarse);   // platform/native_static.cpp (PS2_WORLD_ROOMS=2)
+#endif
+#if RE4DC_PS2_WORLD_ROOMS >= 2
+// PS2_WORLD_ROOMS=2 (native_static.cpp re4dc_ps2_mesh_source): the camera of the source image being drawn, read
+// at its first scenery part (the GX projection / viewport that part draws with); sets nothing.
+extern "C" int re4dc_coarse_source_camera(float view[12], float projection[7], float viewport[6])
+{
+    if (!pG) {
+        return 0;
+    }
+    memcpy(view, &pG->Cam.v_mat[0][0], 12 * sizeof(float));
+    GXGetProjectionv(projection);
+    GXGetViewportv(viewport);
+    return 1;
+}
+#endif
 // Trans() of tick k: 1 in in-room play (the pace.cpp context: Rno0 3, no held picture or room
 // change, no sub screen, no movie), where the presentation stages run in the qualified skip mode.
 // Latches whether image k (drawn by iteration k+1) is coarse: every such image not dropped.
@@ -798,7 +815,7 @@ extern "C" int re4dc_coarse_tick(int dropped)
         ctx = 0;
     }
     re4dc_coarse_image = ctx && !dropped;
-#if RE4DC_NO_STD_SCENERY
+#if RE4DC_NO_STD_SCENERY || RE4DC_PS2_WORLD_ROOMS >= 2
     re4dc_std_scenery_tick(re4dc_coarse_image);
 #endif
     return ctx;

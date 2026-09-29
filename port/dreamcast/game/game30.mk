@@ -1689,6 +1689,34 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 endif
+# PS2_WORLD_ROOMS=1 (render only, default off; needs PS2_WORLD_MESH=1): the PS2 world in r100 and r103 too
+# (tools/ps2_room_r4im.py, staged as dc/native/r%03x/ps2-world.re4mesh / .r4pw). Each room opens its own
+# package at its first coarse draw (another room's is freed first); a room whose package fails to open
+# (missing, no heap) draws its own scenery again (COARSE_SCENERY_FALLBACK) and is not retried until retired.
+# =2 (heap-4 reclaim): the package opens at the room's first scenery bind instead, and when it opens the room's
+# scenery mesh package is not (COARSE_NO_STD_SCENERY's skip and census): r103's Standard package (1,143,808 B)
+# and the PS2 world do not both fit. Images the coarse path does not draw (door demo, death, sub screens) draw
+# the PS2 world where the scenery package would have drawn (the first scenery part of the image), so they show
+# the same world. A package that does not open leaves the room on its scenery package, as =1.
+PS2_WORLD_ROOMS ?= 0
+ifneq ($(PS2_WORLD_ROOMS),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_WORLD_ROOMS needs PS2_WORLD_MESH=1)
+endif
+ifneq ($(PS2_WORLD_ROOMS),1)
+ifneq ($(PS2_WORLD_ROOMS),2)
+$(error PS2_WORLD_ROOMS is 0, 1 or 2)
+endif
+ifneq ($(COARSE_NO_STD_SCENERY),0)
+$(error PS2_WORLD_ROOMS=2 and COARSE_NO_STD_SCENERY both own the scenery skip)
+endif
+ifneq ($(NATIVE_PKG_HIGH),1)
+$(error PS2_WORLD_ROOMS=2 needs NATIVE_PKG_HIGH=1 (the only layout gated without the package))
+endif
+$(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
+endif
+$(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
+endif
 # MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
 # first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
 MESH_CLASSIFY ?= 0

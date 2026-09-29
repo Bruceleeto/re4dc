@@ -1,0 +1,413 @@
+#!/usr/bin/env python3
+"""Any PS2 room's authored scenario (JADERLINK OBJ export) -> R4IM v3 prelit mesh + R4PW sidecar + RE4DCTX
+textures, for PS2_WORLD_MESH (native_static.cpp ps2_open / ps2_pass). The r101 package came from the
+full-wrapper-v5 .r4p through ps2-world-20260927 prepare.py -> gain-v1 -> generate_data.py ->
+world-mesh-r21/tools/ps2_world_r4im.py; this tool runs the same rules straight from the OBJ so r100 and r103
+(and later rooms) get the same world:
+
+* geometry: OBJ `v x y z r g b a` x100 = world millimetres; one OBJ group = one SMD row (BIN at its placement);
+  UV = vt x 255/256 (prepare.py); faces keep the OBJ winding (checked against the r101 wrapper by
+  validate_r101.py).
+* colour: COLOR groups = authored vertex RGB (/128 already applied by the export, may exceed 1); NORMAL groups
+  = the GameCube LIT cut-0 parallel sun + sky lights at the SMD origin (ow_extract.gx_light + prepare.py
+  light_world; r101 used lights 0 and 5, --lights picks the room's pair).
+* per-texture gain (gain_feasibility.py): g = min(max(1, max COLOR vertex channel), 255 / max texel channel);
+  the texture is multiplied by g and every vertex colour by float32(1/g), clamped, rounded to 8 bits
+  (ps2src.corner_rgba), then ARGB1555 prelit (convert_lod color_mode="prelit").
+* textures: TPL decoded GS-swizzled (ps2_tpl_decode.cmd_decode); opaque -> VQ RGB565 (pack_vq.py k-means,
+  seed 417, 16 rounds, exact codebook when <= 256 distinct blocks), cutout -> ARGB1555, graded -> ARGB4444
+  (pack_textures.py), all on the gained image; VQ only when smaller than native16.
+* pass = the texture's alpha mode (0 OP, 1 PT cutout, 2 TR graded) when material_flag & 4, else 0; cull from
+  the SMX row (PS2 0 back-face cull -> part cull 2, 1 -> 1, 2 both -> 0), as generate_data.py.
+* instancing: groups of the same BIN whose corners are an exact affine image of an earlier group (same
+  faces, UVs, final colour bytes) share its mesh through an R4PW placement (the fitted affine); the rest get
+  their own mesh in world space (identity placement).
+usage: ps2_room_r4im.py <room> <input dir> <out dir> [--lights 0,4]
+"""
+import argparse, collections, hashlib, importlib.util, json, math, struct, sys, zlib
+from pathlib import Path
+import numpy as np
+from PIL import Image
+
+import os
+HERE = Path(__file__).resolve().parent
+# Runs on Windows Python (numpy, PIL). RE4_WORLD_AGENT: the private world-agent-20260926 tree (OBJ-reader,
+# TPL decoder, RE4DCTX codec, gx_light and VQ helpers); RE4_TOOLS: the repo's port/dreamcast/tools
+# (convert_room_bins, mesh_lod), this file's own directory when it sits there.
+WA = Path(os.environ.get('RE4_WORLD_AGENT', 'C:/Game Dev/Emulators/re4-assets-private/world-agent-20260926'))
+MESH_TOOLS = Path(os.environ.get('RE4_TOOLS', HERE if (HERE / 'convert_room_bins.py').exists() else
+                                 '//wsl.localhost/Ubuntu-24.04/root/probe/d367-resume-20260928/step1/port/dreamcast/tools'))
+sys.path.insert(0, str(MESH_TOOLS))
+import convert_room_bins as crb  # noqa: E402
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def selected(path, names):
+    import ast
+    tree = ast.parse(Path(path).read_text(encoding='utf-8-sig'))
+    nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
+    env = {'math': math, 'np': np}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), env)
+    return env
+
+
+ps = load('ps2_tree_materials', WA / 'from-main/ps2-trees/tools/ps2_tree_materials.py')
+tpl = load('ps2_tpl_decode', WA / 'from-main/ps2-trees/tools/ps2_tpl_decode.py')
+codec = load('g_re4tex', WA.parent / 'character-prototype-20260925/tools/g_re4tex.py')
+gx_light = selected(WA / 'from-main/original-world/reference/tools/ow_extract.py', {'gx_light'})['gx_light']
+nearest = selected(WA / 'c1/tools/vq_review.py', {'nearest'})['nearest']
+
+OWNER = 0x50
+PS2_TO_PART_CULL = {0: 2, 1: 1, 2: 0}
+
+
+def light_world(xyz, normals, lights, ambient):
+    """prepare.py light_world (material 1)."""
+    n = normals / np.maximum(np.linalg.norm(normals, axis=-1, keepdims=True), 1e-20)
+    out = np.broadcast_to(np.asarray(ambient), xyz.shape).copy()
+    for L in lights:
+        delta = np.asarray(L['pos']) - xyz
+        dist = np.linalg.norm(delta, axis=-1)
+        direction = delta / np.maximum(dist[..., None], 1e-20)
+        ld = np.asarray(L['dir'], float); ld /= max(np.linalg.norm(ld), 1e-20)
+        cosine = np.maximum(0, np.sum(direction * ld, axis=-1))
+        a, k = L['a'], L['k']
+        gain = np.maximum(0, a[0] + a[1] * cosine + a[2] * cosine * cosine) / \
+            np.maximum(k[0] + k[1] * dist + k[2] * dist * dist, 1e-20)
+        out += np.asarray(L['col']) / 255 * gain[..., None] * np.maximum(0, np.sum(n * direction, axis=-1))[..., None]
+    return np.clip(out, 0, 1)
+
+
+# ------------------------------------------------------------------------------------------------ scene
+def read_scene(room, src, light_ids):
+    obj = ps.read_obj(src / f'{room}_004.scenario.obj')
+    mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
+    mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
+    smd = ps.ps2_smd_lines(src / f'{room}_004.SMD')
+    smx = ps.smx_entries(src / f'{room}_005.SMX', False)
+    V = np.asarray(obj['v'], np.float64) * 100
+    VT = np.asarray(obj['vt'], np.float64) * (255 / 256)
+    VN = np.asarray(obj['vn'], np.float64) if obj['vn'] else np.zeros((1, 3))
+    VC = np.asarray([c if c is not None else (1, 1, 1, 1) for c in obj['vc']], np.float64)
+    for name, m in mats.items():
+        assert int(m['diffuse_map']) == mtl[name]['tex'], name
+    gl = None
+    if any(g['kind'] == 'NORMAL' for g in obj['groups']):
+        lit = json.loads((src / 'gc-lit-cut0.json').read_text())
+        chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
+        assert len(chosen) == len(light_ids), 'lights'
+        ambient = np.asarray(lit['env']['ambient_scr'], float) / 255
+    groups = []
+    for gi, g in enumerate(obj['groups']):
+        faces = [f for f, _ in g['faces']]
+        assert all(len(f) == 3 and all(c[1] >= 0 for c in f) for f in faces), g['name']
+        ix = np.asarray(faces, int)
+        mat = [m for _, m in g['faces']]
+        pos = V[ix[:, :, 0]]
+        if g['kind'] == 'NORMAL':
+            assert (ix[:, :, 2] >= 0).all(), g['name']
+            lights = [gx_light(l, smd[g['smd']]) for l in chosen]
+            assert all(not l['kind'].startswith('unsupported') for l in lights)
+            rgb = light_world(pos, VN[ix[:, :, 2]], lights, ambient)
+        else:
+            rgb = VC[ix[:, :, 0], :3]
+        sem = smx.get(g['smx'])
+        cull = int(sem['face_culling'][2:4], 16) if sem else 0
+        assert cull in (0, 1, 2)
+        groups.append(dict(index=gi, name=g['name'], bin=g['bin'], kind=g['kind'], smd=g['smd'], vidx=ix[:, :, 0],
+                           pos=pos, uv=VT[ix[:, :, 1]], rgb=rgb, alpha=VC[ix[:, :, 0], 3],
+                           tex=np.array([int(mats[m]['diffuse_map']) for m in mat]),
+                           blend=np.array([bool(int(mats[m]['material_flag'], 16) & 4) for m in mat]), cull=cull))
+    return groups
+
+
+# ------------------------------------------------------------------------------------------------ textures
+def pack16(a, fmt):
+    q = np.clip(np.rint(a), 0, 255).astype(np.uint32)
+    if fmt == 0:
+        return ((q[..., 0] * 31 + 127) // 255 << 11) | ((q[..., 1] * 63 + 127) // 255 << 5) | ((q[..., 2] * 31 + 127) // 255)
+    if fmt == 1:
+        return ((q[..., 3] > 127).astype(np.uint32) << 15) | ((q[..., 0] * 31 + 127) // 255 << 10) | \
+            ((q[..., 1] * 31 + 127) // 255 << 5) | ((q[..., 2] * 31 + 127) // 255)
+    return ((q[..., 3] * 15 + 127) // 255 << 12) | ((q[..., 0] * 15 + 127) // 255 << 8) | \
+        ((q[..., 1] * 15 + 127) // 255 << 4) | ((q[..., 2] * 15 + 127) // 255)
+
+
+def fnv(raw):
+    n = 2166136261
+    for x in raw:
+        n = ((n ^ x) * 16777619) & 0xffffffff
+    return n
+
+
+def emit(folder, label, w, h, fmt, payload_type, payload):
+    crc = zlib.crc32(payload) & 0xffffffff
+    h2 = fnv(payload)
+    key = f'{crc:08x}-{h2:08x}'
+    data = struct.pack('<8s10I', b'RE4DCTX\0', 2, 48, 96, 1, 48, 144, len(payload), crc, 1, 0)
+    data += struct.pack('<64s8I', label.encode()[:63], w, h, fmt, 144, len(payload), 0, payload_type, 0) + payload
+    p = folder / (key + '.re4tex')
+    p.write_bytes(data)
+    pixels, meta = codec.decode(p)
+    return p, (crc, h2), pixels
+
+
+def vq_encode(a, fmt):
+    """pack_vq.py main() for one image (fmt 0 or 2): codebook + twiddled indices."""
+    h, w = a.shape[:2]
+    q = pack16(a, fmt)
+    qb = np.stack([q[::2, ::2], q[1::2, ::2], q[::2, 1::2], q[1::2, 1::2]], -1).reshape(-1, 4)
+    exact, labels = np.unique(qb, axis=0, return_inverse=True)
+    labels = labels.reshape(-1)
+    if len(exact) <= 256:
+        cb = np.zeros((256, 4), np.uint16); cb[:len(exact)] = exact
+    else:
+        blocks = np.stack([a[::2, ::2], a[1::2, ::2], a[::2, 1::2], a[1::2, 1::2]], 2).reshape(-1, 16).astype(np.float32)
+        weights = np.tile([1, 1, 1, 2 if fmt == 2 else 0], 4).astype(np.float32)
+        weighted = blocks * weights
+        rng = np.random.default_rng(417)
+        ix = rng.choice(len(blocks), min(16384, len(blocks)), replace=False)
+        train = weighted[ix]
+        centres = train[rng.choice(len(train), 256, replace=len(train) < 256)].copy()
+        for _ in range(16):
+            lab = nearest(train, centres)
+            sums = np.zeros((256, 16), np.float64); np.add.at(sums, lab, train)
+            counts = np.bincount(lab, minlength=256); live = counts > 0
+            centres[live] = (sums[live] / counts[live, None]).astype(np.float32)
+        raw = centres / np.maximum(weights, 1)
+        if fmt != 2:
+            raw[:, 3::4] = 255
+        cb = pack16(raw.reshape(256, 4, 4), fmt).astype(np.uint16)
+        centres = codec.px16(cb, fmt).reshape(256, 16).astype(np.float32) * weights
+        labels = nearest(weighted, centres)
+    tw = codec.untwiddle_index(w // 2, h // 2)
+    idx = np.empty(w * h // 4, np.uint8); idx[tw.ravel()] = labels.astype(np.uint8)
+    return cb.astype('<u2').tobytes() + idx.tobytes()
+
+
+def build_textures(room, src, out, used, gains):
+    dec = tpl.cmd_decode(src / f'{room}_004.TPL', out / 'textures-source', set(used), False, False, 'gs')
+    (out / 'tex').mkdir(exist_ok=True); (out / 'textures-packed').mkdir(exist_ok=True)
+    rows = {}
+    for t in sorted(used):
+        base = next(r for r in dec['textures'] if r['entry'] == t and r['level'] == 'base')
+        image = np.asarray(Image.open(out / 'textures-source' / base['file']).convert('RGBA'))
+        h, w = image.shape[:2]
+        assert w & (w - 1) == 0 and h & (h - 1) == 0 and w >= 8 and h >= 8 and w <= 1024 and h <= 1024, (t, w, h)
+        alpha = np.unique(image[..., 3])
+        mode = 'opaque' if alpha.min() == 255 else ('cutout' if np.all(np.isin(alpha, [0, 255])) else 'graded')
+        fmt = {'opaque': 0, 'cutout': 1, 'graded': 2}[mode]
+        g = gains.get(t, np.ones(3))
+        target = image.astype(np.float64); target[..., :3] *= g
+        assert target[..., :3].max() <= 255 + 1e-6, (t, 'gain saturates')
+        use_vq = fmt == 0 and 2048 + w * h // 4 < w * h * 2
+        if use_vq:
+            payload = vq_encode(target, fmt); ptype = 2
+        else:
+            q = pack16(target, fmt)
+            raw = np.empty(w * h, dtype='<u2'); raw[codec.untwiddle_index(w, h).ravel()] = q.ravel()
+            payload = raw.tobytes(); ptype = 1
+        path, key, pixels = emit(out / 'tex', f'PS2 {room} texture {t}', w, h, fmt, ptype, payload)
+        if not use_vq:
+            assert np.array_equal(pixels, codec.px16(pack16(target, fmt), fmt).astype(np.uint8))
+        assert pixels.shape == (h, w, 4)
+        Image.fromarray(pixels).save(out / 'textures-packed' / f'{t:04d}.png')
+        d = pixels[..., :3].astype(float) - np.clip(np.rint(target[..., :3]), 0, 255)
+        vis = image[..., 3] > 0
+        mse = float(np.mean(d[vis] ** 2)) if vis.any() else 0.0
+        rows[t] = dict(texture=t, key=key, file=path.name, width=w, height=h, alpha_mode=mode, format=fmt,
+                       payload='vq' if use_vq else 'native16', vram_bytes=len(payload), gain=list(map(float, g)),
+                       psnr_vs_gained=10 * math.log10(255 ** 2 / max(mse, 1e-12)),
+                       sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    return rows
+
+
+# ------------------------------------------------------------------------------------------------ meshes
+class Token:
+    def __init__(self, mesh):
+        self.mesh = mesh
+
+    def __repr__(self):
+        return 'ps2-room-mesh-%d' % self.mesh
+
+
+def gains_for(groups):
+    """gain_feasibility.py: per texture over COLOR faces; the headroom side is applied in build_textures."""
+    vmax = {}
+    for g in groups:
+        if g['kind'] != 'COLOR':
+            continue
+        for t in np.unique(g['tex']):
+            m = g['rgb'][g['tex'] == t].max(axis=(0, 1))
+            vmax[int(t)] = np.maximum(vmax.get(int(t), np.zeros(3)), m)
+    return vmax
+
+
+def final_gains(room, src, out, groups):
+    vmax = gains_for(groups)
+    used = sorted({int(t) for g in groups for t in np.unique(g['tex'])})
+    dec = tpl.cmd_decode(src / f'{room}_004.TPL', out / 'textures-source', set(used), False, False, 'gs')
+    gains = {}
+    for t in used:
+        base = next(r for r in dec['textures'] if r['entry'] == t and r['level'] == 'base')
+        image = np.asarray(Image.open(out / 'textures-source' / base['file']).convert('RGBA'))
+        maximum = image[..., :3].max(axis=(0, 1)).astype(float) / 255
+        desired = np.maximum(1, vmax.get(t, np.zeros(3)))
+        headroom = np.divide(1, maximum, out=np.full(3, np.inf), where=maximum > 0)
+        gains[t] = np.minimum(desired, headroom)
+    return used, gains
+
+
+def face_colours(g, gains):
+    """Final 8-bit corner RGBA (ps2src.corner_rgba): rgb * float32(1/gain), clamped; alpha /128 -> 255."""
+    inv = np.stack([np.float32(1 / gains[int(t)]).astype(np.float64) for t in g['tex']])
+    rgb = np.clip(g['rgb'] * inv[:, None, :], 0, 1)
+    a = np.clip(g['alpha'], 0, 1)
+    c = np.concatenate([rgb, a[..., None]], -1)
+    return np.floor(c * 255 + 0.5).astype(np.int64)
+
+
+def fit_affine(a, b):
+    """world_b = M @ [world_a, 1]; None unless exact (residual < 0.5 mm) and well conditioned."""
+    A = np.hstack([a, np.ones((len(a), 1))])
+    if len(a) < 4 or np.linalg.svd(a - a.mean(0), compute_uv=False)[2] < 1.0:
+        return None                                         # flat or tiny: the fit would not be unique
+    M, *_ = np.linalg.lstsq(A, b, rcond=None)
+    if np.abs(A @ M - b).max() > 0.5:
+        return None
+    return M.T                                              # 3 x 4
+
+
+def build(groups, gains, textures, share=True):
+    meshes, placements, sources, parts_meta = [], [], {}, []
+    by_bin = collections.defaultdict(list)                  # bin -> [(mesh index, group)]
+    stats = collections.Counter()
+    for g in groups:
+        g['c8'] = face_colours(g, gains)
+        g['pass'] = np.array([textures[int(t)]['format'] if b else 0 for t, b in zip(g['tex'], g['blend'])])
+        stats['vertex_alpha_below_one'] += int((g['c8'][..., 3] < 255).sum())
+        match = None
+        if share:
+            for mi, first in by_bin[g['bin']]:
+                if (len(first['tex']) != len(g['tex']) or not np.array_equal(first['tex'], g['tex']) or
+                        not np.array_equal(first['pass'], g['pass']) or first['cull'] != g['cull'] or
+                        not np.array_equal(first['c8'], g['c8']) or np.abs(first['uv'] - g['uv']).max() > 1e-5):
+                    continue
+                M = fit_affine(first['pos'].reshape(-1, 3), g['pos'].reshape(-1, 3))
+                if M is not None:
+                    match = (mi, M)
+                    break
+        if match:
+            placements.append((match[0], g['index'], match[1].tolist()))
+            stats['instanced_groups'] += 1
+            stats['instanced_triangles'] += len(g['tex'])
+            continue
+        mi = len(meshes)
+        meshes.append(g)
+        by_bin[g['bin']].append((mi, g))
+        placements.append((mi, g['index'], [[1.0, 0, 0, 0], [0, 1.0, 0, 0], [0, 0, 1.0, 0]]))
+        # one mesh: local positions (OBJ vertex ids), parts by (texture, pass, cull) in first-use order
+        vid = {}
+        positions = []
+        for f in range(len(g['tex'])):
+            for c in range(3):
+                v = int(g['vidx'][f, c])
+                if v not in vid:
+                    vid[v] = len(positions)
+                    positions.append(tuple(float(x) for x in g['pos'][f, c]))
+        uvs, uv_index, colors, color_index = [], {}, [], {}
+        order, loose = [], {}
+        for f in range(len(g['tex'])):
+            key = (int(g['tex'][f]), int(g['pass'][f]), g['cull'])
+            if key not in loose:
+                loose[key] = []
+                order.append(key)
+            corners = []
+            for c in range(3):
+                c8 = tuple(int(x) for x in g['c8'][f, c])
+                uv = (float(g['uv'][f, c, 0]), float(g['uv'][f, c, 1]))
+                if c8 not in color_index:
+                    color_index[c8] = len(colors); colors.append(c8)
+                if uv not in uv_index:
+                    uv_index[uv] = len(uvs); uvs.append(uv)
+                corners.append((vid[int(g['vidx'][f, c])], color_index[c8], uv_index[uv], 0))
+            loose[key].append(tuple(corners))
+        parts = []
+        for k, key in enumerate(order):
+            t, pas, cull = key
+            tex = textures[t]
+            parts.append(dict(offset=32 * k, size=0, flags=0, texture=k & 255, alpha=255, strips=[], loose=loose[key]))
+            parts_meta.append((tex['key'][0], tex['key'][1], tex['width'], tex['height'], pas, PS2_TO_PART_CULL[cull], t & 255))
+        sources[mi] = dict(flags=0, nvtx=min(65535, len(positions)), nparts=len(parts), positions=positions,
+                           parts=parts, uv=uvs.__getitem__, color=colors.__getitem__,
+                           normal=lambda n: (0.0, 1.0, 0.0), bytes=0)
+    return meshes, placements, sources, parts_meta, stats
+
+
+def placement_scale(affine):
+    return max(math.sqrt(sum(affine[r][c] ** 2 for r in range(3))) for c in range(3))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('room')
+    ap.add_argument('src', type=Path)
+    ap.add_argument('out', type=Path)
+    ap.add_argument('--lights', default='0,5', help='GC LIT cut-0 light indices for NORMAL groups (r101: 0,5)')
+    ap.add_argument('--no-share', action='store_true', help='no BIN instancing (every group its own mesh)')
+    ap.add_argument('--lod-eps', default='24,48,96,192,384')
+    ap.add_argument('--lod-min-gain', type=float, default=0.4)
+    ap.add_argument('--lod-max-levels', type=int, default=4)
+    ap.add_argument('--lod-floor', type=float, default=2.0)
+    ap.add_argument('--lod-cluster', type=float, default=20000.0)
+    ap.add_argument('--meshlet-vertices', type=int, default=64)
+    a = ap.parse_args()
+    crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
+    a.out.mkdir(parents=True, exist_ok=True)
+    groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')))
+    used, gains = final_gains(a.room, a.src, a.out, groups)
+    textures = build_textures(a.room, a.src, a.out, used, gains)
+    meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)
+    scales = collections.defaultdict(float)
+    for mi, _, aff in placements:
+        scales[(OWNER, mi)] = max(scales[(OWNER, mi)], placement_scale(aff))
+    entries = [(OWNER, 0, mi, Token(mi)) for mi in range(len(meshes))]
+    eps = tuple(float(x) for x in a.lod_eps.split(','))
+    blob, summary = crb.convert_lod(entries, 1.0, scales=dict(scales), eps_world=eps, cluster_world=a.lod_cluster,
+                                    min_gain=a.lod_min_gain, max_levels=a.lod_max_levels,
+                                    floor={None: a.lod_floor} if a.lod_floor > 0 else None, share=True,
+                                    source=lambda token: sources[token.mesh], color_mode='prelit')
+    if summary['parts'] != len(parts_meta):
+        raise SystemExit('part count %d != %d (an empty mesh was skipped)' % (summary['parts'], len(parts_meta)))
+    body = b''.join(struct.pack('<IIHHBBBB', *m, 0) for m in parts_meta)
+    body += b''.join(struct.pack('<HH12f', mi, gi, *[x for row in aff for x in row]) for mi, gi, aff in placements)
+    side = struct.pack('<4s7I', b'R4PW', 1, len(placements), len(parts_meta), len(meshes), zlib.crc32(body), 0, 0) + body
+    (a.out / 'ps2-world.re4mesh').write_bytes(blob)
+    (a.out / 'ps2-world.r4pw').write_bytes(side)
+    summary.pop('meshes_detail', None)
+    tri = collections.Counter()
+    for g in groups:
+        for p in g['pass']:
+            tri[int(p)] += 1
+    report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items()}, groups=len(groups), meshes=len(meshes),
+                  placements=len(placements), source_triangles=sum(len(g['tex']) for g in groups),
+                  triangles_by_pass={['OP', 'PT', 'TR'][k]: v for k, v in sorted(tri.items())},
+                  stats=dict(stats), level0_triangles=summary['level0_triangles'], re4mesh_bytes=len(blob),
+                  re4mesh_sha256=hashlib.sha256(blob).hexdigest(), r4pw_bytes=len(side),
+                  r4pw_sha256=hashlib.sha256(side).hexdigest(), textures=len(textures),
+                  texture_vram_bytes=sum(t['vram_bytes'] for t in textures.values()),
+                  texture_rows=textures, summary=summary)
+    (a.out / 'ps2-world.json').write_text(json.dumps(report, indent=1, default=str))
+    print(json.dumps({k: report[k] for k in ('room', 'groups', 'meshes', 'placements', 'source_triangles',
+                                             'triangles_by_pass', 'stats', 'level0_triangles', 're4mesh_bytes',
+                                             'r4pw_bytes', 'textures', 'texture_vram_bytes')}))
+
+
+if __name__ == '__main__':
+    main()
