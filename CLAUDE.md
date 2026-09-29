@@ -39,6 +39,8 @@ Evidence goes on D:\Flycast-Evidence\re4-dreamcast (new dirs from the C: harness
 
 The sections below (D366 pause, the four-owner "beat D349" sequence, Sol/Max assignment) are historical context; where they conflict, D367 wins. The [D366 pause handover](port/dreamcast/docs/R4_D366_CLAUDE_HANDOFF.md) still describes the inherited dirty overlay (~75 files; never stage, reset or clean it).
 
+- **Play build (2026-09-29): follow [the checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) step by step; update it with each step.**
+
 ## Historical (pre-D367): persistent goal and model handoff
 
 North star: **beat D349, do not merely recreate it**. The recovered game drives
