@@ -402,6 +402,11 @@ vsync spin in main, which is ~0 in the CPU-bound kite fight): r101 entry 44.3 (w
 (35.6), r100 gate after the radio 47.2 (40.4), r100 east door 45.6 (33.7), r100 s20 house after the ambush 76.7 (51.4);
 kite fight 88.4 (no spin). Render side dominates everywhere (game-render-side 19-42 + actors 5-15 hw ms); game logic
 0.8-7 hw ms outside the fight. So ordinary play is ~20 fps (work just over 33.3 ms), the heaviest views 15 fps or lower.
+r103 entry: the r21 base disc still carries the uncompacted st1/r103.dar (4,814,112 B), so em12.drs (1.08 MB) failed
+with 402 KB free and model.cpp(1907) HALTed. Staging W8b's compact room (design-r103/w8b-r103-data-recipe.sh ->
+w8b-rel/st1/r103.{dar,arc}, 1,455,456 B loaded; regenerated 2026-09-28, the old output was gone) plus m-r103-FIN fixes
+it: r103 draws (trees, fence, house, animals, Ganados) and runs. hw 55.7 ms/frame (work 51.6; game logic 10.6 with 5
+Ganados + animals). Every disc that reaches r103 needs these ROOMFILES.
 
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
