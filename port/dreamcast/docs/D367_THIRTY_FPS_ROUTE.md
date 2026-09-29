@@ -407,6 +407,19 @@ with 402 KB free and model.cpp(1907) HALTed. Staging W8b's compact room (design-
 w8b-rel/st1/r103.{dar,arc}, 1,455,456 B loaded; regenerated 2026-09-28, the old output was gone) plus m-r103-FIN fixes
 it: r103 draws (trees, fence, house, animals, Ganados) and runs. hw 55.7 ms/frame (work 51.6; game logic 10.6 with 5
 Ganados + animals). Every disc that reaches r103 needs these ROOMFILES.
+**Exact character-path kernels (2026-09-28/29; hw ms as frame / work, work = frame minus the modelled vsync
+spin, which is the hardware-relevant figure outside the CPU-bound kite).** AVK_RIGID6 (a5b11de): rigid parts with
+stride-6 positions / stride-3 normals get generated pipelined kernels instead of the C fallback (exact, STRICT
+kite-r21r7t): r101 entry 44.3 -> 42.2, post-bell 38.2 -> 37.2, r100 / kite neutral. GAME_WPAL_FAST=3 + GAME_SK1_ASM
+(3f20eda): MakeWeightPalette and the source skinning CalcSk1_x/_x2 (morphed infos skinned in Trans(), in place, and
+the Render() materialisation; SKIN_CENSUS: 2 morphed infos / 3,278 vertices a frame at r101 post-bell, 0 defer
+failures) as exact SH-4 loops (check builds 0 mismatches over 70.1M / 29.8M words): r101 entry 42.2/35.9 -> 42.0/34.3,
+post-bell 37.2/34.4 -> 36.8/32.5, r100 east door 45.8/33.8 -> 45.7/32.8, kite 89.1 -> 86.8. Post-bell and the east door
+now average under 33.3 ms of work. Traps: -m4-single -ml passes float args pair-swapped (the first float in fr5);
+serial log lines (aica notes, "[stage") can cut into a trace line, so a timing change can make the STRICT audit
+REJECT on one garbled record: compare the records of two runs (every record in the window matching in at least one).
+Next candidates by size: the skinned-vertex kernels themselves (avk_pos_skin + avk_light_skin 4.5-6 ms at r101),
+Part::whole (TA emit, 1.1-1.8), per-meshlet overhead in pass_positions (0.7-1.3), actor_submit preflight (~0.2).
 
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
