@@ -58,9 +58,24 @@ static GXColor s_effect_col; // ChannelSet's final material colour (GXSetChanMat
 static int EspSpriteEligible(cEsp* esp)
 {
     const u32 owner = esp->info.owner;
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    // EFFECT_ROOM (bit mask, effects30.mk): plus the room's own effects. 1: est sets of the room owner
+    // (0x01; r101's pyre); 2: the room effect sets SstSet starts at room init (0xd0; glows, light
+    // shafts, smoke) apart from 4: their haze particles (id 0x15) and mist sheets (id 0x48).
+    int room = 0;
+    if (owner == 0x01) {
+        room = RE4DC_EFFECT_ROOM & 1;
+    } else if (owner == 0xD0) {
+        room = RE4DC_EFFECT_ROOM & ((esp->m_Id == 0x15 || esp->m_Id == 0x48) ? 4 : 2);
+    }
+    if (!room && !(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F))) {
+        return 0;
+    }
+#else
     if (!(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F))) {
         return 0; // muzzle flash (WEPxx), the shot's core effects, blood (EM10)
     }
+#endif
     if ((esp->m_Tool_flg & (0x4000 | 0x10000)) || (esp->m_Flg & 0x10) || esp->xA4 != 1) {
         return 0; // mask stage, texture-render target, Esp1b spline, non-blend modes
     }
@@ -142,6 +157,52 @@ static void EspSpriteEmit(cEsp* esp)
     s.pad = 0;
     re4dc_effect_sprite(&s);
 }
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+// COARSE_FX_SPRITES (effects30.mk): a live effect the EspCommonTrans sprite path draws (esp.cpp queues
+// it in a drawn coarse image's logic-only pass; coarse.cpp then draws no marker for it). Esp0b (the room
+// fires' particles) is EspCommonTrans after an optional camera jitter; esp.cpp queues its common body.
+extern EspTransFunc EspTransTbl[0xFF];
+extern "C" int re4dc_esp_sprite_class(cEsp* esp)
+{
+    return (EspTransTbl[esp->m_Id] == EspCommonTrans || esp->m_Id == 0x0B) && EspSpriteEligible(esp);
+}
+extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE builds (native_static.cpp)
+// 0 for a faded-out effect, or a world-placed sprite effect wholly behind the camera, beyond the fogged View far or outside a
+// wide view cone (horizontal tan 1.2, vertical tan 0.9; radius twice the base size + 100): esp.cpp's
+// coarse pass does not queue it, so the common body never builds a matrix and colour only for
+// re4dc_effect_sprite to cull the sprite. Screen and direct-OT effects are always kept.
+extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
+{
+    if (!(esp->m_Flg & 1) && esp->m_Col_a < 1.0f) {
+        return 0;   // faded out: ChannelSet's alpha is (u8) m_Col_a here (before the final-colour scale), so 0
+    }
+    if ((u8) (esp->m_Parts_no + 8) <= 5 || (esp->m_Tool_flg & (0x1000 | 0x400000 | 0x400 | 0x800)) ||
+        (esp->m_Flg & 8)) {
+        return 1;
+    }
+    Vec w, v;
+    if (esp->parent && esp->parent != pEffParentWorld) {
+        PSMTXMultVec(esp->parent->mat, &esp->m_Pos, &w);
+    } else {
+        w = esp->m_Pos;
+    }
+    PSMTXMultVec(pG->Cam.v_mat, &w, &v);
+    const f32 bx = esp->m_Size_base_x, by = esp->m_Size_base_y;
+    const f32 r = 2.0f * (bx > by ? bx : by) * esp->m_Size_mul + 100.0f;
+    const f32 d = -v.z;
+    if (d + r < 0.0f) {
+        return 0;
+    }
+    const f32 far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
+    if (far > 0.0f && d - r > far) {
+        return 0;
+    }
+    if (d > r && ((v.x < 0.0f ? -v.x : v.x) - r > 1.2f * d || (v.y < 0.0f ? -v.y : v.y) - r > 0.9f * d)) {
+        return 0;
+    }
+    return 1;
+}
+#endif
 #endif
 
 // The pulled effect is kept in a one-member struct: the original reloads the pointer from its

@@ -32,6 +32,14 @@ static inline int espLogicId(u32 id)
 {
     return id == 0x09 || id == 0x0E || id == 0x45 || id == 0x47;
 }
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+// COARSE_FX_SPRITES (effects30.mk): trans.cpp sets it around a drawn coarse image's logic-only EspTrans,
+// which then also queues the effects the native sprite path draws (esp_sub.cpp).
+extern "C" int re4dc_esp_sprite_pass;
+int re4dc_esp_sprite_pass;
+extern "C" int re4dc_esp_sprite_class(cEsp* esp);
+extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp);
+#endif
 #endif
 EspCreateFunc EspCreateTbl[0xFF];
 
@@ -638,9 +646,15 @@ int EspTrans()
 #if RE4DC_PACE_TRANS_SKIP
     const int logicOnly = re4dc_esp_logic_only;
     u32 logicLive = 0;
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+    const int spritePass = logicOnly && re4dc_esp_sprite_pass;
+    int spriteEntry = 0;
+#else
+    const int spritePass = 0;
+#endif
     if (logicOnly) {
         re4dc_esp_logic_queued = 0;
-        if (!re4dc_esp_logic_maybe) {
+        if (!re4dc_esp_logic_maybe && !spritePass) {
             return 1;
         }
     }
@@ -668,12 +682,28 @@ int EspTrans()
     for (i = 0; i < sys->nEsp; i++) {
         esp = (cEsp*) (sys->pEspBuf + i * 0x150);
 #if RE4DC_PACE_TRANS_SKIP
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+        spriteEntry = 0;
+        if (logicOnly) {
+            if (!(esp->m_Be_flg & 1)) {
+                continue;
+            }
+            if (espLogicId(esp->m_Id)) {
+                logicLive++;
+            } else if (spritePass && re4dc_esp_sprite_class(esp)) {
+                spriteEntry = 1;   // drawn, not state: does not hold a skipped iteration's Render()
+            } else {
+                continue;
+            }
+        }
+#else
         if (logicOnly) {
             if (!(esp->m_Be_flg & 1) || !espLogicId(esp->m_Id)) {
                 continue;
             }
             logicLive++;
         }
+#endif
 #endif
         if (!ESP_IsActive(esp)) {
             continue;
@@ -700,7 +730,11 @@ int EspTrans()
             }
         }
 #if RE4DC_PACE_TRANS_SKIP
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+        if (logicOnly && !spriteEntry) {
+#else
         if (logicOnly) {
+#endif
             re4dc_esp_logic_queued = 1;
         }
 #endif
@@ -708,6 +742,16 @@ int EspTrans()
         if (trans == EspCommonTrans && esp->pad_EC[0] == 0 && !(esp->m_Tool_flg & 0x6000)) {
             prio = 8;
         }
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+        if (spriteEntry) {
+            if (!re4dc_esp_coarse_sprite_visible(esp)) {
+                continue;   // wholly outside the view bound (esp_sub.cpp): not queued
+            }
+            // Esp0b_Trans is EspCommonTrans after a camera jitter (Core_flg 0x8000) that draws the shared
+            // Rnd(): a coarse image queues the common body only (same OT priority), so no game state moves.
+            trans = EspCommonTrans;
+        }
+#endif
         if (pG->Status_flg[1] & 2) {
             if (!(esp->info.Core_flg & 0x8000)) {
                 continue;

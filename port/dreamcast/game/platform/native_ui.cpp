@@ -3465,6 +3465,9 @@ void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     b->cuv=PVR_PACK_16BIT_UV(s.u[2]*su,s.v[2]*sv);
 }
 }
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE builds (native_static.cpp)
+#endif
 // EFFECT_SPRITES (effects30.mk): one effect sprite from EspCommonTrans. Never aborts the
 // frame: without texture, over the per-frame cap or without queue room the sprite is dropped.
 extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
@@ -3472,6 +3475,20 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     if(fx_frame!=frame){fx_frame=frame;fx_count=0;}
     if((s->color>>24)==0){++fx_culled;return 0;}
     for(unsigned i=0;i<4;++i)if(!std::isfinite(s->x[i]) || !std::isfinite(s->y[i]) || !std::isfinite(s->z[i])){++fx_culled;return 0;}
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    {   // EFFECT_ROOM: spend the cap and the queue only on sprites that can change a pixel. Off screen:
+        // all four corners past one edge of the 640x480 frame. Beyond the fog: every corner deeper than
+        // the fogged View far, where the fog table is at 100% (the sprite is the fog colour there).
+        float x0=s->x[0],x1=s->x[0],y0=s->y[0],y1=s->y[0],zmax=s->z[0];
+        for(unsigned i=1;i<4;++i){
+            x0=std::min(x0,s->x[i]);x1=std::max(x1,s->x[i]);y0=std::min(y0,s->y[i]);y1=std::max(y1,s->y[i]);
+            zmax=std::max(zmax,s->z[i]);
+        }
+        if(x1<0.0f || x0>640.0f || y1<0.0f || y0>480.0f){++fx_culled;return 0;}
+        const float fog_far=(!s->screen && re4dc_fog_gate_far)?re4dc_fog_gate_far():0.0f;
+        if(fog_far>0.0f && zmax*fog_far<1.0f){++fx_culled;return 0;}
+    }
+#endif
     if(fx_count>=RE4DC_EFFECT_SPRITE_MAX){++fx_capped;return 0;}
 #if RE4DC_UI_HANDLES
     Entry* e=resolve(s->image,nullptr,true);

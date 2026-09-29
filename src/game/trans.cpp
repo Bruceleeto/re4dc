@@ -526,6 +526,9 @@ static int coarseTick;
 #define PTSK(b) ((RE4DC_PACE_TRANS_SKIP & (b)) && re4dc_pace_skipping)
 #if RE4DC_PACE_TRANS_SKIP
 extern "C" int re4dc_esp_logic_only, re4dc_esp_logic_queued;
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+extern "C" int re4dc_esp_sprite_pass;   // esp.cpp (COARSE_FX_SPRITES, effects30.mk)
+#endif
 #endif
 #if RE4DC_PACE_CHECK
 extern "C" void re4dc_pace_check(int phase);
@@ -739,8 +742,14 @@ void Trans()
             EspTrans();
         } else if (RE4DC_PACE_TRANS_SKIP & 2048) {
             re4dc_esp_logic_only = 1;
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+            re4dc_esp_sprite_pass = coarseTick && !re4dc_pace_drop_models;   // a drawn coarse image
+#endif
             EspTrans();
             re4dc_esp_logic_only = 0;
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+            re4dc_esp_sprite_pass = 0;
+#endif
         }
     }
     if (!(pG->Disp_flg & 0x01000000)) {

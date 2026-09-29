@@ -717,8 +717,14 @@ void draw_actors(Out& o)
 // ------------------------------------------------------------------ effects
 inline unsigned byte255(float v) { return v <= 0.0f ? 0u : v >= 255.0f ? 255u : (unsigned) v; }
 
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+extern "C" int re4dc_esp_sprite_class(cEsp* esp);   // esp_sub.cpp (COARSE_FX_SPRITES, effects30.mk)
+#endif
 void draw_effects(Out& o)
 {
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES >= 2
+    return;   // the sprite classes draw in the effect OT; no markers for the rest
+#endif
     cEspSystem* sys = g_pEspSys;
     if (!sys || !sys->pEspBuf) {
         return;
@@ -734,6 +740,11 @@ void draw_effects(Out& o)
         if ((u8) (e->m_Parts_no + 8) <= 5) {
             continue;   // screen sprite (Parts_no 0xF8 .. 0xFD)
         }
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
+        if (re4dc_esp_sprite_class(e)) {
+            continue;   // a native sprite in the effect OT (esp.cpp queued its EspCommonTrans)
+        }
+#endif
         if (e->m_Col_a < 64.0f) {
             continue;   // faint (ambient haze, fading smoke): opaque here, it would hide the view
         }
