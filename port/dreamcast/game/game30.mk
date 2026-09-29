@@ -95,6 +95,33 @@ MOTION_OOM_EVICT ?= 0
 ifneq ($(MOTION_OOM_EVICT),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_OOM_EVICT=$(MOTION_OOM_EVICT)
 endif
+# GAME_WPAL_FAST=1 (trans.cpp, render only, exact, default 0): MakeWeightPalette keeps its 12 sums in
+#                  registers and stores the palette entry transposed directly (same operations, same order;
+#                  no per-entry memclr / PSMTXReorder call). =2 (check build): the reference loop re-runs
+#                  and compares the palette words ("WPAL ... mismatch=" lines). =3: the loop in
+#                  platform/wpal_sh4.S (same operations, two temps interleaved); =4: its check build.
+# GAME_SK1_ASM=1 (trans.cpp, render only, exact, default 0): the off-PowerPC CalcSk1_x / CalcSk1_x2 source
+#                skinning loops (morphed infos, Render() materialisation) in platform/sk1_sh4.S: same
+#                operations, three components interleaved. =2 (check build): the C loop re-runs and
+#                compares ("SK1 ... mismatch=" lines).
+GAME_SK1_ASM ?= 0
+ifneq ($(GAME_SK1_ASM),0)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_SK1_ASM=$(GAME_SK1_ASM)
+PLATFORM_OBJS += $(OBJDIR)/platform/sk1_sh4.o
+$(OBJDIR)/platform/sk1_sh4.o: platform/sk1_sh4.S
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -c $< -o $@
+endif
+GAME_WPAL_FAST ?= 0
+ifneq ($(GAME_WPAL_FAST),0)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_WPAL_FAST=$(GAME_WPAL_FAST)
+ifneq ($(filter 3 4,$(GAME_WPAL_FAST)),)
+PLATFORM_OBJS += $(OBJDIR)/platform/wpal_sh4.o
+$(OBJDIR)/platform/wpal_sh4.o: platform/wpal_sh4.S
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -c $< -o $@
+endif
+endif
 # GAME_SINCOS=1 (design-logic P6, needs GAME_TRIG=1): RotMatrix and the SDK rotation builders take sin and
 #                    cos of one angle from re4dc_sincosf (game30_trig.c: one |x| test and argument reduction,
 #                    the same kernels): bit-identical by construction, all 2^32 inputs checked on the host
@@ -1689,6 +1716,12 @@ endif
 ACTOR_CENSUS ?= 0
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS) -DRE4DC_ACTOR_CENSUS_SKIP_OBJ00=$(ACTOR_CENSUS_SKIP_OBJ00)
 ACTOR_CENSUS_SKIP_OBJ00 ?= 0
+# SKIN_CENSUS=1 (diagnostic, trans.cpp): SKINCEN log lines, Trans() skinned infos per 120 frames (deferred
+#               to the native actor path / defer failed / CPU-skinned by CalcSk1_x / morphed).
+SKIN_CENSUS ?= 0
+ifneq ($(SKIN_CENSUS),0)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_SKIN_CENSUS=1
+endif
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS)
 
 # QUALITY_LOD_PX (default 5, the Standard RQ_LOD_COARSE threshold): the projected-pixel error Standard's mesh

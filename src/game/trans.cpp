@@ -454,6 +454,13 @@ extern "C" unsigned char re4dc_locked_cache[];
 static void CalcSk1_x2(void* dst, void* src, u32 n);
 static int MakeWeightPaletteExt(WeightExt* w, int n);
 static int MakeWeightPalette(Weight* w, int n);
+#if RE4DC_SKIN_CENSUS
+// SKIN_CENSUS (diagnostic): Trans() skinned infos per 120 frames: deferred to the native actor path,
+// defer failed, skinned on the CPU here (CalcSk1_x), and of those morphed (be_flag & 2); "infos/verts".
+extern "C" void re4dc_log(const char* fmt, ...);
+static u32 skincen_f0, skincen_def, skincen_defv, skincen_fail, skincen_failv, skincen_cpu, skincen_cpuv,
+    skincen_morph, skincen_morphv;
+#endif
 static void updateMatrices(Mtx m, Mtx dst, cModel* model);
 static void RefractShaderSetup(cModel* m, cModelInfo* info, ModelPart* part, Mtx mv);
 }
@@ -1262,7 +1269,25 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
             re4dc_model_source_span(1,dc_stamp);
 #endif
             dc_palette_built = 1;
+#if RE4DC_SKIN_CENSUS
+            // SKIN_CENSUS (diagnostic): Trans() infos by path, per 120 frames.
+            {
+                const int ok = re4dc_skin_defer_lazy(info, d);
+                if (ok) { ++skincen_def; skincen_defv += d->nVtx; } else { ++skincen_fail; skincen_failv += d->nVtx; }
+                if (ok) {
+                    info->pPosBuf[pG->vtx_buf_no] = 0;
+                    info->pNrmBuf[pG->vtx_buf_no] = 0;
+                    setupGQR6(0x32073207);
+                    if (d->flags & 0x20000000) {
+                        setupGQR6(0x20062006);
+                    }
+                    continue;
+                }
+            }
+            if (0) {
+#else
             if (re4dc_skin_defer_lazy(info, d)) {
+#endif
                 info->pPosBuf[pG->vtx_buf_no] = 0;
                 info->pNrmBuf[pG->vtx_buf_no] = 0;
                 setupGQR6(0x32073207);
@@ -1365,6 +1390,18 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
 #endif
 #if defined(__sh__)
         dc_stamp=re4dc_model_source_stamp();
+#endif
+#if RE4DC_SKIN_CENSUS
+        ++skincen_cpu; skincen_cpuv += nVtx;
+        if (info->be_flag & 2) { ++skincen_morph; skincen_morphv += nVtx; }
+        if (pG->Frame_cnt - skincen_f0 >= 120) {
+            re4dc_log("SKINCEN frame=%u deferred=%u/%u defer_failed=%u/%u cpu=%u/%u morph=%u/%u\n", pG->Frame_cnt,
+                      skincen_def, skincen_defv, skincen_fail, skincen_failv, skincen_cpu, skincen_cpuv, skincen_morph,
+                      skincen_morphv);
+            skincen_f0 = pG->Frame_cnt;
+            skincen_def = skincen_defv = skincen_fail = skincen_failv = skincen_cpu = skincen_cpuv = 0;
+            skincen_morph = skincen_morphv = 0;
+        }
 #endif
         CalcSk1_x(info->pPosBuf[pG->vtx_buf_no], src, nVtx);
 #if defined(__sh__)
@@ -1478,6 +1515,12 @@ static int MakeWeightPaletteExt(WeightExt* w0, int n)
 
 // Builds the blended skinning matrices for the weight table (sum of parts matrices x weights, the
 // last weight takes the remainder). Returns the count.
+#if RE4DC_WPAL_FAST == 2 || RE4DC_WPAL_FAST == 4
+extern "C" void re4dc_log(const char* fmt, ...);
+#endif
+#if RE4DC_WPAL_FAST >= 3
+extern "C" int re4dc_wpal_sh4(const Weight* w, int n, const f32* mtx, f32* dst);  // platform/wpal_sh4.S
+#endif
 static int MakeWeightPalette(Weight* w0, int n)
 {
     GxWork* gx = GXWORK();
@@ -1491,6 +1534,109 @@ static int MakeWeightPalette(Weight* w0, int n)
         return 0;
     }
     cnt = 0;
+#if RE4DC_WPAL_FAST
+    // GAME_WPAL_FAST (game30.mk; render only, exact): the same per-element operations in the same
+    // order (m = ((0 + s0 * r0) + s1 * r1) ..., contract off), accumulated in registers and stored
+    // transposed straight into the palette: the reference spilled all 12 sums to the stack after every
+    // weight and called memclr_asm and PSMTXReorder per entry. =3: the same loop in platform/wpal_sh4.S
+    // (two temps interleaved). =2 / =4 (check builds of =1 / =3): the reference loop runs after and the
+    // palette words are compared ("WPAL" lines).
+#if RE4DC_WPAL_FAST >= 3
+    cnt = re4dc_wpal_sh4(w0, n, (const f32*) gx->mtx, (f32*) RE4DC_LC_PALETTE);
+#else
+    for (i = 0; i < n; i++, wa += sizeof(Weight)) {
+        const int num = w->num;
+        f32 m00 = 0.0f, m01 = 0.0f, m02 = 0.0f, m03 = 0.0f;
+        f32 m10 = 0.0f, m11 = 0.0f, m12 = 0.0f, m13 = 0.0f;
+        f32 m20 = 0.0f, m21 = 0.0f, m22 = 0.0f, m23 = 0.0f;
+        f32 total = 0.0f;
+        for (int j = 0; j < num; j++) {
+            f32 rate;
+            PSQ_L_U8_TO(rate, &w->wht[j]);
+            rate *= 0.01f;
+            if (j == num - 1) {
+                rate = 1.0f - total;
+            }
+            total += rate;
+            const f32* s = (const f32*) gx->mtx[w->id[j]];
+            m00 += s[0] * rate;
+            m01 += s[1] * rate;
+            m02 += s[2] * rate;
+            m03 += s[3] * rate;
+            m10 += s[4] * rate;
+            m11 += s[5] * rate;
+            m12 += s[6] * rate;
+            m13 += s[7] * rate;
+            m20 += s[8] * rate;
+            m21 += s[9] * rate;
+            m22 += s[10] * rate;
+            m23 += s[11] * rate;
+        }
+        cnt += num;
+        f32* d = (f32*) (RE4DC_LC_PALETTE + i * 0x30);
+        d[0] = m00;
+        d[1] = m10;
+        d[2] = m20;
+        d[3] = m01;
+        d[4] = m11;
+        d[5] = m21;
+        d[6] = m02;
+        d[7] = m12;
+        d[8] = m22;
+        d[9] = m03;
+        d[10] = m13;
+        d[11] = m23;
+    }
+#endif
+#if RE4DC_WPAL_FAST == 2 || RE4DC_WPAL_FAST == 4
+    {
+        static u32 wpal_entries, wpal_words, wpal_bad, wpal_calls;
+        u32 fast[12];
+        wa = (u32) w0;
+        for (i = 0; i < n; i++, wa += sizeof(Weight)) {
+            u32* d = (u32*) (RE4DC_LC_PALETTE + i * 0x30);
+            memcpy(fast, d, sizeof(fast));
+            Mtx m;
+            f32 total = 0.0f;
+            memclr_asm(m, sizeof(Mtx));
+            for (int j = 0; j < w->num; j++) {
+                f32 rate;
+                f32* s;
+                PSQ_L_U8_TO(rate, &w->wht[j]);
+                rate *= 0.01f;
+                if (j == w->num - 1) {
+                    rate = 1.0f - total;
+                }
+                total += rate;
+                s = (f32*) gx->mtx[w->id[j]];
+                m[0][0] += *s++ * rate;
+                m[0][1] += *s++ * rate;
+                m[0][2] += *s++ * rate;
+                m[0][3] += *s++ * rate;
+                m[1][0] += *s++ * rate;
+                m[1][1] += *s++ * rate;
+                m[1][2] += *s++ * rate;
+                m[1][3] += *s++ * rate;
+                m[2][0] += *s++ * rate;
+                m[2][1] += *s++ * rate;
+                m[2][2] += *s++ * rate;
+                m[2][3] += *s++ * rate;
+            }
+            PSMTXReorder(m, (f32(*)[3]) d);
+            ++wpal_entries;
+            for (int k = 0; k < 12; k++) {
+                ++wpal_words;
+                if (fast[k] != d[k]) ++wpal_bad;
+            }
+        }
+        if ((++wpal_calls & 4095) == 0) {
+            re4dc_log("WPAL calls=%u entries=%u words=%u mismatch=%u\n", wpal_calls, wpal_entries, wpal_words,
+                      wpal_bad);
+        }
+    }
+#endif
+    return cnt;
+#endif
     for (i = 0; i < n; i++, wa += sizeof(Weight)) {
         Mtx m;
         f32 total;
@@ -3933,12 +4079,77 @@ static inline s32 psQuant(f32 v, s32 lo, s32 hi)
     return (s32) v;  // C truncation == round toward zero
 }
 
+#if RE4DC_SK1_ASM
+// GAME_SK1_ASM (game30.mk; render only, exact): the two loops below in platform/sk1_sh4.S (same
+// operations, the three components interleaved, psQuant as ftrc + an integer range test). =2 (check
+// build): the C loop re-runs into locals and compares every component ("SK1" lines).
+extern "C" void re4dc_sk1_s16(s16* dst, const s16* src, u32 n, const f32* pal, f32 ls, f32 ss);
+extern "C" void re4dc_sk1_s8(s8* dst, const s8* src, u32 n, const f32* pal, f32 ls, f32 ss);
+#if RE4DC_SK1_ASM == 2
+extern "C" void re4dc_log(const char* fmt, ...);
+static u32 sk1_calls, sk1_words, sk1_bad, sk1_inplace, sk1_skipped;
+static void sk1_note(u32 words, u32 bad)
+{
+    sk1_words += words;
+    sk1_bad += bad;
+    if ((++sk1_calls & 1023) == 0) {
+        re4dc_log("SK1 calls=%u words=%u mismatch=%u inplace=%u skipped=%u\n", sk1_calls, sk1_words, sk1_bad,
+                  sk1_inplace, sk1_skipped);
+    }
+}
+// Morphed infos skin in place (src = pPosBuf = dst): the check compares against a copy of the source.
+static u8 sk1_src_copy[64 * 1024] __attribute__((aligned(8)));
+static const void* sk1_source(const void* src, const void* dst, u32 bytes, u32 dbytes)
+{
+    const u8* s = (const u8*) src;
+    const u8* d = (const u8*) dst;
+    if (s + bytes <= d || d + dbytes <= s) {
+        return src;
+    }
+    ++sk1_inplace;
+    if (bytes > sizeof(sk1_src_copy)) {
+        ++sk1_skipped;
+        return nullptr;
+    }
+    memcpy(sk1_src_copy, src, bytes);
+    return sk1_src_copy;
+}
+#endif
+#endif
+
 static void CalcSk1_x(void* dst, void* src, u32 n)
 {
     s16* d = (s16*) dst;
     const s16* s = (const s16*) src;
     const f32 ls = gqrScale(g_gqr6 >> 16);
     const f32 ss = 1.0f / gqrScale(g_gqr6 & 0xFFFF);
+#if RE4DC_SK1_ASM
+#if RE4DC_SK1_ASM == 2
+    const s16* s_check = (const s16*) sk1_source(s, d, n * 8, n * 6);
+#endif
+    re4dc_sk1_s16(d, s, n, (const f32*) RE4DC_SKIN_PALETTE, ls, ss);
+#if RE4DC_SK1_ASM == 2
+    if (!s_check) {
+        return;
+    }
+    s = s_check;
+    u32 bad = 0;
+    for (u32 i = 0; i < n; i++, s += 4, d += 3) {
+        const f32* m = (const f32*) (RE4DC_SKIN_PALETTE + (u32) ((s32) s[3] * 0x30));
+        f32 x = (f32) s[0] * ls;
+        f32 y = (f32) s[1] * ls;
+        f32 z = (f32) s[2] * ls;
+        f32 ox = x * m[0] + y * m[3] + z * m[6] + m[9];
+        f32 oy = x * m[1] + y * m[4] + z * m[7] + m[10];
+        f32 oz = x * m[2] + y * m[5] + z * m[8] + m[11];
+        bad += d[0] != (s16) psQuant(ox * ss, -32768, 32767);
+        bad += d[1] != (s16) psQuant(oy * ss, -32768, 32767);
+        bad += d[2] != (s16) psQuant(oz * ss, -32768, 32767);
+    }
+    sk1_note(n * 3, bad);
+#endif
+    return;
+#endif
     for (u32 i = 0; i < n; i++, s += 4, d += 3) {
         const f32* m = (const f32*) (RE4DC_SKIN_PALETTE + (u32) ((s32) s[3] * 0x30));
         f32 x = (f32) s[0] * ls;
@@ -3959,6 +4170,33 @@ static void CalcSk1_x2(void* dst, void* src, u32 n)
     const s8* s = (const s8*) src;
     const f32 ls = gqrScale(g_gqr6 >> 16);
     const f32 ss = 1.0f / gqrScale(g_gqr6 & 0xFFFF);
+#if RE4DC_SK1_ASM
+#if RE4DC_SK1_ASM == 2
+    const s8* s_check = (const s8*) sk1_source(s, d, n * 4, n * 3);
+#endif
+    re4dc_sk1_s8(d, s, n, (const f32*) RE4DC_SKIN_PALETTE, ls, ss);
+#if RE4DC_SK1_ASM == 2
+    if (!s_check) {
+        return;
+    }
+    s = s_check;
+    u32 bad = 0;
+    for (u32 i = 0; i < n; i++, s += 4, d += 3) {
+        const f32* m = (const f32*) (RE4DC_SKIN_PALETTE + (u32) ((u8) s[3] * 0x30));
+        f32 x = (f32) s[0] * ls;
+        f32 y = (f32) s[1] * ls;
+        f32 z = (f32) s[2] * ls;
+        f32 ox = x * m[0] + y * m[3] + z * m[6] + m[9];
+        f32 oy = x * m[1] + y * m[4] + z * m[7] + m[10];
+        f32 oz = x * m[2] + y * m[5] + z * m[8] + m[11];
+        bad += d[0] != (s8) psQuant(ox * ss, -128, 127);
+        bad += d[1] != (s8) psQuant(oy * ss, -128, 127);
+        bad += d[2] != (s8) psQuant(oz * ss, -128, 127);
+    }
+    sk1_note(n * 3, bad);
+#endif
+    return;
+#endif
     for (u32 i = 0; i < n; i++, s += 4, d += 3) {
         const f32* m = (const f32*) (RE4DC_SKIN_PALETTE + (u32) ((u8) s[3] * 0x30));
         f32 x = (f32) s[0] * ls;

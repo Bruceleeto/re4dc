@@ -3545,6 +3545,9 @@ extern "C" int re4dc_actor_skin_register(unsigned frame, const void* info, const
     return 1;
 }
 
+#if RE4DC_ACTOR_CENSUS
+namespace { unsigned* census_mat_row; }  // ACTOR_CENSUS: the current part's row "mat" counter
+#endif
 extern "C" const float* re4dc_actor_skin_palette(const void* info, const void* position_buffer, unsigned* entries) {
     const SkinEntry* e = find_skin(info, position_buffer);
     if (!e || e->materialized) { *entries = 0; return nullptr; }
@@ -3559,6 +3562,9 @@ extern "C" void re4dc_actor_materialize(const Re4dcModelPart* p) {
     re4dc_skin_materialize(e->info, e->palette);
     e->materialized = 1;
     ++stats.materialized_infos;
+#if RE4DC_ACTOR_CENSUS
+    if (census_mat_row) *census_mat_row += 1;
+#endif
 }
 
 #if RE4DC_NATIVE_ACTOR_SKIN_LAZY
@@ -3570,6 +3576,9 @@ extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p) {
         if (!re4dc_skin_materialize(e->info, e->palette)) return 0;
         e->materialized = 1;
         ++stats.materialized_infos;
+#if RE4DC_ACTOR_CENSUS
+        if (census_mat_row) *census_mat_row += 1;
+#endif
     }
     return re4dc_actor_model_buffers(p);
 }
@@ -3599,7 +3608,7 @@ extern "C" unsigned re4dc_actor_census_vptr(const void*);
 extern "C" void re4dc_actor_census_describe(const void*, unsigned);
 extern "C" unsigned re4dc_ui_frame();
 namespace {
-struct CensusRow { unsigned key, parts, verts, vptr, nv, nt, culled, lvl; };
+struct CensusRow { unsigned key, parts, verts, vptr, nv, nt, culled, lvl, dec, decv, mat; };
 CensusRow* census_cur;
 CensusRow census_rows[48]; unsigned census_frame0; bool census_started;
 void census_note(const Re4dcModelPart& p) {
@@ -3612,8 +3621,8 @@ void census_note(const Re4dcModelPart& p) {
                 if (census_rows[i].parts && (best == 48 || census_rows[i].verts > census_rows[best].verts)) best = i;
             if (best == 48) break;
             const CensusRow& r = census_rows[best];
-            re4dc_log("ACENSUS frame=%u id=%02x ot=%u nparts=%u parts=%u verts=%u per_frame_verts=%u vptr=%08x nv_pf=%u nt_pf=%u culled_nv=%u lvl_sum=%u\n", frame,
-                      r.key & 0xffU, (r.key >> 8) & 0xffU, r.key >> 16, r.parts, r.verts, r.verts / (frame - census_frame0), r.vptr, r.nv / (frame - census_frame0), r.nt / (frame - census_frame0), r.culled, r.lvl);
+            re4dc_log("ACENSUS frame=%u id=%02x ot=%u nparts=%u parts=%u verts=%u per_frame_verts=%u vptr=%08x nv_pf=%u nt_pf=%u culled_nv=%u lvl_sum=%u dec=%u dec_verts=%u mat=%u\n", frame,
+                      r.key & 0xffU, (r.key >> 8) & 0xffU, r.key >> 16, r.parts, r.verts, r.verts / (frame - census_frame0), r.vptr, r.nv / (frame - census_frame0), r.nt / (frame - census_frame0), r.culled, r.lvl, r.dec, r.decv, r.mat);
             census_rows[best].parts = 0;
         }
         for (auto& r : census_rows) r = CensusRow{};
@@ -3622,33 +3631,38 @@ void census_note(const Re4dcModelPart& p) {
     const unsigned key = re4dc_actor_census_key(p.model);
     if (key == 0x00010000U) re4dc_actor_census_describe(p.model, p.position_count);
     for (auto& r : census_rows)
-        if (r.key == key || !r.parts) { if (!r.parts) r.vptr = re4dc_actor_census_vptr(p.model); r.key = key; ++r.parts; r.verts += p.position_count; census_cur = &r; return; }
+        if (r.key == key || !r.parts) { if (!r.parts) r.vptr = re4dc_actor_census_vptr(p.model); r.key = key; ++r.parts; r.verts += p.position_count; census_cur = &r; census_mat_row = &r.mat; return; }
 }
 }
+#endif
+#if RE4DC_ACTOR_CENSUS
+#define RE4DC_CENSUS_DEC(pp) do { if (census_cur) { ++census_cur->dec; census_cur->decv += (pp) ? (pp)->position_count : 0; } } while (0)
+#else
+#define RE4DC_CENSUS_DEC(pp) do { } while (0)
 #endif
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
 #if RE4DC_ACTOR_CENSUS
-    census_cur = nullptr;
+    census_cur = nullptr; census_mat_row = nullptr;
     if (part) census_note(*part);
 #if RE4DC_ACTOR_CENSUS_SKIP_OBJ00
     // Diagnostic A/B only: cObj00 room objects (id 0, ot 0, one part) are not drawn.
     if (part && re4dc_actor_census_key(part->model) == 0x00010000U) { re4dc_model_result(0, 0, 0); return 1; }
 #endif
 #endif
-    if (!part || !qualifies(*part)) { ++stats.declined; return 0; }
+    if (!part || !qualifies(*part)) { ++stats.declined; RE4DC_CENSUS_DEC(part); return 0; }
     const Re4dcModelPart& p = *part;
     const float near_distance = p.projection[6] / (p.projection[5] - 1.0f);
     const float far_distance = p.projection[6] / p.projection[5];
     if (!re4dc::render::is_finite(near_distance) || !re4dc::render::is_finite(far_distance) ||
-        near_distance <= 0.0f || far_distance <= near_distance) { ++stats.declined; return 0; }
+        near_distance <= 0.0f || far_distance <= near_distance) { ++stats.declined; RE4DC_CENSUS_DEC(part); return 0; }
     const unsigned mark = workspace_top;
     struct Release { unsigned mark; ~Release() { workspace_top = mark; } } release{mark};
     const BlobHeader* blob = blob_of(p);
     int crowd_class = 0;
     if constexpr (kCrowd) crowd_class = re4dc_actor_model_class(p.model, p.info);
     if (kLodBuild && blob && (blob->flags & kLodPending)) relod(p, crowd_class > 0);
-    if (!blob && !(blob = convert(p))) { ++stats.declined; return 0; }
+    if (!blob && !(blob = convert(p))) { ++stats.declined; RE4DC_CENSUS_DEC(part); return 0; }
     const u8* base = reinterpret_cast<const u8*>(blob);
     ++stats.handled;
     if (p.cull == 3) { re4dc_model_result(0, 0, 0); return 1; }
