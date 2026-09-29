@@ -89,6 +89,10 @@ extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h k
 #ifndef RE4DC_MESH_PRIME_LAZY
 #define RE4DC_MESH_PRIME_LAZY 0 // 1: prime only the cache entries meshlets use (exact)
 #endif
+#ifndef RE4DC_MESH_CLIP_LEAN
+#define RE4DC_MESH_CLIP_LEAN 0 // 1: clipper frustum pre-cull + one clip_vertex per corner (exact in pixels)
+#endif
+static constexpr unsigned kClipOnce=16; // MESH_CLIP_LEAN: longer clipped strips take the per-triangle path
 #if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH
 #include "../../room/mesh_fastpath.hpp"
 #endif
@@ -632,6 +636,48 @@ struct Emitter {
                    const Index* index,unsigned count){
         ++stats.strips_clipped;
         float alphas[3]={float(alpha>>24)RE4DC_INV255,float(alpha>>24)RE4DC_INV255,float(alpha>>24)RE4DC_INV255};
+#if RE4DC_MESH_CLIP_LEAN && RE4DC_HW_LEAN && defined(__sh__)
+        // MESH_CLIP_LEAN (exact in pixels). 1) A strip whose corners are all outside one plane of the
+        // frustum {0<=X<=640W, 0<=Y<=480W, near<=W<=far} (homogeneous screen coordinates, W=-z; the
+        // test holds behind the camera too, the region being convex) draws nothing: the clipper would
+        // only produce triangles off that screen edge or outside near/far. 2) Each corner goes through
+        // clip_vertex once, not once per triangle that uses it (the same values, reused).
+        {
+            const float* pp=p.projection;
+            unsigned all=0x3fU;
+            for(unsigned i=0;i<count && all;++i){
+                const auto c=corner(base[index[i]]);
+                const float x=mvq[0]*c.x+mvq[1]*c.y+mvq[2]*c.z+mvq[3];
+                const float y=mvq[4]*c.x+mvq[5]*c.y+mvq[6]*c.z+mvq[7];
+                const float z=mvq[8]*c.x+mvq[9]*c.y+mvq[10]*c.z+mvq[11];
+                const float W=-z;
+                const float X=320.f*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-240.f*(pp[3]*y+pp[4]*z)+proj_by*W;
+                all&=(X<0.0f?1U:0U)|(X>640.0f*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>480.0f*W?8U:0U)|
+                     (W<near?16U:0U)|(W>far?32U:0U);
+            }
+            if(all){++stats.strips_culled;return 1;}
+        }
+        if(count<=kClipOnce){
+            re4dc::render::RenderVertex once[kClipOnce];float once_alpha[kClipOnce];
+            for(unsigned i=0;i<count;++i){
+                const re4dc::render::StaticCorner c=corner(base[index[i]]);
+                clip_vertex(c,batch,once[i]);
+                once_alpha[i]=vertex_alpha?float(c.argb>>24)RE4DC_INV255:alphas[0];
+            }
+            for(unsigned i=2;i<count;++i){
+                const unsigned ia=i-2+(i&1),ib=i-1-(i&1);
+                const re4dc::render::RenderVertex tri[3]={once[ia],once[ib],once[i]};
+                const float ta[3]={once_alpha[ia],once_alpha[ib],once_alpha[i]};
+                if(limit-used<6 && !flush())return submitted?-1:0;
+                const unsigned emitted=re4dc::render::clip_projected_triangle(tri,dst+used,p.cull,clip,nullptr,ta);
+#if RE4DC_MESH_DIRECT
+                if(sq){if(emitted)put(emitted*3);output+=emitted;stats.triangles_clipped+=emitted;continue;}
+#endif
+                used+=emitted*3;output+=emitted;stats.triangles_clipped+=emitted;
+            }
+            return 1;
+        }
+#endif
         for(unsigned i=2;i<count;++i){
             re4dc::render::RenderVertex tri[3];
             const re4dc::render::StaticCorner corners[3]={corner(base[index[i-2+(i&1)]]),

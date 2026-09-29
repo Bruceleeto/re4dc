@@ -1629,6 +1629,13 @@ MESH_PRIME_LAZY ?= 0
 ifneq ($(MESH_PRIME_LAZY),0)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_PRIME_LAZY=$(MESH_PRIME_LAZY)
 endif
+# MESH_CLIP_LEAN=1 (native_static.cpp, needs HW_LEAN=1, default 0): the near/far clipper drops a strip whose
+# corners are all outside one frustum plane (homogeneous test; it would draw no pixels) and runs clip_vertex
+# once per corner instead of once per triangle using it. Exact in pixels; the TA stream loses off-screen triangles.
+MESH_CLIP_LEAN ?= 0
+ifneq ($(MESH_CLIP_LEAN),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLIP_LEAN=$(MESH_CLIP_LEAN)
+endif
 # UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
 # minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".
 UI_HUD_LENS_ALPHA ?= 0
@@ -1651,3 +1658,10 @@ ACTOR_CENSUS ?= 0
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS) -DRE4DC_ACTOR_CENSUS_SKIP_OBJ00=$(ACTOR_CENSUS_SKIP_OBJ00)
 ACTOR_CENSUS_SKIP_OBJ00 ?= 0
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS)
+
+# QUALITY_LOD_PX (default 5, the Standard RQ_LOD_COARSE threshold): the projected-pixel error Standard's mesh
+# LOD accepts (MESH_LOD_PX applies to Original only). Larger values are a visible change.
+QUALITY_LOD_PX ?= 5
+ifneq ($(QUALITY_LOD_PX),5)
+$(OBJDIR)/platform/quality.o: PLATFORM_CPPFLAGS += -DRE4DC_QUALITY_LOD_PX=$(QUALITY_LOD_PX)
+endif

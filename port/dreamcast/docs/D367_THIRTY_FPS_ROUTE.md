@@ -378,6 +378,11 @@ ps2_world_r4im --strip-swaps, gains only -13% strips, -0.4% corners; kept off). 
 cache entries meshlets use; ~30k entries/frame were stamped for ~24k vertices): 93.3 -> **91.5** hw ms, STRICT
 kite-r21lzt; on in tools/d367/build-r21.sh. Next: a software-pipelined meshlet transform (one vertex at a time now,
 ~64 cycles/vertex with fsrra), the near-plane clipper (~20% of MeshDraw::draw for ~170 strips/frame).
+MESH_CLIP_LEAN (exact in pixels): 94% of the strips reaching the near/far clipper were wholly outside one
+frustum plane (ground under the camera); they are dropped by a homogeneous test, and each clipped corner is computed
+once: 91.5 -> **88.4** hw ms, accepted strips identical, STRICT kite-r21clt. World distance detail is on (MESH_LOD;
+Standard uses QUALITY_LOD_PX = 5 px, MESH_LOD_PX only applies to Original): 10 px 86.4, 1000 px (coarsest level
+everywhere) 84.4, so world LOD is worth at most ~4 ms in the kite square (near geometry dominates).
 Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
 objects: the first coarse_finite arm ran with a stale coarse_ganado.o).
 

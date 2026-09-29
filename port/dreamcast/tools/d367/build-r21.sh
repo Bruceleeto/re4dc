@@ -1,7 +1,7 @@
 #!/bin/bash
 # The r21 candidate recipe (landed 2026-09-28, 4fb68a8..36e28e0): the canonical LH + M1 + PERF knobs,
 # the r19 playability integration, the PS2 r101 world through R4IM (PS2_WORLD_MESH=1), the HUD source
-# mask with the 230 lens alpha, MESH_PRIME_LAZY=1 (2026-09-28, -1.8 hw ms, STRICT kite-r21lzt). Traced (LOGIC_TRACE=1, the STRICT gate build) by default; release
+# mask with the 230 lens alpha, MESH_PRIME_LAZY=1 MESH_CLIP_LEAN=1 (2026-09-28, -1.8 hw ms, STRICT kite-r21lzt). Traced (LOGIC_TRACE=1, the STRICT gate build) by default; release
 # measurement adds: LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG=0.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old

@@ -39,11 +39,14 @@ uint32_t file_set, file_clear;     // quality.txt feature overrides
 uint8_t stored_mode = 0xFF;        // mode in the stored record (0xFF: none)
 uint32_t stored_features;
 
+#ifndef RE4DC_QUALITY_LOD_PX
+#define RE4DC_QUALITY_LOD_PX 5 // Standard (RQ_LOD_COARSE) mesh LOD error in projected pixels
+#endif
 void apply(int mode)
 {
     q.mode = uint8_t(mode ? RE4DC_QUALITY_STANDARD : RE4DC_QUALITY_ORIGINAL);
     q.features = ((kPreset[q.mode] | file_set) & ~file_clear & ~uint32_t(RQ_PACE_MASK)) | (q.features & RQ_PACE_MASK);
-    q.lod_px = (q.features & RQ_LOD_COARSE) ? 5.0f : float(RE4DC_MESH_LOD_PX);
+    q.lod_px = (q.features & RQ_LOD_COARSE) ? float(RE4DC_QUALITY_LOD_PX) : float(RE4DC_MESH_LOD_PX);
 }
 
 uint32_t crc32(const uint8_t* p, unsigned n)
@@ -191,7 +194,7 @@ extern "C" void re4dc_quality_toggle(uint32_t feature)
 {
     if (q.frozen) return;
     q.features ^= feature & RQ_WIRED;
-    q.lod_px = (q.features & RQ_LOD_COARSE) ? 5.0f : float(RE4DC_MESH_LOD_PX);
+    q.lod_px = (q.features & RQ_LOD_COARSE) ? float(RE4DC_QUALITY_LOD_PX) : float(RE4DC_MESH_LOD_PX);
 }
 
 extern "C" int re4dc_quality_pace(void)
