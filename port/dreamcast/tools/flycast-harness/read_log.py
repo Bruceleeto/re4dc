@@ -45,6 +45,9 @@ reason = "deadline"
 print("[capture start=%s budget=%s]" % (started,poll),flush=True)
 shown = 0
 last_stage = None
+# Only whole lines are printed: the guest may be mid-append when the head is read, and the
+# "[stage N]" marker printed below would otherwise land inside that line (a false STRICT REJECT).
+pending = ""
 while time.time() < end:
     h = read(head_off, 4)
     if h is None:
@@ -61,13 +64,18 @@ while time.time() < end:
     if head < shown:
         print("[log head decreased: reset or process teardown; not proof of guest reboot]")
         shown = 0
+        pending = ""
     if head > shown:
         if head - shown > LOG_SIZE:
             shown = head - LOG_SIZE
         data = read(buf_off, LOG_SIZE)
         chunk = bytes(data[i % LOG_SIZE] for i in range(shown, head))
-        sys.stdout.write(chunk.decode("ascii", "replace"))
-        sys.stdout.flush()
+        text = pending + chunk.decode("ascii", "replace")
+        cut = text.rfind("\n") + 1
+        pending = text[cut:]
+        if cut:
+            sys.stdout.write(text[:cut])
+            sys.stdout.flush()
         shown = head
     s = read(stage_off, 4)
     stage = struct.unpack("<I", s)[0] if s else None
@@ -75,6 +83,8 @@ while time.time() < end:
         print("[stage %s]" % stage)
         last_stage = stage
     time.sleep(0.005)
+if pending:
+    print(pending)  # the last, unterminated line
 print("[end: head=%d stage=%s]" % (shown, last_stage))
 
 print("[capture stop reason=%s elapsed=%.3f]" % (reason,time.time()-started),flush=True)

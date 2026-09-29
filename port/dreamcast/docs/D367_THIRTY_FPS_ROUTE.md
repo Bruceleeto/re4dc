@@ -418,6 +418,9 @@ post-bell 37.2/34.4 -> 36.8/32.5, r100 east door 45.8/33.8 -> 45.7/32.8, kite 89
 now average under 33.3 ms of work. Traps: -m4-single -ml passes float args pair-swapped (the first float in fr5);
 serial log lines (aica notes, "[stage") can cut into a trace line, so a timing change can make the STRICT audit
 REJECT on one garbled record: compare the records of two runs (every record in the window matching in at least one).
+Fixed (2026-09-29): LOGIC_TRACE=1 builds append each re4dc_log line with interrupts off (RE4DC_LOG_ATOMIC on
+platform/mem.o; the aica sequencer thread preempted the byte loop), and read_log.py prints whole lines only (its
+"[stage N]" marker landed after a line the guest was still appending). Release builds are byte-identical.
 Next candidates by size: the skinned-vertex kernels themselves (avk_pos_skin + avk_light_skin 4.5-6 ms at r101),
 Part::whole (TA emit, 1.1-1.8), per-meshlet overhead in pass_positions (0.7-1.3), actor_submit preflight (~0.2).
 **Correction (2026-09-29): the tour window 400..880 is not all gameplay.** At r101 entry it overlaps the

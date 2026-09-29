@@ -996,6 +996,9 @@ endif
 
 ifeq ($(LOGIC_TRACE),1)
 PLATFORM_OBJS += $(OBJDIR)/logic_trace.o
+# One uninterruptible append per re4dc_log call (platform/mem.cpp), so other threads' log lines
+# cannot cut into a trace line. Trace builds only: release mem.o is unchanged.
+$(OBJDIR)/platform/mem.o: PLATFORM_CPPFLAGS += -DRE4DC_LOG_ATOMIC=1
 $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/rnd.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE=1
 $(OBJDIR)/logic_trace.o: logic_trace.cpp
 	@mkdir -p $(dir $@)
