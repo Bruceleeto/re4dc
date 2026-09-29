@@ -12,8 +12,10 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   cut; only =2 is test-only). Test spots use a `DBG_WARP=1` twin; the pad fixture works without it.
 - Disc: `debug/config.txt` ROOM 0x20 (New Game -> r120 intro), no `dc/quality.txt`, the r100 release (route fix e)
   re-cut from the disc's own r100.dar (A1 blocks + A2 archive; the old A2 dar would drop r100's AICA overlay).
-- World: r101 PS2 world through PS2_WORLD_MESH with the adopted 64-vertex package; r100/r103 Standard scenery through
-  COARSE_SCENERY_FALLBACK until their PS2 worlds exist (step 5).
+- World: the PS2 world in r100, r101 and r103 through PS2_WORLD_MESH + PS2_WORLD_ROOMS=2 (64-vertex packages; r101
+  the adopted world-mesh-r21 package, r100/r103 from tools/ps2_room_r4im.py). The disc must stage
+  dc/native/r100|r101|r103/ps2-world.{re4mesh,r4pw} and their dc/tex files (tour/play/*-pw.json); a room whose
+  package is missing falls back to its Standard scenery.
 
 ## Steps
 
@@ -25,7 +27,7 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
 | 3 | POST_F00 (Filter00 glow + contrast) + PVR_DITHER | done: off | a7dbcd3a landed default off, ~0 ms. Decision 2026-09-29 (user asked for my call): off in the play build. On the r101 PS2 world (r101-entry fixture) the play build is already at / above GameCube brightness (view mean 47 vs Dolphin r101 26-44); =1 / =4 lift it to 68 / 67. The "matches GC with Filter00" note came from the source-renderer world. PVR_DITHER is a no-op (KOS already dithers). Note: the default kite fixture stages no PS2 world (PS2MESH open failed, flat fallback): judge looks on rel-r101-entry |
 | 4 | (parked for 5, worktree step4: U0/U1/U6 applied, U2 anchor stale) Door loading U6 (DVD_WAIT, DVD_FDCACHE, IO_ALIGNED, TEX_KEEP); main-checkout extras (mkdisc.sh, tests, bake_room_prelit.py); PACE_PAGE vs the Options row | todo | |
 | 5 | r100 + r103 PS2 worlds: extraction -> ps2_world_r4im -> any-room PS2_WORLD_MESH runtime | done (moved ahead of 4, user 2026-09-29: the fixes must be seen in the new world) | PS2_WORLD_ROOMS=2 in build-r21.sh. tools/ps2_room_r4im.py builds any room from the JADERLINK OBJ export (r101 reproduces the committed package: 190 meshes / 209 placements / level 0 47,770 vs 47,772; every triangle matches the wrapper in winding, UV, colour bytes, texture). r100 1.65 MB (177 meshes / 283 placements, 106 instanced), r103 1.14 MB. =2 opens the package at the room's first scenery bind and skips the Standard scenery package (r103 cannot hold both: 80 KiB heap-4 reserve); non-coarse images (route movies, events) draw the PS2 world at their first scenery part. Heap 4 free after open: r100 3.80 MB, r101 4.12 MB, r103 4.39 MB. Flycast steady ms control -> =2: r100 s20 37.1 -> 37.3, post-radio 26.8 -> 26.0, r101 entry 79.1 -> 78.8, r103 entry 67.3 -> 58.4. Knob-off identity; STRICT (traced, r101 package staged) passes 0..1941. Look: r100 forest floor / trees and r103 fences, house, trees now drawn (Standard showed dark ground and placeholder squares). Open: r100 authored colours are mostly saturated (median vc 1.99 vs r101 0.41), e.g. the gate hedge after the radio call is flat and bright; PS2 SMX colour semantics unknown. Staging: tour/*-pw.json (make-pw-fixtures.py); the play disc needs the same files |
-| 6 | Full scripted run title -> r103 with screenshots (scenery, effects, manual, ambush); Windows + SteamOS packages | todo | |
+| 6 | Full scripted run title -> r103 with screenshots (scenery, effects, manual, ambush); Windows + SteamOS packages | in progress | Play disc r21i (2026-09-29): ELF pw4 = ad0c59d0 recipe + DBG_WARP=0 (checklist play flags), tour/play/title-pw.json -> C:\\RE4DC-Play-Discs\\r21i-title (disc sha 13291cb6), launcher D:\\RE4DC-Play\\Play-r21i-PS2-Worlds.cmd. New Game pad fixture (newgame-pw, 720 s): r120 intro -> r100 with the PS2 world, no halt |
 | 7 | Clean up the local copies (186 clones/worktrees, 35 plain trees) once nothing unlanded remains | todo | |
 
 ## Known open items outside these steps
