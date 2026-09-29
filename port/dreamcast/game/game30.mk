@@ -112,6 +112,12 @@ $(OBJDIR)/platform/sk1_sh4.o: platform/sk1_sh4.S
 	@mkdir -p $(dir $@)
 	kos-cc $(KOS_CFLAGS) -c $< -o $@
 endif
+# ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
+#                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
+ACTOR_STATS_LEAN ?= 0
+ifneq ($(ACTOR_STATS_LEAN),0)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_STATS_LEAN=1
+endif
 GAME_WPAL_FAST ?= 0
 ifneq ($(GAME_WPAL_FAST),0)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_WPAL_FAST=$(GAME_WPAL_FAST)

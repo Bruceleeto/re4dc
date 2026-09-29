@@ -132,7 +132,37 @@ using u32 = std::uint32_t;
 using re4dc::render::SourceLight;
 using re4dc::render::SourceLighting;
 
+#if RE4DC_ACTOR_STATS_LEAN && !RE4DC_ACTOR_LOG
+// ACTOR_STATS_LEAN (game30.mk; exact): the statistics only the NATIVE_ACTOR_LOG line reads compile to
+// nothing (they were ~9% of re4dc_actor_submit: a load / add / store per counter per meshlet). Only
+// `triangles` is live: coarse_ganado reads it through re4dc_actor_stats().
+Re4dcActorStats stats_live{};
+struct NopStat {
+    NopStat& operator++() { return *this; }
+    NopStat& operator+=(unsigned) { return *this; }
+    NopStat& operator-=(unsigned) { return *this; }
+    NopStat& operator=(unsigned) { return *this; }
+    operator unsigned() const { return 0; }
+};
+struct LeanStats {
+    NopStat parts, handled, declined, deferred, culled_infos, culled_parts;
+    NopStat info_preparations, position_transforms, light_sets, normals_lit;
+    NopStat corners, runs, fallback_runs, fallback_triangles, flushes;
+    NopStat workspace_misses, attenuated_lights, near_vertices;
+    NopStat conversions, conversion_rejects, meshlets, meshlets_culled, meshlets_clipped;
+    NopStat vertices, slow_light_vertices, skinned_parts, materialized_infos, skin_registered;
+    NopStat transient_conversions, strips_culled, meshlets_whole;
+    NopStat lod_parts, lod_rebuilds, lod_draws[4], bake_hits, bake_scaled, bake_builds, uv16_parts;
+    NopStat skin_dir_sets;
+    NopStat crowd_models, crowd_parts[4], crowd_triangles[4];
+    unsigned& triangles = stats_live.triangles;
+};
+LeanStats stats;
+#define RE4DC_STATS_OBJECT stats_live
+#else
 Re4dcActorStats stats{};
+#define RE4DC_STATS_OBJECT stats
+#endif
 unsigned char* workspace = nullptr;
 unsigned workspace_bytes = 0, frame_serial = 0;
 
@@ -3492,7 +3522,7 @@ extern "C" void re4dc_actor_frame(void* memory, unsigned bytes) {
 #endif
 }
 
-extern "C" const Re4dcActorStats* re4dc_actor_stats() { return &stats; }
+extern "C" const Re4dcActorStats* re4dc_actor_stats() { return &RE4DC_STATS_OBJECT; }
 extern "C" unsigned re4dc_actor_workspace_want() { return lod_wanted_last && lod_budget_frame ? kLodWorkspaceBytes : 0U; }
 #if defined(RE4DC_ACTOR_TEST)
 // Test: the LOD build budget left in the current frame.
