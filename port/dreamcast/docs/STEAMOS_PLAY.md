@@ -25,7 +25,7 @@ run on a Deck: report anything that differs.
    - `gh auth login` is interactive (browser / device code): the user signs in; an agent must not
      type the user's password or create tokens for them.
    - A sha256 mismatch deletes the download and stops. Do not work around it.
-3. Play: run `play.sh` in the extracted build (fullscreen from the title), or start it from Steam.
+3. Play: run `play.sh` in the extracted build (in a window from the title), or start it from Steam.
 4. Record (Desktop Mode): `~/Games/RE4DC/record.sh [out.mp4]`. The first run shows the desktop's
    screen-share picker: pick the Flycast window or the screen; later runs reuse it. Ctrl+C stops and
    saves to `~/Videos/RE4DC/`. In Game Mode use Steam > Settings > Game Recording instead.
