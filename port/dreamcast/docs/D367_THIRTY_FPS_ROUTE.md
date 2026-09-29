@@ -368,6 +368,16 @@ UI 4.1, copies 3.6, KOS idle 2.2, isfinite ~2.6 (+ call overhead), TA submit 0.5
 The memory-copy item below is ~4 ms in release (the 15-19 ms figures were traced builds). World: 23.8k vertices and
 ~5,200 strips a frame; PS2 strips average 4.4 corners because UV seams stop joins (position-only keys: 6.7), so
 per-strip overhead is about half the world's cost. Order by expected gain: characters (cl), world strips/emit, G 29 -> 24.
+**Same day, later.** ACTOR_CENSUS (diagnostic) shows the per-part native path carries room props at source detail,
+not only characters: the burning officer on the stake (r101 obj00, placed for region != 0; ~3.9k vertices/frame,
+~4.1 hw ms by an A/B skip), doors, item pickups, racks, boxes, windows, the handgun: ~8.6k vertices, ~8 hw ms. The
+reduced Leon/Ganados are drawn (ATX: ~3 reduced Ganados a frame; a few fall back). Props and world share the real
+limit: ~200 cycles per drawn vertex (world 21.9 ms / 23.8k vertices). PS2 world strips cannot be joined invisibly:
+39% of triangles are single quads with their own UV/colour (a swap stripifier, mesh_lod STRIP_SWAPS /
+ps2_world_r4im --strip-swaps, gains only -13% strips, -0.4% corners; kept off). MESH_PRIME_LAZY (exact: prime only the
+cache entries meshlets use; ~30k entries/frame were stamped for ~24k vertices): 93.3 -> **91.5** hw ms, STRICT
+kite-r21lzt; on in tools/d367/build-r21.sh. Next: a software-pipelined meshlet transform (one vertex at a time now,
+~64 cycles/vertex with fsrra), the near-plane clipper (~20% of MeshDraw::draw for ~170 strips/frame).
 Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
 objects: the first coarse_finite arm ran with a stale coarse_ganado.o).
 

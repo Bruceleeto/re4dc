@@ -1623,6 +1623,12 @@ MESH_CLASSIFY ?= 0
 ifneq ($(MESH_CLASSIFY),0)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLASSIFY=$(MESH_CLASSIFY)
 endif
+# MESH_PRIME_LAZY=1 (native_static.cpp, exact, default 0): the meshlet cache's constant words are
+# written only for the entries meshlets use, not all 256 at every per-part borrow.
+MESH_PRIME_LAZY ?= 0
+ifneq ($(MESH_PRIME_LAZY),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_PRIME_LAZY=$(MESH_PRIME_LAZY)
+endif
 # UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
 # minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".
 UI_HUD_LENS_ALPHA ?= 0
@@ -1639,3 +1645,9 @@ ifneq ($(MEMPROF),0)
 GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
 $(OBJDIR)/platform/memprof.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMPROF=1
 endif
+
+# ACTOR_CENSUS=1 (diagnostic): ACENSUS log lines, the models reaching re4dc_actor_submit per 120 frames.
+ACTOR_CENSUS ?= 0
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS) -DRE4DC_ACTOR_CENSUS_SKIP_OBJ00=$(ACTOR_CENSUS_SKIP_OBJ00)
+ACTOR_CENSUS_SKIP_OBJ00 ?= 0
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS)

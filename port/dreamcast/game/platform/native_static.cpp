@@ -86,6 +86,9 @@ extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h k
 #ifndef RE4DC_MESH_CLASSIFY
 #define RE4DC_MESH_CLASSIFY 0 // 1: skip outcodes in wholly visible meshlets (+1.5 KiB image)
 #endif
+#ifndef RE4DC_MESH_PRIME_LAZY
+#define RE4DC_MESH_PRIME_LAZY 0 // 1: prime only the cache entries meshlets use (exact)
+#endif
 #if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH
 #include "../../room/mesh_fastpath.hpp"
 #endif
@@ -1024,12 +1027,20 @@ struct MeshDraw : Emitter {
     // the bound packet range (never sent: strips stop at 'limit').
     pvr_vertex_t* cache=nullptr; std::uint8_t* outcodes=nullptr;
     re4dc::vp::Constants k{};
+#if RE4DC_MESH_PRIME_LAZY
+    // MESH_PRIME_LAZY (exact): the cache's constant words are written for the entries a meshlet
+    // uses, the first time they are needed, instead of all kCacheEntries at every borrow (one
+    // borrow per part per placement: ~30k entries a frame for ~24k transformed PS2 world vertices).
+    unsigned primed=0;
+#endif
     bool borrow(){
         if(cache)return true;
         if(!lut || limit<re4dc::vp::kCacheSlots+64U)return false; // small slab: per-corner path
         limit-=re4dc::vp::kCacheSlots;
         cache=dst+limit;outcodes=reinterpret_cast<std::uint8_t*>(cache+re4dc::vp::kCacheEntries);
+#if !RE4DC_MESH_PRIME_LAZY
         re4dc::vp::prime(cache,re4dc::vp::kCacheEntries);
+#endif
         // After bind(): packet.u_scale/v_scale are the bound texture's.
         k={part.uv_scale[0],part.uv_bias[0],p.uv_offset[0],packet.u_scale,
            part.uv_scale[1],part.uv_bias[1],p.uv_offset[1],packet.v_scale,near,far,
@@ -1050,6 +1061,9 @@ struct MeshDraw : Emitter {
         const unsigned checks=RE4DC_MESH_CLASSIFY?vp::classify(bmin,bmax,mvq,p.projection,p.viewport,near,far):vp::kChecksAll;
         const auto* base=corners(l);
         const auto* in=reinterpret_cast<const vp::Vertex12*>(base);
+#if RE4DC_MESH_PRIME_LAZY
+        if(l.vertex_count>primed){vp::prime(cache+primed,l.vertex_count-primed);primed=l.vertex_count;}
+#endif
         if(checks==vp::kChecksNone)vp::transform<vp::kChecksNone>(in,l.vertex_count,cache,outcodes,k);
         else if(checks==vp::kChecksScreen)vp::transform<vp::kChecksScreen>(in,l.vertex_count,cache,outcodes,k);
         else vp::transform<vp::kChecksAll>(in,l.vertex_count,cache,outcodes,k);

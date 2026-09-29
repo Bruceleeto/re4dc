@@ -322,3 +322,25 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
     front_cur=~0U;  // group 8: headers built later (deferred drain) are not this part's
 #endif
 }
+
+#if RE4DC_ACTOR_CENSUS
+// ACTOR_CENSUS (diagnostic): id | ot_type << 8 | nParts << 16 of a submitted part's model.
+extern "C" unsigned re4dc_actor_census_key(const void* model) {
+    const cModel* m = static_cast<const cModel*>(model);
+    return m ? (unsigned(m->id) & 0xffU) | ((unsigned(m->ot_type) & 0xffU) << 8) | ((unsigned(m->nParts) & 0xffffU) << 16) : ~0U;
+}
+extern "C" unsigned re4dc_actor_census_vptr(const void* model) {
+    return model ? *static_cast<const unsigned*>(model) : 0U;  // first word: the vtable pointer (modern GCC layout)
+}
+extern "C" void re4dc_actor_census_describe(const void* model, unsigned verts) {
+    // First sighting of each cObj00-shaped model: kind / type / scroll block / world position.
+    static const void* seen[64]; static unsigned nseen;
+    for (unsigned i = 0; i < nseen; ++i) if (seen[i] == model) return;
+    if (nseen < 64) seen[nseen++] = model; else return;
+    const cModel* m = static_cast<const cModel*>(model);
+    const float* w = m->pParts ? &m->pParts->mat[0][0] : nullptr;
+    re4dc_log("ACENSUS_OBJ m=%p kind=%u type=%u ot=%u blk=%d verts=%u pos=%d,%d,%d\n", model, unsigned(m->kindid),
+              unsigned(m->type), unsigned(m->ot_type), reinterpret_cast<const int*>(model)[0x324 / 4], verts,
+              w ? int(w[3]) : 0, w ? int(w[7]) : 0, w ? int(w[11]) : 0);
+}
+#endif
