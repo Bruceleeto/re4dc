@@ -17,7 +17,7 @@ Build recipes are in [tools/d367/README.md](port/dreamcast/tools/d367/README.md)
 2026-09-28: r19 -> r21 landed on dreamcast-port (4fb68a8..36e28e0; route doc "Progress 2026-09-28"): the Codex
 playability integration, the PS2 r101 world through R4IM + MeshDraw (PS2_WORLD_MESH) and coarse_finite. Recipe:
 port/dreamcast/tools/d367/build-r21.sh. Release kite fight 93.3 hw ms: G ~29.0, R ~64 (characters ~35, world 21.9).
-The remote is the private repo stevedamnvan/re4dc.
+The remote is the private repo lamb2k/re4dc (the account was renamed from stevedamnvan on 2026-09-29; old URLs redirect).
 
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
@@ -165,7 +165,7 @@ identities; the old D305 generic build recipe is not the current control. Separa
 candidate outputs and capture windows. Check disk space before full disc builds;
 preserved disc deltas need their named, hash-verified base. Keep video audio.
 
-Remote: `https://github.com/stevedamnvan/re4dc.git`. Keep assets/evidence private;
+Remote: `https://github.com/lamb2k/re4dc.git`. Keep assets/evidence private;
 commit only reviewed owned code/docs. Preserve uncommitted event/source work;
 its presence is not permission to stage it with this cutover.
 
