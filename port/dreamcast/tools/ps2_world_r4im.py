@@ -22,6 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import convert_room_bins as crb
+import mesh_lod
 import ps2src
 
 OWNER = 0x50
@@ -99,12 +100,15 @@ def main():
     ap.add_argument("--lod-floor", type=float, default=2.0)
     ap.add_argument("--lod-cluster", type=float, default=20000.0)
     ap.add_argument("--no-share", action="store_true")
+    ap.add_argument("--strip-swaps", action="store_true",
+                    help="stripify with swaps (repeat a corner to turn; same drawn triangles, longer strips)")
     ap.add_argument("--meshlet-vertices", type=int, default=64,
                     help="largest meshlet (runtime bound 256; default 64, user-adopted 2026-09-28: -2.5 hw ms for +53 KB)")
     a = ap.parse_args()
     if not 3 <= a.meshlet_vertices <= 256:
         raise SystemExit("--meshlet-vertices must be 3..256")
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
+    mesh_lod.STRIP_SWAPS = a.strip_swaps
     pkg = ps2src.Package(a.r4p)
     tab = ps2src.load_tables(a.inc)
     if ps2src.payload_crc(pkg.payload) != tab["payload_crc"]:

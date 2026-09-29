@@ -401,12 +401,121 @@ def simplify_levels(positions, tris, eps_list, locked=(), min_gain=0.8):
     return levels
 
 
+# stripify() uses stripify_swaps() when this is set (converter --strip-swaps).
+STRIP_SWAPS = False
+
+
+def strip_triangles_of(s):
+    """Triangles a strip draws in GX/PVR order (odd triangles swap their first
+    two corners), skipping degenerate ones (a repeated corner draws nothing)."""
+    out = []
+    for i in range(len(s) - 2):
+        a, b, c = s[i], s[i + 1], s[i + 2]
+        if i % 2:
+            a, b = b, a
+        if a != b and b != c and a != c:
+            out.append((a, b, c))
+    return out
+
+
+def _canon(t):
+    """Rotation-invariant, winding-preserving key of a triangle."""
+    a, b, c = t
+    return min((a, b, c), (b, c, a), (c, a, b))
+
+
+def stripify_swaps(tris):
+    """Winding-preserving stripifier that turns with swaps. A plain strip must
+    alternate left/right turns; when the next triangle is across the other edge
+    of the last one, the strip repeats a corner (s[-3] inserted before s[-1]:
+    one zero-area triangle, which draws nothing) instead of ending, so a swap
+    costs one corner where a restart costs two plus a strip. Seeds are the
+    unused triangles with the fewest unused neighbours (best of three seed
+    rotations). The drawn triangle set equals the input exactly (checked)."""
+    tris = [tuple(t) for t in tris if len(set(t)) == 3]
+    by_pair = {}
+    for n, t in enumerate(tris):
+        for i in range(3):
+            by_pair.setdefault(frozenset((t[i], t[(i + 1) % 3])), []).append(n)
+    used = [False] * len(tris)
+    canon = [_canon(t) for t in tris]
+
+    def degree(n):
+        t = tris[n]
+        return sum(1 for i in range(3) for m in by_pair[frozenset((t[i], t[(i + 1) % 3]))]
+                   if m != n and not used[m])
+
+    def extend(s, taken):
+        """Best unused triangle continuing strip s (no swap); returns (degree, n, x) or None."""
+        best = None
+        for m in by_pair.get(frozenset((s[-2], s[-1])), ()):
+            if used[m] or m in taken:
+                continue
+            t = tris[m]
+            x = next((v for v in t if v != s[-2] and v != s[-1]), None)
+            if x is None:
+                continue
+            i = len(s) - 2
+            a, b, c = s[-2], s[-1], x
+            if i % 2:
+                a, b = b, a
+            if _canon((a, b, c)) != canon[m]:
+                continue
+            d = degree(m)
+            if best is None or d < best[0]:
+                best = (d, m, x)
+        return best
+
+    def grow(seed_n, rot):
+        t = tris[seed_n]
+        s, taken = list(t[rot:] + t[:rot]), {seed_n}
+        while True:
+            nxt = extend(s, taken)
+            if nxt is not None:
+                taken.add(nxt[1]); s.append(nxt[2]); continue
+            if len(s) < 3:
+                break
+            s2 = s[:-1] + [s[-3], s[-1]]
+            nxt = extend(s2, taken)
+            if nxt is None:
+                break
+            taken.add(nxt[1]); s = s2 + [nxt[2]]
+        return s, taken
+
+    heap = [(degree(n), n) for n in range(len(tris))]
+    heapq.heapify(heap)
+    strips = []
+    while heap:
+        d, n = heapq.heappop(heap)
+        if used[n]:
+            continue
+        now = degree(n)
+        if now != d:
+            heapq.heappush(heap, (now, n))
+            continue
+        best = None
+        for r in range(3):
+            s, taken = grow(n, r)
+            if best is None or len(taken) > len(best[1]) or (len(taken) == len(best[1]) and len(s) < len(best[0])):
+                best = (s, taken)
+        for m in best[1]:
+            used[m] = True
+        strips.append(best[0])
+    # Exactness: the strips draw the input triangles, each once, same winding.
+    drawn = sorted(_canon(t) for s in strips for t in strip_triangles_of(s))
+    if drawn != sorted(canon):
+        raise AssertionError('stripify_swaps: drawn triangles differ from the input')
+    return strips
+
+
 def stripify(tris):
     """Winding-preserving stripifier (GX/PVR order: odd triangles swap their
     first two corners). Seeds are the unused triangles with the fewest unused
     neighbours; each strip grows forward (best of three seed rotations, next
     triangle chosen by fewest unused neighbours) and then backward two
     triangles at a time, which keeps the first triangle's parity."""
+    if STRIP_SWAPS:
+        return stripify_swaps(tris)
     tris = [tuple(t) for t in tris if len(set(t)) == 3]
     edge = {}
     for n, (a, b, c) in enumerate(tris):
