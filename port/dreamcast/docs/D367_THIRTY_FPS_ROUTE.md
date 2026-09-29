@@ -420,6 +420,16 @@ serial log lines (aica notes, "[stage") can cut into a trace line, so a timing c
 REJECT on one garbled record: compare the records of two runs (every record in the window matching in at least one).
 Next candidates by size: the skinned-vertex kernels themselves (avk_pos_skin + avk_light_skin 4.5-6 ms at r101),
 Part::whole (TA emit, 1.1-1.8), per-meshlet overhead in pass_positions (0.7-1.3), actor_submit preflight (~0.2).
+**Correction (2026-09-29): the tour window 400..880 is not all gameplay.** At r101 entry it overlaps the
+"Playing Manual" pages (IDSystem::unitTrans 1.56 ms, the sub screen's 434-unit ID pool; the lists fall back there on
+be_flag 0xEF), and the other presets' windows start near their scripted prompts. Measured again at frames 900..1380
+(release, everything landed through ACTOR_STATS_LEAN d21356f0; work = frame minus the modelled vsync spin):
+r101 post-bell 37.2 / **35.8**, r100 east door 40.0 / **34.6**, r100 after the radio 50.5 / **49.9**, and **r101 entry in
+play (Ganados approaching the square) 67.7 / 67.7** (render side 28.0, actors 12.7, game logic 9.3, world 9.1, UI 3.8,
+copies 2.7). So quiet views are ~2 ms over 33.3 and the square with Ganados is ~2x, close to the kite fight (86.2).
+The exact kernels above are real but small against that; the square needs the render budget work (characters,
+world) and G. Use 900..1380 (or later) for tour benchmarks; ACTOR_STATS_LEAN (d21356f0, exact, STRICT
+kite-r21slt1): actor_submit 2.26 -> 2.20 (post-bell), 1.38 -> 1.21 (kite).
 
 Progress 2026-09-26 (night). **Corrections:** the evening figures were sampled on one `Frame_cnt` residue (trace
 stride 8); over all ticks G_std is ~25.92 and G_fight ~29.61, so **G is not closed**, and every R / world cost arm ran at
