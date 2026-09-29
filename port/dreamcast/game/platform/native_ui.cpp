@@ -803,10 +803,25 @@ void stream_select(pvr_list_t list){
 #endif
 }
 #endif
+#if RE4DC_POST_F00_DIAG
+// POST_F00_DIAG (test builds): the frame of the last queued post, opaque packets sent after it in that frame
+// (drawn below it on the PVR, above it on the GameCube) and UI quads queued before it (drawn above it here).
+unsigned post_diag_frame_no=~0U,post_diag_op_after,post_diag_ui_before,post_diag_ui_frames,post_diag_ui_max,post_diag_frames;
+void post_diag_frame(){
+    post_diag_frame_no=frame;++post_diag_frames;post_diag_ui_before+=nquad;
+    if(nquad){++post_diag_ui_frames;post_diag_ui_max=std::max(post_diag_ui_max,nquad);}
+    if(post_diag_frames%600==0)
+        re4dc_log("post f00 diag: frames=%u ui_before=%u (frames %u, max %u) op_after=%u frame=%u\n",post_diag_frames,
+                  post_diag_ui_before,post_diag_ui_frames,post_diag_ui_max,post_diag_op_after,frame);
+}
+#endif
 void stream_send(const void* data,unsigned bytes) {
     re4dc::profile::Scope profile_scope(stream_list==PVR_LIST_OP_POLY?re4dc::profile::SubmitOP:
         stream_list==PVR_LIST_PT_POLY?re4dc::profile::SubmitPT:re4dc::profile::SubmitTR);
     ++frame_pvr_calls;frame_pvr_bytes+=bytes;
+#if RE4DC_POST_F00_DIAG
+    if(post_diag_frame_no==frame && stream_list==PVR_LIST_OP_POLY)++post_diag_op_after;
+#endif
     if(!stream_scene)stream_open();
     sq_lock((void*)PVR_TA_INPUT);
 #if RE4DC_TA_HASH
@@ -3519,6 +3534,99 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     return 1;
 }
 #endif
+#if RE4DC_POST_F00
+#if !RE4DC_D349_RENDERER_STACK || !RE4DC_PVR_STREAM
+#error POST_F00 needs the D349 renderer stack and PVR_STREAM (deferred translucent queue)
+#endif
+#if RE4DC_POST_F00!=1 && RE4DC_POST_F00!=4
+#error POST_F00: 1 (one gain quad) or 4 (gain and bias, four quads)
+#endif
+namespace {
+// POST_F00 (post30.mk): Filter00's look as full-screen translucent quads blended in the PVR's 8-bit tile buffer,
+// before the RGB565 write-out (the PVR has no frame copy for the GameCube's half-size blur buffer). A queued post
+// is a DeferredPart whose lighting is this tag and whose changed[0] holds its packet bytes (a header and four
+// vertices per pass); the translucent drain sends it in OT order, so the HUD's UI quads (drained later) stay out.
+DeferredLighting* const kPostTag=reinterpret_cast<DeferredLighting*>(2);
+constexpr unsigned kPostNode=(sizeof(DeferredPart)+31)&~31U,kPostPass=sizeof(pvr_poly_hdr_t)+4*sizeof(pvr_vertex_t);
+constexpr unsigned kPostBytes=(RE4DC_POST_F00==4?4:1)*kPostPass;
+unsigned post_calls,post_queued,post_direct,post_dropped,post_skipped,post_key1=~0U,post_key2=~0U;
+unsigned post_c,post_h;
+// One full-screen pass: a flat grey quad blended with (src, dst) over the whole tile buffer.
+void post_pass(unsigned char* out,pvr_blend_mode_t src,pvr_blend_mode_t dst,unsigned grey){
+    pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    c.blend.src=src;c.blend.dst=dst;
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(out),&c);
+    auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
+    const float xs[4]={0,0,640,640},ys[4]={480,0,480,0};
+    const std::uint32_t argb=0xff000000U|grey<<16|grey<<8|grey;
+    for(unsigned k=0;k<4;++k){
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=xs[k];v[k].y=ys[k];v[k].z=1.0f;
+        v[k].u=v[k].v=0;v[k].argb=argb;v[k].oargb=0;
+    }
+}
+void post_packet(unsigned char* out){
+    post_pass(out,PVR_BLEND_DESTCOLOR,PVR_BLEND_ONE,post_c);                    // d + c d
+#if RE4DC_POST_F00==4
+    post_pass(out+kPostPass,PVR_BLEND_INVDESTCOLOR,PVR_BLEND_ZERO,255);          // 1 - x
+    post_pass(out+2*kPostPass,PVR_BLEND_ONE,PVR_BLEND_ONE,post_h);               // x + h (clamps at 1)
+    post_pass(out+3*kPostPass,PVR_BLEND_INVDESTCOLOR,PVR_BLEND_ZERO,255);        // 1 - x = max(0, g d - h)
+#endif
+}
+// Filter00's flat-field steady state: blur type 2 feeds back E = S + a max(0, E - p) (a = rate/255, only while the
+// GameCube's buffer is valid), the contrast adds k max(0, E - b) (k = pow/255 2^(level-1)). Types 0 / 1 blend the
+// buffer back (no gain on a flat field). POST_F00=1: c = F(d0)/d0 - 1 at the mid-tone d0 = 48; =4: F = max(0, g d - h)
+// with g = (1+k)/(1-a), h = (1+k) a p/(1-a) + k b (the curve above its knee).
+void post_params(unsigned rate,unsigned type,int power,unsigned level,unsigned pow,unsigned bias,bool valid){
+    const float a=(type==2 && valid)?rate/255.0f:0.0f,p=power>0?power/255.0f:0.0f;
+    const float k=level?pow/255.0f*float(1U<<(level-1)):0.0f,b=bias/255.0f;
+#if RE4DC_POST_F00==4
+    const float g=(1+k)/(1-a),h=(1+k)*a*p/(1-a)+k*b;
+    post_c=unsigned(std::min(255.0f,std::max(0.0f,(g-1)*255+0.5f)));
+    post_h=unsigned(std::min(255.0f,std::max(0.0f,h*255+0.5f)));
+#else
+    const float d0=48/255.0f,e=std::max(d0,(d0-a*p)/(1-a)),f=e+k*std::max(0.0f,e-b);
+    post_c=unsigned(std::min(255.0f,std::max(0.0f,(f/d0-1)*255+0.5f)));
+    post_h=0;
+#endif
+}
+}
+extern "C" void re4dc_post_filter00(unsigned char rate,unsigned char type,signed char power,unsigned char level,
+                                    unsigned char pow,unsigned char bias,int valid){
+    ++post_calls;
+    const unsigned key1=rate|unsigned(type)<<8|unsigned((unsigned char)power)<<16|unsigned(level)<<24;
+    const unsigned key2=pow|unsigned(bias)<<8|(valid?0x10000U:0U);
+    if(key1!=post_key1 || key2!=post_key2){
+        post_key1=key1;post_key2=key2;post_params(rate,type,power,level,pow,bias,valid!=0);
+        re4dc_log("post f00: mode=%d rate=%u type=%u power=%d level=%u pow=%u bias=%u valid=%d -> c=%u h=%u gain=%u/1000 frame=%u"
+                  " (calls=%u queued=%u direct=%u dropped=%u skipped=%u)\n",RE4DC_POST_F00,unsigned(rate),unsigned(type),int(power),
+                  unsigned(level),unsigned(pow),unsigned(bias),valid!=0,post_c,post_h,1000U+post_c*1000U/255U,frame,
+                  post_calls,post_queued,post_direct,post_dropped,post_skipped);
+    }
+    if(!frame_ready || stream_aborted || draining_parts)return;
+    if(!post_c && !post_h){++post_skipped;return;}
+#if RE4DC_POST_F00_DIAG
+    post_diag_frame();
+#endif
+    if(source_draws_finished){
+        alignas(32) unsigned char packet[kPostBytes];post_packet(packet);
+        stream_select(PVR_LIST_TR_POLY);stream_send(packet,kPostBytes);++post_direct;return;
+    }
+    const unsigned required=kPostNode+kPostBytes,margin=8192;
+    unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
+    if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
+        if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
+        if(!deferred_spill || required>deferred_spill_top){++post_dropped;return;}
+        storage=deferred_spill;top=&deferred_spill_top;
+    }
+    *top-=required;
+    auto* node=new(storage+*top) DeferredPart{};node->lighting=kPostTag;node->changed[0]=kPostBytes;
+    post_packet(storage+*top+kPostNode);
+    if(deferred_last)deferred_last->next=node;else deferred_first=node;
+    deferred_last=node;++deferred_count;++post_queued;
+    frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
+}
+#endif
 #if RE4DC_COARSE_WORLD & 8
 extern "C" void re4dc_coarse_world_flush();
 #endif
@@ -3700,6 +3808,13 @@ extern "C" void re4dc_model_finish_source_draws(){
         if(deferred_first->lighting==kSpriteTag){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
             deferred_first=deferred_first->next;stream_send(packet,kSpritePacket);continue;
+        }
+#endif
+#if RE4DC_POST_F00
+        if(deferred_first->lighting==kPostTag){
+            const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kPostNode;
+            const unsigned bytes=deferred_first->changed[0];
+            deferred_first=deferred_first->next;stream_send(packet,bytes);continue;
         }
 #endif
         // Copy the small view before I/O can yield. Retirement clears the queue

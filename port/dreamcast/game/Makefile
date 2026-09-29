@@ -845,3 +845,5 @@ include tahash.mk
 include pace.mk
 # Frozen source candidate controls, after all prerequisite defaults.
 include demo_candidate.mk
+# D367 post30 (Filter00 contrast pass / dither; default off: no effect).
+include post30.mk

@@ -45,6 +45,9 @@ static u8 g_cont_bias = 0;
 void Filter00CommonInit();
 void Filter00Render();
 void Filter00RenderContrast();
+#if RE4DC_POST_F00
+extern "C" void re4dc_post_filter00(u8 rate, u8 type, s8 power, u8 level, u8 pow, u8 bias, int valid);
+#endif
 
 // Resets every blur/spread/contrast parameter to off.
 void Filter00CommonInit()
@@ -109,6 +112,12 @@ void Filter00Render()
         pG->Status_flg[0] &= ~0x80000;
         return;
     }
+#if RE4DC_POST_F00
+    // POST_F00 (post30.mk; render only): the PVR has no frame copy, so the blur feedback + contrast pass is
+    // approximated per pixel in the tile buffer at this OT slot (native_ui.cpp). Reads the parameters only.
+    re4dc_post_filter00(blur_rate, blur_type, blur_power, g_cont_level, g_cont_pow, g_cont_bias,
+                        (pG->Status_flg[0] & 0x80000) != 0);
+#endif
     if (filter00_buff) {
         int zero = 0;
 

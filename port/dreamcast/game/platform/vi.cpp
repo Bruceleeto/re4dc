@@ -3,6 +3,9 @@
 // counts vsyncs and resumes the interrupt task scheduler).
 #include <kos.h>
 #include <dc/vblank.h>
+#if defined(RE4DC_PVR_DITHER) && RE4DC_PVR_DITHER
+#include <dc/pvr/pvr_regs.h>
+#endif
 
 #include "re4dc_platform.h"
 
@@ -139,6 +142,13 @@ void VIInit(void)
     vid_set_mode(DM_320x240, PM_RGB565);  // SCREEN_320 (game30.mk, test builds)
 #else
     vid_set_mode(DM_640x480, PM_RGB565);
+#endif
+#if defined(RE4DC_PVR_DITHER) && RE4DC_PVR_DITHER
+    // PVR_DITHER (post30.mk): the RGB565 write-out dither is FB_W_CTRL bit 3. KOS's vid_set_mode sets it for
+    // PM_RGB565 (vid_bpp_to_pvr_cfg2), so =1 only asserts it; =2 (diagnostic) clears it.
+    vid_set_dithering(RE4DC_PVR_DITHER == 1);
+    re4dc_log("pvr dither: FB_W_CTRL=%08lx (bit 3 dither=%lu) PVR_DITHER=%d\n", (u32) PVR_GET(PVR_FB_CFG_2),
+              (u32) (PVR_GET(PVR_FB_CFG_2) >> 3) & 1, RE4DC_PVR_DITHER);
 #endif
 #if defined(RE4DC_STALL_DIAG) && RE4DC_STALL_DIAG
     g_stallMain = thd_current;
