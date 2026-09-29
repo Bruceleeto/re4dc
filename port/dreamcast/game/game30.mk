@@ -1270,8 +1270,19 @@ ifneq ($(ACTOR_VTX_KERNEL),0)
 PLATFORM_OBJS += $(OBJDIR)/platform/avk_sh4.o
 $(OBJDIR)/platform/avk_sh4.o: platform/avk_sh4.S
 	@mkdir -p $(dir $@)
-	kos-cc $(KOS_CFLAGS) -c $< -o $@
+	kos-cc $(KOS_CFLAGS) $(AVK_SFLAGS) -c $< -o $@
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_VTX_KERNEL=$(ACTOR_VTX_KERNEL)
+endif
+# AVK_RIGID6=1 (needs ACTOR_VTX_KERNEL; render only, exact): rigid parts with stride 6 positions (props, weapons,
+#              attachments: positions_asm<kPos6>, ~65% of pass_positions at the r101 entry) take the pipelined
+#              rigid6 kernels (mkavk.py @p6: the index x 6 through r14) instead of the one-vertex loop.
+AVK_RIGID6 ?= 0
+ifneq ($(AVK_RIGID6),0)
+ifeq ($(ACTOR_VTX_KERNEL),0)
+$(error AVK_RIGID6 needs ACTOR_VTX_KERNEL)
+endif
+AVK_SFLAGS += -DRE4DC_AVK_RIGID6=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_AVK_RIGID6=1
 endif
 
 GAME_FP_CONTRACT ?= fast

@@ -109,6 +109,14 @@ unsigned re4dc_avk_pos_skin_s16(const AvkPos*);
 unsigned re4dc_avk_pos_skin_u16(const AvkPos*);
 unsigned re4dc_avk_pos_rigid_s16(const AvkPos*);
 unsigned re4dc_avk_pos_rigid_u16(const AvkPos*);
+#ifndef RE4DC_AVK_RIGID6
+#define RE4DC_AVK_RIGID6 0
+#endif
+#if RE4DC_AVK_RIGID6
+unsigned re4dc_avk_pos_rigid6_s16(const AvkPos*);
+unsigned re4dc_avk_pos_rigid6_u16(const AvkPos*);
+unsigned re4dc_avk_light_rigid3(const AvkLight*);
+#endif
 unsigned re4dc_avk_light_skin(const AvkLight*);
 unsigned re4dc_avk_light_rigid(const AvkLight*);
 void re4dc_log(const char* fmt, ...);
@@ -2629,14 +2637,26 @@ unsigned avk_positions(Part& e, const Records& r, unsigned n, const PosConst& k,
     Frame& f = e.f;
     const bool skin = f.mode == kSkin;
     // The kernels sign-extend the u16 record fields (mov.w), as ACTOR_POS_ASM does.
+#if RE4DC_AVK_RIGID6
+    // AVK_RIGID6 (game30.mk): rigid parts with stride 6 positions (kPos6) take the pipelined rigid6 kernels.
+    const bool six = !skin && f.position_stride == 6;
+    if (!n || (f.position_stride != 8 && !six) || f.position_count > 32768U || (skin && !f.skin_positions)) return 0;
+#else
     if (!n || f.position_stride != 8 || f.position_count > 32768U || (skin && !f.skin_positions)) return 0;
+#endif
     AvkPos a;
     a.pos = f.positions; a.uv = e.p.uv; a.rs = r.stride * 2U;
     a.matrix = skin ? f.skin_positions : f.screen; a.ready = f.skin_ready; a.entries = f.palette_entries;
     a.width = k.width; a.height = k.height; a.near_distance = k.near_distance; a.far_distance = k.far_distance;
     a.au = k.au; a.bu = k.bu; a.av = k.av; a.bv = k.bv;
+#if RE4DC_AVK_RIGID6
+    unsigned (*const kernel)(const AvkPos*) = skin ? (s16_uv ? re4dc_avk_pos_skin_s16 : re4dc_avk_pos_skin_u16)
+                                            : six  ? (s16_uv ? re4dc_avk_pos_rigid6_s16 : re4dc_avk_pos_rigid6_u16)
+                                                   : (s16_uv ? re4dc_avk_pos_rigid_s16 : re4dc_avk_pos_rigid_u16);
+#else
     unsigned (*const kernel)(const AvkPos*) = skin ? (s16_uv ? re4dc_avk_pos_skin_s16 : re4dc_avk_pos_skin_u16)
                                                    : (s16_uv ? re4dc_avk_pos_rigid_s16 : re4dc_avk_pos_rigid_u16);
+#endif
     const u8* rec = reinterpret_cast<const u8*>(r.r);
     if (skin && !f.avk_all) avk_build_all(f);
     a.rec = rec; a.n = n; a.dst = e.cache.v; a.oc = e.cache.oc;
@@ -2657,12 +2677,24 @@ inline void avk_fold(const u8* oc, unsigned n, unsigned& all, unsigned& any) {
 unsigned avk_lights(Part& e, const Lights& L, const Records& r, unsigned n) {
     Frame& f = e.f;
     const bool skin = f.mode == kSkin;
+#if RE4DC_AVK_RIGID6
+    const bool three = !skin && f.normal_stride == 3;  // AVK_RIGID6: rigid stride-3 normals (kNrm3)
+    if (!n || !f.small_normals || e.colors || (f.normal_stride != 4 && !three) || f.normal_count > 32768U ||
+        (skin && !f.skin_dirs))
+        return 0;
+#else
     if (!n || !f.small_normals || e.colors || f.normal_stride != 4 || f.normal_count > 32768U || (skin && !f.skin_dirs))
         return 0;
+#endif
     AvkLight a;
     a.nrm = f.normals; a.rs = r.stride * 2U; a.color = L.color; a.alpha = e.alpha;
     a.dirs = skin ? f.skin_dirs : &L.dir[0][0]; a.ready = f.dirs_ready; a.entries = f.palette_entries;
+#if RE4DC_AVK_RIGID6
+    unsigned (*const kernel)(const AvkLight*) = skin ? re4dc_avk_light_skin
+                                              : three ? re4dc_avk_light_rigid3 : re4dc_avk_light_rigid;
+#else
     unsigned (*const kernel)(const AvkLight*) = skin ? re4dc_avk_light_skin : re4dc_avk_light_rigid;
+#endif
     const u8* rec = reinterpret_cast<const u8*>(r.r);
     if (skin) {
         const unsigned palette = f.normals[r.ni(0) * 4U + 3];

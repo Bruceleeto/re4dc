@@ -4,6 +4,8 @@
 ! free once the m are built) and truncated into r4/r8/r9; PRE(k+1): its normal bytes through the s8 ->
 ! float table (r3 = table + 512) into fv4, palette byte in r2.
 ! Entry state: fv4 = normal(k), fr7 = 0; r5 = record k+1; r6 = n - k; r7 = &entry[k-1].argb.
+! @n4 / @n3: normal index x 4 (stride 4) or x 3 (rigid stride 3 through r14, the skin palette register;
+! n3 is never skinned).
 @tail cmp/gt r12,r4
 @tail subc r0,r0
 @tail or r0,r4
@@ -42,7 +44,10 @@ fmov fr5,fr15
 fmov fr6,fr3
 mov.w @(2,r5),r0
 add r11,r5
-shll2 r0
+@n4 shll2 r0
+@n3 mov r0,r14
+@n3 add r0,r0
+@n3 add r14,r0
 mov r13,r1
 add r0,r1
 mov.b @r1+,r0
