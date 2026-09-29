@@ -612,6 +612,8 @@ public:
 #endif
 };
 }}}
+// Rooms whose scenery the PS2 world package replaces (trans.cpp COARSE_SCENERY_FALLBACK).
+extern "C" int re4dc_ps2_world_covers(unsigned room){return room==0x101;}
 extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float far){
     using namespace re4dc::room::ps2;
 #if RE4DC_PS2_WORLD_MESH

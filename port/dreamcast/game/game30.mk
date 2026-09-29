@@ -1527,6 +1527,21 @@ endif
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_COARSE_SOURCE_OBJECTS=$(COARSE_SOURCE_OBJECTS)
 endif
 
+# COARSE_SCENERY_FALLBACK=1 (trans.cpp, coarse.cpp; default 0): coarse images skip source scenery and the
+# diagnostic collision piece only in rooms the PS2 world package covers (r101); other rooms (r100, r103,
+# ...) draw their own Standard scenery through native_static. Render only (2026-09-28: r100 was grey).
+COARSE_SCENERY_FALLBACK ?= 0
+ifneq ($(COARSE_SCENERY_FALLBACK),0)
+ifneq ($(COARSE_SOURCE_OBJECTS),1)
+$(error COARSE_SCENERY_FALLBACK needs COARSE_SOURCE_OBJECTS=1)
+endif
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error COARSE_SCENERY_FALLBACK needs PS2_WORLD_DRAW=1 (re4dc_ps2_world_covers))
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_COARSE_SCENERY_FALLBACK=$(COARSE_SCENERY_FALLBACK)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_COARSE_SCENERY_FALLBACK=$(COARSE_SCENERY_FALLBACK)
+endif
+
 # Unsupported source actors on coarse images; unqualified candidate, default off.
 COARSE_SOURCE_ACTORS ?= 0
 ifneq ($(COARSE_SOURCE_ACTORS),0)

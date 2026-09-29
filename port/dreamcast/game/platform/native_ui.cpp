@@ -3510,7 +3510,18 @@ extern "C" void re4dc_coarse_world_flush();
 // or stream_select: those callers can hold an uncommitted Entry and shared scratch.
 extern "C" int re4dc_ps2_world_before_owned_tr(const Re4dcModelPart* part){
     if(!part || !frame_ready || stream_aborted || direct_open || model_used)return 0;
-    if(select_model_pass(part)!=PVR_LIST_TR_POLY || !re4dc_ps2_world_pending())return 1;
+    if(select_model_pass(part)!=PVR_LIST_TR_POLY)return 1;
+    if(!re4dc_ps2_world_pending()){
+#if RE4DC_COARSE_SCENERY_FALLBACK && RE4DC_TREE_IMPOSTOR
+        // A room drawing its own scenery (trans.cpp COARSE_SCENERY_FALLBACK) queues tree impostors (PT):
+        // close that PT window before the first owned-actor TR, as the PS2 world barrier below does.
+        if(!(stream_scene && stream_list==PVR_LIST_TR_POLY)){
+            re4dc_static_flush_impostors();
+            return frame_ready && !stream_aborted && !direct_open && !model_used;
+        }
+#endif
+        return 1;
+    }
     if(stream_scene && stream_list==PVR_LIST_TR_POLY){
         re4dc_log("PS2PASS late-world frame=%u mask=%x\n",frame,stream_closed_lists);
         return 0; // existing transaction failure discards this incomplete scene

@@ -499,6 +499,15 @@ extern "C" int re4dc_coarse_tick(int dropped);
 #if RE4DC_COARSE_SOURCE_OBJECTS
 extern "C" void re4dc_log(const char*, ...);
 #endif
+// COARSE_SCENERY_FALLBACK=1 (game30.mk): coarse images skip scenery (kind 2) only in a room whose PS2
+// world package replaces it (native_ps2_world.cpp); any other room keeps its own scenery, the Standard
+// R4IM meshes through native_static, instead of the grey collision view. Render only.
+#ifndef RE4DC_COARSE_SCENERY_FALLBACK
+#define RE4DC_COARSE_SCENERY_FALLBACK 0
+#endif
+#if RE4DC_COARSE_SCENERY_FALLBACK
+extern "C" int re4dc_ps2_world_covers(unsigned room);
+#endif
 extern "C" int re4dc_coarse_image;
 extern "C" void re4dc_coarse_draw(void);
 static int coarseTick;
@@ -830,11 +839,16 @@ void Trans()
 #if RE4DC_COARSE_SOURCE_OBJECTS
         unsigned source_calls=0, scenery_skipped=0;
         func = objTrans;
+#if RE4DC_COARSE_SCENERY_FALLBACK
+        const int skip_scenery = re4dc_ps2_world_covers(G_ROOM_ID);
+#else
+        const int skip_scenery = 1;
+#endif
         for (u = ObjMgr.pAlive; u != 0;) {
             cUnit* cur = u;
             u = u->pNext; // original traversal captures next before the callback
             cModel* model = (cModel*) cur;
-            if (model->kindid == 2) { ++scenery_skipped; continue; }
+            if (model->kindid == 2 && skip_scenery) { ++scenery_skipped; continue; }
             func(model); // source visibility, culling, materials, skin and OT order
             ++source_calls;
         }

@@ -19,6 +19,12 @@
 #if RE4DC_PS2_WORLD_DRAW
 #include "platform/include/native_ps2_world.h"
 #endif
+#ifndef RE4DC_COARSE_SCENERY_FALLBACK
+#define RE4DC_COARSE_SCENERY_FALLBACK 0
+#endif
+#if RE4DC_COARSE_SCENERY_FALLBACK
+extern "C" int re4dc_ps2_world_covers(unsigned room);   // platform/native_ps2_world.cpp
+#endif
 #include "global.h"
 #include "player.h"
 #include "pl_npc.h"
@@ -527,6 +533,9 @@ void draw_world(Out& o)
     for (u32 i = 0; i < SatMgr.nArray; ++i) {
 #if RE4DC_PS2_WORLD_DRAW
         if(i==0 && g_ps2_world)continue; // replaces diagnostic collision drawing only
+#endif
+#if RE4DC_COARSE_SCENERY_FALLBACK
+        if(i==0 && !re4dc_ps2_world_covers(G_ROOM_ID))continue; // the room's own scenery draws (trans.cpp)
 #endif
 #if RE4DC_COARSE_WORLD & 128
         if (i == 0 && g_world) {
