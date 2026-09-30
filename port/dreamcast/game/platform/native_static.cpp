@@ -387,6 +387,35 @@ void retire(View& v){
     v.storage=nullptr;v.bytes=0;v.bindings=nullptr;v.attempted=false;v.room=0;
 }
 
+#if RE4DC_IO_ALIGNED
+// Door U2: the whole file into 32-byte-aligned `dst` (room for (size+31)&~31 bytes): one KOS
+// stream for size&~31 from offset 0, then fs_seek away and back (aborts the stream: KOS's own
+// <32 B stream request never returns, R4_5A) and the tail through the block cache into a
+// misaligned stack buffer. Returns the bytes read, or -2 for an unaligned destination. The
+// caller falls back to the misaligned body read on anything short.
+int read_whole_aligned(file_t f,unsigned char* dst,unsigned size){
+    if(reinterpret_cast<std::uintptr_t>(dst)&31U)return -2;
+    if(fs_seek(f,0,SEEK_SET)<0)return -1;
+    const unsigned body=size&~31U;unsigned got=0;
+    while(got<body){const ssize_t n=fs_read(f,dst+got,body-got);if(n<=0)break;got+=unsigned(n);}
+    if(got==body && got<size){
+        if(got){fs_seek(f,0,SEEK_SET);fs_seek(f,got,SEEK_SET);}
+        alignas(32) unsigned char tail[64];                         // tail+16: misaligned on purpose
+        const unsigned start=got;
+        while(got<size){const ssize_t n=fs_read(f,tail+16+(got-start),size-got);if(n<=0)break;got+=unsigned(n);}
+        std::memcpy(dst+start,tail+16,got-start);
+    }
+    return int(got);
+}
+unsigned aligned_reads,aligned_fallbacks;
+// Aligned whole read, else today's body read after the header already in `storage`.
+bool read_package(file_t f,unsigned char* storage,unsigned size,unsigned head){
+    if(read_whole_aligned(f,storage,size)==int(size)){++aligned_reads;return true;}
+    ++aligned_fallbacks;re4dc_log("native static: aligned read fell back (%u)\n",aligned_fallbacks);
+    const ssize_t rest=ssize_t(size-head);
+    return fs_seek(f,head,SEEK_SET)==off_t(head) && fs_read(f,storage+head,rest)==rest;
+}
+#endif
 [[maybe_unused]] bool open(View& v,unsigned index,unsigned room){
     if(v.storage && v.room==room)return true;
     if(v.attempted && v.room==room)return false;
@@ -408,7 +437,11 @@ void retire(View& v){
             if(storage){
                 v.bytes=bytes;std::memcpy(storage,&header,sizeof(header));
                 const ssize_t rest=ssize_t(size-sizeof(header));
+#if RE4DC_IO_ALIGNED
+                (void)rest;if(!read_package(file,storage,size,unsigned(sizeof(header)))){re4dc_static_free(storage);storage=nullptr;}
+#else
                 if(fs_read(file,storage+sizeof(header),rest)!=rest){re4dc_static_free(storage);storage=nullptr;}
+#endif
             }else ++stats.alloc_rejects;
         }
     }
@@ -846,7 +879,11 @@ bool open(MeshView& v,unsigned index,unsigned room){
     if(!storage){if(headed)++stats.alloc_rejects;}
     else{
         std::memcpy(storage,&head,sizeof(head));
+#if RE4DC_IO_ALIGNED
+        (void)rest;if(!read_package(file,storage,size,unsigned(sizeof(head)))){re4dc_static_free(storage);storage=nullptr;}
+#else
         if(fs_read(file,storage+sizeof(head),rest)!=rest){re4dc_static_free(storage);storage=nullptr;}
+#endif
     }
     fs_close(file);
     stats.heap_after=re4dc_static_heap_free();

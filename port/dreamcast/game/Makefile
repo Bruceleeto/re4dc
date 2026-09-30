@@ -178,7 +178,10 @@ $(OBJDIR)/platform/native_motion.o: $(OBJDIR)/motion-lease-lean.h
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/motion-lease-lean.h
 # MOTION_FAST_READ=1: motion keys read straight into their aligned residency block (one GD
 # stream command + a block-cache tail) instead of one GD command per sector (W10).
+# IO_ALIGNED=1 (door load U2, design-doorload): native static packages read whole into their
+# aligned storage the same way (one stream + tail) instead of a misaligned body read.
 MOTION_FAST_READ ?= 0
+IO_ALIGNED ?= 0
 # MOTION_RESERVE=1: the two cold-clip slots of each motion binding are allocated at bind, so a
 # cold miss never allocates from a full heap 4 (r100 ambush). MOTION_USAGE_LOG=1 (diagnostic):
 # log each entry's first acquire ("motion use:") for the hot-set audit.
@@ -211,11 +214,26 @@ endif
 .PHONY: motion-read-force
 $(OBJDIR)/motion-read.h: motion-read-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_MOTION_FAST_READ %s\n#define RE4DC_MOTION_RESERVE %s\n#define RE4DC_MOTION_USAGE_LOG %s\n' '$(MOTION_FAST_READ)' '$(MOTION_RESERVE)' '$(MOTION_USAGE_LOG)' > $@.tmp
+	@printf '#define RE4DC_MOTION_FAST_READ %s\n#define RE4DC_MOTION_RESERVE %s\n#define RE4DC_MOTION_USAGE_LOG %s\n#define RE4DC_IO_ALIGNED %s\n' '$(MOTION_FAST_READ)' '$(MOTION_RESERVE)' '$(MOTION_USAGE_LOG)' '$(IO_ALIGNED)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_motion.o: $(OBJDIR)/motion-read.h
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/motion-read.h
+$(OBJDIR)/platform/native_static.o: $(OBJDIR)/motion-read.h
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/motion-read.h
+# Door load U6 (W10, design-doorload), default off: DVD_WAIT=1 a pump waiting for the DVD step
+# owner blocks on a genwait woken at step end instead of sleeping a scheduler tick; DVD_FDCACHE=1
+# DVDReadAsyncPrio keeps the last 2 files open instead of an open + close per read.
+DVD_WAIT ?= 0
+DVD_FDCACHE ?= 0
+.PHONY: dvd-io-force
+$(OBJDIR)/dvd-io.h: dvd-io-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_DVD_WAIT %s\n#define RE4DC_DVD_FDCACHE %s\n' '$(DVD_WAIT)' '$(DVD_FDCACHE)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/platform/dvd.o: $(OBJDIR)/dvd-io.h
+$(OBJDIR)/platform/dvd.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/dvd-io.h
 # D367 disc I/O probe (W10). IO_PROBE=1 (default off; the default image does not change):
 # platform/io_probe.cpp runs timed disc reads at boot when /cd/dc/ioprobe.txt exists
 # (sequential, cold, open/close, motion keys, seek sweep, a paced 225 KB/s stream alone and
@@ -227,8 +245,10 @@ ifneq ($(IO_PROBE),1)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/io_probe.o $(OBJDIR)/platform/io_wrap.o,$(PLATFORM_OBJS))
 else
 # Diagnostic wraps (platform/io_wrap.cpp): time every blocking read, open, sleep and KOS wait
-# by file, caller and thread for the "iowrap:" room-entry lines.
+# by file, caller and thread for the "iowrap:" room-entry lines, and count the GD commands under
+# them (the KOS stream start/request and sector-read entry points) for the "iocount:" lines.
 GAME_LDFLAGS += -Wl,--wrap=fs_read -Wl,--wrap=fs_open -Wl,--wrap=thd_sleep -Wl,--wrap=genwait_wait
+GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request -Wl,--wrap=cdrom_read_sectors_ex
 endif
 .PHONY: io-probe-force
 $(OBJDIR)/io-probe.h: io-probe-force
@@ -241,6 +261,11 @@ $(IO_PROBE_OBJS): $(OBJDIR)/io-probe.h
 $(IO_PROBE_OBJS): PLATFORM_CPPFLAGS += -include $(OBJDIR)/io-probe.h
 $(OBJDIR)/ui_bridge.o: $(OBJDIR)/io-probe.h
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -include $(OBJDIR)/io-probe.h
+ifeq ($(IO_PROBE),1)
+# Test-only DVD hold in the source queue step (src/game/dvd.cpp; compiled out when IO_PROBE=0).
+$(OBJDIR)/src/game/dvd.o: $(OBJDIR)/io-probe.h
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -include $(OBJDIR)/io-probe.h
+endif
 OBJS = $(NATIVE_REUSE_OBJS) $(GAME_OBJS) $(MODULE_OBJS) $(PLATFORM_OBJS) $(SDK_OBJS)
 # NATIVE_MES=1 (default 0: the default image does not change): message text. mes.cpp draw() emits
 # each glyph through the GX stub, which sinks it, so no cMes text (prompts, pickups, the picker,
@@ -565,6 +590,9 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/pvr-stre
 # TEX_RESIDENT=1: no runtime payload CRC (verified at staging; TEX_PAYLOAD_CRC=1
 # restores it), identity sets preloaded at room entry, TEX_SLOTS cache entries (128),
 # absent packages remembered and never evict a resident texture.
+# TEX_KEEP=1 (door load U1, design-doorload): room retirement keeps texture entries resident as
+# the oldest (evictable) instead of closing them; the next room's preload finds shared and
+# re-entered textures resident and load() evicts the rest LRU. Render-side only.
 PVR_FAST_WAKE ?= 0
 PVR_PIPELINE ?= 0
 TA_DIRECT ?= 0
@@ -599,6 +627,7 @@ TEX_RESIDENT ?= 0
 TEX_RESIDENT_RESERVE_KB ?= 256
 TEX_SLOTS ?= 192
 TEX_PAYLOAD_CRC ?= 0
+TEX_KEEP ?= 0
 .PHONY: pipeline30-force
 $(OBJDIR)/pipeline30.h: pipeline30-force
 	@mkdir -p $(dir $@)
@@ -610,6 +639,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
+	@printf '#define RE4DC_TEX_KEEP %s\n' '$(TEX_KEEP)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/model_bridge.o: $(OBJDIR)/pipeline30.h

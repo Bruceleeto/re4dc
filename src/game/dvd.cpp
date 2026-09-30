@@ -898,8 +898,16 @@ void cDvdQueue::readExit()
 }
 
 // One step of the queue's routine (Rno0 table); 1 while the read is still in progress.
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_IO_PROBE) && RE4DC_IO_PROBE
+extern "C" int re4dc_dvdhold(void);   // platform/dvd.cpp: test-only equalized-door hold
+#endif
 int cDvdQueue::Read()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_IO_PROBE) && RE4DC_IO_PROBE
+    // Gate only a request's start: holding the steps of a read in flight delays its completion
+    // to the next read's target frame (+1 frame per request in the equalised arm).
+    if (m_Rno0 == 0 && step == 0 && re4dc_dvdhold()) return 1;   // held: still pending, as a contended step
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__)
     void* native_step = re4dc_dvd_step_begin();
     if (!native_step) return 1;

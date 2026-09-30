@@ -277,7 +277,7 @@ extern "C" void re4dc_dvd_block_stats(unsigned* n, unsigned long long* total_us,
 extern "C" unsigned long long re4dc_motion_wait_total_us;
 extern "C" unsigned re4dc_ui_frame();
 extern "C" void re4dc_iowrap_reset(void);                          // io_wrap.cpp
-extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle);
+extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle, unsigned long long wall_us);
 #include "native_motion.h"
 namespace {
 struct IoCycle { unsigned no; const char* mode; unsigned long long t0, t_enter; unsigned f0; bool pending, steady; Re4dcMotionStats m0; unsigned uf0; };
@@ -298,10 +298,13 @@ void io_report(const char* what,unsigned long long wall){
               "worst_us=%u motion loads=%u kb=%llu wait_us=%llu worst_wait_us=%llu ui_frames=%u-%u\n",what,io_cycle.no,io_cycle.mode,wall,
               io_cycle.t_enter>io_cycle.t0?io_cycle.t_enter-io_cycle.t0:0ULL,unsigned(pG->Frame_cnt-io_cycle.f0),bn,bt,bw,
               m.loads-io_cycle.m0.loads,(m.bytes_read-io_cycle.m0.bytes_read)/1024,re4dc_motion_wait_total_us,m.worst_wait_us,io_cycle.uf0,re4dc_ui_frame());
-    re4dc_iowrap_report(what,io_cycle.no);
+    re4dc_iowrap_report(what,io_cycle.no,wall);
     io_reset();
 }
+extern "C" void re4dc_dvdhold_begin(void);   // platform/dvd.cpp: test-only equalized-door hold
+extern "C" void re4dc_dvdhold_end(void);
 void io_cycle_begin(unsigned no,const char* mode){
+    re4dc_dvdhold_begin();
     io_cycle.no=no;io_cycle.mode=mode;io_cycle.t0=timer_us_gettime64();io_cycle.t_enter=0;
     io_cycle.f0=unsigned(pG->Frame_cnt);io_cycle.pending=true;io_cycle.steady=false;
     io_reset();
@@ -311,6 +314,7 @@ void io_cycle_frame(unsigned frames_in_room){
     if(!io_cycle.pending)return;
     if(frames_in_room==1){
         const unsigned long long t=timer_us_gettime64();
+        re4dc_dvdhold_end();
         io_report("door",t>io_cycle.t0?t-io_cycle.t0:0ULL);
         io_cycle.t0=timer_us_gettime64();io_cycle.t_enter=0;io_cycle.f0=unsigned(pG->Frame_cnt);io_cycle.steady=true;
     } else if(io_cycle.steady && frames_in_room==241){

@@ -8,8 +8,13 @@
 //   fs_read / fs_open / thd_sleep by caller (return address; symbolize with symbols-demangled.txt);
 //   genwait_wait (the base of every KOS sem/cond/mutex/sleep block) by wait kind and thread label;
 //   per-thread totals of fs_read and genwait time.
-// ui_bridge.cpp resets the tables at the door request and prints them ("iowrap:" lines) with
-// the "iotime: door" line. Nothing here changes what is read or when.
+//   GD commands (cdrom_stream_start / cdrom_stream_request / cdrom_read_sectors_ex: the entry
+//     points fs_iso9660 drives): streamed and per-sector bytes and commands, sectors below the
+//     lowest streamed LBA seen since boot (the directory area genisoimage writes first: inode
+//     cache misses), and the distance from the previous command's end LBA in buckets. These
+//     counts, not Flycast's wall time, feed the hardware door model (design-doorload 2.1).
+// ui_bridge.cpp resets the tables at the door request and prints them ("iowrap:" and "iocount:"
+// lines) with the "iotime: door" line. Nothing here changes what is read or when.
 #include <kos.h>
 #include <string.h>
 
@@ -20,18 +25,21 @@ ssize_t __real_fs_read(file_t hnd, void* buffer, size_t cnt);
 file_t __real_fs_open(const char* fn, int mode);
 void __real_thd_sleep(unsigned ms);
 int __real_genwait_wait(void* obj, const char* mesg, unsigned int timeout);
+int __real_cdrom_stream_start(int sector, int cnt, bool dma);
+int __real_cdrom_stream_request(void* buffer, size_t size, bool block);
+int __real_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma);
 }
 
 namespace {
 unsigned long long us_now() { return timer_us_gettime64(); }
 
 struct Site { unsigned kind; void* ra; unsigned n, bytes, mis; unsigned long long us; };
-struct PathRow { char path[28]; unsigned n, bytes, mis, opens; unsigned long long us, open_us; };
+struct PathRow { char path[24]; unsigned n, bytes; unsigned short mis, opens; unsigned us, open_us; };
 struct WaitRow { const char* mesg; char thread[16]; unsigned n; unsigned long long us; };
 struct ThreadRow { char thread[16]; unsigned reads; unsigned long long read_us, wait_us; };
 struct Handle { file_t fd; short row1; };   // row1: path row + 1 (0 = empty)
 
-constexpr unsigned kSites = 48, kPaths = 96, kWaits = 24, kThreads = 12, kHandles = 32;
+constexpr unsigned kSites = 48, kPaths = 256, kWaits = 24, kThreads = 12, kHandles = 32;
 Site sites[kSites]; unsigned nsites;
 PathRow paths[kPaths]; unsigned npaths;
 WaitRow waits[kWaits]; unsigned nwaits;
@@ -40,6 +48,33 @@ Handle handles[kHandles];
 unsigned dropped;
 bool enabled;
 const char* const kKind[] = {"fs_read", "fs_open", "thd_sleep"};
+
+// GD command counters (reset with the tables). LBAs are the drive's (file sector + 150).
+struct GdCount {
+    unsigned stream_start, stream_sectors, stream_req, sector_cmd, sector_n, dir_sector, errors, opens;
+    unsigned seq, lt1M, lt16M, lt128M, ge128M;
+    unsigned long long bytes_stream, bytes_sector;
+};
+GdCount gd;
+unsigned next_lba = ~0u;       // end of the previous command (the drive's position)
+unsigned stream_lba;           // next LBA of the live stream
+unsigned min_stream_lba = ~0u; // lowest streamed LBA since boot: file data starts there or later
+struct DoorHud { unsigned wall_ds, mb_d, cmds, far; bool valid; };
+DoorHud door_hud;
+
+void gd_position(unsigned lba, unsigned sectors)
+{
+    if (next_lba != ~0u) {
+        const unsigned d = lba > next_lba ? lba - next_lba : next_lba - lba;
+        const unsigned long long b = (unsigned long long) d * 2048u;
+        if (!d) ++gd.seq;
+        else if (b < (1ull << 20)) ++gd.lt1M;
+        else if (b < (16ull << 20)) ++gd.lt16M;
+        else if (b < (128ull << 20)) ++gd.lt128M;
+        else ++gd.ge128M;
+    }
+    next_lba = lba + sectors;
+}
 
 void label_of(char out[16])
 {
@@ -60,7 +95,7 @@ Site* site(unsigned kind, void* ra)
 int path_row(const char* fn)
 {
     const size_t len = strlen(fn);
-    const char* tail = len > 27 ? fn + len - 27 : fn;   // keep the file name end
+    const char* tail = len > 23 ? fn + len - 23 : fn;   // keep the file name end
     for (unsigned i = 0; i < npaths; ++i) if (!strcmp(paths[i].path, tail)) return (int) i;
     if (npaths == kPaths) { ++dropped; return -1; }
     PathRow* p = &paths[npaths]; memset(p, 0, sizeof(*p)); strcpy(p->path, tail);
@@ -93,9 +128,14 @@ extern "C" file_t __wrap_fs_open(const char* fn, int mode)
     }
     // The handle map is kept even while the tables are off, so reads of files opened before
     // the door still get their path.
+    if (enabled && fd >= 0) ++gd.opens;
     if (fn && fd >= 0) {
         const int row = path_row(fn);
-        if (row >= 0) {
+        if (row < 0) {
+            // No row for this path: unmap the handle, so a reused fd never keeps another
+            // file's row.
+            for (auto& h : handles) if (h.row1 && h.fd == fd) h.row1 = 0;
+        } else {
             if (enabled) { ++paths[row].opens; paths[row].open_us += us; }
             Handle* slot = nullptr;
             for (auto& h : handles) if (h.row1 && h.fd == fd) { slot = &h; break; }
@@ -157,20 +197,74 @@ extern "C" int __wrap_genwait_wait(void* obj, const char* mesg, unsigned int tim
     return r;
 }
 
+extern "C" int __wrap_cdrom_stream_start(int sector, int cnt, bool dma)
+{
+    const int r = __real_cdrom_stream_start(sector, cnt, dma);
+    const int irq = irq_disable();
+    const unsigned lba = (unsigned) sector;
+    if (r == 0 && lba < min_stream_lba) min_stream_lba = lba;
+    if (enabled) {
+        ++gd.stream_start; gd.stream_sectors += (unsigned) cnt; gd.errors += r != 0;
+        gd_position(lba, 0);
+    } else {
+        next_lba = lba;
+    }
+    stream_lba = lba;
+    irq_restore(irq);
+    return r;
+}
+
+extern "C" int __wrap_cdrom_stream_request(void* buffer, size_t size, bool block)
+{
+    const int r = __real_cdrom_stream_request(buffer, size, block);
+    const int irq = irq_disable();
+    const unsigned sectors = (unsigned) ((size + 2047) / 2048);
+    if (enabled) { ++gd.stream_req; gd.bytes_stream += size; gd.errors += r != 0; }
+    stream_lba += sectors;
+    next_lba = stream_lba;
+    irq_restore(irq);
+    return r;
+}
+
+extern "C" int __wrap_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma)
+{
+    const int r = __real_cdrom_read_sectors_ex(buffer, sector, cnt, dma);
+    const int irq = irq_disable();
+    if (enabled) {
+        ++gd.sector_cmd; gd.sector_n += (unsigned) cnt; gd.bytes_sector += (unsigned long long) cnt * 2048u;
+        gd.dir_sector += (unsigned) sector < min_stream_lba; gd.errors += r != 0;
+        gd_position((unsigned) sector, (unsigned) cnt);
+    } else {
+        next_lba = (unsigned) sector + (unsigned) cnt;
+    }
+    irq_restore(irq);
+    return r;
+}
+
+// PERF_HUD (IO row, after the probe numbers): the last door's wall (0.1 s), MB read (0.1),
+// GD commands and seeks of 16 MB or more. 0 until the first door report.
+extern "C" int re4dc_iocount_hud(unsigned v[4])
+{
+    if (!door_hud.valid) return 0;
+    v[0] = door_hud.wall_ds; v[1] = door_hud.mb_d; v[2] = door_hud.cmds; v[3] = door_hud.far;
+    return 4;
+}
+
 // Reset the tables and start collecting (door request).
 extern "C" void re4dc_iowrap_reset(void)
 {
     const int irq = irq_disable();
     nsites = nwaits = nthreads = 0; dropped = 0;
     for (unsigned i = 0; i < npaths; ++i) {
-        PathRow& p = paths[i]; p.n = p.bytes = p.mis = p.opens = 0; p.us = p.open_us = 0;
+        PathRow& p = paths[i]; p.n = p.bytes = 0; p.mis = p.opens = 0; p.us = p.open_us = 0;
     }
+    memset(&gd, 0, sizeof(gd));
     enabled = true;
     irq_restore(irq);
 }
 
 // Print the tables, largest time first ("iowrap:" lines), then reset.
-extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle)
+extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle, unsigned long long wall_us)
 {
     // Sorted and printed in place: collection pauses until the reset at the end (the tables
     // cost bss, which comes out of the KOS malloc break).
@@ -198,12 +292,27 @@ extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle)
     top(p, np, [](const PathRow& r) { return r.us + r.open_us; });
     for (unsigned i = 0; i < np && i < 40; ++i) {
         if (!p[i].n && !p[i].opens) break;
-        re4dc_log("iowrap: %s cycle=%u path=%s opens=%u open_us=%llu reads=%u us=%llu bytes=%u mis=%u\n", what, cycle,
-                  p[i].path, p[i].opens, p[i].open_us, p[i].n, p[i].us, p[i].bytes, p[i].mis);
+        re4dc_log("iowrap: %s cycle=%u path=%s opens=%u open_us=%u reads=%u us=%u bytes=%u mis=%u\n", what, cycle,
+                  p[i].path, (unsigned) p[i].opens, p[i].open_us, p[i].n, p[i].us, p[i].bytes, (unsigned) p[i].mis);
     }
-    re4dc_log("iowrap: %s cycle=%u dropped=%u\n", what, cycle, dr);
+    re4dc_log("iowrap: %s cycle=%u dropped=%u paths=%u\n", what, cycle, dr, np);
+    const GdCount g = gd;
+    re4dc_log("iocount: %s cycle=%u wall_us=%llu bytes_stream=%llu bytes_sector=%llu cmd_stream_start=%u stream_sectors=%u "
+              "cmd_stream_req=%u cmd_sector=%u sectors=%u\n", what, cycle, wall_us, g.bytes_stream, g.bytes_sector,
+              g.stream_start, g.stream_sectors, g.stream_req, g.sector_cmd, g.sector_n);
+    re4dc_log("iocount: %s cycle=%u dir_sector=%u dir_lba_lt=%u seeks_seq=%u lt1M=%u lt16M=%u lt128M=%u ge128M=%u "
+              "opens=%u errors=%u\n", what, cycle, g.dir_sector, min_stream_lba, g.seq, g.lt1M, g.lt16M, g.lt128M,
+              g.ge128M, g.opens, g.errors);
+    if (!strcmp(what, "door")) {
+        door_hud.wall_ds = (unsigned) ((wall_us + 50000) / 100000);
+        door_hud.mb_d = (unsigned) (((g.bytes_stream + g.bytes_sector) * 10 + (1u << 19)) >> 20);
+        door_hud.cmds = g.stream_start + g.stream_req + g.sector_cmd;
+        door_hud.far = g.lt128M + g.ge128M;
+        door_hud.valid = true;
+    }
     // Sorting moved the path rows: forget the handle map (files opened before this point lose
     // their path; the room loads open their files again).
     memset(handles, 0, sizeof(handles));
+    npaths = 0;
     re4dc_iowrap_reset();
 }

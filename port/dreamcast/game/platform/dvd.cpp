@@ -13,6 +13,15 @@
 #ifndef RE4DC_IO_PROBE
 #define RE4DC_IO_PROBE 0
 #endif
+#ifndef RE4DC_DVD_WAIT
+#define RE4DC_DVD_WAIT 0
+#endif
+#ifndef RE4DC_DVD_FDCACHE
+#define RE4DC_DVD_FDCACHE 0
+#endif
+#if RE4DC_DVD_WAIT
+#include <kos/genwait.h>
+#endif
 
 namespace {
 void* dvd_step_owner;
@@ -22,7 +31,14 @@ unsigned dvd_step_depth;
 extern "C" void* re4dc_dvd_step_begin(){
     const int irq=irq_disable();
     if(dvd_step_owner && dvd_step_thread!=thd_current){
+#if RE4DC_DVD_WAIT
+        // Check and block atomically (IRQs off); woken when the owner's depth reaches 0, or
+        // after 10 ms at most. The caller retries as before.
+        genwait_wait(&dvd_step_depth,"dvd_step",10);
+        irq_restore(irq);return nullptr;
+#else
         irq_restore(irq);thd_sleep(1);return nullptr;
+#endif
     }
     // The outer borrow protects shared header save/use/restore. Individual
     // source Read steps on that same thread may enter it recursively. A
@@ -38,7 +54,12 @@ extern "C" void re4dc_dvd_step_end(void* token){
     if(!token || dvd_step_owner!=token || dvd_step_thread!=thd_current || !dvd_step_depth){
         re4dc_missing("DVD source-step owner mismatch");irq_restore(irq);return;
     }
-    if(--dvd_step_depth==0){dvd_step_owner=nullptr;dvd_step_thread=nullptr;}
+    if(--dvd_step_depth==0){
+        dvd_step_owner=nullptr;dvd_step_thread=nullptr;
+#if RE4DC_DVD_WAIT
+        genwait_wake_all(&dvd_step_depth);
+#endif
+    }
     re4dc_io_end(token);irq_restore(irq);
 }
 
@@ -197,6 +218,84 @@ BOOL DVDClose(DVDFileInfo* fi)
     return 1;
 }
 
+#if RE4DC_IO_PROBE
+// Test-only DVD hold (see src/game/dvd.cpp cDvdQueue::Read): per-door source read frame offsets.
+#include <stdlib.h>
+extern "C" unsigned re4dc_fixture_source_frame(void);
+extern "C" int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
+namespace {
+unsigned hold_f0, hold_reads, hold_n, hold_tgt[512];   // one target per source read, all doors in order
+bool hold_on, hold_loaded;
+}
+extern "C" void re4dc_dvdhold_begin(void)
+{
+    if (!hold_loaded) {
+        hold_loaded = true;
+        static char t[3072];
+        const int n = re4dc_fixture_read("/cd/dc/dvdhold.txt", t, sizeof(t) - 1);
+        if (n > 0) {
+            t[n] = 0;
+            for (char* p = t; *p && hold_n < 512;) {
+                while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') ++p;
+                if (!*p) break;
+                hold_tgt[hold_n++] = (unsigned) strtoul(p, &p, 10);
+            }
+            re4dc_log("dvdhold: %u targets\n", hold_n);
+        }
+    }
+    hold_f0 = re4dc_fixture_source_frame(); hold_on = true;
+}
+extern "C" void re4dc_dvdhold_end(void) { hold_on = false; }
+extern "C" int re4dc_dvdhold(void)
+{
+    // Held like a contended step (re4dc_dvd_step_begin): yield, so a pumping thread cannot starve the frame.
+    // A queue drained inside one frame (MemorySwap: while (chk(0x20)) Read()) cannot reach a later frame:
+    // a hold that sees no frame advance for 100 ms releases that request (faster units reach it earlier).
+    static unsigned held_frame = ~0U, held_read = ~0U;
+    static unsigned long long held_t0;
+    const unsigned f = re4dc_fixture_source_frame();
+    if (hold_on && hold_reads < hold_n && f - hold_f0 < hold_tgt[hold_reads]) {
+        const unsigned long long now = timer_us_gettime64();
+        if (f != held_frame || hold_reads != held_read) { held_frame = f; held_read = hold_reads; held_t0 = now; }
+        else if (now - held_t0 > 100000) {
+            re4dc_log("dvdhold: drain release read=%u df=%u target=%u\n", hold_reads, f - hold_f0, hold_tgt[hold_reads]);
+            return 0;
+        }
+        thd_sleep(1);
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+#if RE4DC_DVD_FDCACHE
+// Two open source files ({entry, fd}, least recently used first out). Held under fd_lock for the
+// whole seek + read; a thread that finds it held reads the old way (its own open/close).
+namespace {
+struct FdSlot { int entry; file_t fd; unsigned used; };
+FdSlot fd_slots[2] = {{-1, FILEHND_INVALID, 0}, {-1, FILEHND_INVALID, 0}};
+unsigned fd_clock;
+mutex_t fd_lock = MUTEX_INITIALIZER;
+file_t fd_cached(int entry, const char* full)
+{
+    FdSlot* slot = nullptr;
+    for (auto& s : fd_slots) if (s.entry == entry && s.fd != FILEHND_INVALID) { slot = &s; break; }
+    if (!slot) {
+        slot = fd_slots[0].used <= fd_slots[1].used ? &fd_slots[0] : &fd_slots[1];
+        if (slot->fd != FILEHND_INVALID) fs_close(slot->fd);
+        slot->fd = fs_open(full, O_RDONLY);
+        slot->entry = slot->fd != FILEHND_INVALID ? entry : -1;
+    }
+    slot->used = ++fd_clock;
+    return slot->fd;
+}
+void fd_drop(file_t f)
+{
+    for (auto& s : fd_slots) if (s.fd == f) { fs_close(f); s.fd = FILEHND_INVALID; s.entry = -1; }
+}
+}
+#endif
+
 s32 DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCallback callback, s32 prio)
 {
     Re4dcIoScope io;  // includes callback completion before cancellation can drain
@@ -213,9 +312,15 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCal
     fi->callback = callback;
 #if RE4DC_IO_PROBE
     const unsigned long long io_t0 = timer_us_gettime64();
+    if (hold_on) re4dc_log("dvdhold: read=%u df=%u\n", hold_reads++, re4dc_fixture_source_frame() - hold_f0);
 #endif
     s32 result = DVD_RESULT_FATAL;
+#if RE4DC_DVD_FDCACHE
+    const bool cached = mutex_trylock(&fd_lock) == 0;
+    file_t f = cached ? fd_cached(entry, full) : fs_open(full, O_RDONLY);
+#else
     file_t f = fs_open(full, O_RDONLY);
+#endif
     if (f >= 0) {
         s32 avail = (s32) fi->length - offset;
         if (avail < 0) avail = 0;
@@ -229,12 +334,20 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCal
             }
             got += (s32) r;
         }
+#if RE4DC_DVD_FDCACHE
+        if (!cached) fs_close(f);
+        else if (got != want) fd_drop(f);   // a failed read never leaves a suspect fd cached
+#else
         fs_close(f);
+#endif
         // The SDK reports the requested (32-byte aligned) length on success.
         result = got == want ? length : got;
     } else {
         re4dc_log("DVDReadAsyncPrio: open failed %s\n", full);
     }
+#if RE4DC_DVD_FDCACHE
+    if (cached) mutex_unlock(&fd_lock);
+#endif
 #if RE4DC_IO_PROBE
     { const unsigned long long io_t1 = timer_us_gettime64(); note_block(io_t1 > io_t0 ? io_t1 - io_t0 : 0); }
 #endif

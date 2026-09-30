@@ -118,6 +118,9 @@
 // after the bind (behind the room-entry fade), up to the texture budget minus
 // TEX_RESIDENT_RESERVE_KB; the cache holds 128 entries; a package missing from
 // the disc is remembered instead of evicting an entry and retrying every frame.
+#ifndef RE4DC_TEX_KEEP
+#define RE4DC_TEX_KEEP 0
+#endif
 #ifndef RE4DC_TEX_RESIDENT
 #define RE4DC_TEX_RESIDENT 0
 #endif
@@ -920,6 +923,7 @@ HudBatch hud_batch; // 4 KiB .bss (PERF_HUD only), not the caller's stack
 #endif
 #if RE4DC_IO_PROBE
 extern "C" int re4dc_ioprobe_hud(unsigned v[4]);
+extern "C" int re4dc_iocount_hud(unsigned v[4]);   // io_wrap.cpp: last door
 #endif
 #if RE4DC_QUALITY
 extern "C" int re4dc_quality_hud(unsigned v[2]);   // platform/quality.cpp
@@ -962,6 +966,8 @@ void hud_draw(unsigned flip_us,unsigned render_us,unsigned wait_us,unsigned ta_b
     // under load, worst underrun deficit (0.1 ms). Blank until the probe has run.
     unsigned io[4];
     if(re4dc_ioprobe_hud(io))for(unsigned k=0;k<4;++k)hud_number(b,X+k*60,Y+6*R,io[k],k==1||k==3,0xe0c0a0ffU);
+    // Last door (orange): wall s, MB read (both 0.1), GD commands, seeks of 16 MB or more.
+    if(re4dc_iocount_hud(io))for(unsigned k=0;k<4;++k)hud_number(b,X+240+k*60,Y+6*R,io[k],k<2,0xe0ffb060U);
 #endif
 #if RE4DC_QUALITY
     // Quality row (green): mode (1 Standard, 0 Original) and the feature word.
@@ -1695,10 +1701,23 @@ void preload_identities(){
         preload_picks[j]=p;
     }
     bool full=false;
+#if RE4DC_TEX_KEEP
+    // Kept entries of earlier rooms still hold VRAM and count in `used`; load() evicts them
+    // (oldest first) for these uploads. Full is judged on this frame's pins plus what is
+    // evictable, recomputed per load as pins grow and evictions free the pool.
+    unsigned kept=0,kept_bytes=0;
+    for(const auto& e:entries)if(e.valid && e.frame!=frame){++kept;kept_bytes+=e.package.vram_bytes();}
+#endif
     for(unsigned i=0;i<n;++i){
         // The reserve is also kept in the real pool: VQ page placement pads blocks
         // beyond the accounted bytes (r100 ended at 8,936 B free with 182 KB of budget left).
+#if RE4DC_TEX_KEEP
+        unsigned pins=0,stale=0;
+        for(const auto& e:entries)if(e.valid){if(e.frame==frame)pins+=e.package.vram_bytes();else stale+=e.package.vram_bytes();}
+        if(pins+reserve>=budget || pvr_mem_available()+stale<reserve+preload_least(preload_picks[i].width,preload_picks[i].height)){full=true;break;}
+#else
         if(used+reserve>=budget || pvr_mem_available()<reserve+preload_least(preload_picks[i].width,preload_picks[i].height)){full=true;break;}
+#endif
         const PreloadPick& p=preload_picks[i];
         const Re4dcUiImage image{reinterpret_cast<const void*>(1),nullptr,p.width,p.height,p.format,0xffffffffU,0};
         if(load(image,true,&p.key))++preload_loads;else ++preload_skipped;
@@ -1706,6 +1725,9 @@ void preload_identities(){
     if(frame)for(auto& e:entries)if(e.valid && e.frame==frame)e.frame=frame-1;
     re4dc_log("native texture preload: frame=%u picked=%u resident=%u loads=%u skipped=%u full=%d used=%u budget=%u entries=%u us=%u\n",frame,n,resident,preload_loads-loads,
         preload_skipped-skipped,full?1:0,used,budget,kTextureCount,unsigned(timer_us_gettime64()-start));
+#if RE4DC_TEX_KEEP
+    re4dc_log("native texture keep: kept=%u kept_kb=%u reused=%u free=%u retries=%u\n",kept,kept_bytes/1024,resident,(unsigned)pvr_mem_available(),vram_retries);
+#endif
 #if RE4DC_COARSE_WORLD & 64
     if(world_listed){
         // loaded: the world picks now uploaded (new: their VRAM); missing: listed keys neither resident nor loaded
@@ -2033,7 +2055,11 @@ extern "C" void re4dc_ui_retire_room(){
 #if RE4DC_PVR_STREAM
     if(!stream_retire)
 #endif
+#if RE4DC_TEX_KEEP
+    for(auto& entry:entries)entry.frame=0;   // kept resident, oldest: evictable
+#else
     for(auto& entry:entries)close_entry(entry);
+#endif
 }
 
 #if RE4DC_NATIVE_STATIC
@@ -2699,7 +2725,11 @@ extern "C" void re4dc_ui_end_frame(int present){
         // previously submitted world packets cannot simply be ignored now.
         if(present && black){stream_open();stream_close(true);++stream_black_frames;}
     }
+#if RE4DC_TEX_KEEP
+    if(stream_retire){for(auto& entry:entries)entry.frame=0;stream_retire=false;}
+#else
     if(stream_retire){for(auto& entry:entries)close_entry(entry);stream_retire=false;}
+#endif
 #else
     if(present)re4dc_ui_present();
 #endif
