@@ -1,0 +1,4 @@
+# name label fixture count trace
+r101e3 c3 tour/rel-r101-entry-pw.json 900:1380 900:1380:16
+r101es c3s tour/rel-r101-entry-pw.json 900:1380 900:1380:16
+r101ex c3x tour/rel-r101-entry-pw.json 900:1380 900:1380:16
