@@ -1,3 +1,4 @@
+#include <type_traits>
 #ifndef RE4DC_PS2_WORLD_DRAW
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
@@ -193,6 +194,18 @@ re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
 #endif
 #if RE4DC_EFFECT_SPRITES
 unsigned fx_frame=~0U,fx_count,fx_queued,fx_direct,fx_missing,fx_dropped,fx_capped,fx_culled,fx_peak;
+#endif
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+// EFFECT_ROOM thrash guard (render only): an effect sprite never evicts a texture the scene needs. While the
+// cache is under pressure (an eviction this frame or the last) an effect sprite draws only from a resident
+// texture, and at most kFxNewLoads new effect textures load per frame. Without it a view whose working set
+// is over the VRAM budget reloads textures from disc every frame (r101 bell fight, 16-bit effect frames:
+// seconds per frame); with it the effects thin out until the cache settles.
+constexpr unsigned kFxNewLoads=4;
+bool fx_resident_only;unsigned fx_evict_frame=~0U-8,fx_new_loads,fx_resident_skips,load_opens;
+#define RE4DC_FX_EVICTED() (fx_evict_frame=frame)
+#else
+#define RE4DC_FX_EVICTED() ((void)0)
 #endif
 // MODEL_SLAB_LATCH=1 (scenery30.mk; default off = previous image): a failed native model slab
 // allocation is tried once per room (re4dc_ui_retire_room re-arms it), not once per part: each
@@ -1039,12 +1052,14 @@ bool same_image(const Re4dcUiImage& a,const Re4dcUiImage& b) {
 // used only after the full equality test; a miss falls back to the original
 // scan. sources[] and valid entries[] never hold duplicates (both are appended
 // only after a failed scan), so the hinted match is the scan's first match.
-unsigned char source_hint[128],entry_hint[128];
+// One byte per hint while both tables fit (the default image); TEX_SLOTS above 254 widens the entry hints.
+using EntryHint=std::conditional_t<(kTextureCount<255),unsigned char,unsigned short>;
+unsigned char source_hint[128];EntryHint entry_hint[128];
 inline unsigned source_slot(const Re4dcUiImage& i){
     const unsigned a=unsigned(reinterpret_cast<std::uintptr_t>(i.pixels))^unsigned(reinterpret_cast<std::uintptr_t>(i.palette));
     return ((a>>5)^(a>>12)^i.format)&127U;
 }
-static_assert(kSourceCount<255 && kTextureCount<255);
+static_assert(kSourceCount<255 && kTextureCount<65535);
 #endif
 #if RE4DC_PAD_PROMPTS
 // Private immutable addresses are presentation identities, never source pixels.
@@ -1212,9 +1227,12 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         Entry& e=entries[h-1];
         if(e.valid && e.key==key){RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
     }
-    for(auto& e:entries) if(e.valid && e.key==key) {entry_hint[hint]=(unsigned char)(&e-entries+1);RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
+    for(auto& e:entries) if(e.valid && e.key==key) {entry_hint[hint]=EntryHint(&e-entries+1);RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
 #else
     for(auto& e:entries) if(e.valid && e.key==key) {RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
+#endif
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    if(fx_resident_only){++fx_resident_skips;return nullptr;}
 #endif
 #if RE4DC_UI_VRAM
     {
@@ -1255,10 +1273,13 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         fs_close(f);
     }
 #endif
-    if(slot->valid)RE4DC_PROFILE_COUNT(TextureEvictions,1);
+    if(slot->valid){RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();}
     close_entry(*slot); // caller has completed both TA and render fences
     char path[96];RE4DC_TEX_PATH(path,key);
     re4dc_log("native UI: load %s %ux%u fmt=%u\n",path,image.width,image.height,image.format);
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    ++load_opens;
+#endif
     const int heap_before=re4dc_ui_heap_free();
     bool ok=slot->package.open_streamed(path);
     if(!ok) {RE4DC_PROFILE_COUNT(TextureOpenFailures,1);re4dc_log("native UI: package rejected: %s\n",slot->package.error());}
@@ -1279,7 +1300,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         Entry* victim=nullptr;
         for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
         if(!victim) return false;
-        RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);++reclaimed;return true;
+        RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();close_entry(*victim);++reclaimed;return true;
     };
 #if RE4DC_TEX_RESIDENT
     unsigned need=0;
@@ -1396,7 +1417,10 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 // at fill time (palette_copies[], one per handle slot group) and hits only
 // while the live palette is identical, so a hit is exactly what the full path
 // would resolve; any palette change takes the full path again.
-struct alignas(32) Handle { const void *pixels,*palette,*mask_pixels,*mask_palette; unsigned shape,mask_shape,stamp; unsigned char entry; unsigned short palette_bytes; };
+// entry: one byte while the cache fits (the default image); TEX_SLOTS above 255 needs the padding byte too (same size).
+using HandleEntry=std::conditional_t<(kTextureCount<256),unsigned char,unsigned short>;
+struct alignas(32) Handle { const void *pixels,*palette,*mask_pixels,*mask_palette; unsigned shape,mask_shape,stamp; HandleEntry entry; unsigned short palette_bytes; };
+static_assert(sizeof(Handle)==32 && kTextureCount<65536);
 static_assert(sizeof(void*)!=4 || sizeof(Handle)==32,"one SH-4 D-cache line per handle");
 Handle handle_table[256];
 #ifndef RE4DC_UI_PALETTE_SLOTS
@@ -1532,7 +1556,7 @@ Entry* resolve(const Re4dcUiImage& image,const Re4dcModelPart* masked,bool pin){
             auto stale=[&](const Handle& x){return !(x.stamp>handle_reset && x.stamp>entry_closed[x.entry]);};
             Handle& h=same(*way[0])?*way[0]:same(*way[1])?*way[1]:stale(*way[0])?*way[0]:stale(*way[1])?*way[1]:
                       way[0]->stamp<=way[1]->stamp?*way[0]:*way[1];
-            h={image.pixels,image.palette,mask_pixels,mask_palette,shape,mask_shape,++handle_clock,(unsigned char)(e-entries),(unsigned short)image.palette_bytes};
+            h={image.pixels,image.palette,mask_pixels,mask_palette,shape,mask_shape,++handle_clock,HandleEntry(e-entries),(unsigned short)image.palette_bytes};
             if(indexed)palette_keep(unsigned(&h-handle_table),image);
         }
         return e;
@@ -1549,7 +1573,7 @@ Entry* resolve(const Re4dcUiImage& image,const Re4dcModelPart* masked,bool pin){
     ++handle_misses;
     Entry* e=resolve_full(image,masked,pin);
     if(e){
-        h={image.pixels,image.palette,mask_pixels,mask_palette,shape,mask_shape,++handle_clock,(unsigned char)(e-entries),(unsigned short)image.palette_bytes};
+        h={image.pixels,image.palette,mask_pixels,mask_palette,shape,mask_shape,++handle_clock,HandleEntry(e-entries),(unsigned short)image.palette_bytes};
         if(indexed)palette_keep(unsigned(&h-handle_table),image);
     }
     return e;
@@ -2692,6 +2716,9 @@ extern "C" void re4dc_ui_present(){
 #endif
 #if RE4DC_EFFECT_SPRITES
     if(frame%120==0) re4dc_log("native effect sprites: frame=%u queued=%u direct=%u missing=%u dropped=%u capped=%u culled=%u peak=%u\n",frame,fx_queued,fx_direct,fx_missing,fx_dropped,fx_capped,fx_culled,fx_peak);
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    if(frame%120==0) re4dc_log("native effect guard: frame=%u resident_only_skips=%u\n",frame,fx_resident_skips);
+#endif
 #endif
 #if RE4DC_NATIVE_MES
     if(frame%120==0 && (glyph_total!=glyph_logged_total || glyph_full+glyph_dropped+glyph_unsupported!=glyph_logged_problems)){
@@ -3517,7 +3544,11 @@ extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE b
 // frame: without texture, over the per-frame cap or without queue room the sprite is dropped.
 extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     if(!frame_ready || stream_aborted || draining_parts)return 0;
-    if(fx_frame!=frame){fx_frame=frame;fx_count=0;}
+    if(fx_frame!=frame){fx_frame=frame;fx_count=0;
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+        fx_new_loads=0;
+#endif
+    }
     if((s->color>>24)==0){++fx_culled;return 0;}
     for(unsigned i=0;i<4;++i)if(!std::isfinite(s->x[i]) || !std::isfinite(s->y[i]) || !std::isfinite(s->z[i])){++fx_culled;return 0;}
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
@@ -3535,10 +3566,17 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     }
 #endif
     if(fx_count>=RE4DC_EFFECT_SPRITE_MAX){++fx_capped;return 0;}
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    fx_resident_only=frame-fx_evict_frame<=1 || fx_new_loads>=kFxNewLoads;
+    const unsigned opens=load_opens;
+#endif
 #if RE4DC_UI_HANDLES
     Entry* e=resolve(s->image,nullptr,true);
 #else
     Entry* e=load(s->image);
+#endif
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    fx_resident_only=false;fx_new_loads+=load_opens-opens;
 #endif
     if(!e){++fx_missing;return 0;}
     if(source_draws_finished){

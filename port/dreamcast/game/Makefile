@@ -590,6 +590,9 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/pvr-stre
 # TEX_RESIDENT=1: no runtime payload CRC (verified at staging; TEX_PAYLOAD_CRC=1
 # restores it), identity sets preloaded at room entry, TEX_SLOTS cache entries (128),
 # absent packages remembered and never evict a resident texture.
+# TEX_SLOTS=n: texture cache entries (default 192). Above 254 the COPY_LEAN entry hints widen to 16 bits
+# (the default image is unchanged). The play recipe (build-r21.sh) uses 448 with EFFECT_ROOM=7: the r101
+# fight has ~430-520 unique in-room keys and 192 recycles a slot on every new one (~57 KB .data, 8 KB .bss).
 # TEX_KEEP=1 (door load U1, design-doorload): room retirement keeps texture entries resident as
 # the oldest (evictable) instead of closing them; the next room's preload finds shared and
 # re-entered textures resident and load() evicts the rest LRU. Render-side only.
