@@ -26,6 +26,9 @@ struct ActorOwnedRecord {
     Re4dcModelPart base;
     Re4dcActorPlan plan;
     unsigned count,run_count,done,passes,submitted,released;
+#if RE4DC_CROWD
+    unsigned crowd_ganado,crowd_would,crowd_emit;  // lane crowd: a Ganado; its policy reason (=2 check); triangles emitted
+#endif
     ActorOwnedPart part[8];
     Re4dcActorDrawRun runs[kRe4dcActorRuns];
 };
@@ -198,10 +201,93 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
 }
 }
 
+#if RE4DC_CROWD
+// Lane crowd (crowd.mk; render only): after the owner path admitted a Ganado (plan + semantics), decide whether its
+// cast mesh is acquired and submitted at all. A Ganado that is not drawn takes presentation choice 2 (native, so the
+// source callback never draws it) with no record: both of its OT passes return "handled" without a submission. Its
+// simulation, skeleton and collision ran before and are untouched.
+//   reason 1: CROWD_CULL, every visible chunk provably off-screen (re4dc_crowd_offscreen, the cast pregate balls)
+//   reason 2: CROWD_DRAW_M, farther than D metres; reason 3: CROWD_DRAW_MAX, beyond the N nearest.
+extern "C" int re4dc_crowd_offscreen(cModel*);  // coarse_actor_owner_ganado.inc
+extern "C" unsigned re4dc_model_output_count();
+extern "C" unsigned re4dc_ui_frame();
+namespace {
+constexpr unsigned kCrowdSkips=64;
+ModelIdentity crowd_skip[kCrowdSkips];
+unsigned crowd_skips;
+bool crowd_ganado(cModel* m) { return m && m->id>=0x10 && m->id<=0x20; }  // owner_ganado_bind's class
+// The root's camera distance (source units: millimetres).
+float crowd_distance(cModel* m) {
+    const float (*r)[4]=m->pParts->mat;const float (*v)[4]=pG->Cam.v_mat;
+    float t[3];
+    for(unsigned i=0;i<3;++i)t[i]=v[i][0]*r[0][3]+v[i][1]*r[1][3]+v[i][2]*r[2][3]+v[i][3];
+    return __builtin_sqrtf(t[0]*t[0]+t[1]*t[1]+t[2]*t[2]);
+}
+#if RE4DC_CROWD_DRAW_MAX >= 0
+// Distances of the previous frame's drawable Ganados (kept by the cull and the distance limit), and this frame's.
+struct CrowdSeen { std::uintptr_t address; float d; };
+CrowdSeen crowd_prev[kCrowdSkips],crowd_cur[kCrowdSkips];
+unsigned crowd_prev_n,crowd_cur_n;
+#endif
+#if RE4DC_CROWD_CENSUS
+struct CrowdCensus { unsigned frame,game,seen,admitted,skip[4],drawn,empty,band[4],tris,cullcheck; } crowd_cc;
+#endif
+#if RE4DC_CROWD_CULL == 2
+unsigned crowd_chk_would,crowd_chk_violations,crowd_chk_tris,crowd_chk_log;
+#endif
+void crowd_frame_begin() {
+#if RE4DC_CROWD_CENSUS
+    const CrowdCensus& c=crowd_cc;
+    if(c.seen && c.frame>=RE4DC_CROWD_CENSUS_FROM && c.frame<=RE4DC_CROWD_CENSUS_TO)
+        re4dc_log("CROWDC f=%u t=%u seen=%u admitted=%u off=%u far=%u cap=%u drawn=%u empty=%u band=%u/%u/%u/%u tris=%u\n",
+            c.frame,c.game,c.seen,c.admitted,c.skip[1],c.skip[2],c.skip[3],c.drawn,c.empty,c.band[0],c.band[1],c.band[2],
+            c.band[3],c.tris);
+    crowd_cc=CrowdCensus{};crowd_cc.frame=re4dc_ui_frame();crowd_cc.game=unsigned(pG->Frame_cnt);
+#endif
+#if RE4DC_CROWD_CULL == 2
+    if(!(pG->Frame_cnt%120))
+        re4dc_log("CROWDCULL t=%u would_cull=%u violations=%u violation_tris=%u\n",unsigned(pG->Frame_cnt),crowd_chk_would,
+            crowd_chk_violations,crowd_chk_tris);
+#endif
+#if RE4DC_CROWD_DRAW_MAX >= 0
+    std::memcpy(crowd_prev,crowd_cur,sizeof(crowd_cur));crowd_prev_n=crowd_cur_n;crowd_cur_n=0;
+#endif
+}
+// 0: draw; 1..3: the reason it is not drawn (above).
+unsigned crowd_policy(cModel* m) {
+    const float d=crowd_distance(m);
+    (void)d;
+#if RE4DC_CROWD_CENSUS
+    ++crowd_cc.admitted;++crowd_cc.band[d<5000.0f?0:d<12000.0f?1:d<25000.0f?2:3];
+#endif
+#if RE4DC_CROWD_CULL
+    if(re4dc_crowd_offscreen(m))return 1;
+#endif
+#if RE4DC_CROWD_DRAW_M > 0
+    if(d>float(RE4DC_CROWD_DRAW_M)*1000.0f)return 2;
+#endif
+#if RE4DC_CROWD_DRAW_MAX >= 0
+    const std::uintptr_t a=reinterpret_cast<std::uintptr_t>(m);
+    if(crowd_cur_n<kCrowdSkips)crowd_cur[crowd_cur_n++]={a,d};
+    unsigned rank=0;
+    for(unsigned k=0;k<crowd_prev_n;++k)if(crowd_prev[k].address!=a && crowd_prev[k].d<d)++rank;
+    if(rank>=unsigned(RE4DC_CROWD_DRAW_MAX))return 3;
+#endif
+    return 0;
+}
+bool crowd_skipped(const ModelIdentity& model) {
+    for(unsigned k=0;k<crowd_skips;++k)if(crowd_skip[k]==model)return true;
+    return false;
+}
+}
+#endif
 extern "C" void re4dc_actor_transaction_retire() {
     // Revoke exported owners without traversing old primitive storage. This is
     // called BEFORE FrameLedger retirement and SetPrimBuffPtr storage reuse.
     actor_owned_head=nullptr;actor_owned_live=false;
+#if RE4DC_CROWD
+    crowd_skips=0;
+#endif
     re4dc_actor_owner_retire(); // revoke cached matrix pointers before bank reuse
     re4dc_actor_model_frame_retire(); // next primitive owner must reacquire its workspace
     actor_palette_arena.retire();
@@ -215,12 +301,28 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     if(!identity){ATD(m,1,0,0);return 0;}
     // Frame identity is checked BEFORE touching any retained record pointer.
     if(actor_owned_live && !(actor_owned_frame==frame)){actor_fail();return -1;}
-    if(!actor_owned_live){actor_owned_frame=frame;actor_owned_live=true;}
+    if(!actor_owned_live){
+        actor_owned_frame=frame;actor_owned_live=true;
+#if RE4DC_CROWD
+        crowd_frame_begin();
+#endif
+    }
     if(!re4dc_actor_transaction_choice(m,&choice)){actor_fail();return -1;}
     if(choice==1){ATD(m,2,0,0);return 0;} // sticky original-source decision, including pass two
     ActorOwnedRecord* r=nullptr;
+#if RE4DC_CROWD
+    unsigned crowd_would=0;
+    if(choice==0 && crowd_ganado(m)) {
+#if RE4DC_CROWD_CENSUS
+        ++crowd_cc.seen;
+#endif
+    }
+#endif
     if(choice==2) {
         for(auto* p=actor_owned_head;p;p=p->next)if(p->model==model){r=p;break;}
+#if RE4DC_CROWD
+        if(!r && crowd_skipped(model))return 1;  // a Ganado the crowd policy does not draw: its second pass
+#endif
         if(!r || !(r->frame==frame)){actor_fail();return -1;}
     } else {
         // Mark source first; any pre-header admission failure retains the
@@ -231,11 +333,36 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){ATD(m,4,0,0);return 0;}
         if(!actor_plan_layout(p)){ATD(m,5,p.count,p.run_count);return 0;}
         if(!actor_semantics(m,p)){ATD(m,6,p.appearance,p.count);return 0;}
+#if RE4DC_CROWD
+        if(crowd_ganado(m)) {
+            crowd_would=crowd_policy(m);
+#if RE4DC_CROWD_CENSUS
+            ++crowd_cc.skip[crowd_would];
+#endif
+#if RE4DC_CROWD_CULL == 2
+            if(crowd_would==1)++crowd_chk_would;
+            if(crowd_would>1)  // =2 checks the cull only; a policy skip still skips
+#else
+            if(crowd_would)
+#endif
+            {
+                if(crowd_skips==kCrowdSkips)crowd_would=0;  // no room to remember it: drawn as before
+                else {
+                    if(!re4dc_actor_transaction_choose(m,2)){actor_fail();return -1;}
+                    crowd_skip[crowd_skips++]=model;
+                    return 1;
+                }
+            }
+        }
+#endif
         bool failed=false;r=actor_acquire(m,p,frame,model,failed);
         if(failed){actor_fail();return -1;}
         if(!r){ATD(m,31,p.appearance,0);return 0;}
         if(!re4dc_actor_transaction_choose(m,2)){actor_release(*r);actor_fail();return -1;}
         ATD(m,16,p.appearance,p.run_count);
+#if RE4DC_CROWD
+        r->crowd_ganado=crowd_ganado(m);r->crowd_would=crowd_would;r->crowd_emit=0;
+#endif
     }
     const unsigned pass=m->ot_type==7 && (m->be_flag&0x08000000)?2u:1u;
     if((r->done&pass) || r->released){actor_fail();return -1;}
@@ -265,7 +392,26 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(m->ot_type==7 && ((p.flags&0x40)?2u:1u)!=pass)continue;
         for(unsigned j=0;j<r->run_count;++j)if(r->runs[j].chunk.info==p.info)runs[n++]=r->runs[j];
     }
+#if RE4DC_CROWD
+    const unsigned crowd_out0=re4dc_model_output_count();
+#endif
     const int result=n?re4dc_actor_submit_owned_runs(&r->base,runs,n,r->plan.materials,r->plan.material_count,&r->workspace,&r->skin,r->textures):1;
+#if RE4DC_CROWD
+    if(r->crowd_ganado) {
+        const unsigned emitted=re4dc_model_output_count()-crowd_out0;
+        r->crowd_emit+=emitted;
+#if RE4DC_CROWD_CULL == 2
+        if(r->crowd_would==1 && emitted) {
+            ++crowd_chk_violations;crowd_chk_tris+=emitted;
+            if(++crowd_chk_log<=12)re4dc_log("CROWDCULL VIOLATION t=%u m=%p pass=%u emitted=%u\n",unsigned(pG->Frame_cnt),m,pass,emitted);
+        }
+#endif
+#if RE4DC_CROWD_CENSUS
+        crowd_cc.tris+=emitted;
+        if((r->done|pass)==r->passes)++(r->crowd_emit?crowd_cc.drawn:crowd_cc.empty);
+#endif
+    }
+#endif
     if(result!=1) {
         actor_release(*r);
         // Even a pre-header decline is a broken reservation after admission;

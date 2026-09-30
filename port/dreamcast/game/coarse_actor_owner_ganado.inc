@@ -107,6 +107,25 @@ bool owner_add_source_material(cModel* m,Re4dcActorPlan& p,unsigned role,unsigne
     index=p.material_count++;p.materials[index]=mat;return true;
 }
 }
+#if RE4DC_CROWD
+// Lane crowd (crowd.mk CROWD_CULL; render only, exact): the owner path's whole-actor form of COARSE_PREGATE. Called
+// right after re4dc_actor_plan_ganado bound m. 1 when every visible chunk is provably outside one of the actor path's
+// culling planes (gate_cull_once: per-bone balls from the cast chunk's own positions and weights), so
+// re4dc_actor_submit_owned_runs would emit nothing for the actor. The balls cover the four cast chunks only: an actor
+// with a fifth (attachment) info or an original source hand is never culled.
+extern "C" int re4dc_crowd_offscreen(cModel* m) {
+#if RE4DC_CROWD_CULL
+    if(!bound || bound->owner!=m || owner_info_count[owner_current_slot]!=4)return 0;
+    for(unsigned role=2;role<4;++role)if(owner_original_chunk(role))return 0;
+    Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
+    Mtx mv[4];
+    const unsigned skip=gate_cull_checked(m,bound->appearance,bound->infos,bound->parts,inv,mv);
+    return skip==gate_visible;
+#else
+    (void)m;return 0;
+#endif
+}
+#endif
 extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
     if(!out || !owner_ganado_bind(m))return 0;
     Re4dcActorPlan p{};const unsigned a=bound->appearance,t=gc::appearance_texture[a];

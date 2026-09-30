@@ -1,0 +1,38 @@
+# D367 lane crowd (2026-09-30): Ganado draw cost and crowd draw policy on the ACTOR_TRANSACTION owner path
+# (coarse_actor_transaction.inc, coarse_actor_owner_ganado.inc). All default off: no -D is added and the
+# default image is unchanged. Render only: every Ganado still exists, moves, animates its skeleton and collides
+# exactly as before (logic trace STRICT); these knobs only decide whether its cast mesh is skinned and submitted.
+#
+# CROWD_CULL=1 (exact, look unchanged): a Ganado whose every visible chunk is provably off-screen (COARSE_PREGATE's
+#              per-bone balls against the actor path's culling planes: a screen edge or the projection far) is not
+#              acquired: no bones, palettes, texture pins, preflight or submission. re4dc_actor_submit would have
+#              emitted nothing for it, so the image is the same. Applies only after the owner path admitted the
+#              actor (plan + semantics), so no Ganado changes path. =2 check build: nothing is skipped; each actor the
+#              cull would skip must emit no triangle over both passes ("CROWDCULL" lines: violations must stay 0).
+# CROWD_CENSUS=1 (diagnostic): one "CROWDC" line per frame in the UI-frame window CROWD_CENSUS_FROM..TO: Ganados
+#              seen by the owner path, admitted, culled off-screen, drawn, drawn with no output, distance bands.
+# CROWD_DRAW_MAX=N (look change, user's call; -1 = off): at most N Ganados drawn a frame, the nearest by the previous
+#              frame's camera distances among those the cull keeps; the rest are not drawn (still simulated).
+# CROWD_DRAW_M=D (look change, user's call; 0 = off): Ganados farther than D metres from the camera are not drawn.
+CROWD_CULL ?= 0
+CROWD_CENSUS ?= 0
+CROWD_CENSUS_FROM ?= 900
+CROWD_CENSUS_TO ?= 1380
+CROWD_DRAW_MAX ?= -1
+CROWD_DRAW_M ?= 0
+CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M)) $(filter-out -1,$(CROWD_DRAW_MAX))
+ifneq ($(strip $(CROWD_KNOBS)),)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error CROWD_* knobs act on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+ifneq ($(COARSE_PREGATE)$(COARSE_GATE_ONCE),11)
+$(error CROWD_* knobs reuse the cast Ganado pregate (COARSE_PREGATE=1 COARSE_GATE_ONCE=1))
+endif
+ifeq ($(filter $(CROWD_CULL),0 1 2),)
+$(error CROWD_CULL must be 0, 1 or 2)
+endif
+CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENSUS) \
+  -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
+  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD=1
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += $(CROWD_DEFS)
+endif
