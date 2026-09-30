@@ -125,14 +125,24 @@ def extract(room, iso_f, index, work, inputs):
     for n in [stem + '.SMD', stem + '.TPL', room + '_005.SMX'] + [stem + s for s in SCENARIO_SUFFIXES]:
         shutil.copy2(sub / n, inputs / n)
     shutil.copytree(sub / (stem + '_BIN'), inputs / (stem + '_BIN'))
-    obj = (inputs / (stem + '.scenario.obj')).read_text(errors='replace')
+    # small room files the look sheet and the colour study read (route graph, events, lights, cameras):
+    # <inputs root>/../aux/<room>, outside the converter's input set
+    aux = inputs.parent.parent / 'aux' / room
+    if aux.exists():
+        shutil.rmtree(aux)
+    aux.mkdir(parents=True)
+    for n in names:
+        if n.upper().endswith(('.RTP', '.AEV', '.LIT', '.CAM')):
+            shutil.copy2(sub / n, aux / n)
+    obj =(inputs / (stem + '.scenario.obj')).read_text(errors='replace')
     kinds = {}
     for g in re.findall(r'^g (\S+)', obj, re.M):
         k = 'NORMAL' if 'NORMAL' in g.upper() else ('COLOR' if 'COLOR' in g.upper() else 'OTHER')
         kinds[k] = kinds.get(k, 0) + 1
     return dict(room=room, member=member, dat_entries=names, scenario_smd=smds[0], smx=smxs[0],
                 other_smds=smds[1:], obj_group_kinds=kinds,
-                bins=len(list((inputs / (stem + '_BIN')).glob('*.BIN'))), files=tree_hashes(inputs))
+                bins=len(list((inputs / (stem + '_BIN')).glob('*.BIN'))), files=tree_hashes(inputs),
+                aux=tree_hashes(aux))
 
 
 def main():
