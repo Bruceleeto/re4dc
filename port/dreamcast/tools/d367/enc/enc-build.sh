@@ -45,9 +45,9 @@ for line in subprocess.check_output(['/opt/toolchains/dc/sh-elf/bin/sh-elf-nm', 
     f = line.split()
     if len(f) == 4 and f[-1] in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage', '_re4dc_pcs'):
         syms[f[-1]] = int(f[0], 16)
-assert len(syms) == 4, syms
+assert len(syms) >= 3, syms   # _re4dc_pcs only in PC_SAMPLER=1 builds (hwproject needs it)
 (out / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage')) + '\n')
-(elf.parent / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage', '_re4dc_pcs')) + '\n')
+(elf.parent / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage', '_re4dc_pcs') if n in syms) + '\n')
 report = json.loads(pj.read_text()) if pj.exists() else {}
 report[arm] = dict(elf=str(elf), elf_sha256=sha(elf), overlay_sha256=sha(ovl), symbols=syms,
                    files={p.name: dict(bytes=p.stat().st_size, sha256=sha(p)) for p in out.iterdir() if p.is_file()})
