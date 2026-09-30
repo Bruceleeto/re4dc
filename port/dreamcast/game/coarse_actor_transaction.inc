@@ -236,6 +236,14 @@ struct CrowdCensus { unsigned frame,game,seen,admitted,skip[4],drawn,empty,band[
 unsigned crowd_chk_would,crowd_chk_violations,crowd_chk_tris,crowd_chk_log;
 #endif
 void crowd_frame_begin() {
+#if RE4DC_CROWD_FREEZE_AT
+    // Look sheets only (CROWD_FREEZE_AT=N): stop in game frame N's first owner draw; frame N-1, already presented,
+    // stays on screen, so every later capture of two arms shows the same game frame.
+    if(unsigned(pG->Frame_cnt)>=unsigned(RE4DC_CROWD_FREEZE_AT)) {
+        re4dc_log("CROWD_FREEZE t=%u: the screen holds frame %u\n",unsigned(pG->Frame_cnt),unsigned(pG->Frame_cnt)-1);
+        for(;;)__asm__ volatile("nop");
+    }
+#endif
 #if RE4DC_CROWD_CENSUS
     const CrowdCensus& c=crowd_cc;
     if(c.seen && c.frame>=RE4DC_CROWD_CENSUS_FROM && c.frame<=RE4DC_CROWD_CENSUS_TO)

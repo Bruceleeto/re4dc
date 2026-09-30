@@ -14,13 +14,15 @@
 # CROWD_DRAW_MAX=N (look change, user's call; -1 = off): at most N Ganados drawn a frame, the nearest by the previous
 #              frame's camera distances among those the cull keeps; the rest are not drawn (still simulated).
 # CROWD_DRAW_M=D (look change, user's call; 0 = off): Ganados farther than D metres from the camera are not drawn.
+# CROWD_FREEZE_AT=N (look sheets only): the CPU stops in game frame N's first owner draw; frame N-1 stays on screen.
 CROWD_CULL ?= 0
 CROWD_CENSUS ?= 0
 CROWD_CENSUS_FROM ?= 900
 CROWD_CENSUS_TO ?= 1380
 CROWD_DRAW_MAX ?= -1
 CROWD_DRAW_M ?= 0
-CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M)) $(filter-out -1,$(CROWD_DRAW_MAX))
+CROWD_FREEZE_AT ?= 0
+CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M) $(CROWD_FREEZE_AT)) $(filter-out -1,$(CROWD_DRAW_MAX))
 ifneq ($(strip $(CROWD_KNOBS)),)
 ifneq ($(ACTOR_TRANSACTION),1)
 $(error CROWD_* knobs act on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
@@ -33,6 +35,6 @@ $(error CROWD_CULL must be 0, 1 or 2)
 endif
 CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENSUS) \
   -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
-  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD=1
+  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD=1
 $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += $(CROWD_DEFS)
 endif
