@@ -3,7 +3,7 @@
 Instructions for an agent (or the user) setting up a SteamOS machine to play the port's
 builds in Flycast and record gameplay. Everything is user-level: no `sudo`, no changes to the
 read-only system image, the user's own Flycast settings untouched. Written 2026-09-29, not yet
-run on a Deck: report anything that differs.
+run on a Deck: report anything that differs. CachyOS / Arch: `CACHYOS_PLAY.md`.
 
 ## What gets installed
 
