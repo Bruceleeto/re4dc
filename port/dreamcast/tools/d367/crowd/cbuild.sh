@@ -31,5 +31,8 @@ echo "$L MODE=$MODE $M $*" > "$OUT/flags.txt"
 ASSETS="$ASSETS" OBJDIR="$OBJ" OUT="$OUT" /root/probe/d367-buildslot.sh bash "$ROOT/port/dreamcast/tools/d367/build-r21.sh" $M "$@" \
   > "$OUT/build.log" 2>&1 || { echo "BUILD FAILED $L"; grep -E 'error|Error' "$OUT/build.log" | head -20; tail -5 "$OUT/build.log"; exit 1; }
 sha256sum "$OUT/re4dc-game.elf" | tee "$OUT/elf.sha256"
-MISS=$(ls "$OBJ"/missing.txt 2>/dev/null || true)
-[ -n "$MISS" ] && { echo "missing symbols:"; head -5 "$MISS"; } || true
+# Unresolved symbols link to silent HALT stubs (link.sh writes the tree's game/obj/missing.txt; build arms serially).
+# The play recipe has 4 (em27 setWaterHeight, the cEmWrap set* trio); any other name is a bug in the arm.
+cp "$ROOT/port/dreamcast/game/obj/missing.txt" "$OUT/missing.txt"
+echo "$(grep -o 'missing stubs: [0-9]*' "$OUT/build.log") ($(tr '\n' ' ' < "$OUT/missing.txt"))"
+if grep -qv -e setWaterHeight -e cEmWrap -e 'setEm__FsSciii' "$OUT/missing.txt"; then echo "NEW MISSING SYMBOL in $L"; exit 1; fi

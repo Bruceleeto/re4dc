@@ -209,7 +209,9 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
 //   reason 1: CROWD_CULL, every visible chunk provably off-screen (re4dc_crowd_offscreen, the cast pregate balls)
 //   reason 2: CROWD_DRAW_M, farther than D metres; reason 3: CROWD_DRAW_MAX, beyond the N nearest.
 extern "C" int re4dc_crowd_offscreen(cModel*);  // coarse_actor_owner_ganado.inc
-extern "C" unsigned re4dc_model_output_count();
+#if RE4DC_CROWD_OUTPUT
+extern "C" unsigned re4dc_model_output_count();  // native_ui.cpp, census / cull-check builds only
+#endif
 extern "C" unsigned re4dc_ui_frame();
 namespace {
 constexpr unsigned kCrowdSkips=64;
@@ -400,11 +402,11 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(m->ot_type==7 && ((p.flags&0x40)?2u:1u)!=pass)continue;
         for(unsigned j=0;j<r->run_count;++j)if(r->runs[j].chunk.info==p.info)runs[n++]=r->runs[j];
     }
-#if RE4DC_CROWD
+#if RE4DC_CROWD_OUTPUT
     const unsigned crowd_out0=re4dc_model_output_count();
 #endif
     const int result=n?re4dc_actor_submit_owned_runs(&r->base,runs,n,r->plan.materials,r->plan.material_count,&r->workspace,&r->skin,r->textures):1;
-#if RE4DC_CROWD
+#if RE4DC_CROWD_OUTPUT
     if(r->crowd_ganado) {
         const unsigned emitted=re4dc_model_output_count()-crowd_out0;
         r->crowd_emit+=emitted;

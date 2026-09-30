@@ -37,4 +37,9 @@ CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENS
   -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
   -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD=1
 $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += $(CROWD_DEFS)
+# The census and the cull check read native_ui.cpp's emitted-triangle total (otherwise a silent missing-symbol stub).
+ifneq ($(CROWD_CENSUS)$(filter 2,$(CROWD_CULL)),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
+endif
 endif
