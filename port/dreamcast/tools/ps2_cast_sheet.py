@@ -93,7 +93,7 @@ def load_model(spec):
 
 
 def posed(model, world):
-    if world is None:
+    if world is None or len(world) != len(model['rest']):  # a pose of another skeleton: rest pose
         return model['pos']
     mats = np.asarray(world) @ np.linalg.inv(model['rest'])
     h = np.c_[model['pos'], np.ones(len(model['pos']))]

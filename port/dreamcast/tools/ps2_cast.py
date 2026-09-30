@@ -32,7 +32,7 @@ usage:
   ps2_cast.py list                          (presets)
 Env: RE4_CAST_PROTO (character-prototype-20260925, pack_coarse_actor.py), RE4_WORLD_AGENT (ps2_tpl_decode.py).
 """
-import argparse, hashlib, importlib.util, json, math, os, shutil, struct, sys, zlib
+import argparse, hashlib, importlib.util, json, math, os, re, shutil, struct, sys, zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -67,6 +67,10 @@ PRESETS = {
     'ganado-em15-04': _ganado('em15', 0x1e0, ['r101'], [0x04]),
     'ganado-em12-01': dict(archive='em12', sections=[(0x1d8, 'body'), (0x1da, 'head'), (0x1c0, 'right-hand'), (0x1c5, 'left-hand')],
                            tpl=0x1d9, rooms=['r100', 'r103'], types=[1], category='human'),
+    # not in the external cast (ps2_cast_inventory.py): Em17Set / Em16Set type 0xc, Em13Set type 6 (own hands)
+    'ganado-em17-0c': _ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]),
+    'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
+                           tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
 }
 
 
@@ -273,19 +277,11 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                                         ps2_triangles=len(tris), ps2_strip_vertices=sum(len(s['verts']) for n in m.nodes for s in n['segments']),
                                         ps2_segments=sum(len(n['segments']) for n in m.nodes))))
     used.sort()
-    ncell = len(used)
-    cols = 1 << max(0, math.ceil(math.log2(math.ceil(math.sqrt(ncell)))))
-    rows = math.ceil(ncell / cols)
-    rows = 1 << max(0, math.ceil(math.log2(rows)))
-    aw, ah = cols * CELL, rows * CELL
+    cells, (aw, ah) = pack_atlas([(k, images[k]['width'], images[k]['height']) for k in used])
     atlas = Image.new('RGBA', (aw, ah), (0, 0, 0, 255))
-    cells = {}
-    for n, k in enumerate(used):
+    for k in used:
         im = images[k]
-        assert (im['width'], im['height']) == (CELL, CELL), ('non-256 texture', k, im['width'], im['height'])
-        x0, y0 = (n % cols) * CELL, (n // cols) * CELL
-        atlas.paste(Image.frombytes('RGBA', (CELL, CELL), im['rgba']), (x0, y0))
-        cells[k] = (x0, y0)
+        atlas.paste(Image.frombytes('RGBA', (im['width'], im['height']), im['rgba']), cells[k][:2])
     opaque = all(a >= 128 for im in images for a in im['alpha_raw'] if im['index'] in used)
     atlas_rgb = atlas.convert('RGB').convert('RGBA')  # opaque: PS2 alpha 0x80 = 1.0; RGB565 VQ has no alpha
     atlas_rgb.save(out / 'atlas.png')
@@ -299,7 +295,7 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     for si, s in enumerate(sections):
         gm = s['gmesh']
         for mat_i, corners in s['tris']:
-            cx, cy = cells[s['bin'].materials[mat_i]['diffuse']]
+            cx, cy, cw, ch = cells[s['bin'].materials[mat_i]['diffuse']]
             cs = []
             fa, fb, fc = (np.asarray(c['p']) for c in corners)
             face = np.cross(fb - fa, fc - fa)
@@ -320,8 +316,8 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                     positions.append([float(x) for x in c['p']])
                     weights.append([[b, v] for b, v in w])
                 raw_u, raw_v = c['raw']['uv']
-                u = (cx + raw_u * CELL / 256.0) / aw
-                v = (cy + raw_v * CELL / 256.0) / ah
+                u = (cx + raw_u * cw / 256.0) / aw  # PS2 UVs are normalised to the image (s16 / 256)
+                v = (cy + raw_v * ch / 256.0) / ah
                 assert 0 <= u <= 1 and 0 <= v <= 1
                 cs.append(dict(vertex=vert_index[key], normal=[float(x) for x in c['n']], uv=[u, v]))
             triangles.append(dict(source_info=si, corners=cs))
@@ -397,8 +393,10 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                     angs.append(math.degrees(math.acos(max(-1, min(1, best)))))
         if angs:
             s['check']['normal_angle_vs_gc_deg_at_shared_positions'] = dict(n=len(angs), median=float(np.median(angs)), p95=float(np.percentile(angs, 95)))
-        if poses:
-            S = json.loads(Path(poses).read_text())['samples']
+        S = json.loads(Path(poses).read_text())['samples'] if poses else None
+        if S and len(S[0]['world']) != len(bones):
+            s['check']['posed_ps2_to_gc_surface_mm'] = f'skipped: the pose file has {len(S[0]["world"])} bones, the model {len(bones)}'
+        elif S:
             worst = []
             for k, smp in enumerate(S[::4]):
                 mats = np.asarray(smp['world']) @ np.linalg.inv(rest)
@@ -435,6 +433,37 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                                                        'posed_ps2_to_gc_surface_mm', 'normal_angle_vs_gc_deg_at_shared_positions',
                                                        'gc_winding_agreement', 'ps2_winding_agreement_as_read') if k in s}
                                     for s in val['sections']]), indent=1))
+
+
+def pack_atlas(items):
+    """Guillotine packing of power-of-two images (k, w, h) into the smallest power-of-two atlas (square or 2:1
+    wide) that holds them, largest first, deterministic. -> ({k: (x, y, w, h)}, (atlas w, atlas h))."""
+    area = sum(w * h for _, w, h in items)
+    side = max(max(w for _, w, _ in items), max(h for _, _, h in items))
+    cands = []
+    s = side
+    while s <= 2048:
+        cands += [(s, s), (2 * s, s)]
+        s *= 2
+    for aw, ah in sorted(set(cands), key=lambda c: (c[0] * c[1], c[0])):
+        if aw * ah < area or aw > 2048:
+            continue
+        free, out, ok = [(0, 0, aw, ah)], {}, True
+        for k, w, h in sorted(items, key=lambda t: (-t[1] * t[2], -t[1], t[0])):
+            fit = [f for f in free if f[2] >= w and f[3] >= h]
+            if not fit:
+                ok = False
+                break
+            f = min(fit, key=lambda f: (f[2] * f[3], f[1], f[0]))
+            free.remove(f)
+            out[k] = (f[0], f[1], w, h)
+            if f[2] > w:
+                free.append((f[0] + w, f[1], f[2] - w, h))
+            if f[3] > h:
+                free.append((f[0], f[1] + h, f[2], f[3] - h))
+        if ok:
+            return out, (aw, ah)
+    raise ValueError('atlas does not fit 2048')
 
 
 def host_fixture(n, source):
@@ -476,6 +505,8 @@ def texture_key(png):
 
 def blob_stats(header):
     cb = load_module('cast_bundle', os.environ.get('RE4_CAST_BUNDLE', '//wsl.localhost/Ubuntu-24.04/root/probe/d367-agents/coarse-actors-4k/tools/cast_bundle.py'))
+    # cast_bundle.py is fixed at the Ganado's 34 bones; the stats themselves are bone-count independent
+    cb.BONES = int(re.search(r'bone_count=(\d+);', Path(header).read_text()).group(1))
     chunks, arrays, weights, blobs = cb.parse_header(str(header), 0)
     return cb.blob_stats(blobs, arrays, chunks), cb.skin_stream_bytes(weights, [c[3] for c in chunks], str(header))
 

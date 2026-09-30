@@ -17,9 +17,26 @@ The external cast delivery (cast-20260925, play-actor-bundle-20260928) is not mo
   bound to the GC skeleton, packed through the cast's own packer / host check / strip builder, bundled by
   cast_bundle.py unchanged; cost numbers and a look sheet against v4-fit.
 - Done: the stage-1 character inventory (below; `tools/ps2_cast_inventory.py`).
-- Next (route order): the Ganado appearances the cast lacks that fit the cast format (em13 type 6 from r104,
-  em17 / em16 type 0xc from r108 / r11d) through ps2_cast.py; for the non-Ganado characters (em2a traps from r100
-  on, em29 bats and em2e crawlers in r106, ...) the runtime format proposal below comes first.
+- Done: the Ganado models the cast lacks, in route order: **em17 / em16 type 0xc** (female villager; r108 r118
+  r111 r113 r11d) converted, host check + strip verify PASS, bundled with em15-00 by cast_bundle.py
+  (`bundle-em15-00+em17-0c`, 2 appearances, 13 signatures): 1242 tris, records 1171 (0.943/t), strip vertices
+  1894 (1.525/t), 109 palettes, 142 runs, skin stream 3384 B; modelled 0.25x1171 + 0.30x142 + 0.93x109 +
+  0.07x1894 = 568 us per drawn Ganado. Rest PS2 -> GC surface p95 body 19.3 / head 4.0 / hands 5.7 mm; over the
+  GC poses p95 21.0 (median) : binding correct. **em13 type 6** (r104 r11c r10f): a 61-bone special model whose
+  Em13Set type 6 uses nine more model slots (mot 16..20: 0x1f0, 0x1f1, 0x1ed..0x1ef) and whose mot 6 / 11 are
+  legs, not hands; converted as a 4-section test (1837 tris, 34 palettes, host check PASS; PS2 matches GC to
+  p95 2.3 mm at rest) but it cannot enter the 34-bone Ganado bundle (cast_bundle.py: bone_count != 34): it needs
+  the non-Ganado format below and its full model set.
+- Sheets: `ps2cast-20260930/sheets/em15-00-look.png` (GC / v4-fit / PS2) and `missing-ganados-look.png`
+  (em17-0c, em13-06 partial).
+- Next (route order): the non-Ganado characters (em2a traps from r100 on; em29 bats, em2e crawlers in r106;
+  then em18, em27, em24, em2f + pl0f, em22, em2b, em3b, em11-07, pl11 Ashley, pl14 Luis, em35) wait on the
+  runtime format proposal below (the converter itself only needs per-character model lists and the
+  generic pack path); em15 / em16 type 0xb converts with a 2.1 mm bone tolerance if the crowd lane wants the
+  PS2 variant of every appearance.
+- Trap hit (recorded for the skill): `wsl -- sed -i 's/\r$//' file` typed on the Git Bash command line reaches
+  sed as `s/r$//` and deletes a trailing "r" from every line (it cost `return r` and a comment in two tools;
+  repaired and verified). Strip CRs only inside script files, or not at all: the Write tool writes LF.
 
 ## Stage-1 character inventory (2026-09-30)
 
