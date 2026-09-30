@@ -3,7 +3,7 @@
 // Metadata borrows real source allocations; it never owns or duplicates them.
 #include "actor_transaction_diag.h"
 #if RE4DC_CROWD_CENSUS
-unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos;
+unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos,crowd_readopt_ok,crowd_readopt_fail;
 #define CROWD_LIFE(stmt) stmt
 #else
 #define CROWD_LIFE(stmt)
@@ -152,9 +152,9 @@ extern "C" void re4dc_crowd_life_report(unsigned frame) {
     for(const auto& a:archives)ar+=a.key!=nullptr;
     for(const auto& a:assets)as+=a.data!=nullptr;
     for(const auto& i:infos_live)in+=i.info!=nullptr;
-    re4dc_log("CROWDLIFE f=%u archives=%u/%u assets=%u/%u infos=%u/%u exhausted=%u adopt=%u ok=%u fail=%u/%u/%u/%u archive_full=%u unsupported=%u revokes=%u revoked_infos=%u\n",
+    re4dc_log("CROWDLIFE f=%u archives=%u/%u assets=%u/%u infos=%u/%u exhausted=%u adopt=%u ok=%u fail=%u/%u/%u/%u archive_full=%u unsupported=%u revokes=%u revoked_infos=%u readopt=%u/%u\n",
         frame,ar,kArchives,as,kAssets,in,kInfos,unsigned(exhausted),crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[0],crowd_adopt_fail[1],
-        crowd_adopt_fail[2],crowd_adopt_fail[3],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos);
+        crowd_adopt_fail[2],crowd_adopt_fail[3],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos,crowd_readopt_ok,crowd_readopt_fail);
 }
 #endif
 extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
@@ -254,7 +254,15 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
     unsigned seen=0,n=0;for(unsigned k=0;k<count;++k)out[k]=nullptr;
     static const unsigned char leon_order[8]={0,1,2,3,4,7,5,6};
     for(auto* p=m->pModelInfo;p;p=p->pList) {
-        if(n++==count){ATD(m,21,appearance,n);return 0;}auto* i=find_info(p);if(!i){ATD(m,22,appearance,n-1);return 0;}
+        if(n++==count){ATD(m,21,appearance,n);return 0;}auto* i=find_info(p);
+#if RE4DC_CROWD_READOPT
+        // Lane crowd (CROWD_READOPT=1): an info with no live record (dropped by a heap free / forget_range, or
+        // set up before its archive was adopted) is proved again here with the load-time proof
+        // (re4dc_actor_info_adopt: current asset sections, the reviewed TPL owner and row). Nothing is assumed:
+        // an info that fails the proof stays unadopted and its actor keeps the source path.
+        if(!i){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
+#endif
+        if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;
         for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)
             if(roles[r].appearance==appearance && info_current(*i,r)) {if(role!=count && role!=roles[r].role){ATD(m,24,appearance,n-1);return 0;}role=roles[r].role;}
