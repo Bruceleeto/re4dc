@@ -28,6 +28,7 @@ static void file_manual_begin(SsFileWork* fw,int no,unsigned picture){
         }
         return;
     }
+    file_manual_row=RE4DC_MANUAL_PAGE_COUNT;file_manual_kind=RE4DC_MANUAL_KIND_GENERIC;
 }
 static int file_manual_finish(SUB_SCREEN* wk,SsFileWork* fw,int request,int ready,int bytes){
     // Only a successful exact tracked read can schedule the current picture.
@@ -39,7 +40,7 @@ static int file_manual_finish(SUB_SCREEN* wk,SsFileWork* fw,int request,int read
         fw->msgBase==p->message_base && fw->layout==1 && fw->attr==0x80054 && fw->page!=p->page;
     // The old page is never adopted as the current page. This return value only
     // lets the caller use its existing next-frame request state if cur!=nxt.
-    if(complete && file_manual_context(fw,file_manual_row))
+    if(complete && (file_manual_kind==RE4DC_MANUAL_KIND_GENERIC || file_manual_context(fw,file_manual_row)))
         re4dc_manual_pages_adopt(wk->pTplDat,unsigned(bytes),file_manual_row,file_manual_kind);
     else re4dc_manual_pages_retire();
     file_manual_row=RE4DC_MANUAL_PAGE_COUNT;file_manual_kind=0;file_manual_request=-1;

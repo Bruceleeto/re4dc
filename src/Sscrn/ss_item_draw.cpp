@@ -94,9 +94,17 @@ void ss_Draw_tpl_local(TEXPalette* tpl, u32 id, int x, int y, int w, int h)
     TEXHeader* th;
 
     // main-memory range checks (the sub screen's data lives in the ARAM-swapped area)
+#ifdef RE4DC_GAME
+    // The GameCube's folded MRAM form (tpl - 0x80000000 > 0x02FFFFFF) rejects every Dreamcast
+    // address (0x8C......): the file reader's pictures were never drawn. Same bound as below.
+    if ((u32) tpl < 0x80000000 || (u32) tpl > RE4_MEM_HI) {
+        return;
+    }
+#else
     if ((u32) tpl - 0x80000000 > 0x02FFFFFF) {
         return;
     }
+#endif
     calcTplAddr(tpl);
     d = TEXGet(tpl, id);
     if ((u32) d < 0x80000000) {

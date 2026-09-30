@@ -14,7 +14,12 @@ static const ManualPageEntry manual_pages[RE4DC_MANUAL_PAGE_COUNT]={
 static Re4dcUiImage manual_page_image(unsigned row,unsigned variant){
     return {&manual_pages[row].keys[variant],nullptr,640,360,14,0xffffffffU,0};
 }
+static Key manual_generic_key;   // the adopted generic file picture (re4dc_ui_manual_generic_identify)
 static int manual_page_key(const Re4dcUiImage& image,Key& key){
+    if(image.pixels==&manual_generic_key){
+        if(!same_image(image,{&manual_generic_key,nullptr,640,360,14,0xffffffffU,0}))return -1;
+        key=manual_generic_key;return 1;
+    }
     for(unsigned row=0;row<RE4DC_MANUAL_PAGE_COUNT;++row)
         for(unsigned variant=0;variant<(manual_pages[row].context.companion_path ? 2U : 1U);++variant)
             if(image.pixels==&manual_pages[row].keys[variant]){

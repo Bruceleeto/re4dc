@@ -7,7 +7,8 @@ extern "C" int re4dc_ui_manual_page_available(unsigned row){
     // One authority for resident/sharded versus flat package paths.
     char path[96];RE4DC_TEX_PATH(path,manual_pages[row].keys[1]);
     const file_t f=fs_open(path,O_RDONLY);if(f==FILEHND_INVALID)return 0;
-    const bool ok=fs_total(f)==RE4DC_MANUAL_PACKAGE_BYTES;fs_close(f);return ok;
+    const size_t bytes=fs_total(f);fs_close(f);
+    return bytes==RE4DC_MANUAL_PACKAGE_BYTES || bytes==RE4DC_MANUAL_VQ_PACKAGE_BYTES;
 }
 extern "C" unsigned re4dc_ui_manual_page_identify(unsigned row,const Re4dcUiImage* image){
     if(row>=RE4DC_MANUAL_PAGE_COUNT || !image || !image->pixels ||
@@ -40,6 +41,33 @@ static bool manual_page_load(unsigned row,unsigned variant,Re4dcUiImage& image){
     }
     if(load(image,true)){manual_failed_mask&=~bit;return true;}
     manual_failed_frame[index]=frame;manual_failed_mask|=bit;return false;
+}
+static unsigned manual_generic_failed_frame;
+static bool manual_generic_failed;
+extern "C" int re4dc_ui_manual_generic_identify(const Re4dcUiImage* image){
+    if(!image || !image->pixels || image->width!=640 || image->height!=360 || image->format!=14 ||
+       image->palette || image->palette_bytes || image->palette_format!=0xffffffffU)return 0;
+    // Once per fresh bounded read (as re4dc_ui_manual_page_identify), never on the draw path.
+    const unsigned metadata[]={640,360,14,0xffffffffU,0};
+    Key key{0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
+    hash_bytes(key,image->pixels,115200U);key.crc=~key.crc;
+    char path[96];RE4DC_TEX_PATH(path,key);
+    const file_t f=fs_open(path,O_RDONLY);if(f==FILEHND_INVALID)return 0;
+    fs_close(f);
+    if(!(key==manual_generic_key))manual_generic_failed=false;
+    manual_generic_key=key;return 1;
+}
+extern "C" int re4dc_ui_manual_generic_image(Re4dcUiImage* out){
+    if(!frame_ready || !out)return 0;
+    const Re4dcUiImage image={&manual_generic_key,nullptr,640,360,14,0xffffffffU,0};
+    if(manual_generic_failed && unsigned(frame-manual_generic_failed_frame)<120U){
+        bool resident=false;
+        for(const auto& entry:entries)if(entry.valid && entry.key==manual_generic_key){resident=true;break;}
+        if(!resident)return 0;
+    }
+    Re4dcUiImage loaded=image;
+    if(!load(loaded,true)){manual_generic_failed=true;manual_generic_failed_frame=frame;return 0;}
+    manual_generic_failed=false;*out=loaded;return 1;
 }
 extern "C" int re4dc_ui_manual_page_image(unsigned row,unsigned kind,int companion,Re4dcUiImage* out){
     if(!frame_ready || !out || row>=RE4DC_MANUAL_PAGE_COUNT || kind<1 || kind>2)return 0;

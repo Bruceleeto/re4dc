@@ -29,7 +29,8 @@ extern "C" void re4dc_manual_camera_text_choice(unsigned kind){
 }
 extern "C" void re4dc_manual_pages_adopt(void* memory,unsigned bytes,unsigned row,unsigned requested_kind){
     re4dc_manual_pages_retire();
-    if(!memory || row>=RE4DC_MANUAL_PAGE_COUNT || requested_kind<1 || requested_kind>2 ||
+    const bool generic=requested_kind==RE4DC_MANUAL_KIND_GENERIC;
+    if(!memory || (!generic && (row>=RE4DC_MANUAL_PAGE_COUNT || requested_kind<1 || requested_kind>2)) ||
        bytes!=RE4DC_MANUAL_SOURCE_BYTES || bytes>RE4DC_MANUAL_BUFFER_BYTES)return;
     const unsigned char* b=static_cast<const unsigned char*>(memory);
     // The exact standalone LE header binds descriptor/image offsets and sampler,
@@ -42,13 +43,23 @@ extern "C" void re4dc_manual_pages_adopt(void* memory,unsigned bytes,unsigned ro
     };
     for(unsigned i=0;i<sizeof(header);++i)if(b[i]!=header[i])return;
     const Re4dcUiImage source={b+64,0,640,360,14,0xffffffffU,0};
+    if(generic){
+        if(re4dc_ui_manual_generic_identify(&source)){
+            manual_pages_pixels=b+64;manual_pages_row=RE4DC_MANUAL_PAGE_COUNT;manual_pages_kind=RE4DC_MANUAL_KIND_GENERIC;
+        }
+        return;
+    }
     const unsigned kind=re4dc_ui_manual_page_identify(row,&source);
     if(kind==requested_kind){manual_pages_pixels=b+64;manual_pages_row=row;manual_pages_kind=kind;}
 }
 extern "C" int re4dc_draw_manual_pages(GXTexObj* obj,short x,short y,short z,short w,short h){
     if(!manual_pages_kind || GXGetTexObjData(obj)!=manual_pages_pixels)return 0;
     Re4dcUiQuad q={};
-    int companion=re4dc_manual_page_companion_allowed(manual_pages_row);
+    int companion=0;
+    if(manual_pages_kind==RE4DC_MANUAL_KIND_GENERIC){
+        if(!re4dc_ui_manual_generic_image(&q.image))return 0;   // no package / no room: the source path
+    } else {
+    companion=re4dc_manual_page_companion_allowed(manual_pages_row);
     if(manual_pages_row==RE4DC_MANUAL_CAMERA){
         // Retain original art for secondary/neutral help. D-pad text selects
         // only the approved D-pad image, even if an original TPL was read first.
@@ -61,6 +72,7 @@ extern "C" int re4dc_draw_manual_pages(GXTexObj* obj,short x,short y,short z,sho
         // fall through to GX with those bytes when the exact original cannot
         // load: consume this image only; original text/input remain live.
         return manual_pages_row==RE4DC_MANUAL_CAMERA || (manual_pages_kind==2 && !companion) ? 1 : 0;
+    }
     }
     const short x2=(short)(x+w),y2=(short)(y+h);
     const short xx[4]={x,x2,x2,x},yy[4]={y,y,y2,y2};
