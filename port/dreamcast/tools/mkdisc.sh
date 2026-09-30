@@ -10,24 +10,30 @@
 # area, so KOS never sees it and every fs_open("/cd/...") returns -1 even
 # though the same image boots: the bootstrap reads the high density track
 # directly. A CD-R image keeps the one data track where KOS looks for it.
-set -e
+set -euo pipefail
 ELF="$1"
 DATA="$2"
 OUTDIR="$3"
 KOS=/root/work/kos
-WORK=/root/discwork
+# Per-run scratch directory so two builds cannot share or clobber a tree, and
+# every copy below is fatal: a disc missing a file would boot and fail later
+# in a way that looks like a game bug.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/re4dc-disc.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
 
-rm -rf "$WORK" "$OUTDIR"
+rm -rf "$OUTDIR"
 mkdir -p "$WORK/cdroot" "$OUTDIR"
 
 # 1ST_READ.BIN: raw binary from the ELF.
-bash "$KOS/utils/elf2bin/elf2bin" "$ELF" "$WORK/prog.bin" >/dev/null 2>&1 || {
-  sh-elf-objcopy -R .stack -O binary "$ELF" "$WORK/prog.bin"; }
+if ! bash "$KOS/utils/elf2bin/elf2bin" "$ELF" "$WORK/prog.bin" >/dev/null 2>&1; then
+  sh-elf-objcopy -R .stack -O binary "$ELF" "$WORK/prog.bin"
+fi
+test -s "$WORK/prog.bin"
 # A CD-R bootstrap expects 1ST_READ.BIN scrambled, and descrambles it on load;
 # that holds for the real BIOS and for Flycast's replacement alike. (A GD-ROM
 # image is the other way round, which is why an unscrambled binary booted from
 # the earlier GDI and produces a wedged machine here.)
-if [ "$SCRAMBLE" = "0" ]; then
+if [ "${SCRAMBLE:-}" = "0" ]; then
   cp "$WORK/prog.bin" "$WORK/cdroot/1ST_READ.BIN"
 else
   chmod +x "$KOS/utils/scramble/scramble" 2>/dev/null || true
@@ -50,14 +56,20 @@ IPTXT
 chmod +x "$KOS/utils/makeip/makeip" 2>/dev/null || true
 "$KOS/utils/makeip/makeip" -f "$WORK/ip.txt" "$WORK/IP.BIN" >/dev/null
 
-if [ -d "$DATA" ]; then
-  # the whole tree: the game target keeps the GameCube directory layout
-  cp -r "$DATA"/. "$WORK/cdroot/" 2>/dev/null || true
+if [ ! -d "$DATA" ]; then
+  echo "mkdisc: data directory $DATA missing" >&2
+  exit 1
 fi
+# the whole tree: the game target keeps the GameCube directory layout
+cp -r "$DATA"/. "$WORK/cdroot/"
 # Optional fixtures directory (port/dreamcast/fixtures): scripted input and
 # other Dreamcast-only test files, published under /cd/dc/.
-EXTRA="$4"
-if [ -n "$EXTRA" ] && [ -d "$EXTRA" ]; then
+EXTRA="${4:-}"
+if [ -n "$EXTRA" ]; then
+  if [ ! -d "$EXTRA" ]; then
+    echo "mkdisc: fixtures directory $EXTRA missing" >&2
+    exit 1
+  fi
   mkdir -p "$WORK/cdroot/dc"
   cp -r "$EXTRA"/. "$WORK/cdroot/dc/"
 fi

@@ -83,6 +83,15 @@ int main(int,char** argv){
  assert(re4dc_event_file_prepare("evd/test.evd",data.size()));
  assert(re4dc_event_file_install("evd/test.evd",data.size(),out.data()) && out==data);
  auto s=re4dc_event_file_stats();assert(s->prepared==1 && s->installed==1 && s->bytes_read==data.size() && s->metadata_bytes_read==2*cert.size());
+ // A deferred-presentation caller must identify the exact qualified reference.
+ unsigned before=s->bytes_read;
+ unsigned crc=crc32(0,reinterpret_cast<const unsigned char*>(cert.data()),cert.size());
+ assert(re4dc_event_file_reference("evd/test.evd",data.size(),crc));
+ assert(s->bytes_read==before); // no full-file payload or upload staging
+ assert(!re4dc_event_file_reference("evd/test.evd",data.size(),crc^1));
+ assert(!re4dc_event_file_reference("evd/test.evd",data.size(),0));
+ assert(!re4dc_event_file_reference("evd/test.evd",data.size()+32,crc));
+ assert(handles==0);
  assert(!re4dc_event_file_prepare("evd/../test.evd",data.size()));
  assert(!re4dc_event_file_prepare("evd/absent.evd",data.size()));
  auto corrupt=data;corrupt.back()^=1;save("evd/test.evd",corrupt);
