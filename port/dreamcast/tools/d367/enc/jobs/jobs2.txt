@@ -1,0 +1,16 @@
+# name label fixture count trace   (windows from the dynarec census runs enc-<view>, enc-windows.py; Leon alive)
+bellf c3 tour/enc-rel-r101-bell-fight-pw.json 1640:2120 1640:2120:16
+kite c3 kite-mesh-fixture-r21-vq.json 500:980 500:980:16
+r103 c3 tour/rel-r103-entry-pw.json 1400:1880 1400:1880:16
+r101es c3s tour/rel-r101-entry-pw.json 900:1380 900:1380:16
+bellfs c3s tour/enc-rel-r101-bell-fight-pw.json 1640:2120 1640:2120:16
+kites c3s kite-mesh-fixture-r21-vq.json 500:980 500:980:16
+r103s c3s tour/rel-r103-entry-pw.json 1400:1880 1400:1880:16
+s20 c3 tour/rel-r100-s20-pw.json 1240:1720 1240:1720:16
+prad c3 tour/rel-r100-post-radio-pw.json 900:1380 900:1380:16
+pbell c3 tour/rel-r101-post-bell-door-pw.json 900:1380 900:1380:16
+r101l c3 tour/rel-r101-entry-pw.json 2040:2520 2040:2520:16
+bella c3 tour/enc-rel-r101-bell-fight-pw.json 1240:1720 1240:1720:16
+r101ex c3x tour/rel-r101-entry-pw.json 900:1380 900:1380:16
+s20s c3s tour/rel-r100-s20-pw.json 1240:1720 1240:1720:16
+brdg c3 tour/rel-r100-bridge-pw.json 900:1380 900:1380:16
