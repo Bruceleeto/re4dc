@@ -32,7 +32,6 @@ Confirmed cause = explicit native reject/stub or missing selected artifact. Occu
 | P1 | Model pass state at `native_ui.cpp:372-425` rejects masks/no-image and incomplete blend families. | Existing native packets/identity cache and source OT eligibility; one eligible mask pass with correct threshold/alpha/mask texture, then lighting. | Confirmed native presentation gap; 39 mask parts in Leon archive 9 are not 39 always-visible missing parts. Complete 119-joint assembly does not accept appearance. |
 | P2 | Required next room/event occurrence lacks qualified data; native `read.cpp:244-275` explicitly fails missing/invalid container. | Existing converter, prepared archive and room retirement; resolve next authored exit, qualify only that room and its dependencies. | Confirmed selected-mirror coverage gap; 27 rooms lack native .dar containers, not 27 reached failures. Third playable room remains unresolved. |
 
-
 ## Shared occurrence risks and route verification
 
 - Module/data coverage: all four stage modules and every registered room source occur in `game/obj/modules.mk:3,15,27,39`. Old `obj/missing.txt`/`undefined.txt` are not selected-ELF proof. Actual reached enemy/player/weapon IDs must match current module descriptors and selected ELF; SndCall, EstSet and MotionMove source presence is not a native playback/rendering claim. Use explicit module binder and unknown-ID failure, not a new loader.
@@ -152,3 +151,36 @@ or automatic broader asset conversion is prerequisite.
 
 Private reproducible source/data anchors and recipes:
 `/root/probe/re4-opening-gap-audit-20260922/next-room-dependency-brief.md`.
+
+## Full stage-1 route (traced 2026-09-30)
+
+`tools/d367/stage_route.py` traces the whole stage from the GameCube debug disc. It reads each room's AEV door
+records and ITA key items (the assetpipe `GcIso` + `room_smd.decode_das` readers) and applies the source door gates
+it lists (door overrides, unlocks, chapter-end doors from `src/st1/r1xx.cpp`). It also reports which rooms are
+required to reach r200 (stage 2). Output: `/root/probe/stage1-route-20260930/`. Every registered room is reachable.
+
+Main line by chapter (the chapter ends are `SceSetChapterEnd` calls):
+
+| Chapter | Rooms (in order) | Gates on the way |
+|---|---|---|
+| 1-1 | r120 (intro, room jump) -> r100 -> r101 -> r103 -> r106 | r101 doors to r100/r103 denied until the bell event; r106 ends 1-1 via its door 3 -> r104 |
+| 1-2 | r104 -> r107 -> r105 | r104 -> r107 needs the emblem (halves 0xA4 + 0xA5 in r104); 1-2 ends in r105 |
+| 1-3 | r105 -> r101 -> r102 -> r108 -> r109 -> r10a -> r10b | r105 opens its door to r101 from inside; r101 -> r102 needs key 0x3B (in r105); r10b (lake boss) ends 1-3 via door 6 -> r11b |
+| 2-1 | r11b -> r11a (or r10c -> r10e) -> r119 -> r118 -> r117 | r10e's door to r119 opens only from the chapter 2-1 start; r118 -> r117 needs key 0x3C (ITA r118 and r10c); 2-1 ends in r117 (Ashley joins) |
+| 2-2 | r117 -> r118 -> r112 -> r111 -> r113 -> r11c | r113 -> r11c opens after Ashley's shoulder ride; r11c (siege) ends 2-2 |
+| 2-3 | r11c -> r11d or r11e -> r10f -> r11f -> r10f -> r200 | r10f's doors from r11d/r11e open from their side (r11d from inside, r11e with key 0x8B); r10f -> r200 needs the False Eye 0x3D (in r11f) |
+
+Required: 23 rooms (r120, r100, r101, r103, r106, r104, r107, r105, r102, r108, r109, r10a, r10b, r11b, r119, r118,
+r117, r112, r111, r113, r11c, r10f, r11f), plus one of r11a / r10c + r10e, and one of r11d / r11e.
+
+- The door graph alone marks r10a, r10b and r11b optional because r109 -> r10e -> r10c -> r11b bypasses the lake. The
+  chapter order requires them (r10b holds the 1-3 end).
+- Optional: r10d (a side room off r11b), and the unused branch of each pair.
+- Stage-1 rooms with no door in: none. r111 is entered from r112; r10d from r11b.
+- Part-changing doors: r10e 04/05 (to its own parts 1/2).
+- Model limits: the source gates are the ones read so far. Room flags that enable doors inside ESL/event data, and
+  whether the r118 copy of key 0x3C is flag-gated, are not modelled.
+
+Port status against this line (2026-09-30): r120 -> r100 -> r101 -> r103 plays on the play discs (PS2 worlds, route
+fixes). r103's exit to r106 is the next room. Test discs fade back to the title there (design-r103). r106 carries
+the stage's largest conditional module request (em12 floor 3,932,160 B plus em29/em2a/em2e, above).
