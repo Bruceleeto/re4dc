@@ -85,7 +85,7 @@ def light_world(xyz, normals, lights, ambient):
 
 
 # ------------------------------------------------------------------------------------------------ scene
-def read_scene(room, src, light_ids):
+def read_scene(room, src, light_ids, vc_scale=1.0):
     obj = ps.read_obj(src / f'{room}_004.scenario.obj')
     mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
     mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
@@ -116,7 +116,7 @@ def read_scene(room, src, light_ids):
             assert all(not l['kind'].startswith('unsupported') for l in lights)
             rgb = light_world(pos, VN[ix[:, :, 2]], lights, ambient)
         else:
-            rgb = VC[ix[:, :, 0], :3]
+            rgb = VC[ix[:, :, 0], :3] * vc_scale      # --vc-scale: a look-review lift, 1.0 = as authored
         sem = smx.get(g['smx'])
         cull = int(sem['face_culling'][2:4], 16) if sem else 0
         assert cull in (0, 1, 2)
@@ -361,6 +361,9 @@ def main():
     ap.add_argument('out', type=Path)
     ap.add_argument('--lights', default='0,5', help='GC LIT cut-0 light indices for NORMAL groups (r101: 0,5)')
     ap.add_argument('--no-share', action='store_true', help='no BIN instancing (every group its own mesh)')
+    ap.add_argument('--vc-scale', type=float, default=1.0,
+                    help='multiply COLOR-group vertex colours (review lift for rooms whose PS2 colours are not the '
+                         'final light, e.g. r106; 1.0 = as authored, the default and the landed packages)')
     ap.add_argument('--lod-eps', default='24,48,96,192,384')
     ap.add_argument('--lod-min-gain', type=float, default=0.4)
     ap.add_argument('--lod-max-levels', type=int, default=4)
@@ -370,7 +373,7 @@ def main():
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     a.out.mkdir(parents=True, exist_ok=True)
-    groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')))
+    groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)

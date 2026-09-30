@@ -300,6 +300,7 @@ def main():
     ap.add_argument('out', type=Path)
     ap.add_argument('--doors', type=Path)
     ap.add_argument('--aux', type=Path, help="the room's aux dir from ps2_room_extract.py (its .RTP picks the views)")
+    ap.add_argument('--ref', action='append', help='label;x,y,z;yaw[;reference png[;back;up;pitch;fov]] (repeatable)')
     ap.add_argument('--lights', default='0,5')
     ap.add_argument('--width', type=int, default=480)
     a = ap.parse_args()
@@ -316,26 +317,55 @@ def main():
         rtp = rtp_points(found[0]) if found else None
     views, ycut = pick_views(a.room, src_b, doors, rtp, w, h)
     views[0].ycut = ycut
+    refs = {}
+    for spec in a.ref or []:
+        # label;x,y,z;yaw[;png[;back_mm;up_mm;pitch_deg;fov_deg]]: Leon at x,y,z facing yaw (RE4: forward = sin, cos),
+        # the camera back_mm behind him and up_mm above his feet (GC over-the-shoulder rig approximated)
+        f = spec.split(';')
+        p = np.array([float(x) for x in f[1].split(',')])
+        yaw = float(f[2])
+        back, up, pitch, fov = (float(x) for x in (f[4:8] if len(f) >= 8 else (1300, 1700, -8, 60)))
+        fwd = np.array([math.sin(yaw), 0, math.cos(yaw)])
+        eye = p - fwd * back + np.array([0, up, 0])
+        tgt = eye + fwd * 10000 + np.array([0, 10000 * math.tan(math.radians(pitch)), 0])
+        v = View(f[0], eye, tgt, w, h, fov=fov)
+        views.insert(1, v)
+        if len(f) > 3 and f[3]:
+            refs[f[0]] = Path(f[3])
     tiles, report = [], []
     for v in views:
         img_dc, s_dc = render(v, pkg_b, dc_tex, dc_colour)
         img_ps, s_ps = render(v, src_b, ps_tex, ps2_colour)
         diff = float(np.abs(img_dc.astype(int) - img_ps.astype(int)).mean())
-        report.append(dict(view=v.name, eye=[round(x) for x in v.eye], dc=s_dc, ps2=s_ps, mean_abs_diff=round(diff, 2),
-                           dc_mean=round(float(img_dc.mean()), 1), ps2_mean=round(float(img_ps.mean()), 1)))
-        tiles.append((v.name, img_dc, img_ps, diff))
+        row = dict(view=v.name, eye=[round(x) for x in v.eye], dc=s_dc, ps2=s_ps, mean_abs_diff=round(diff, 2),
+                   dc_mean=round(float(img_dc.mean()), 1), ps2_mean=round(float(img_ps.mean()), 1))
+        ref = None
+        if v.name in refs:
+            im = Image.open(refs[v.name]).convert('RGB')
+            if im.size == (512, 448):                          # Dolphin raw XFB: keep the letterbox band
+                im = im.crop((0, 56, 512, 392))
+            im = im.resize((w, round(w * im.size[1] / im.size[0])), Image.BILINEAR)
+            ref = np.asarray(im)
+            row.update(ref=str(refs[v.name]), ref_mean=round(float(ref.mean()), 1))
+        report.append(row)
+        tiles.append((v.name, img_dc, img_ps, diff, ref))
         print(json.dumps(report[-1]))
     pad, head = 6, 18
-    sheet = Image.new('RGB', (2 * w + 3 * pad, 30 + len(tiles) * (h + head + pad) + pad), (24, 24, 24))
+    ncol = 3 if refs else 2
+    sheet = Image.new('RGB', (ncol * w + (ncol + 1) * pad, 30 + len(tiles) * (h + head + pad) + pad), (24, 24, 24))
     dr = ImageDraw.Draw(sheet)
-    dr.text((pad, 8), '%s  left: Dreamcast package (R4IM level 0, packed textures, ARGB1555 prelit)   right: PS2 '
-            'source (OBJ + TPL, authored colours)   no fog   %d placements / %d meshes / %d parts' %
-            (a.room, counts['placements'], counts['meshes'], counts['parts']), fill=(230, 230, 230))
+    dr.text((pad, 8), '%s  left: Dreamcast package (R4IM level 0, packed textures, ARGB1555 prelit)   middle: PS2 '
+            'source (OBJ + TPL, authored colours)%s   no fog   %d placements / %d meshes / %d parts' %
+            (a.room, '   right: GameCube reference frame (Dolphin), where given' if refs else '',
+             counts['placements'], counts['meshes'], counts['parts']), fill=(230, 230, 230))
     y = 30
-    for name, dc, ps, diff in tiles:
-        dr.text((pad, y), '%s   mean |DC-PS2| %.1f' % (name, diff), fill=(230, 230, 180))
+    for name, dc, ps, diff, ref in tiles:
+        dr.text((pad, y), '%s   mean |DC-PS2| %.1f   DC mean %.1f%s' % (
+            name, diff, dc.mean(), '   GC mean %.1f' % ref.mean() if ref is not None else ''), fill=(230, 230, 180))
         sheet.paste(Image.fromarray(dc), (pad, y + head))
         sheet.paste(Image.fromarray(ps), (2 * pad + w, y + head))
+        if ref is not None:
+            sheet.paste(Image.fromarray(ref), (3 * pad + 2 * w, y + head + (h - ref.shape[0]) // 2))
         y += h + head + pad
     a.out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(a.out)
