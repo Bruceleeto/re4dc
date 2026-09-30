@@ -12,8 +12,14 @@ counters).
 
 ## State and next step
 
-- 2026-09-30: ENC_CENSUS knob (default 0, diagnostic) + tools/d367/enc/ scripts built (enc-build.sh c1). Running the
-  views.
+- 2026-09-30: ENC_CENSUS knob (default 0, diagnostic) + tools/d367/enc/ scripts built (enc-build.sh c1). Census of
+  all 8 route views done (dynarec); hwproject runs of the crowd windows in progress.
+- Running (detached): `enc-queue.sh /root/probe/lanes/enc/jobs2.txt 2`, WSL pid 44452, log
+  /root/probe/lanes/enc/logs/queue-jobs2.out (per job logs/queue-<name>.log, evidence hwmodel-enc-<name>). A job whose
+  evidence dir exists is skipped, so a restart resumes: re-launch the same line (a half-done dir must be renamed
+  first).
+- Next: the table for every jobs2 view, the Ganado-skip deltas, the answer below; east door HALT bisect (east3 = c3
+  without the census, east4 = c3 with the play pacing).
 
 ## Method
 
