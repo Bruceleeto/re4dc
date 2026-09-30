@@ -18,8 +18,10 @@ ASSETS=${ASSETS:-$EV/assets-play-actor-bundle-20260928}
 (cd "$ASSETS" && sha256sum -c --quiet "$BUNDLE/SHA256SUMS") || { echo "asset bundle SHA256SUMS mismatch"; exit 1; }
 OUT=$EV/build-$L OBJ=$EV/obj-$L
 rm -rf "$OBJ" "$OUT"; mkdir -p "$OBJ" "$OUT"
+# ARENA_FIT_KOS_BYTES=147456 in every mode, as on the play discs: the recipe's 448 texture slots + VQ overflow the
+# default 131072-byte KOS heap (sbrk "Out of memory", then HALT main.cpp(548) at UI frame ~257 on the r101 tour).
 case $MODE in
-  rel) M="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG=0 PC_SAMPLER=1 PC_SAMPLER_BYTES=8192" ;;
+  rel) M="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG=0 PC_SAMPLER=1 PC_SAMPLER_BYTES=8192 ARENA_FIT_KOS_BYTES=147456" ;;
   trace) M="ARENA_FIT_KOS_BYTES=147456" ;;
   *) echo "MODE rel|trace"; exit 2 ;;
 esac
