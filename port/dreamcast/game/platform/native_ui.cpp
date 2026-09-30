@@ -3122,8 +3122,9 @@ extern "C" void re4dc_model_result(unsigned reason,unsigned input,unsigned outpu
     if(reason==0){++model_parts;if(!output)++model_empty_parts;}else if(reason==1)++model_invalid;else if(reason==2)++model_resource;else ++model_overflow;
     model_input+=input;model_output+=output;
 }
-#if defined(RE4DC_COARSE_PREGATE) && RE4DC_COARSE_PREGATE == 2
+#if (defined(RE4DC_COARSE_PREGATE) && RE4DC_COARSE_PREGATE == 2) || (defined(RE4DC_CROWD_OUTPUT) && RE4DC_CROWD_OUTPUT)
 // COARSE_PREGATE=2 (check build): the emitted-triangle total, read around each cast Ganado chunk's submission.
+// CROWD_CENSUS / CROWD_CULL=2 (crowd.mk): the same total, read around each owner-path Ganado pass.
 extern "C" unsigned re4dc_model_output_count(){return model_output;}
 #endif
 
