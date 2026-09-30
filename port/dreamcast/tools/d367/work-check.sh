@@ -34,14 +34,18 @@ git -C "$REPO" for-each-ref --format='%(refname:short)' 'refs/remotes/origin/lan
     "$(git -C "$REPO" log -1 --format='%cr: %s' "$r" | cut -c1-70)"
 done
 echo "== private store ($STORE)"
+# Windows tools: WSL's view of C: is ~100x slower over 53k files (and spells some names differently).
+STORE_WIN='C:\Game Dev\Emulators\re4-assets-private'
+GITEXE="/mnt/c/Program Files/Git/cmd/git.exe"
 if [ -d "$STORE/.git" ]; then
-  n=$(git -C "$STORE" status --porcelain | wc -l); echo "   git: $n uncommitted"; [ "$n" != 0 ] && bad=1
+  n=$(cd /mnt/c && "$GITEXE" -C "$STORE_WIN" status --porcelain | wc -l); echo "   git: $n uncommitted"; [ "$n" != 0 ] && bad=1
 else
   echo "   git: not initialised"; bad=1
 fi
 if [ -f "$STORE/manifest.py" ]; then
-  (cd "$STORE" && python3 manifest.py --check | grep -v '^   ' | tr '\n' ' '); echo
-  (cd "$STORE" && python3 manifest.py --check >/dev/null) || bad=1
+  m=$(cd /mnt/c && python.exe "$STORE_WIN\\manifest.py" --check); rc=$?
+  echo "   manifest: $(echo "$m" | grep -v '^   ' | tr -d '\r' | tr '\n' ' ')"
+  [ $rc = 0 ] || { bad=1; echo "$m" | grep '^   ' | head -10; }
 fi
 echo "== free space"; df -h /mnt/c /mnt/d / 2>/dev/null | awk 'NR>1{print "   "$6" "$4" free"}'
 [ $bad = 0 ] && echo "WORK-CHECK CLEAN" || echo "WORK-CHECK: unsaved work above (commit + push, or run manifest.py and commit the store)"
