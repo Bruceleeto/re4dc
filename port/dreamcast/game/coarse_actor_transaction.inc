@@ -213,6 +213,9 @@ extern "C" int re4dc_crowd_offscreen(cModel*);  // coarse_actor_owner_ganado.inc
 extern "C" unsigned re4dc_model_output_count();  // native_ui.cpp, census / cull-check builds only
 #endif
 extern "C" unsigned re4dc_ui_frame();
+#if RE4DC_CROWD_CENSUS
+extern "C" void re4dc_crowd_life_report(unsigned);  // actor_lifetime.inc
+#endif
 namespace {
 constexpr unsigned kCrowdSkips=64;
 ModelIdentity crowd_skip[kCrowdSkips];
@@ -253,6 +256,7 @@ void crowd_frame_begin() {
             c.frame,c.game,c.seen,c.admitted,c.skip[1],c.skip[2],c.skip[3],c.drawn,c.empty,c.band[0],c.band[1],c.band[2],
             c.band[3],c.tris);
     crowd_cc=CrowdCensus{};crowd_cc.frame=re4dc_ui_frame();crowd_cc.game=unsigned(pG->Frame_cnt);
+    if(!(crowd_cc.frame%120))re4dc_crowd_life_report(crowd_cc.frame);
 #endif
 #if RE4DC_CROWD_CULL == 2
     if(!(pG->Frame_cnt%120))
