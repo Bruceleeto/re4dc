@@ -1048,10 +1048,10 @@ extern "C" __attribute__((noinline)) void re4dc_enc_frame(unsigned frame)
         }
     }
     re4dc_enc_crowd_tiers(ct);
-    re4dc_log("ENC f=%u ga=%u oa=%u gr=%u go=%u gs=%u gx=%u gb=%u/%u/%u/%u or=%u ct=%u/%u/%u/%u sr=%u/%u/%u\n", frame,
-              ga, oa, enc_reach, enc_owned, enc_source, enc_failed, enc_band[0], enc_band[1], enc_band[2],
+    re4dc_log("ENC f=%u ga=%u oa=%u gr=%u go=%u gs=%u gx=%u gb=%u/%u/%u/%u or=%u ct=%u/%u/%u/%u sr=%u/%u/%u hp=%d t=%u\n",
+              frame, ga, oa, enc_reach, enc_owned, enc_source, enc_failed, enc_band[0], enc_band[1], enc_band[2],
               enc_band[3], enc_other_reach, ct[0], ct[1], ct[2], ct[3], enc_src_why[0], enc_src_why[1],
-              enc_src_why[2]);
+              enc_src_why[2], pG ? (int) (short) pG->pl_life : 0, pG ? (unsigned) pG->Frame_cnt : 0U);
     enc_reach = enc_owned = enc_source = enc_failed = enc_other_reach = 0;
     enc_band[0] = enc_band[1] = enc_band[2] = enc_band[3] = 0;
     enc_src_why[0] = enc_src_why[1] = enc_src_why[2] = 0;
