@@ -3232,6 +3232,11 @@ void crowd_rank() {
 #if defined(RE4DC_ACTOR_TEST)
 int test_crowd_tier = -1;  // >= 0: every crowd model at this tier
 #endif
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+struct EncTier { const void* model; unsigned tier; };
+EncTier enc_tier[kCrowdMax];
+unsigned enc_tier_n = 0;
+#endif
 // The model's tier this frame (and its distance noted for the next ranking).
 unsigned crowd_tier(const Re4dcModelPart& p, int cls) {
 #if defined(RE4DC_ACTOR_TEST)
@@ -3254,6 +3259,14 @@ unsigned crowd_tier(const Re4dcModelPart& p, int cls) {
     } else if (d < e->distance) {
         e->distance = d;
     }
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+    {   // ENC_CENSUS (diagnostic): note the model's body tier once per census frame
+        unsigned i = 0;
+        while (i < enc_tier_n && enc_tier[i].model != p.model) ++i;
+        if (i == enc_tier_n && enc_tier_n < kCrowdMax) enc_tier[enc_tier_n++] = EncTier{p.model, e->tier};
+        else if (i < enc_tier_n && cls == 1) enc_tier[i].tier = e->tier;
+    }
+#endif
     const unsigned t = e->tier;
     return cls == 2 && t > kTierNear ? t - 1U : t;
 }
@@ -3535,12 +3548,11 @@ extern "C" void re4dc_actor_crowd(unsigned near_count, float near_distance, floa
 }
 #if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
 // ENC_CENSUS (diagnostic, default 0; read by coarse.cpp re4dc_enc_frame): the crowd-classed models drawn in the
-// current actor frame, by the tier they were drawn at (full / near / mid / far).
+// census frame (crowd_tier notes each model once, at its body tier), by tier (full / near / mid / far).
 extern "C" void re4dc_enc_crowd_tiers(unsigned* out) {
     for (unsigned i = 0; i < 4; ++i) out[i] = 0;
-    if constexpr (kCrowd)
-        for (unsigned i = 0; i < crowd_count; ++i)
-            if (crowd[i].seen == frame_serial && crowd[i].tier < 4) ++out[crowd[i].tier];
+    for (unsigned i = 0; i < enc_tier_n; ++i) ++out[enc_tier[i].tier & 3U];
+    enc_tier_n = 0;
 }
 #endif
 extern "C" void re4dc_actor_lod(float pixels, unsigned budget) {

@@ -21,8 +21,9 @@ CHAR_RX = re.compile(r'avk_|wpal|sk1|[Ss]kin|hermite|Motion|motion|pwc_|pmc_|PSM
                      r'InverseKinematics|RotMatrix|getPartsPtr|commonModelTrans|ModelRender|LightSetModel|setModel2|'
                      r'materialSetup|[Cc]loth|^cEm|em10|Em10|EmMgr|emMove|updateOldPos|coarse_skin|coarse_ganado')
 CENSUS_RX = re.compile(r'ENC f=(\d+) ga=(\d+) oa=(\d+) gr=(\d+) go=(\d+) gs=(\d+) gx=(\d+) gb=(\d+)/(\d+)/(\d+)/(\d+) '
-                       r'or=(\d+) ct=(\d+)/(\d+)/(\d+)/(\d+)')
-KEYS = ['ga', 'oa', 'gr', 'go', 'gs', 'gx', 'b5', 'b12', 'b25', 'bfar', 'or', 'c0', 'c1', 'c2', 'c3']
+                       r'or=(\d+) ct=(\d+)/(\d+)/(\d+)/(\d+)(?: sr=(\d+)/(\d+)/(\d+))?')
+# snp / sst / sot: Ganados the source path drew because the cast had no plan / a sticky source choice / other
+KEYS = ['ga', 'oa', 'gr', 'go', 'gs', 'gx', 'b5', 'b12', 'b25', 'bfar', 'or', 'c0', 'c1', 'c2', 'c3', 'snp', 'sst', 'sot']
 
 
 def census(path):
@@ -32,7 +33,7 @@ def census(path):
     for line in open(path, encoding='utf-8', errors='replace'):
         m = CENSUS_RX.search(line)
         if m:
-            v = [int(x) for x in m.groups()]
+            v = [int(x) if x is not None else 0 for x in m.groups()]
             out[v[0]] = dict(zip(KEYS, v[1:]))
     return out
 
@@ -103,19 +104,19 @@ def main():
         a, b = (int(parts[1]), int(parts[2])) if len(parts) == 3 else (900, 1380)
         views[name] = view(d, a, b)
     hdr = ('| view | frame hw ms [lo..hi] | work | vs 33.3 | ' + ' | '.join(AREAS[:6]) +
-           ' | char rows | Ganados alive / reach draw / owned (max reach) | owned by dist <5/5-12/12-25/>25 m | '
-           'other enemies alive / drawn | crowd tiers f/n/m/f |')
+           ' | char rows | Ganados alive / reach draw (max) / cast-owned / source (no plan) | reaching by dist '
+           '<5/5-12/12-25/>25 m | other enemies alive / drawn | crowd tiers full/near/mid/far |')
     print(hdr)
     print('|' + '---|' * (hdr.count('|') - 1))
     rows = []
     for name, v in views.items():
         m = v['mean']
         ar = [v['areas'].get(k, 0.0) for k in AREAS[:6]]
-        line = ('| %s | %.1f [%.1f..%.1f] | %.1f | %+.1f | %s | %.1f | %.1f / %.1f / %.1f (%d) | %.1f/%.1f/%.1f/%.1f | '
-                '%.1f / %.1f | %.1f/%.1f/%.1f/%.1f |' % (
+        line = ('| %s | %.1f [%.1f..%.1f] | %.1f | %+.1f | %s | %.1f | %.1f / %.1f (%d) / %.1f / %.1f (%.1f) | '
+                '%.1f/%.1f/%.1f/%.1f | %.1f / %.1f | %.1f/%.1f/%.1f/%.1f |' % (
                     name, v['hw'], v['lo'], v['hi'], v['work'], v['work'] - 33.3, ' | '.join('%.1f' % x for x in ar),
-                    v['char'], m['ga'], m['gr'], m['go'], v['max']['gr'], m['b5'], m['b12'], m['b25'], m['bfar'],
-                    m['oa'], m['or'], m['c0'], m['c1'], m['c2'], m['c3']))
+                    v['char'], m['ga'], m['gr'], v['max']['gr'], m['go'], m['gs'], m['snp'], m['b5'], m['b12'],
+                    m['b25'], m['bfar'], m['oa'], m['or'], m['c0'], m['c1'], m['c2'], m['c3']))
         print(line)
         rows.append([name, v['hw'], v['lo'], v['hi'], v['work'], v['fly']] + ar + [v['char']] +
                     [m[k] for k in KEYS] + [v['ncensus']])

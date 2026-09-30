@@ -980,11 +980,17 @@ extern "C" void re4dc_coarse_draw(void)
 // mark, the hwproject frame number), read-only. ga / oa: Ganados (ids 0x10..0x20, be_flag & 0x201 == 1, act_cap's
 // rule) / other enemies alive in EmMgr; gr: Ganados that reached commonModelTrans's first pass (the game's own OT
 // view test passed); go / gs / gx: of those, drawn by the actor owner (the cast mesh) / left to the source path /
-// failed; gb: the owned ones by view distance < 5 m / 5-12 m / 12-25 m / >= 25 m; or: other enemies reaching
-// commonModelTrans; ct: native_actor_fast crowd tiers (full / near / mid / far) of the models ranked this frame.
+// failed; gb: the reaching Ganados by view distance < 5 m / 5-12 m / 12-25 m / >= 25 m; or: other enemies reaching
+// commonModelTrans; ct: crowd tiers (full / near / mid / far) of the Ganado models native_actor_fast tiered since
+// the last line. v2 adds sr: why the source path drew them (no cast plan: ATD 4 / sticky source choice: ATD 2 /
+// other), and an "ENC_OA" line with the ids of the other enemies alive whenever that set changes.
 extern "C" void re4dc_enc_crowd_tiers(unsigned* out);
+extern "C" {
+unsigned re4dc_enc_atd;   // actor_transaction_diag.h: ATD writes its event code here in ENC_CENSUS builds
+}
 namespace {
-unsigned enc_reach, enc_owned, enc_source, enc_failed, enc_band[4], enc_other_reach;
+unsigned enc_reach, enc_owned, enc_source, enc_failed, enc_band[4], enc_other_reach, enc_src_why[3];
+unsigned enc_oa_sig;
 }
 extern "C" void re4dc_enc_note_actor(const void* model, int result)
 {
@@ -1001,19 +1007,20 @@ extern "C" void re4dc_enc_note_actor(const void* model, int result)
         ++enc_failed;
     } else if (!result) {
         ++enc_source;
+        ++enc_src_why[re4dc_enc_atd == 4 ? 0 : re4dc_enc_atd == 2 ? 1 : 2];
     } else {
         ++enc_owned;
-        const Mtx& v = pG->Cam.v_mat;
-        const float x = v[0][0] * m->pos.x + v[0][1] * m->pos.y + v[0][2] * m->pos.z + v[0][3];
-        const float y = v[1][0] * m->pos.x + v[1][1] * m->pos.y + v[1][2] * m->pos.z + v[1][3];
-        const float z = v[2][0] * m->pos.x + v[2][1] * m->pos.y + v[2][2] * m->pos.z + v[2][3];
-        const float d2 = x * x + y * y + z * z;
-        ++enc_band[d2 < 25e6f ? 0 : d2 < 144e6f ? 1 : d2 < 625e6f ? 2 : 3];
     }
+    const Mtx& v = pG->Cam.v_mat;
+    const float x = v[0][0] * m->pos.x + v[0][1] * m->pos.y + v[0][2] * m->pos.z + v[0][3];
+    const float y = v[1][0] * m->pos.x + v[1][1] * m->pos.y + v[1][2] * m->pos.z + v[1][3];
+    const float z = v[2][0] * m->pos.x + v[2][1] * m->pos.y + v[2][2] * m->pos.z + v[2][3];
+    const float d2 = x * x + y * y + z * z;
+    ++enc_band[d2 < 25e6f ? 0 : d2 < 144e6f ? 1 : d2 < 625e6f ? 2 : 3];
 }
 extern "C" __attribute__((noinline)) void re4dc_enc_frame(unsigned frame)
 {
-    unsigned ga = 0, oa = 0, ct[4] = {};
+    unsigned ga = 0, oa = 0, ct[4] = {}, sig = 2166136261U;
     if (pG) {
         for (cEm* e = EmMgr.pAlive; e; e = (cEm*) e->pNext) {
             if ((e->be_flag & 0x201) != 1) {
@@ -1023,15 +1030,31 @@ extern "C" __attribute__((noinline)) void re4dc_enc_frame(unsigned frame)
                 ++ga;
             } else {
                 ++oa;
+                sig = (sig ^ (unsigned) e->id) * 16777619U;
             }
+        }
+        if (sig != enc_oa_sig) {
+            enc_oa_sig = sig;
+            char ids[160];
+            unsigned n = 0;
+            for (cEm* e = EmMgr.pAlive; e && n + 4 < sizeof(ids); e = (cEm*) e->pNext) {
+                if ((e->be_flag & 0x201) == 1 && (e->id < 0x10 || e->id > 0x20)) {
+                    static const char hex[] = "0123456789abcdef";
+                    ids[n++] = hex[(e->id >> 4) & 15]; ids[n++] = hex[e->id & 15]; ids[n++] = ' ';
+                }
+            }
+            ids[n] = 0;
+            re4dc_log("ENC_OA f=%u n=%u ids=%s\n", frame, oa, ids);
         }
     }
     re4dc_enc_crowd_tiers(ct);
-    re4dc_log("ENC f=%u ga=%u oa=%u gr=%u go=%u gs=%u gx=%u gb=%u/%u/%u/%u or=%u ct=%u/%u/%u/%u\n", frame, ga, oa,
-              enc_reach, enc_owned, enc_source, enc_failed, enc_band[0], enc_band[1], enc_band[2], enc_band[3],
-              enc_other_reach, ct[0], ct[1], ct[2], ct[3]);
+    re4dc_log("ENC f=%u ga=%u oa=%u gr=%u go=%u gs=%u gx=%u gb=%u/%u/%u/%u or=%u ct=%u/%u/%u/%u sr=%u/%u/%u\n", frame,
+              ga, oa, enc_reach, enc_owned, enc_source, enc_failed, enc_band[0], enc_band[1], enc_band[2],
+              enc_band[3], enc_other_reach, ct[0], ct[1], ct[2], ct[3], enc_src_why[0], enc_src_why[1],
+              enc_src_why[2]);
     enc_reach = enc_owned = enc_source = enc_failed = enc_other_reach = 0;
     enc_band[0] = enc_band[1] = enc_band[2] = enc_band[3] = 0;
+    enc_src_why[0] = enc_src_why[1] = enc_src_why[2] = 0;
 }
 #endif
 
