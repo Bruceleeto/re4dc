@@ -10,6 +10,12 @@
 // Total time spent in motion-key misses (read + check + relocate); room-entry telemetry.
 extern "C" { unsigned long long re4dc_motion_wait_total_us; }
 #endif
+#ifndef RE4DC_MOTION_RESERVE_SPILL
+#define RE4DC_MOTION_RESERVE_SPILL 0
+#endif
+#if RE4DC_MOTION_RESERVE_SPILL
+extern "C" int re4dc_static_heap_free();   // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
+#endif
 #include <kos.h>
 #include <kos/net.h>
 #include <kos/mutex.h>
@@ -290,6 +296,14 @@ unsigned* load(Binding& b,unsigned i) {
             for(;;) {
                 for(auto* p:b.slab)if(!slab_busy(b,p)) { data=p;break; }
                 if(data)break;
+#if RE4DC_MOTION_RESERVE_SPILL
+                // Both slabs busy: cache this key in heap 4 while the source keeps its margin (MOTION_RESERVE_SPILL).
+                if(re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_RESERVE_SPILL)) {
+                    static unsigned spills;
+                    if(++spills<=4 || (spills&1023)==0)re4dc_log("motion reserve: spill #%u bytes=%u heap4=%d\n",spills,bytes,re4dc_static_heap_free());
+                    break;
+                }
+#endif
                 unsigned victim=b.count;std::uint64_t oldest=~std::uint64_t(0);
                 for(unsigned j=0;j<b.count;++j) {
                     const auto& q=b.slots[j];

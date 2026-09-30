@@ -183,6 +183,20 @@ MOTION_FAST_READ ?= 0
 # cold miss never allocates from a full heap 4 (r100 ambush). MOTION_USAGE_LOG=1 (diagnostic):
 # log each entry's first acquire ("motion use:") for the hot-set audit.
 MOTION_RESERVE ?= 0
+# MOTION_RESERVE_SPILL=<bytes> (with MOTION_RESERVE=1, default 0): when both cold-clip slabs are busy, a cold miss
+# is cached in heap 4 (under MOTION_PRESSURE_BYTES, evicted LRU) instead of evicting a slab key, while heap 4
+# keeps at least <bytes> free after it; below that margin (the r100 ambush) the slabs alone serve as before.
+# Two slabs alone thrash in the r101 fight (~50 key reloads/s, each a disc read + CRC/FNV check).
+MOTION_RESERVE_SPILL ?= 0
+ifneq ($(MOTION_RESERVE_SPILL),0)
+ifneq ($(MOTION_RESERVE),1)
+$(error MOTION_RESERVE_SPILL needs MOTION_RESERVE=1)
+endif
+ifneq ($(NATIVE_STATIC),1)
+$(error MOTION_RESERVE_SPILL needs NATIVE_STATIC=1 (re4dc_static_heap_free))
+endif
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_RESERVE_SPILL=$(MOTION_RESERVE_SPILL)
+endif
 MOTION_USAGE_LOG ?= 0
 # HEAP_REPLACE_LOG=1 (test only): MemReplaceHeap logs the highest live cells of the heap it replaces.
 HEAP_REPLACE_LOG ?= 0
