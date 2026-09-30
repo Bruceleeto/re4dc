@@ -1008,6 +1008,18 @@ extern "C" void re4dc_enc_note_actor(const void* model, int result)
     } else if (!result) {
         ++enc_source;
         ++enc_src_why[re4dc_enc_atd == 4 ? 0 : re4dc_enc_atd == 2 ? 1 : 2];
+        // First source-path sighting of each model: "ENC_GS" id, parts, infos, be_flag, the ATD code.
+        static const void* seen[32];
+        static unsigned nseen;
+        bool known = false;
+        for (unsigned i = 0; i < nseen && !known; ++i) known = seen[i] == model;
+        if (!known && nseen < 32) {
+            seen[nseen++] = model;
+            unsigned infos = 0;
+            for (const cModelInfo* i = m->pModelInfo; i && infos < 99; i = i->pList) ++infos;
+            re4dc_log("ENC_GS m=%p id=%02x parts=%u infos=%u be=%08x atd=%u\n", model, (unsigned) m->id,
+                      (unsigned) m->nParts, infos, (unsigned) m->be_flag, re4dc_enc_atd);
+        }
     } else {
         ++enc_owned;
     }
