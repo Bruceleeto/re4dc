@@ -4,6 +4,9 @@
 #include "actor_transaction_diag.h"
 #if RE4DC_CROWD_CENSUS
 unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos;
+#define CROWD_LIFE(stmt) stmt
+#else
+#define CROWD_LIFE(stmt)
 #endif
 namespace re4dc_material { namespace life {
 constexpr unsigned kArchives=8,kAssets=40,kInfos=160,kModels=40;
@@ -149,14 +152,10 @@ extern "C" void re4dc_crowd_life_report(unsigned frame) {
     for(const auto& a:archives)ar+=a.key!=nullptr;
     for(const auto& a:assets)as+=a.data!=nullptr;
     for(const auto& i:infos_live)in+=i.info!=nullptr;
-    re4dc_log("CROWDLIFE f=%u archives=%u/%u assets=%u/%u infos=%u/%u exhausted=%u adopt=%u ok=%u fail=%u/%u/%u/%u archive_full=%u unsupported=%u revokes=%u revoked_infos=%u
-",
+    re4dc_log("CROWDLIFE f=%u archives=%u/%u assets=%u/%u infos=%u/%u exhausted=%u adopt=%u ok=%u fail=%u/%u/%u/%u archive_full=%u unsupported=%u revokes=%u revoked_infos=%u\n",
         frame,ar,kArchives,as,kAssets,in,kInfos,unsigned(exhausted),crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[0],crowd_adopt_fail[1],
         crowd_adopt_fail[2],crowd_adopt_fail[3],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos);
 }
-#define CROWD_LIFE(stmt) stmt
-#else
-#define CROWD_LIFE(stmt)
 #endif
 extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
     using namespace re4dc_material;using namespace life;
