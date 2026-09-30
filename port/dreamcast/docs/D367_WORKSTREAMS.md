@@ -45,6 +45,15 @@ The user's 2026-09-30 direction:
 6. **Check.** `bash port/dreamcast/tools/d367/work-check.sh` reports uncommitted or unpushed work in every lane tree
    and the landing tree, lane commits not yet landed, and unrecorded changes in the private store. Run it at the
    start and end of every session and before deleting anything. It must end `WORK-CHECK CLEAN`.
+6b. **Autosave** (user OK 2026-09-30, after two usage-limit stops killed agents mid-edit). Root cron runs
+   `tools/d367/autosave.sh` every 15 minutes. It pushes each lane tree's uncommitted state to
+   `origin/autosave/<lane>` and never touches the lane branch. After a lost session, fetch that ref, review
+   `git diff HEAD FETCH_HEAD`, and check out the paths you want. The log is `/root/probe/lanes/autosave.log`.
+6c. **Detached runs.** Launch any run longer than a few minutes so it outlives the agent:
+   `setsid nohup <cmd> > <evidence>/<name>.log 2>&1 < /dev/null &`. Write its PID and log path into the lane doc
+   before waiting. On resume, check that log and PID before re-running anything.
+6d. **Run areas in the store.** `playability-r11-r1/scenarios/`, `programs/` and `programs-*.json` are run output,
+   not assets, and are outside the store's manifest and git. Delete your own discs there after each run.
 7. **Deletion.** Delete only a lane's own rebuildable outputs (discs, objdirs), never another lane's tree. Lane trees
    are removed only after their branch is merged or archived on origin.
 8. **Host.**
