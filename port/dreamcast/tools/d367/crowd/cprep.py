@@ -35,8 +35,11 @@ for line in subprocess.check_output([str(TOOL / 'sh-elf-nm'), '-S', str(elf)], t
 assert len(syms) == 3
 (out / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage')) + '\n')
 pj = H / 'programs-crowd.json'
-report = json.loads(pj.read_text()) if pj.exists() else {}
-report[arm] = dict(elf=str(elf), elf_sha256=sha(elf), overlay_sha256=sha(ovl), symbols=syms,
-                   files={p.name: dict(bytes=p.stat().st_size, sha256=sha(p)) for p in out.iterdir() if p.is_file()})
-pj.write_text(json.dumps(report, indent=2) + '\n')
+import fcntl
+with open(EV / 'programs-crowd.lock', 'w') as lock:  # two preps at once lost an entry (read-modify-write race)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    report = json.loads(pj.read_text()) if pj.exists() else {}
+    report[arm] = dict(elf=str(elf), elf_sha256=sha(elf), overlay_sha256=sha(ovl), symbols=syms,
+                       files={p.name: dict(bytes=p.stat().st_size, sha256=sha(p)) for p in out.iterdir() if p.is_file()})
+    pj.write_text(json.dumps(report, indent=2) + '\n')
 print(arm, report[arm]['elf_sha256'])
