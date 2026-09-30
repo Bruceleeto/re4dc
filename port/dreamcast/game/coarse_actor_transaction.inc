@@ -207,7 +207,19 @@ extern "C" void re4dc_actor_transaction_retire() {
     actor_palette_arena.retire();
     re4dc_actor_texture_retire_all();
 }
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+// ENC_CENSUS (diagnostic, default 0): the draw below runs unchanged; coarse.cpp counts its result per model.
+extern "C" void re4dc_enc_note_actor(const void*,int);
+static int enc_transaction_draw(cModel* m);
 extern "C" int re4dc_actor_transaction_draw(cModel* m) {
+    const int result=enc_transaction_draw(m);
+    re4dc_enc_note_actor(m,result);
+    return result;
+}
+static int enc_transaction_draw(cModel* m) {
+#else
+extern "C" int re4dc_actor_transaction_draw(cModel* m) {
+#endif
     ATD(m,0,0,0);
     FrameIdentity frame{};ModelIdentity model{};unsigned choice=0;
     const int identity=re4dc_actor_transaction_identity(m,&frame,&model);

@@ -3533,6 +3533,16 @@ extern "C" void re4dc_actor_test_crowd_tier(int tier) { test_crowd_tier = tier; 
 extern "C" void re4dc_actor_crowd(unsigned near_count, float near_distance, float mid_distance, float mid_pixels) {
     crowd_near_count = near_count; crowd_near = near_distance; crowd_mid = mid_distance; crowd_mid_tau = mid_pixels;
 }
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+// ENC_CENSUS (diagnostic, default 0; read by coarse.cpp re4dc_enc_frame): the crowd-classed models drawn in the
+// current actor frame, by the tier they were drawn at (full / near / mid / far).
+extern "C" void re4dc_enc_crowd_tiers(unsigned* out) {
+    for (unsigned i = 0; i < 4; ++i) out[i] = 0;
+    if constexpr (kCrowd)
+        for (unsigned i = 0; i < crowd_count; ++i)
+            if (crowd[i].seen == frame_serial && crowd[i].tier < 4) ++out[crowd[i].tier];
+}
+#endif
 extern "C" void re4dc_actor_lod(float pixels, unsigned budget) {
     lod_tau = pixels;
     lod_budget_frame = budget;

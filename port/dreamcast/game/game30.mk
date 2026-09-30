@@ -1767,6 +1767,19 @@ ifneq ($(SKIN_CENSUS),0)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_SKIN_CENSUS=1
 endif
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS)
+# ENC_CENSUS=1 (diagnostic, default 0, lane enc; measurement builds only, read-only): one "ENC" log line per
+#              presented frame (native_ui's PC-sampler frame mark, so hwproject frames line up): Ganados and other
+#              enemies alive, Ganados reaching commonModelTrans (the game's view test), drawn by the actor owner /
+#              left to the source path / failed, owned ones by view distance, and the crowd tiers drawn
+#              (coarse.cpp re4dc_enc_frame; the note wraps coarse_actor_transaction.inc's draw). Needs COARSE.
+ENC_CENSUS ?= 0
+ifneq ($(ENC_CENSUS),0)
+ifeq ($(COARSE),0)
+$(error ENC_CENSUS needs COARSE (coarse.cpp defines re4dc_enc_frame))
+endif
+$(OBJDIR)/coarse.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
+endif
 
 # QUALITY_LOD_PX (default 5, the Standard RQ_LOD_COARSE threshold): the projected-pixel error Standard's mesh
 # LOD accepts (MESH_LOD_PX applies to Original only). Larger values are a visible change.

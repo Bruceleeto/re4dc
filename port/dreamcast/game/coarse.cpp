@@ -975,6 +975,66 @@ extern "C" void re4dc_coarse_draw(void)
     }
 }
 
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+// ENC_CENSUS (game30.mk; diagnostic, default 0, lane enc): one "ENC" line per presented frame (native_ui's frame
+// mark, the hwproject frame number), read-only. ga / oa: Ganados (ids 0x10..0x20, be_flag & 0x201 == 1, act_cap's
+// rule) / other enemies alive in EmMgr; gr: Ganados that reached commonModelTrans's first pass (the game's own OT
+// view test passed); go / gs / gx: of those, drawn by the actor owner (the cast mesh) / left to the source path /
+// failed; gb: the owned ones by view distance < 5 m / 5-12 m / 12-25 m / >= 25 m; or: other enemies reaching
+// commonModelTrans; ct: native_actor_fast crowd tiers (full / near / mid / far) of the models ranked this frame.
+extern "C" void re4dc_enc_crowd_tiers(unsigned* out);
+namespace {
+unsigned enc_reach, enc_owned, enc_source, enc_failed, enc_band[4], enc_other_reach;
+}
+extern "C" void re4dc_enc_note_actor(const void* model, int result)
+{
+    const cModel* m = static_cast<const cModel*>(model);
+    if (!m || m->kindid != 0 || (m->ot_type == 7 && (m->be_flag & 0x08000000))) {
+        return;   // not an enemy, or the second (translucent) pass of a model already counted
+    }
+    if (m->id < 0x10 || m->id > 0x20) {
+        ++enc_other_reach;
+        return;
+    }
+    ++enc_reach;
+    if (result < 0) {
+        ++enc_failed;
+    } else if (!result) {
+        ++enc_source;
+    } else {
+        ++enc_owned;
+        const Mtx& v = pG->Cam.v_mat;
+        const float x = v[0][0] * m->pos.x + v[0][1] * m->pos.y + v[0][2] * m->pos.z + v[0][3];
+        const float y = v[1][0] * m->pos.x + v[1][1] * m->pos.y + v[1][2] * m->pos.z + v[1][3];
+        const float z = v[2][0] * m->pos.x + v[2][1] * m->pos.y + v[2][2] * m->pos.z + v[2][3];
+        const float d2 = x * x + y * y + z * z;
+        ++enc_band[d2 < 25e6f ? 0 : d2 < 144e6f ? 1 : d2 < 625e6f ? 2 : 3];
+    }
+}
+extern "C" __attribute__((noinline)) void re4dc_enc_frame(unsigned frame)
+{
+    unsigned ga = 0, oa = 0, ct[4] = {};
+    if (pG) {
+        for (cEm* e = EmMgr.pAlive; e; e = (cEm*) e->pNext) {
+            if ((e->be_flag & 0x201) != 1) {
+                continue;
+            }
+            if (e->id >= 0x10 && e->id <= 0x20) {
+                ++ga;
+            } else {
+                ++oa;
+            }
+        }
+    }
+    re4dc_enc_crowd_tiers(ct);
+    re4dc_log("ENC f=%u ga=%u oa=%u gr=%u go=%u gs=%u gx=%u gb=%u/%u/%u/%u or=%u ct=%u/%u/%u/%u\n", frame, ga, oa,
+              enc_reach, enc_owned, enc_source, enc_failed, enc_band[0], enc_band[1], enc_band[2], enc_band[3],
+              enc_other_reach, ct[0], ct[1], ct[2], ct[3]);
+    enc_reach = enc_owned = enc_source = enc_failed = enc_other_reach = 0;
+    enc_band[0] = enc_band[1] = enc_band[2] = enc_band[3] = 0;
+}
+#endif
+
 #if RE4DC_COARSE_WORLD & 64
 // COARSE_WORLD R3: native_ui's room-entry texture preload adds the world's list (coarse_world.cpp
 // re4dc_coarse_world_tex) only in the data's room.
