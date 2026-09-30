@@ -1780,6 +1780,13 @@ endif
 $(OBJDIR)/coarse.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
 endif
+# ENC_SKIP_GANADO=1 (diagnostic A/B only, default 0, lane enc; NEVER a play build): trans.cpp emTrans gives Ganados
+#                  (kindid 0, ids 0x10..0x20) no transform pass (no OT entry, screen matrices, skinning, lights or
+#                  draw), so a view's hw ms with and without it prices the Ganados' render side. They are invisible.
+ENC_SKIP_GANADO ?= 0
+ifneq ($(ENC_SKIP_GANADO),0)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_ENC_SKIP_GANADO=1
+endif
 
 # QUALITY_LOD_PX (default 5, the Standard RQ_LOD_COARSE threshold): the projected-pixel error Standard's mesh
 # LOD accepts (MESH_LOD_PX applies to Original only). Larger values are a visible change.
