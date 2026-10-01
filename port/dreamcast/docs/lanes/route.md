@@ -102,7 +102,8 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   file open on another thread. Direct start route-r106e8 (image r10 8b35b37a, IO_SERIAL=1): room identities ok, PS2
   world open, movie owns the event, placed at vbl 981, frames to 1200+ (the runner's capacity guard ended it), one
   texture `open failed` left (b8420096: a texture not on the disc, also in the door walk). Gate pending (kite fight vs
-  control c8): C: is at the harness staging floor.
+  control c8): PASSED route-kiter11 (image r11 006016f9, IO_SERIAL on in the recipe) == route-kitec8: frame 2100 at
+  the same position, vbl 10399 both, spills 4 / upload FAILED 12 / HALT 0 both. Landed with this commit.
 
 ## Numbers (image, build, evidence)
 
