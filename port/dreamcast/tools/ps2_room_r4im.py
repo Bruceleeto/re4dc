@@ -117,7 +117,7 @@ def gc_select(lights, sel, lo, hi):
 
 
 # ------------------------------------------------------------------------------------------------ scene
-def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0):
+def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0, gc_cut=0):
     """color_light: 'authored' = COLOR groups keep the PS2 vertex colours (GS modulate; the landed packages);
     'gc' = the GameCube self-lit channel on PS2 geometry: material * clamp01(vertex colour + sum of the GC LIT
     cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals)."""
@@ -134,7 +134,7 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
         assert int(m['diffuse_map']) == mtl[name]['tex'], name
     gl = None
     if color_light == 'gc':
-        gc_lit = json.loads((src / 'gc-lit-cut0.json').read_text())
+        gc_lit = json.loads((src / f'gc-lit-cut{gc_cut}.json').read_text())
     if any(g['kind'] == 'NORMAL' for g in obj['groups']):
         lit = json.loads((src / 'gc-lit-cut0.json').read_text())
         chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
@@ -421,6 +421,7 @@ def main():
                          "selects) x SMX colour, normals from the PS2 triangles; needs <src>/gc-lit-cut0.json "
                          "(gc_room_lit.py)")
     ap.add_argument('--normal-sign', type=float, default=1.0, help='geometry normal orientation for --color-light gc')
+    ap.add_argument('--gc-cut', type=int, default=0, help='--color-light gc: the LIT cut (<src>/gc-lit-cut<N>.json)')
     ap.add_argument('--lod-eps', default='24,48,96,192,384')
     ap.add_argument('--lod-min-gain', type=float, default=0.4)
     ap.add_argument('--lod-max-levels', type=int, default=4)
@@ -431,7 +432,7 @@ def main():
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     a.out.mkdir(parents=True, exist_ok=True)
     groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
-                        a.normal_sign)
+                        a.normal_sign, a.gc_cut)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)

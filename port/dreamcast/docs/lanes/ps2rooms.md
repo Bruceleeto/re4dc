@@ -92,5 +92,63 @@ Options for the user (looks are the user's call):
 
 ## Ready to land
 
-Nothing for the runtime (no runtime change). Tools on lane/ps2rooms (ps2_room_extract.py, ps2_room_sheet.py,
-ps2_colour_study.py, ps2_room_r4im.py --vc-scale default 1.0 = identical packages) can land any time.
+Nothing for the runtime (no runtime change). The tools on lane/ps2rooms can land any time:
+- ps2_room_extract.py, ps2_room_sheet.py, ps2_colour_study.py, gc_room_lit.py;
+- ps2_room_r4im.py with --vc-scale / --color-light / --gc-cut. Their defaults give identical packages.
+
+## Option 2 (user 2026-09-30): GC lights on PS2 geometry, r106 result (2026-10-01)
+
+Implementation (offline, no runtime change):
+- `ps2_room_r4im.py --color-light gc [--gc-cut N]`. COLOR groups get the GameCube self-lit channel:
+  `clamp01(vertex colour + the lights the model selects) x SMX colour`.
+  - Normals come from the PS2 triangles: area-weighted, smoothed per OBJ vertex. Their orientation was checked
+    against the authored normals of the r101 and r100 NORMAL groups: 98.5 % / 99.5 % of corners agree, median
+    dot 0.89 / 0.97.
+  - Light selection follows ow_extract.py `select()` (the light_house38.py rules), with the PS2 SMX LightSwitch as
+    the mask and the group's world box as the light box. GX parameters come from `gx_light`.
+  - The default `authored` is unchanged: the r103 package still reproduces 55efd327 / 7ab3747c, and the r106
+    default package is unchanged (08bc3536).
+- `gc_room_lit.py` dumps any room's LIT cut from the GC ISO. It matches gc_lit_dump.py exactly for r100/r101.
+  r106 has 8 cuts; `inputs/r106/gc-lit-cut0..7.json` are in the store.
+- `ps2_room_sheet.py` takes a second package column (`--pkg2`) and explicit `cam` reference views. It also writes
+  scenery-masked luma/RGB per column (Leon and the HUD boxes are left out on reference rows).
+
+Result. Look sheet `ps2rooms-20260930\sheets\r106-gclit-sheet.png` (+ .json). Columns: DC authored | PS2 source |
+DC GC-lit (cut 1) | GC Dolphin r106a dump 1100. The three reference rows are approximate cameras at the r103-door
+spawn, not camera-matched. Scenery-masked luma:
+
+| view | DC authored | PS2 source | DC GC-lit | GC (Dolphin) |
+|---|---:|---:|---:|---:|
+| camera A (yaw 300) | 10.1 | 10.4 | 16.4 | 47.2 |
+| camera B (yaw 345) | 11.2 | 11.2 | 16.6 | 47.2 |
+| camera C | 9.5 | 9.8 | 16.2 | 47.2 |
+| spawn from r103 door | 22.9 | 23.0 | 26.2 | - |
+
+- The bake lifts r106 by only ~1.6x. The GameCube is ~4.5x brighter than authored.
+- Corner brightness (median of the max channel) goes from 0.094 authored to 0.117 (cut 0) and 0.127 (cut 1).
+- Why it falls short: in every r106 LIT cut, the only lights that reach scenery (xF bit 0x10) are light 0 (a
+  parallel sun, col 88, I 0.24-0.44) and the spot light 3.
+  - Lights 1 and 7 (I 1.40, a global sun) have xF 0x43 / 0x08, so they don't select scenery.
+  - The xD 6 spot lights near the house (x 126-156 m) are a kind gx_light does not model.
+  - So under the repo's GC light model, the GC itself would draw r106 about as dark as the PS2 data does. The
+    Dolphin frame contradicts this.
+  - It is the same gap the original-tryit Dolphin study found for r101's ground: the GC is x3.1 over the
+    unit-normal model at V1E, with the cause untested.
+- Instancing drops from 56 to 15 groups, because baked light differs per placement. The package grows to 141
+  meshes, level 0 56,482, re4mesh 1,477,024 B (+44 %; heap-4 block ~1.49 MB, still under r100's 1.65 MB).
+- GC CLR0 does not supply the missing light. In r106 only 28 of 87 GC BINs are self-lit (CLR0 median 0.10); the
+  rest are GX-lit with an unused CLR0.
+- An automatic camera fit to the Dolphin frame (gradient + luma correlation over route points and yaws) locked
+  onto dark interiors. The darkness defeats it, so the reference rows use hand-picked approximate cameras.
+
+r100 hedge (report only; r100 is landed). The same rules fix the over-bright colours. r100's saturated groups
+carry SMX ColorRGB 85,84,83 or 70,70,70, which the authored packages ignore; the GC multiplies it in as the
+material colour, and GX clamps the channel to 1.0. Under `--color-light gc`, r100's COLOR corners go from median
+1.99 (77 % above 1.0) to 0.47 (none above 1.0). r101 moves only 0.45 -> 0.55. So the SMX colour multiplier,
+which the converter drops today, is the likely answer for r100. Changing it is the user's call.
+
+Next, for a decision:
+1. Find the missing GC brightness term with Dolphin A/B frames: AR codes that disable scenery lights or change
+   the ambient / material registers at the r106 start. This is the same unknown as r101's ground. Then fold it
+   into `--color-light gc`.
+2. Stopgap: a per-room gain on top of the GC bake, fitted to Dolphin frames.
