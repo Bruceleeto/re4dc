@@ -29,12 +29,15 @@ PS2 = Path('/mnt/c/Game Dev/Emulators/re4-assets-private/ps2rooms-20260930/out')
 MOVIES = Path('/root/probe/d367-agents/cutscenes/movies-288x192-full')
 
 ROOMS = {  # room -> (PS2 world package dir, route movies)
-    'r106': (PS2 / 'r106', ['r106s00']),
+    # r106: the PS2-pattern bake (--color-light ps2, room TEV x4; ps2rooms 2026-10-01, cost-neutral vs the
+    # authored package: 44.8 vs 44.9 hw ms at the r106 entry).
+    'r106': (PS2 / 'r106-ps2', ['r106s00']),
 }
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
-    'r106-entry': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
+    'r106-entry-ps2': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
     # r103-r106-door (2026-10-01, single-use name) was written without --door: Leon stood at the door.
-    'r103-r106-walk': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
+    # *-ps2 (2026-10-01): the r106 bake; the earlier names staged the authored r106 package.
+    'r103-r106-walk-ps2': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
 }
 
 
