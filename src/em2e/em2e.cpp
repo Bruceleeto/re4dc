@@ -68,7 +68,12 @@ extern "C" void _unresolved()
 // EmInitFunc of the module: constructs the cEm2e class in the manager's work.
 void Em2eInit(cEm* em)
 {
+#if !defined(__PPC__)
+    // `new (em) cEm2e;` off the GC (value-initialisation zeroes the subArc; see em29.cpp).
+    new (em) cEm2e;
+#else
     new (em) cEm2e();
+#endif
 }
 
 // Per-frame damage check (cEm2e::move): a floor spider is squashed (hp 0, splat effect, Die_Normal)
