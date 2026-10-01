@@ -13,3 +13,14 @@ hw r1c2 cw-r1c2-l l
 hw r1c2 cw-r1c2-e e
 hw r1c2 cw-r1c2-b b
 hw ck3 cw-ck3-e e
+hw ck3 cw-ck3-k k
+hw c0 cw-c0-k k
+hw r1c cw-r1c-k k
+hw r1c2 cw-r1c2-k k
+hw r1n2 cw-r1n2-k k
+hw r1n4 cw-r1n4-k k
+hw r1d12 cw-r1d12-k k
+hw fn3 cw-fn3-k k
+hw f12 cw-f12-k k
+hw p2 cw-p2-k k2
+hw p2n3 cw-p2n3-k k2

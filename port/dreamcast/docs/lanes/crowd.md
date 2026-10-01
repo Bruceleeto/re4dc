@@ -69,9 +69,16 @@ User, 2026-09-30: "We already know the Ganados need to be optimized + we need to
 
 ## State and next step
 
-- 2026-10-01 04:38: detached queue jobs-b1 (tools/d367/crowd/jobs-b1.txt), PID 107850, log
-  /root/probe/lanes/crowd/logs/queue-jobs-b1.out (per job logs/hw-<name>.out, hw-<name>.log; evidence
-  C:\Flycast-Evidence\re4-dreamcast\hwmodel-cw-<name>). Arms c0, r1, r1c, ck, r1n4, r1n2, r1d12 at views l/e/s.
+- Detached queues (tools/d367/crowd/cqueue.sh; log /root/probe/lanes/crowd/logs/queue-jobs-<b>.out, per job
+  logs/hw-<name>.out + hw-<name>.log; evidence C:\Flycast-Evidence\re4-dreamcast\hwmodel-cw-<name>):
+  - jobs-b1 PID 107850 (04:38): c0, r1, r1c, ck, r1n4, r1n2, r1d12 at views l/e/s.
+  - jobs-b2 PID 131103 (04:58): far / PS2 tier arms f12, fn3, p2, p2n3 at l/s.
+  - jobs-b3 PID 144220: ck2 (cull check with the reason logged) at l/s.
+  - jobs-b4 PID 145600: STOPPED by me at 05:15 (C: fell to 15 GB with 7 traced runs at once); its c0-b run killed
+    (Flycast PID 4424), disc + partial evidence deleted; ck-b finished. Rest moved to jobs-b6.
+  - jobs-b6 (after.sh PID 151969, starts when b1..b3 end; 3 workers, MINFREE 22): bell fight b and kite k views for
+    every arm, ck3 / r1c2 (exact cull).
+- Look-sheet builds z<arm> (looks.sh build; CROWD_FREEZE_AT=1100 AT2=2280 HOLD=40): kite t=1099, tour t=2279.
 
 ## Numbers (image, build, evidence)
 

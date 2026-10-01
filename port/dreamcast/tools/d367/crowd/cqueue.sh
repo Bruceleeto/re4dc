@@ -4,7 +4,8 @@
 #             hw <label> <name> <view>           view e = r101 entry 900:1380, l = r101 entry 2040:2520 (worst view),
 #                                                s = r100 s20 ambush 1240:1720 (enc lane's views, stride 15);
 #                                                b = r101 bell fight 1240:1720 (enc lane's Ganados-on-screen view);
-#                                                e2/l2/s2/b2 = the same with the PS2 em15-00 atlas staged (fix/*-ps2.json)
+#                                                k = r101 kite (kite-mesh-fixture-r21.json) 900:1380, ~5 Ganados < 5 m;
+#                                                e2/l2/s2/b2/k2 = the same with the PS2 em15-00 atlas staged (fix/*-ps2.json)
 # MINFREE (default 22): a job starts only with C: >= MINFREE GB (a traced run peaks at ~1.5 GB of C:; keep >= 16).
 # Launch: setsid nohup bash cqueue.sh jobs.txt 2 > /root/probe/lanes/crowd/logs/queue-<x>.out 2>&1 < /dev/null &
 set -u
@@ -33,6 +34,8 @@ worker() {
       s) FIX=tour/rel-r100-s20-pw.json; C=1240:1720 ;;
       e2) FIX=$EV/fix/rel-r101-entry-pw-ps2.json; C=900:1380 ;;
       b) FIX=tour/enc-rel-r101-bell-fight-pw.json; C=1240:1720 ;;
+      k) FIX=kite-mesh-fixture-r21.json; C=900:1380 ;;
+      k2) FIX=$EV/fix/kite-mesh-fixture-r21-ps2.json; C=900:1380 ;;
       b2) FIX=$EV/fix/enc-rel-r101-bell-fight-pw-ps2.json; C=1240:1720 ;;
       l2) FIX=$EV/fix/rel-r101-entry-pw-ps2.json; C=2040:2520 ;;
       s2) FIX=$EV/fix/rel-r100-s20-pw-ps2.json; C=1240:1720 ;;
