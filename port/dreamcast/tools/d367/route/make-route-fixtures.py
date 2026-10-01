@@ -28,16 +28,20 @@ L = Path('/root/probe/lanes/route')
 PS2 = Path('/mnt/c/Game Dev/Emulators/re4-assets-private/ps2rooms-20260930/out')
 MOVIES = Path('/root/probe/d367-agents/cutscenes/movies-288x192-full')
 
-ROOMS = {  # room -> (PS2 world package dir, route movies)
+# AICA banks (aica_banks.py build --route title,r100,r101,r103,<rooms> --fixed-route title,r100,r101,r103):
+# the room's own sound banks converted into the disc's frozen AICA layout (r100-r103 banks unchanged).
+AICA = L / 'aica-r106'
+ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room uses)
     # r106: the PS2-pattern bake (--color-light ps2, room TEV x4; ps2rooms 2026-10-01, cost-neutral vs the
     # authored package: 44.8 vs 44.9 hw ms at the r106 entry).
-    'r106': (PS2 / 'r106-ps2', ['r106s00']),
+    'r106': (PS2 / 'r106-ps2', ['r106s00'], ['em/em29.drs', 'em/em2e.drs']),
 }
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
-    'r106-entry-ps2': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
+    # *-snd (2026-10-01): + the r106 AICA banks (room .dar, em29, em2e); *-ps2 had GC banks (no room sound).
+    'r106-entry-snd': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
     # r103-r106-door (2026-10-01, single-use name) was written without --door: Leon stood at the door.
     # *-ps2 (2026-10-01): the r106 bake; the earlier names staged the authored r106 package.
-    'r103-r106-walk-ps2': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
+    'r103-r106-walk-snd': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
 }
 
 
@@ -51,10 +55,12 @@ def new_file(path, text):
 
 
 def room_files(room):
-    ps2, movies = ROOMS[room]
+    ps2, movies, banks = ROOMS[room]
     rep = {}
-    for ext in ('dar', 'arc'):
-        rep[f'st1/{room}.{ext}'] = L / f'rel-{room}/st1/{room}.{ext}'
+    rep[f'st1/{room}.dar'] = AICA / f'st1/{room}.dar'
+    rep[f'st1/{room}.arc'] = L / f'rel-{room}/st1/{room}.arc'
+    for b in banks:
+        rep[b] = AICA / b
     rep[f'dc/native/{room}/MAINSCENARIO.re4mesh'] = L / f'pkg-{room}/MAINSCENARIO.re4mesh'
     for ext in ('re4mesh', 'r4pw'):
         rep[f'dc/native/{room}/ps2-world.{ext}'] = ps2 / f'ps2-world.{ext}'
