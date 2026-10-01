@@ -42,6 +42,7 @@ VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     # r103-r106-door (2026-10-01, single-use name) was written without --door: Leon stood at the door.
     # *-ps2 (2026-10-01): the r106 bake; the earlier names staged the authored r106 package.
     'r103-r106-walk-snd': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
+    'r106-closet-snd': ('r106-closet', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
 }
 
 
