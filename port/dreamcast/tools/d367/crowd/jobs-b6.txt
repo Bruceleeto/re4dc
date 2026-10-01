@@ -24,3 +24,4 @@ hw fn3 cw-fn3-k k
 hw f12 cw-f12-k k
 hw p2 cw-p2-k k2
 hw p2n3 cw-p2n3-k k2
+hw c0 cw-c0-b2 b

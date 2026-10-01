@@ -3,6 +3,7 @@
 #   MODE=rel   (default) release measurement build: LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0
 #              GAME_PWC_DIAG=0 PC_SAMPLER=1 PC_SAMPLER_BYTES=8192 (hwproject needs the sampler's frame word)
 #   MODE=trace STRICT gate build: LOGIC_TRACE=1 (recipe default) ARENA_FIT_KOS_BYTES=147456
+#   MODE=play  the recipe's own flags only (identity.sh)
 #   cbuild.sh <label> [extra make knobs...]
 # Output /root/probe/lanes/crowd/build-<label>/{re4dc-game.elf,sscrn.ovl,elf.sha256,flags.txt,stack.txt,build.log};
 # objdir /root/probe/lanes/crowd/obj-<label> is always fresh (a seeded objdir keeps stale objects).
@@ -10,7 +11,7 @@ set -euo pipefail
 L=${1:?label}; shift
 MODE=${MODE:-rel}
 EV=/root/probe/lanes/crowd
-ROOT=$(cd "$(dirname "$0")/../../../../.." && pwd)
+ROOT=${ROOT:-$(cd "$(dirname "$0")/../../../../.." && pwd)}  # ROOT=<tree>: build another checkout (identity.sh)
 BUNDLE="/mnt/c/Game Dev/Emulators/re4-assets-private/play-actor-bundle-20260928"
 # build-r21.sh passes the asset dir unquoted to make: use a space-free ext4 copy, verified against the bundle's sums.
 # ASSETS=<dir> (crowd tier arms: assets.sh) is checked against its own SHA256SUMS instead.
@@ -28,6 +29,7 @@ rm -rf "$OBJ" "$OUT"; mkdir -p "$OBJ" "$OUT"
 case $MODE in
   rel) M="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG=0 PC_SAMPLER=1 PC_SAMPLER_BYTES=8192 ARENA_FIT_KOS_BYTES=147456" ;;
   trace) M="ARENA_FIT_KOS_BYTES=147456" ;;
+  play) M="" ;;  # the play recipe as is (knob-off identity images)
   *) echo "MODE rel|trace"; exit 2 ;;
 esac
 echo "$L MODE=$MODE ASSETS=$ASSETS $M $*" > "$OUT/flags.txt"
