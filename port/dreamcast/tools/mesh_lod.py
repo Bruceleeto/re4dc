@@ -584,6 +584,25 @@ def stripify(tris):
     return strips
 
 
+def split_to_limit(s, limit):
+    """Pieces of strip s with at most `limit` distinct corners each; each piece after the first restarts two corners
+    back at an even triangle (convert_room_bins split_strip's rule), so the triangles and their winding are kept."""
+    out, start = [], 0
+    while start < len(s) - 2:
+        end, seen = start, set()
+        while end < len(s) and len(seen | {s[end]}) <= limit:
+            seen.add(s[end])
+            end += 1
+        if end < len(s) and (end - 2 - start) % 2:
+            end -= 1
+        assert end - start >= 3, 'meshlet limit too small (needs >= 4 corners)'
+        out.append(s[start:end])
+        if end >= len(s):
+            break
+        start = end - 2
+    return out
+
+
 def pack_meshlets(strips, limit=256, point=None):
     """Greedy vertex-reuse packing (after dca3-game's processGeom): a meshlet
     repeatedly takes the strip adding the fewest new vertices until full; ties
@@ -610,6 +629,13 @@ def pack_meshlets(strips, limit=256, point=None):
                 if best is None or score < best[0]:
                     best = (score, i)
             if best is None:
+                if not cur:
+                    # No strip fits an empty meshlet: a strip alone has more than `limit` distinct corners (a long
+                    # strip under a small limit, e.g. 64). Split it into pieces that fit. Only reached where this
+                    # loop used to append empty meshlets forever, so every input that converted before is unchanged.
+                    s, c = pending.pop(0)
+                    pending[0:0] = [(p, centre(p)) for p in split_to_limit(s, limit)]
+                    continue
                 break
             s, c = pending.pop(best[1])
             if seed is None:
