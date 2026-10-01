@@ -16,6 +16,12 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   the adopted world-mesh-r21 package, r100/r103 from tools/ps2_room_r4im.py). The disc must stage
   dc/native/r100|r101|r103/ps2-world.{re4mesh,r4pw} and their dc/tex files (tour/play/*-pw.json); a room whose
   package is missing falls back to its Standard scenery.
+- r106 (route lane, landed f66e8c5b, 2026-10-01): the play image reaches r106 through the r103 door. Its disc needs
+  st1/r106.{dar,arc} (compact + release), dc/native/r106/MAINSCENARIO.re4mesh (release identity), the PS2 world
+  dc/native/r106/ps2-world.* from ps2rooms out/r106-ps2 (`--color-light ps2`, TEV x4) with its tex, the r106 room
+  textures, dc/movie/r106s00.seq, and the dc/native/r106 directory (stage-scenario.py creates missing directories).
+  tools/d367/route/make-route-fixtures.py writes these fixtures (recipe in docs/lanes/route.md). Open: a direct start
+  in r106 (warp or a save made there) fails every disc open after the room read.
 
 ## Steps
 
