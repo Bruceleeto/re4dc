@@ -63,7 +63,21 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   lighting decision (prelit, 0 runtime ms, enhanced for DC). Until it delivers, staging uses its authored package
   (ps2rooms-20260930/out/r106).
 - **r106s00 route movie** (chapter 1-1's end): r106.cpp presents it through RouteMoviePlay(0x10600) like r101's events (ROUTE_CUTSCENES.md row); r106.o gets the route-movies header; convert_route_movies.py names it. Converted into the shared movie folder (/root/probe/d367-agents/cutscenes/movies-288x192-full/r106s00, index merged, not replaced): 288x192, 1,738 frames, 58.0 s, seq 12,184,020 B (sha 1e5e3b02..). out-r4 builds (play recipe + DBG_WARP=1), same UNRESOLVED list.
-- Next: warp preset for the r103 -> r106 door, staging fixture (rel-r106 files + pkg-r106 + PS2 world + r106s00), heap-4 measurement in Flycast.
+- **r106 reached in game through the r103 door (2026-10-01).** Image: route-build.sh r6 (play recipe + PACE_MODE=fast
+  DBG_WARP=1 PC_SAMPLER=1 ARENA_FIT_KOS_BYTES=180224; ELF 8832fa42), fixture tour/route-rel-r103-r106-walk-pw.json (preset
+  r103-r106-door --door; r106 PS2 world = the ps2rooms authored package), run scenarios/route-r106w1 (240 s, HALT 0, MISSING 0):
+  - Door taken at vbl 1602, r106 entered vbl 1649; room identities ok (117, archive 1,611,200 B); PS2 world opens
+    (1,038,208 B, heap 4 5,445,600 -> 4,407,296 free); scenery package skipped; route movie 10600 owns the event
+    (3,932,160 B em12 reservation released). Ran to frame 3,360 (deadline) with no HALT.
+  - Open: VRAM free at entry 69,760 B (r103's room set still resident: no r106 VQ overlay yet); 156 of 212 source-OT
+    model parts rejected (to check against r103); the closet event (area 2) not walked yet.
+  - The direct warp start (preset r106-entry, scenarios route-r106e1/e2/e3) does NOT work: every disc open fails after
+    the first r106.dar read (KOS heap and the disc layout are fine: a KOS-style Joliet walk finds every file; +32 KB
+    KOS heap changes nothing). The door route does not hit it, so the warp-only path is parked; use the door walk.
+  - Fixture maker fix: door views pass warp.py options (route-r103-r106-walk = r103-r106-door --door); the first
+    r103-r106-door fixture had no door actions (single-use name kept).
+- Next: r106 PS2 world from ps2rooms' `--color-light ps2` bake (TEV x4), r106 VQ overlay, the closet event + r106s00
+  movie run, heap-4 / hw ms measurement.
 
 ## Numbers (image, build, evidence)
 

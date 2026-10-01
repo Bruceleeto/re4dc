@@ -31,9 +31,10 @@ MOVIES = Path('/root/probe/d367-agents/cutscenes/movies-288x192-full')
 ROOMS = {  # room -> (PS2 world package dir, route movies)
     'r106': (PS2 / 'r106', ['r106s00']),
 }
-VIEWS = {  # name -> (warp preset, base fixture, rooms staged)
-    'r106-entry': ('r106-entry', 'rel-r103-entry-pw.json', ['r106']),
-    'r103-r106-door': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106']),
+VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
+    'r106-entry': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
+    # r103-r106-door (2026-10-01, single-use name) was written without --door: Leon stood at the door.
+    'r103-r106-walk': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
 }
 
 
@@ -65,8 +66,8 @@ def room_files(room):
 
 
 REC.mkdir(exist_ok=True)
-for name, (preset, base, rooms) in VIEWS.items():
-    warp = subprocess.check_output([sys.executable, str(WARP), preset], text=True)
+for name, (preset, base, rooms, opts) in VIEWS.items():
+    warp = subprocess.check_output([sys.executable, str(WARP), preset] + opts, text=True)
     d = json.loads((TOUR / base).read_text())
     rep = d['replace']
     rep['dc/warp.txt'] = f'route-{name}/warp.txt'
