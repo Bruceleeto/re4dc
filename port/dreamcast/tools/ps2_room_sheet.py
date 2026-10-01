@@ -29,6 +29,29 @@ r4im = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r4im)
 
 SKY = np.array([96, 104, 112], np.float32)
+FOG = None      # --fog: the Dreamcast runtime fog (native_static.cpp re4dc_fog_frame), applied per fragment
+
+
+def dc_fog(env, far):
+    """native_static.cpp re4dc_fog_frame: the GX fog curve of the room's LIT cut (gx_fog: type, start, end; the
+    game's setFog passes them straight to GXSetFog) plus the ramp to 100 % over the last 20 % before the far plane
+    (FOG_FAR, the play recipe's 25 m, or the room's own far if shorter); geometry beyond the far is culled."""
+    typ, start, end = int(env['fog_type']), float(env['fog_start']), float(env['fog_end'])
+    col = np.array([int(env['fog_rgba'][k:k + 2], 16) for k in (0, 2, 4)], np.float32)
+    far = min(far, end) if end > 1 else far
+
+    def amount(z):
+        if not end > start:
+            f = (z >= end).astype(np.float64)
+        else:
+            t = np.clip((z - start) / (end - start), 0, 1)
+            k = typ & 7
+            f = (1 - 2 ** (-8 * t) if k == 4 else 1 - 2 ** (-8 * t * t) if k == 5 else
+                 2 ** (-8 * (1 - t)) if k == 6 else 2 ** (-8 * (1 - t) ** 2) if k == 7 else t)
+        ramp = np.clip((z - 0.8 * far) / (0.2 * far), 0, 1)
+        s = ramp * ramp * (3 - 2 * ramp)
+        return np.where(ramp > 0, f + (1 - f) * s, f)
+    return dict(amount=amount, colour=col / 255, far=far, typ=typ, start=start, end=end)
 
 
 # ------------------------------------------------------------------------------------------------ textures
@@ -126,7 +149,8 @@ class View:
 
 def render(view, batches, textures, colour_fn):
     W, H = view.w, view.h
-    rgb = np.broadcast_to(SKY, (H, W, 3)).copy()
+    sky = FOG['colour'] * 255 if FOG and not view.ortho else SKY
+    rgb = np.broadcast_to(sky, (H, W, 3)).copy()
     zb = np.full((H, W), np.inf, np.float32)
     trs = []
     stats = dict(tris=0, drawn=0)
@@ -218,6 +242,13 @@ def tri(view, rgb, zb, item, textures, colour_fn, blend):
     texel = img[ty, tx]
     col = wts @ C
     out, alpha = colour_fn(texel, col)
+    if FOG and not view.ortho:
+        f = FOG['amount'](z)[:, None]
+        out = out * (1 - f) + FOG['colour'][None, :] * f
+        alpha = np.where(z > FOG['far'], 0.0, alpha)            # culled beyond the far plane
+        if pas == 0:
+            alpha = np.where(z > FOG['far'], 0.0, 1.0)
+            pas = 1                                               # (opaque: alpha only marks the cull)
     if pas == 1:
         keep = alpha >= 0.5
     elif pas == 2:
@@ -322,7 +353,13 @@ def main():
     ap.add_argument('--label', default='DC package')
     ap.add_argument('--lights', default='0,5')
     ap.add_argument('--width', type=int, default=480)
+    ap.add_argument('--fog', type=Path, help="a LIT cut json (gc_room_lit.py): draw the Dreamcast runtime fog of that "
+                                            "cut on every rendered column (perspective views)")
+    ap.add_argument('--fog-far', type=float, default=25000.0, help='--fog: the far plane (FOG_FAR, play recipe 25 m)')
     a = ap.parse_args()
+    global FOG
+    if a.fog:
+        FOG = dc_fog(json.loads(a.fog.read_text())['env'], a.fog_far)
     w, h = a.width, a.width * 3 // 4
     pkg_b, counts = package_tris(a.pkg)
     src_b = source_tris(a.room, a.src, a.pkg, tuple(int(x) for x in a.lights.split(',')))
@@ -396,8 +433,10 @@ def main():
     total_h = 30 + sum(hh + head + pad for *_, hh in tiles) + pad
     sheet = Image.new('RGB', (ncol * w + (ncol + 1) * pad, total_h), (24, 24, 24))
     dr = ImageDraw.Draw(sheet)
-    dr.text((pad, 8), '%s   columns: %s   no fog   %d placements / %d meshes / %d parts (first package)' %
-            (a.room, ' | '.join(lab for lab, _ in max((c for _, c, _, _ in tiles), key=len)),
+    fog_txt = ('DC fog: type %d, %.0f..%.0f m, far %.0f m' % (FOG['typ'], FOG['start'] / 1000, FOG['end'] / 1000,
+                                                               FOG['far'] / 1000)) if FOG else 'no fog'
+    dr.text((pad, 8), '%s   columns: %s   %s   %d placements / %d meshes / %d parts (first package)' %
+            (a.room, ' | '.join(lab for lab, _ in max((c for _, c, _, _ in tiles), key=len)), fog_txt,
              counts['placements'], counts['meshes'], counts['parts']), fill=(230, 230, 230))
     y = 30
     for name, cols, st, hh in tiles:
@@ -410,7 +449,7 @@ def main():
         y += hh + head + pad
     a.out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(a.out)
-    a.out.with_suffix('.json').write_text(json.dumps(dict(room=a.room, counts=counts, views=report), indent=1))
+    a.out.with_suffix('.json').write_text(json.dumps(dict(room=a.room, counts=counts, fog=fog_txt, views=report), indent=1))
 
 
 if __name__ == '__main__':
