@@ -1,0 +1,23 @@
+build r1 CROWD_READOPT=1
+build r1c CROWD_READOPT=1 CROWD_CULL=1
+build ck CROWD_READOPT=1 CROWD_CULL=2 CROWD_CENSUS=1 CROWD_CENSUS_FROM=0 CROWD_CENSUS_TO=99999
+build r1n4 CROWD_READOPT=1 CROWD_CULL=1 CROWD_DRAW_MAX=4
+build r1n2 CROWD_READOPT=1 CROWD_CULL=1 CROWD_DRAW_MAX=2
+build r1d12 CROWD_READOPT=1 CROWD_CULL=1 CROWD_DRAW_M=12
+hw c0 cw-c0-l l
+hw r1c cw-r1c-l l
+hw c0 cw-c0-s s
+hw r1c cw-r1c-e e
+hw r1c cw-r1c-s s
+hw r1 cw-r1-l l
+hw r1 cw-r1-e e
+hw ck cw-ck-l l
+hw ck cw-ck-e e
+hw ck cw-ck-s s
+hw r1n4 cw-r1n4-l l
+hw r1n2 cw-r1n2-l l
+hw r1d12 cw-r1d12-l l
+hw r1n4 cw-r1n4-s s
+hw r1n2 cw-r1n2-s s
+hw r1d12 cw-r1d12-s s
+hw r1 cw-r1-s s

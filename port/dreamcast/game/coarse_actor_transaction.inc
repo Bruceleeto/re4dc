@@ -221,13 +221,20 @@ constexpr unsigned kCrowdSkips=64;
 ModelIdentity crowd_skip[kCrowdSkips];
 unsigned crowd_skips;
 bool crowd_ganado(cModel* m) { return m && m->id>=0x10 && m->id<=0x20; }  // owner_ganado_bind's class
-// The root's camera distance (source units: millimetres).
-float crowd_distance(cModel* m) {
+// The root's camera distance and view depth (-z; source units: millimetres).
+float crowd_distance(cModel* m,float* depth) {
     const float (*r)[4]=m->pParts->mat;const float (*v)[4]=pG->Cam.v_mat;
     float t[3];
     for(unsigned i=0;i<3;++i)t[i]=v[i][0]*r[0][3]+v[i][1]*r[1][3]+v[i][2]*r[2][3]+v[i][3];
+    *depth=-t[2];
     return __builtin_sqrtf(t[0]*t[0]+t[1]*t[1]+t[2]*t[2]);
 }
+// CROWD_CULL's fog test: every drawable position of a Ganado lies within kCrowdBodyMm of its root (a standing
+// Ganado is ~1.9 m with the root at the hips; arms raised or a weapon swing stay inside 2.5 m), so a root view depth
+// beyond the fog gate's cull depth + kCrowdBodyMm leaves every vertex beyond it: the per-chunk fog gate in one_chunk
+// would cull every chunk (it emits nothing). The =2 check build counts any such Ganado that emitted.
+constexpr float kCrowdBodyMm=2500.0f;
+extern "C" float re4dc_fog_gate_far();
 #if RE4DC_CROWD_DRAW_MAX >= 0
 // Distances of the previous frame's drawable Ganados (kept by the cull and the distance limit), and this frame's.
 struct CrowdSeen { std::uintptr_t address; float d; };
@@ -269,12 +276,17 @@ void crowd_frame_begin() {
 }
 // 0: draw; 1..3: the reason it is not drawn (above).
 unsigned crowd_policy(cModel* m) {
-    const float d=crowd_distance(m);
-    (void)d;
+    float depth;
+    const float d=crowd_distance(m,&depth);
+    (void)d;(void)depth;
 #if RE4DC_CROWD_CENSUS
     ++crowd_cc.admitted;++crowd_cc.band[d<5000.0f?0:d<12000.0f?1:d<25000.0f?2:3];
 #endif
 #if RE4DC_CROWD_CULL
+    {
+        const float fog=re4dc_fog_gate_far();
+        if(fog>0.0f && depth-kCrowdBodyMm>fog)return 1;
+    }
     if(re4dc_crowd_offscreen(m))return 1;
 #endif
 #if RE4DC_CROWD_DRAW_M > 0
