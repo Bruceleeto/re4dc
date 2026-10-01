@@ -1,8 +1,9 @@
 #!/bin/bash
 # Lane crowd: detached queue. cqueue.sh <jobfile> <workers>
-# Job lines:  build <label> [knobs...]          (run in file order by worker 1 before any hw job that needs it)
+# Job lines:  build <label> [ASSETS=<dir>] [knobs...]          (run in file order by worker 1 before any hw job that needs it)
 #             hw <label> <name> <view>           view e = r101 entry 900:1380, l = r101 entry 2040:2520 (worst view),
-#                                                s = r100 s20 ambush 1240:1720 (enc lane's views, stride 15)
+#                                                s = r100 s20 ambush 1240:1720 (enc lane's views, stride 15);
+#                                                e2/l2/s2 = the same with the PS2 em15-00 atlas staged (fix/*-ps2.json)
 # Launch: setsid nohup bash cqueue.sh jobs.txt 2 > /root/probe/lanes/crowd/logs/queue-<x>.out 2>&1 < /dev/null &
 set -u
 J=$1; W=${2:-2}
@@ -13,7 +14,8 @@ log() { echo "$(date +%T) $*"; }
 # Builds first, serially (one objdir each; link.sh's missing.txt is per tree).
 grep '^build ' $J | while read -r _ L K; do
   grep -qx "build $L" $DONE && continue
-  log "build $L $K"; bash $T/cbuild.sh $L $K > $EV/logs/build-$L.out 2>&1; log "built $L rc=$? $(tail -2 $EV/logs/build-$L.out | tr '\n' ' ')"
+  A=; KK=; for k in $K; do case $k in ASSETS=*) A=${k#ASSETS=} ;; *) KK="$KK $k" ;; esac; done
+  log "build $L $K"; ASSETS="$A" bash $T/cbuild.sh $L $KK > $EV/logs/build-$L.out 2>&1; log "built $L rc=$? $(tail -2 $EV/logs/build-$L.out | tr '\n' ' ')"
   H="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
   rm -rf "$H/programs/candidate-cw$L"; python3 $T/cprep.py $L >> $EV/logs/build-$L.out 2>&1
   echo "build $L" >> $DONE
@@ -27,6 +29,9 @@ worker() {
       e) FIX=tour/rel-r101-entry-pw.json; C=900:1380 ;;
       l) FIX=tour/rel-r101-entry-pw.json; C=2040:2520 ;;
       s) FIX=tour/rel-r100-s20-pw.json; C=1240:1720 ;;
+      e2) FIX=$EV/fix/rel-r101-entry-pw-ps2.json; C=900:1380 ;;
+      l2) FIX=$EV/fix/rel-r101-entry-pw-ps2.json; C=2040:2520 ;;
+      s2) FIX=$EV/fix/rel-r100-s20-pw-ps2.json; C=1240:1720 ;;
     esac
     free=$(df -BG /mnt/c | awk 'NR==2{print $4}' | tr -d G)
     while [ "$free" -lt 18 ]; do log "C: ${free}G free, waiting"; sleep 60; free=$(df -BG /mnt/c | awk 'NR==2{print $4}' | tr -d G); done

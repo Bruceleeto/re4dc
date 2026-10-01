@@ -10,7 +10,12 @@ struct ActorImmutableChunk {
     re4dc_source::BlobError error{};
     unsigned state=0; // 0 unseen, 1 validating, 2 terminal (pass OR failure)
 };
+#if RE4DC_CROWD_FAR
+// Lane crowd far tier: IDs 47..66 are the far bundle's chunks (coarse_actor_owner_ganado.inc kOwnerFarAsset+a*4+role).
+constexpr unsigned kActorImmutableChunks=66;
+#else
 constexpr unsigned kActorImmutableChunks=46;
+#endif
 ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks];
 
 bool actor_same_span(const re4dc_source::ByteSpan& a,

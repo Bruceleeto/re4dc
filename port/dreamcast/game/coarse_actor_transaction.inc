@@ -235,7 +235,7 @@ float crowd_distance(cModel* m,float* depth) {
 // would cull every chunk (it emits nothing). The =2 check build counts any such Ganado that emitted.
 constexpr float kCrowdBodyMm=2500.0f;
 extern "C" float re4dc_fog_gate_far();
-#if RE4DC_CROWD_DRAW_MAX >= 0
+#if RE4DC_CROWD_DRAW_MAX >= 0 || RE4DC_CROWD_NEAR_MAX >= 0
 // Distances of the previous frame's drawable Ganados (kept by the cull and the distance limit), and this frame's.
 struct CrowdSeen { std::uintptr_t address; float d; };
 CrowdSeen crowd_prev[kCrowdSkips],crowd_cur[kCrowdSkips];
@@ -270,7 +270,7 @@ void crowd_frame_begin() {
         re4dc_log("CROWDCULL t=%u would_cull=%u violations=%u violation_tris=%u\n",unsigned(pG->Frame_cnt),crowd_chk_would,
             crowd_chk_violations,crowd_chk_tris);
 #endif
-#if RE4DC_CROWD_DRAW_MAX >= 0
+#if RE4DC_CROWD_DRAW_MAX >= 0 || RE4DC_CROWD_NEAR_MAX >= 0
     std::memcpy(crowd_prev,crowd_cur,sizeof(crowd_cur));crowd_prev_n=crowd_cur_n;crowd_cur_n=0;
 #endif
 }
@@ -292,12 +292,15 @@ unsigned crowd_policy(cModel* m) {
 #if RE4DC_CROWD_DRAW_M > 0
     if(d>float(RE4DC_CROWD_DRAW_M)*1000.0f)return 2;
 #endif
-#if RE4DC_CROWD_DRAW_MAX >= 0
+#if RE4DC_CROWD_DRAW_MAX >= 0 || RE4DC_CROWD_NEAR_MAX >= 0
     const std::uintptr_t a=reinterpret_cast<std::uintptr_t>(m);
     if(crowd_cur_n<kCrowdSkips)crowd_cur[crowd_cur_n++]={a,d};
     unsigned rank=0;
     for(unsigned k=0;k<crowd_prev_n;++k)if(crowd_prev[k].address!=a && crowd_prev[k].d<d)++rank;
+    (void)rank;
+#if RE4DC_CROWD_DRAW_MAX >= 0
     if(rank>=unsigned(RE4DC_CROWD_DRAW_MAX))return 3;
+#endif
 #endif
     return 0;
 }
@@ -306,6 +309,26 @@ bool crowd_skipped(const ModelIdentity& model) {
     return false;
 }
 }
+#if RE4DC_CROWD_FAR
+// The far tier (crowd.mk CROWD_FAR_M / CROWD_NEAR_MAX; a look change): 1 when re4dc_actor_plan_ganado should plan m
+// with the far bundle's chunks. Called by the plan, before crowd_policy; the rank is against the previous frame's
+// drawn Ganados (crowd_prev), as CROWD_DRAW_MAX's.
+extern "C" int re4dc_crowd_far(cModel* m) {
+    float depth;
+    const float d=crowd_distance(m,&depth);
+    (void)d;(void)depth;
+#if RE4DC_CROWD_FAR_M > 0
+    if(d>float(RE4DC_CROWD_FAR_M)*1000.0f)return 1;
+#endif
+#if RE4DC_CROWD_NEAR_MAX >= 0
+    const std::uintptr_t a=reinterpret_cast<std::uintptr_t>(m);
+    unsigned rank=0;
+    for(unsigned k=0;k<crowd_prev_n;++k)if(crowd_prev[k].address!=a && crowd_prev[k].d<d)++rank;
+    if(rank>=unsigned(RE4DC_CROWD_NEAR_MAX))return 1;
+#endif
+    return 0;
+}
+#endif
 #endif
 extern "C" void re4dc_actor_transaction_retire() {
     // Revoke exported owners without traversing old primitive storage. This is

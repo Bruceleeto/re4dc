@@ -13,9 +13,14 @@ EV=/root/probe/lanes/crowd
 ROOT=$(cd "$(dirname "$0")/../../../../.." && pwd)
 BUNDLE="/mnt/c/Game Dev/Emulators/re4-assets-private/play-actor-bundle-20260928"
 # build-r21.sh passes the asset dir unquoted to make: use a space-free ext4 copy, verified against the bundle's sums.
-ASSETS=${ASSETS:-$EV/assets-play-actor-bundle-20260928}
-[ -d "$ASSETS" ] || { mkdir -p "$ASSETS"; cp "$BUNDLE"/* "$ASSETS"/; }
-(cd "$ASSETS" && sha256sum -c --quiet "$BUNDLE/SHA256SUMS") || { echo "asset bundle SHA256SUMS mismatch"; exit 1; }
+# ASSETS=<dir> (crowd tier arms: assets.sh) is checked against its own SHA256SUMS instead.
+if [ -z "${ASSETS:-}" ]; then
+  ASSETS=$EV/assets-play-actor-bundle-20260928
+  [ -d "$ASSETS" ] || { mkdir -p "$ASSETS"; cp "$BUNDLE"/* "$ASSETS"/; }
+  (cd "$ASSETS" && sha256sum -c --quiet "$BUNDLE/SHA256SUMS") || { echo "asset bundle SHA256SUMS mismatch"; exit 1; }
+else
+  (cd "$ASSETS" && sha256sum -c --quiet SHA256SUMS) || { echo "$ASSETS SHA256SUMS mismatch"; exit 1; }
+fi
 OUT=$EV/build-$L OBJ=$EV/obj-$L
 rm -rf "$OBJ" "$OUT"; mkdir -p "$OBJ" "$OUT"
 # ARENA_FIT_KOS_BYTES=147456 in every mode, as on the play discs: the recipe's 448 texture slots + VQ overflow the
@@ -25,7 +30,7 @@ case $MODE in
   trace) M="ARENA_FIT_KOS_BYTES=147456" ;;
   *) echo "MODE rel|trace"; exit 2 ;;
 esac
-echo "$L MODE=$MODE $M $*" > "$OUT/flags.txt"
+echo "$L MODE=$MODE ASSETS=$ASSETS $M $*" > "$OUT/flags.txt"
 { git -C "$ROOT" rev-parse HEAD; git -C "$ROOT" status --porcelain; } > "$OUT/stack.txt"
 # shellcheck disable=SC2086
 ASSETS="$ASSETS" OBJDIR="$OBJ" OUT="$OUT" /root/probe/d367-buildslot.sh bash "$ROOT/port/dreamcast/tools/d367/build-r21.sh" $M "$@" \

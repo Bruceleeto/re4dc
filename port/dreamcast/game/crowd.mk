@@ -16,6 +16,10 @@
 # CROWD_DRAW_M=D (look change, user's call; 0 = off): Ganados farther than D metres from the camera are not drawn.
 # CROWD_READOPT=1 (fix; look change vs today's play build): a Ganado info with no live material-lifetime record is
 #              proved again (the load-time proof) when its actor plans, so it stops falling back to the source path.
+# CROWD_FAR_M=D (look change, user's call; 0 = off): a Ganado farther than D metres draws the far tier (the external
+#              cast's lighter v4-fit level, ganado_far_runtime.h in the asset dir: tools/d367/crowd/far_header.py).
+# CROWD_NEAR_MAX=N (look change, user's call; -1 = off): only the N nearest Ganados (previous frame's distances among
+#              those drawn) draw the near tier; the rest draw the far tier. Either knob sets RE4DC_CROWD_FAR.
 # CROWD_FREEZE_AT=N (look sheets only): the CPU stops in game frame N's first owner draw; frame N-1 stays on screen.
 CROWD_CULL ?= 0
 CROWD_CENSUS ?= 0
@@ -25,7 +29,9 @@ CROWD_DRAW_MAX ?= -1
 CROWD_DRAW_M ?= 0
 CROWD_FREEZE_AT ?= 0
 CROWD_READOPT ?= 0
-CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M) $(CROWD_FREEZE_AT) $(CROWD_READOPT)) $(filter-out -1,$(CROWD_DRAW_MAX))
+CROWD_FAR_M ?= 0
+CROWD_NEAR_MAX ?= -1
+CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M) $(CROWD_FREEZE_AT) $(CROWD_READOPT) $(CROWD_FAR_M)) $(filter-out -1,$(CROWD_DRAW_MAX) $(CROWD_NEAR_MAX))
 ifneq ($(strip $(CROWD_KNOBS)),)
 ifneq ($(ACTOR_TRANSACTION),1)
 $(error CROWD_* knobs act on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
@@ -38,7 +44,11 @@ $(error CROWD_CULL must be 0, 1 or 2)
 endif
 CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENSUS) \
   -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
-  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD=1
+  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD=1 \
+  -DRE4DC_CROWD_FAR_M=$(CROWD_FAR_M) -DRE4DC_CROWD_NEAR_MAX=$(CROWD_NEAR_MAX)
+ifneq ($(filter-out 0,$(CROWD_FAR_M))$(filter-out -1,$(CROWD_NEAR_MAX)),)
+CROWD_DEFS += -DRE4DC_CROWD_FAR=1
+endif
 $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += $(CROWD_DEFS)
 # The census and the cull check read native_ui.cpp's emitted-triangle total (otherwise a silent missing-symbol stub).
 ifneq ($(CROWD_CENSUS)$(filter 2,$(CROWD_CULL)),0)
