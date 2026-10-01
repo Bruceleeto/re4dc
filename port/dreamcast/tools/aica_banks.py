@@ -94,6 +94,8 @@ ROOMS = {
     'r100': ['st1/r100.dar', 'em/em12.drs', 'em/em23.drs', 'em/em21.drs'],
     'r101': ['st1/r101.dar', 'em/em15.drs', 'em/em26.drs', 'em/em28.drs'],
     'r103': ['st1/r103.dar', 'em/em26.drs', 'em/em28.drs', 'em/em21.drs', 'em/em12.drs'],
+    # r106 (route lane): R106Init EmReadSearch 0x12/0x29/0x2A/0x2E (hall Ganados, bats, the dog's em2a, crawlers)
+    'r106': ['st1/r106.dar', 'em/em12.drs', 'em/em29.drs', 'em/em2a.drs', 'em/em2e.drs'],
 }
 
 
@@ -374,7 +376,14 @@ def load_banks(mirror, specs, cache):
     return out
 
 
-def plan(mirror, rooms, budget):
+def plan(mirror, rooms, budget, fixed=()):
+    """fixed: a route planned first whose caps and layout are frozen (the discs already built on it keep
+    every bank byte-identical); the other rooms then only lower banks no fixed room uses, until each fits
+    the frozen layout (route lane, r106 2026-10-01)."""
+    frozen, fixed_slots = {}, None
+    if fixed:
+        _, _, funiq, fixed_slots, _ = plan(mirror, list(fixed), budget)
+        frozen = {k: b.cap for k, b in funiq.items()}
     data = {}
     resident = load_banks(mirror, RESIDENT, data)
     room_banks = {r: load_banks(mirror, ROOMS[r], data) for r in rooms}
@@ -384,6 +393,9 @@ def plan(mirror, rooms, budget):
         uniq.setdefault(b.key, b)
     res = [uniq[b.key] for b in resident]
     per_room = {r: list({uniq[b.key].key: uniq[b.key] for b in room_banks[r]}.values()) for r in rooms}
+    for k, cap in frozen.items():
+        if k in uniq:
+            uniq[k].cap = cap
 
     def layout():
         slots = {}
@@ -397,12 +409,16 @@ def plan(mirror, rooms, budget):
     while True:
         slots, arena = layout()
         total = sum(slots.values())
-        if total <= budget:
+        if fixed_slots is not None:
+            if all(v <= fixed_slots.get(s, 0) for s, v in slots.items()):
+                break
+        elif total <= budget:
             break
         # lower one cap step on the largest bank of the first kind in LOWER_ORDER that can still go down
         done = False
         for kind in LOWER_ORDER:
-            cands = [b for b in uniq.values() if (b.t if b.t < 8 else 8) == kind and b.cap > CAPS[-1]]
+            cands = [b for b in uniq.values() if (b.t if b.t < 8 else 8) == kind and b.cap > CAPS[-1]
+                     and b.key not in frozen]
             if kind == 8 or kind in (5, 6):
                 worst = max(arena, key=arena.get)
                 cands = [b for b in cands if b in per_room[worst]]
@@ -415,6 +431,8 @@ def plan(mirror, rooms, budget):
         if not done:
             raise SystemExit('route does not fit %d bytes even at %d Hz' % (budget, CAPS[-1]))
     slots, arena = layout()
+    if fixed_slots is not None:
+        slots = dict(fixed_slots)   # the frozen layout, so every bank header stays byte-identical
     return res, per_room, uniq, slots, arena
 
 
@@ -749,6 +767,8 @@ def main():
     ap.add_argument('--mirror', required=True)
     ap.add_argument('--out')
     ap.add_argument('--route', default='title,r100,r101,r103')
+    ap.add_argument('--fixed-route', default='', help='plan/build: rooms of --route whose caps and layout stay as '
+                    'planned alone (e.g. title,r100,r101,r103); the rest fit that layout with their own banks')
     ap.add_argument('--cache')
     ap.add_argument('--json')
     ap.add_argument('--check', action='store_true', help='decode the AICA output and report SNR')
@@ -768,7 +788,9 @@ def main():
         return
     rooms = [r for r in a.route.split(',') if r]
     budget = AICA_POOL - MOVIE_RESERVE - STREAM_RING
-    res, per_room, uniq, slots, arena = plan(a.mirror, rooms, budget)
+    fixed = [r for r in a.fixed_route.split(',') if r]
+    assert set(fixed) <= set(rooms), 'every --fixed-route room must be in --route'
+    res, per_room, uniq, slots, arena = plan(a.mirror, rooms, budget, fixed)
     rep = report(res, per_room, uniq, slots, arena, budget)
     if a.cmd == 'build':
         if not a.out:

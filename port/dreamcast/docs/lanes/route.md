@@ -79,6 +79,20 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
 - Next: r106 PS2 world from ps2rooms' `--color-light ps2` bake (TEV x4), r106 VQ overlay, the closet event + r106s00
   movie run, heap-4 / hw ms measurement.
 
+## Progress 2026-10-01 (r106 sound, landing)
+
+- **Landed** lane/route on dreamcast-port as f66e8c5b (gate: candidate 016ece9a vs control f367d83a, play recipe,
+  kite fight 180 s identical progress, HALT 0 / MISSING 0 both; door walk HALT 0).
+- **r106 sound.** r106's banks were GC (not AICA): the room and foot blocks "did not fit" and played nothing.
+  `aica_banks.py --fixed-route title,r100,r101,r103` (new): the existing route is planned alone and frozen (caps and
+  layout, so every r100-r103 bank stays byte-identical; checked: headers of em12/em26/core/pl00 equal the disc's), and
+  r106 only lowers its own banks to fit the frozen arena (1,004,192 B): ROOM 11,025 Hz, FOOT / em29 / em2a / em2e
+  8,000 Hz; em12 stays 11,025 (planning r106 into the route instead would have dropped r100's em12 to 8,000).
+  `aica_banks.py build --mirror <mirror-w4q + w8b r103 + rel-r106> --out aica-r106 --route title,r100,r101,r103,r106
+  --fixed-route title,r100,r101,r103`; staged: st1/r106.dar, em/em29.drs, em/em2e.drs (fixtures *-snd).
+  Door walk route-r106w2 (image r8 22708c23): ROOM / FOOT / em12 / em29 / em2e prebuilt, em2a runtime conversion, HALT 0.
+- **Direct start still fails** with the AICA banks (route-r106e5), so sound was not the cause. Open.
+
 ## Numbers (image, build, evidence)
 
 ## Ready to land
