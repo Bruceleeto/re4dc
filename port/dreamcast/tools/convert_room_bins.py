@@ -1108,6 +1108,10 @@ def main():
     ap.add_argument("--common", action="store_true", help="BINs are the room's common (shared) set")
     ap.add_argument("--color-policy", choices=["vertex"], default="vertex")
     ap.add_argument("--color-scale", type=float, default=1.0)
+    ap.add_argument("--color", dest="color_mode", choices=["oct", "prelit"], default="oct",
+                    help="--lod colour slots: oct (palette of at most 16 CLR0 values + normal, lit at runtime) or "
+                         "prelit (CLR0 as ARGB1555, no palette limit; for rooms the PS2 world draws, where the "
+                         "package is the release identity and the fallback)")
     ap.add_argument("--cell", type=float, default=0.0,
                     help="spatial meshlet cell in model units (source mm); 0 keeps source strip order")
     ap.add_argument("--min-fill", type=int, default=64,
@@ -1227,7 +1231,8 @@ def main():
                                     min_gain=a.lod_min_gain, max_levels=a.lod_max_levels, bias=bias,
                                     substitutes=substitutes, export_dir=a.lod_export, replacements=replacements,
                                     floor=floor, share=a.lod_share, classes=classes, class_auto=a.class_auto,
-                                    class_rules=class_rules, cluster_trees=cluster_trees, cluster_bins=cluster_bins)
+                                    class_rules=class_rules, cluster_trees=cluster_trees, cluster_bins=cluster_bins,
+                                    color_mode=a.color_mode)
         version = summary["version"]
     else:
         blob, summary = convert(entries, a.color_scale, a.cell, a.min_fill)

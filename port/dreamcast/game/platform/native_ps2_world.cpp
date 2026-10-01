@@ -619,8 +619,9 @@ public:
 // unless that package failed to open: then the room's own scenery draws.
 extern "C" int re4dc_ps2_mesh_failed(unsigned room);
 extern "C" void re4dc_ps2_mesh_select(unsigned room);
+extern "C" int re4dc_ps2_world_room(unsigned room); // native_static.cpp: the rooms with a package
 extern "C" int re4dc_ps2_world_covers(unsigned room){
-    return (room==0x100 || room==0x101 || room==0x103) && !re4dc_ps2_mesh_failed(room);
+    return re4dc_ps2_world_room(room) && !re4dc_ps2_mesh_failed(room);
 }
 #else
 extern "C" int re4dc_ps2_world_covers(unsigned room){return room==0x101;}

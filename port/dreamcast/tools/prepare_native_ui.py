@@ -410,6 +410,9 @@ ROOM_CONTRACTS={
     # EFF: SMD#4 scenery TPL0, EFF#7 room effects, ITM#9. FCV#27-36 (the corpse
     # motions) and every other slot stay byte-identical.
     'r103':dict(slots=37,smd=4,effs=(7,),itm=9,model_slots=()),
+    # r106 (route lane): 55 slots, r101's owner layout: SMD#4 scenery TPL0, EFF#7 room
+    # effects, EFF#42 local effects, ITM#9, model TPLs #47/#49/#51 (after BIN #46/#48/#50).
+    'r106':dict(slots=55,smd=4,effs=(7,42),itm=9,model_slots=(47,49,51)),
 }
 
 def compact_room(source_file, textures, destination, compact_effects=False, compact_palettes=False, compact_uvs=False, compact_mips=False):
@@ -422,7 +425,7 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
     name=source_file.name.lower()
     room=name[:-4] if name.endswith('.das') else ''
     if room not in ROOM_CONTRACTS:
-        raise ValueError('only the reviewed r100/r101/r103 consumer contracts are supported')
+        raise ValueError('only the reviewed r100/r101/r103/r106 consumer contracts are supported')
     if room!='r100' and (compact_effects or compact_palettes or compact_uvs):
         raise ValueError('effect/palette/UV compaction is reviewed for r100 only')
     contract=ROOM_CONTRACTS[room]
