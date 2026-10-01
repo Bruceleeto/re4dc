@@ -187,8 +187,16 @@ bool Package::range_valid(std::uint32_t offset, std::uint32_t size) const {
            static_cast<std::uint64_t>(offset) + size <= size_;
 }
 
+#if RE4DC_IO_SERIAL
+extern "C" void re4dc_io_serial_wait(void);   // platform/dvd.cpp (IO_SERIAL)
+#define RE4DC_IO_SERIAL_WAIT() re4dc_io_serial_wait()
+#else
+#define RE4DC_IO_SERIAL_WAIT() ((void)0)
+#endif
+
 bool Package::open(const char* path) {
     close();
+    RE4DC_IO_SERIAL_WAIT();
     file_ = fs_open(path, O_RDONLY);
     if(file_ == FILEHND_INVALID) {
         error_ = "open failed";
@@ -212,6 +220,7 @@ bool Package::open(const char* path) {
 
 bool Package::open_streamed(const char* path) {
     close();
+    RE4DC_IO_SERIAL_WAIT();
     file_ = fs_open(path,O_RDONLY);
     if(file_ == FILEHND_INVALID) { error_="open failed"; return false; }
     const ssize_t total=fs_total(file_);

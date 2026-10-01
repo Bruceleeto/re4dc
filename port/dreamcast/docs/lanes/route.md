@@ -92,6 +92,17 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   --fixed-route title,r100,r101,r103`; staged: st1/r106.dar, em/em29.drs, em/em2e.drs (fixtures *-snd).
   Door walk route-r106w2 (image r8 22708c23): ROOM / FOOT / em12 / em29 / em2e prebuilt, em2a runtime conversion, HALT 0.
 - **Direct start still fails** with the AICA banks (route-r106e5), so sound was not the cause. Open.
+- **Direct start: cause and fix (IO_SERIAL).** dvd.cpp now logs errno: every open after the first r106.dar read
+  failed with ENOENT (route-r106e6, image r9 7012393a): KOS's directory lookup itself fails. The room archive is read
+  into a 32-byte aligned heap-4 buffer, so KOS iso9660 streams it (cdrom_stream_start over the rest of the file),
+  while the main thread opens the HUD/player texture packages (room/texture_package.cpp, plain fs_open). Through the
+  door those textures are already resident, so nothing opens concurrently. The codebase already avoids KOS
+  streaming against concurrent opens elsewhere (room_storage.cpp's unaligned bounce, the AICA stream reader).
+  IO_SERIAL=1 (new, default 0; on in build-r21.sh): texture-package opens wait (thd_pass) while DVDReadAsyncPrio has a
+  file open on another thread. Direct start route-r106e8 (image r10 8b35b37a, IO_SERIAL=1): room identities ok, PS2
+  world open, movie owns the event, placed at vbl 981, frames to 1200+ (the runner's capacity guard ended it), one
+  texture `open failed` left (b8420096: a texture not on the disc, also in the door walk). Gate pending (kite fight vs
+  control c8): C: is at the harness staging floor.
 
 ## Numbers (image, build, evidence)
 

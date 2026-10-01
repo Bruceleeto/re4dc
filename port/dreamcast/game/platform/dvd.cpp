@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "re4dc_platform.h"
 #include "native_io.h"
@@ -296,9 +297,27 @@ void fd_drop(file_t f)
 }
 #endif
 
+#if RE4DC_IO_SERIAL
+// IO_SERIAL: DVDReadAsyncPrio's file is open (a KOS CD stream may be running on it). Other threads' package
+// opens wait for it to close (re4dc_io_serial_wait); the DVD thread itself never waits.
+static volatile int g_dvd_reading;
+static kthread_t* volatile g_dvd_reader;
+extern "C" void re4dc_io_serial_wait(void)
+{
+    while (g_dvd_reading && g_dvd_reader != thd_current) thd_pass();
+}
+struct DvdReading {
+    DvdReading() { g_dvd_reader = thd_current; ++g_dvd_reading; }
+    ~DvdReading() { if (--g_dvd_reading == 0) g_dvd_reader = nullptr; }
+};
+#endif
+
 s32 DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCallback callback, s32 prio)
 {
     Re4dcIoScope io;  // includes callback completion before cancellation can drain
+#if RE4DC_IO_SERIAL
+    DvdReading reading;
+#endif
     (void) prio;
     int entry = (int) fi->startAddr;
     char full[96];
@@ -342,8 +361,14 @@ s32 DVDReadAsyncPrio(DVDFileInfo* fi, void* addr, s32 length, s32 offset, DVDCal
 #endif
         // The SDK reports the requested (32-byte aligned) length on success.
         result = got == want ? length : got;
+        if (got != want) {
+            static unsigned short_reads;
+            if (++short_reads <= 8)
+                re4dc_log("DVDReadAsyncPrio: short read %s got=%d want=%d offset=%d errno=%d\n", full, (int) got,
+                          (int) want, (int) offset, errno);
+        }
     } else {
-        re4dc_log("DVDReadAsyncPrio: open failed %s\n", full);
+        re4dc_log("DVDReadAsyncPrio: open failed %s errno=%d\n", full, errno);
     }
 #if RE4DC_DVD_FDCACHE
     if (cached) mutex_unlock(&fd_lock);
