@@ -62,7 +62,8 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
 - **Lighting:** the r106 PS2 world package comes from the ps2rooms lane, relaunched 2026-10-01 on the user's PS2-pattern
   lighting decision (prelit, 0 runtime ms, enhanced for DC). Until it delivers, staging uses its authored package
   (ps2rooms-20260930/out/r106).
-- Next: r106s00 route movie, warp preset for the r103 -> r106 door, staging fixture, heap-4 measurement in Flycast.
+- **r106s00 route movie** (chapter 1-1's end): r106.cpp presents it through RouteMoviePlay(0x10600) like r101's events (ROUTE_CUTSCENES.md row); r106.o gets the route-movies header; convert_route_movies.py names it. Converted into the shared movie folder (/root/probe/d367-agents/cutscenes/movies-288x192-full/r106s00, index merged, not replaced): 288x192, 1,738 frames, 58.0 s, seq 12,184,020 B (sha 1e5e3b02..). out-r4 builds (play recipe + DBG_WARP=1), same UNRESOLVED list.
+- Next: warp preset for the r103 -> r106 door, staging fixture (rel-r106 files + pkg-r106 + PS2 world + r106s00), heap-4 measurement in Flycast.
 
 ## Numbers (image, build, evidence)
 

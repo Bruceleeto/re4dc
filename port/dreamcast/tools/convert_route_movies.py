@@ -27,7 +27,7 @@ OUT=pathlib.Path(f'/root/probe/d367-agents/cutscenes/movies-{W}x{H}'+('-full' if
 FULL_LUT="lutyuv=y='clip(trunc((val-16)*255/219),0,255)':u='clip(trunc((val-128)*255/224)+128,0,255)':v='clip(trunc((val-128)*255/224)+128,0,255)'"
 AFS_SECTOR=1197174
 NAMES=sys.argv[1:] or ['r100c00','r100s03','r100s20','r100s30','r100s40','r100s41','r100s43','r100s44',
-                       'r101s00','r101s21','r101s30','r120s00','r120s01']
+                       'r101s00','r101s21','r101s30','r106s00','r120s00','r120s01']
 def run(*a): return subprocess.check_output(a,text=True)
 def sha(p):
     h=hashlib.sha256()

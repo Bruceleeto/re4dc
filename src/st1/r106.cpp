@@ -69,6 +69,33 @@ static void r106_shakeClosetDoorL(cModel* m);
 static void r106_setCloset();
 extern "C" void Evt_R106S00_Func(Event* ev);
 extern "C" void r106_setEm();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES
+// Route cutscene: r106s00 is presented by its PS2 movie; the surrounding source code (flags, enemies,
+// costume, chapter end) runs unchanged. docs/ROUTE_CUTSCENES.md lists the per-event contract.
+#include "route_movie.h"
+#include "fade.h"
+#define R106_ROUTE_MOVIES 1
+// Heap 4: the source grows em12's module buffer to 0x3C0000 so the 4,268,192 B evd can be swapped
+// in (EmReadSearch's size argument). When the movie is on disc the evd is never loaded, so em12
+// keeps its own size. No media: the source reservation is kept (logged).
+static u8 r106MovieOwns;
+static u32 r106EventReserve(u32 size)
+{
+    r106MovieOwns = re4dc_movie_available(0x10600) ? 1 : 0;
+    if (!r106MovieOwns) {
+        OSReport("route movie 10600: no media, source event reservation %u kept\n", size);
+        return size;
+    }
+    OSReport("route movie 10600: owns event, reservation %u released\n", size);
+    return 0;
+}
+#define R106_EVENT_RESERVE(size) r106EventReserve(size)
+#define R106_MOVIE_OWNS() (r106MovieOwns != 0)
+#else
+#define R106_ROUTE_MOVIES 0
+#define R106_EVENT_RESERVE(size) (size)
+#define R106_MOVIE_OWNS() 0
+#endif
 
 // Room init: Item_find_flg 0x800, the r106s00 event callback, floor hit effects, door 8 gets the lock
 // models; two shelf item events (items 0x85/0x86). Until Item_find_flg 0x00200000 (Luis found): area 2
@@ -98,7 +125,7 @@ void R106Init()
         SceAtDataSet_exec(2, SCE_LEVEL10, 0, (TaskFunc) r106_Event, 0, 1);
         PSet(r106_work->evd, DC.setData(EvtMgr.NameChange("evd/r106s00.evd")));
         r106_work->evd->setCommand(CMND_ARAM_LOAD, 0, 0);
-        EmReadSearch(0x12, 0, 0x3C0000);
+        EmReadSearch(0x12, 0, R106_EVENT_RESERVE(0x3C0000));
         EmReadSearch(0x29, 0, 0);
         EmReadSearch(0x2A, 0, 0);
         EmReadSearch(0x2E, 0, 0);
@@ -361,6 +388,18 @@ static void r106_Event()
     EmMgr.destroyAll();
     SceSleep(2);
     EmReadInit();
+#if R106_ROUTE_MOVIES
+    int movie = RouteMoviePlay(0x10600, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R106S00_Func, 0);
+    if (movie != RE4DC_MOVIE_UNHANDLED) {
+        // The evd's StatusFlag 0x400 (Event::Run): the fade to black before the chapter end. The movie's
+        // end already clears Disp_flg 0x800, and it draws no event messages.
+        FadeSetW(2, 0x2D, 0, 0);
+    } else if (R106_MOVIE_OWNS()) {
+        // Media vanished after room entry: em12's buffer was never grown for the evd.
+        pLog->err(0, 0, "r106_Event exec error");
+    } else
+#endif
+    {
     r106_work->evd->setCommand(CMND_MRAM_LOAD, 0, 1);
     if (r106_work->evd->waitLoadOk()) {
         EventMgr* evt;
@@ -372,6 +411,7 @@ static void r106_Event()
         while (evt->IsAliveEvt(&evt->NowExeEvtKey, 0, 0) != 0) {
             SceSleep(1);
         }
+    }
     }
     r106_work->evd->setCommand(CMND_DEL_DATA, 0, 0);
     PlSetCostume();
