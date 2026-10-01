@@ -23,7 +23,7 @@ mk $EV/assets-far $PLAY/ganado_cast_runtime.h $EV/bundle-lean/ganado_cast_runtim
 mk $EV/assets-ps2 $EV/bundle-ps2near/ganado_cast_runtime.h -
 mk $EV/assets-ps2far $EV/bundle-ps2near/ganado_cast_runtime.h $EV/bundle-lean/ganado_cast_runtime.h
 mkdir -p $EV/fix
-for f in tour/rel-r101-entry-pw.json tour/rel-r100-s20-pw.json; do
+for f in tour/rel-r101-entry-pw.json tour/rel-r100-s20-pw.json tour/enc-rel-r101-bell-fight-pw.json; do
   python3 - "$H/$f" "$EV/fix/$(basename "$f" .json)-ps2.json" "$EV/bundle-ps2near/tex/ebed7ba6-2ca7490f.re4tex" <<'PY'
 import json, sys
 from pathlib import Path

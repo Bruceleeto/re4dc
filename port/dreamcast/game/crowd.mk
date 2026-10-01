@@ -4,7 +4,8 @@
 # exactly as before (logic trace STRICT); these knobs only decide whether its cast mesh is skinned and submitted.
 #
 # CROWD_CULL=1 (exact, look unchanged): a Ganado whose every visible chunk is provably off-screen (COARSE_PREGATE's
-#              per-bone balls against the actor path's culling planes: a screen edge or the projection far) is not
+#              per-bone balls against the actor path's culling planes: a screen edge, or a far plane at the fog
+#              gate's cull depth, the fogged View far, which the GC clips) is not
 #              acquired: no bones, palettes, texture pins, preflight or submission. re4dc_actor_submit would have
 #              emitted nothing for it, so the image is the same. Applies only after the owner path admitted the
 #              actor (plan + semantics), so no Ganado changes path. =2 check build: nothing is skipped; each actor the
@@ -21,6 +22,7 @@
 # CROWD_NEAR_MAX=N (look change, user's call; -1 = off): only the N nearest Ganados (previous frame's distances among
 #              those drawn) draw the near tier; the rest draw the far tier. Either knob sets RE4DC_CROWD_FAR.
 # CROWD_FREEZE_AT=N (look sheets only): the CPU stops in game frame N's first owner draw; frame N-1 stays on screen.
+#              CROWD_FREEZE_HOLD=S: resume after S seconds (0 = never); CROWD_FREEZE_AT2=M: hold again at frame M.
 CROWD_CULL ?= 0
 CROWD_CENSUS ?= 0
 CROWD_CENSUS_FROM ?= 900
@@ -28,6 +30,8 @@ CROWD_CENSUS_TO ?= 1380
 CROWD_DRAW_MAX ?= -1
 CROWD_DRAW_M ?= 0
 CROWD_FREEZE_AT ?= 0
+CROWD_FREEZE_AT2 ?= 0
+CROWD_FREEZE_HOLD ?= 0
 CROWD_READOPT ?= 0
 CROWD_FAR_M ?= 0
 CROWD_NEAR_MAX ?= -1
@@ -44,7 +48,7 @@ $(error CROWD_CULL must be 0, 1 or 2)
 endif
 CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENSUS) \
   -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
-  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD=1 \
+  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_FREEZE_AT2=$(CROWD_FREEZE_AT2) -DRE4DC_CROWD_FREEZE_HOLD=$(CROWD_FREEZE_HOLD) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD=1 \
   -DRE4DC_CROWD_FAR_M=$(CROWD_FAR_M) -DRE4DC_CROWD_NEAR_MAX=$(CROWD_NEAR_MAX)
 ifneq ($(filter-out 0,$(CROWD_FAR_M))$(filter-out -1,$(CROWD_NEAR_MAX)),)
 CROWD_DEFS += -DRE4DC_CROWD_FAR=1

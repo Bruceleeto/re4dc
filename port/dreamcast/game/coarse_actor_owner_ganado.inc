@@ -127,13 +127,22 @@ extern "C" int re4dc_crowd_far(cModel*);  // coarse_actor_transaction.inc
 // culling planes (gate_cull_once: per-bone balls from the cast chunk's own positions and weights), so
 // re4dc_actor_submit_owned_runs would emit nothing for the actor. The balls cover the four cast chunks only: an actor
 // with a fifth (attachment) info or an original source hand is never culled.
+// The far plane is the actor path's fog-gate cull depth (native_actor_fast.cpp fog_gate_depth: the fogged View far
+// when it lies between the projection near and far): a culled actor has every vertex beyond the source View far,
+// which the GC clips. The actor path's own gate bound is looser (it can keep such a chunk and emit it fully fogged);
+// the =2 check build counts those as violations with why=2 depth>fog.
+extern "C" float re4dc_fog_gate_far();
 extern "C" int re4dc_crowd_offscreen(cModel* m) {
 #if RE4DC_CROWD_CULL
     if(!bound || bound->owner!=m || owner_info_count[owner_current_slot]!=4)return 0;
     for(unsigned role=2;role<4;++role)if(owner_original_chunk(role))return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
+    float P[7];GXGetProjectionv(P);
+    const float pnear=P[6]/(P[5]-1.0f),pfar=P[6]/P[5],view_far=re4dc_fog_gate_far();
+    gate_far_limit=view_far>pnear && view_far<pfar?view_far:3.0e38f;
     Mtx mv[4];
     const unsigned skip=gate_cull_checked(m,owner_plan_app,bound->infos,bound->parts,inv,mv);
+    gate_far_limit=3.0e38f;
     return skip==gate_visible;
 #else
     (void)m;return 0;

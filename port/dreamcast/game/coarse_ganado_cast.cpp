@@ -337,6 +337,9 @@ void gate_matrix(const float (*rows)[3], const float (*mv)[4], const Mtx inv, fl
 }
 struct GateView { bool valid, ok; unsigned P[7], V[6]; float far, rows[3][3]; };
 GateView gate_view;
+#if RE4DC_CROWD_CULL
+float gate_far_limit = 3.0e38f;  // lane crowd (re4dc_crowd_offscreen only): a nearer far plane for one call
+#endif
 #if RE4DC_COARSE_GATE_ONCE == 2
 unsigned g1_calls, g1_mask_mismatch, g1_visible_mismatch, g1_mv_mismatch, g1_mv_reused, g1_g_reused, g1_g_mismatch,
     g1_view_reused, g1_scales, g1_scale_mismatch, g1_rho, g1_rho_skipped;
@@ -382,7 +385,12 @@ unsigned gate_cull_once(cModel* m, unsigned app, cModelInfo* const* infos, cPart
     else ++g1_view_reused;
 #endif
     if (!gv.ok) return 0;
+#if RE4DC_CROWD_CULL
+    // Lane crowd: re4dc_crowd_offscreen's far plane is the actor path's cull depth (the fogged View far when nearer).
+    const float far = gate_far_limit < gv.far ? gate_far_limit : gv.far;
+#else
     const float far = gv.far;
+#endif
     float scale[kBones];
     unsigned have[2] = {0, 0};
     unsigned culled = 0;

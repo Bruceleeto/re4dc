@@ -28,6 +28,7 @@ struct ActorOwnedRecord {
     unsigned count,run_count,done,passes,submitted,released;
 #if RE4DC_CROWD
     unsigned crowd_ganado,crowd_would,crowd_emit;  // lane crowd: a Ganado; its policy reason (=2 check); triangles emitted
+    unsigned crowd_why;float crowd_depth,crowd_fog;  // =2 check: which cull test (1 fog, 2 off-screen), root depth, fog far
 #endif
     ActorOwnedPart part[8];
     Re4dcActorDrawRun runs[kRe4dcActorRuns];
@@ -213,6 +214,9 @@ extern "C" int re4dc_crowd_offscreen(cModel*);  // coarse_actor_owner_ganado.inc
 extern "C" unsigned re4dc_model_output_count();  // native_ui.cpp, census / cull-check builds only
 #endif
 extern "C" unsigned re4dc_ui_frame();
+#if RE4DC_CROWD_FREEZE_AT
+#include <arch/timer.h>
+#endif
 #if RE4DC_CROWD_CENSUS
 extern "C" void re4dc_crowd_life_report(unsigned);  // actor_lifetime.inc
 #endif
@@ -229,11 +233,9 @@ float crowd_distance(cModel* m,float* depth) {
     *depth=-t[2];
     return __builtin_sqrtf(t[0]*t[0]+t[1]*t[1]+t[2]*t[2]);
 }
-// CROWD_CULL's fog test: every drawable position of a Ganado lies within kCrowdBodyMm of its root (a standing
-// Ganado is ~1.9 m with the root at the hips; arms raised or a weapon swing stay inside 2.5 m), so a root view depth
-// beyond the fog gate's cull depth + kCrowdBodyMm leaves every vertex beyond it: the per-chunk fog gate in one_chunk
-// would cull every chunk (it emits nothing). The =2 check build counts any such Ganado that emitted.
-constexpr float kCrowdBodyMm=2500.0f;
+// CROWD_CULL's fog test is the pregate balls' far plane at the fog-gate cull depth (re4dc_crowd_offscreen). The
+// first version (root depth > fog far + 2.5 m) was not exact: the =2 check found 16 actor-frames at view l whose
+// root lay 27.5..28.3 m deep and that still emitted 396..617 triangles (cw-ck-l, cw-ck2-l).
 extern "C" float re4dc_fog_gate_far();
 #if RE4DC_CROWD_DRAW_MAX >= 0 || RE4DC_CROWD_NEAR_MAX >= 0
 // Distances of the previous frame's drawable Ganados (kept by the cull and the distance limit), and this frame's.
@@ -247,13 +249,25 @@ struct CrowdCensus { unsigned frame,game,seen,admitted,skip[4],drawn,empty,band[
 #if RE4DC_CROWD_CULL == 2
 unsigned crowd_chk_would,crowd_chk_violations,crowd_chk_tris,crowd_chk_log;
 #endif
+unsigned crowd_why;float crowd_depth,crowd_fog;  // the last crowd_policy's cull test, for the =2 check's log
 void crowd_frame_begin() {
 #if RE4DC_CROWD_FREEZE_AT
     // Look sheets only (CROWD_FREEZE_AT=N): stop in game frame N's first owner draw; frame N-1, already presented,
     // stays on screen, so every later capture of two arms shows the same game frame.
-    if(unsigned(pG->Frame_cnt)>=unsigned(RE4DC_CROWD_FREEZE_AT)) {
-        re4dc_log("CROWD_FREEZE t=%u: the screen holds frame %u\n",unsigned(pG->Frame_cnt),unsigned(pG->Frame_cnt)-1);
-        for(;;)__asm__ volatile("nop");
+    // CROWD_FREEZE_AT2 / CROWD_FREEZE_HOLD (seconds, 0 = forever): hold at each of the two frames for HOLD s, so
+    // one run gives a sheet frame per fixture view.
+    {
+        static unsigned crowd_frozen;
+        const unsigned at[2]={unsigned(RE4DC_CROWD_FREEZE_AT),unsigned(RE4DC_CROWD_FREEZE_AT2)};
+        for(unsigned k=0;k<2;++k) {
+            if(!at[k] || (crowd_frozen>>k&1u) || unsigned(pG->Frame_cnt)<at[k])continue;
+            crowd_frozen|=1u<<k;
+            re4dc_log("CROWD_FREEZE t=%u: the screen holds frame %u\n",unsigned(pG->Frame_cnt),unsigned(pG->Frame_cnt)-1);
+            if(!RE4DC_CROWD_FREEZE_HOLD)for(;;)__asm__ volatile("nop");
+            const unsigned long long until=timer_ms_gettime64()+1000ull*RE4DC_CROWD_FREEZE_HOLD;
+            while(timer_ms_gettime64()<until)__asm__ volatile("nop");
+            re4dc_log("CROWD_FREEZE t=%u released\n",unsigned(pG->Frame_cnt));
+        }
     }
 #endif
 #if RE4DC_CROWD_CENSUS
@@ -283,11 +297,9 @@ unsigned crowd_policy(cModel* m) {
     ++crowd_cc.admitted;++crowd_cc.band[d<5000.0f?0:d<12000.0f?1:d<25000.0f?2:3];
 #endif
 #if RE4DC_CROWD_CULL
-    {
-        const float fog=re4dc_fog_gate_far();
-        if(fog>0.0f && depth-kCrowdBodyMm>fog)return 1;
-    }
+    crowd_depth=depth;crowd_fog=re4dc_fog_gate_far();crowd_why=2;
     if(re4dc_crowd_offscreen(m))return 1;
+    crowd_why=0;
 #endif
 #if RE4DC_CROWD_DRAW_M > 0
     if(d>float(RE4DC_CROWD_DRAW_M)*1000.0f)return 2;
@@ -411,6 +423,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         ATD(m,16,p.appearance,p.run_count);
 #if RE4DC_CROWD
         r->crowd_ganado=crowd_ganado(m);r->crowd_would=crowd_would;r->crowd_emit=0;
+        r->crowd_why=crowd_would==1?crowd_why:0;r->crowd_depth=crowd_depth;r->crowd_fog=crowd_fog;
 #endif
     }
     const unsigned pass=m->ot_type==7 && (m->be_flag&0x08000000)?2u:1u;
@@ -452,7 +465,8 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_CROWD_CULL == 2
         if(r->crowd_would==1 && emitted) {
             ++crowd_chk_violations;crowd_chk_tris+=emitted;
-            if(++crowd_chk_log<=12)re4dc_log("CROWDCULL VIOLATION t=%u m=%p pass=%u emitted=%u\n",unsigned(pG->Frame_cnt),m,pass,emitted);
+            if(++crowd_chk_log<=40)re4dc_log("CROWDCULL VIOLATION t=%u m=%p pass=%u emitted=%u why=%u depth=%d fog=%d\n",unsigned(pG->Frame_cnt),m,pass,
+                emitted,r->crowd_why,int(r->crowd_depth),int(r->crowd_fog));
         }
 #endif
 #if RE4DC_CROWD_CENSUS
