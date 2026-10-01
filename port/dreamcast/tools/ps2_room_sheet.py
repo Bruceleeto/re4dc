@@ -292,6 +292,22 @@ def pick_views(room, batches, doors, rtp, w, h, n_route=3):
     return views, ycut
 
 
+def scenery_mask(h, w):
+    """Reference rows: leave out Leon (over the shoulder, left of centre) and the HUD ring (bottom right) of the GC
+    frame, so the brightness / colour statistics compare scenery with scenery (same box for every column)."""
+    m = np.ones((h, w), bool)
+    m[int(0.25 * h):, int(0.08 * w):int(0.62 * w)] = False
+    m[int(0.62 * h):, int(0.76 * w):] = False
+    return m
+
+
+def img_stats(img, mask):
+    px = img[mask].astype(float)
+    luma = px @ np.array([0.299, 0.587, 0.114])
+    return dict(luma=round(float(luma.mean()), 1), rgb=[int(round(x)) for x in px.mean(0)],
+                p90=round(float(np.percentile(luma, 90)), 1))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('room')
@@ -301,6 +317,9 @@ def main():
     ap.add_argument('--doors', type=Path)
     ap.add_argument('--aux', type=Path, help="the room's aux dir from ps2_room_extract.py (its .RTP picks the views)")
     ap.add_argument('--ref', action='append', help='label;x,y,z;yaw[;reference png[;back;up;pitch;fov]] (repeatable)')
+    ap.add_argument('--pkg2', type=Path, help='a second package dir drawn as another column (e.g. --color-light gc)')
+    ap.add_argument('--pkg2-label', default='package 2')
+    ap.add_argument('--label', default='DC package')
     ap.add_argument('--lights', default='0,5')
     ap.add_argument('--width', type=int, default=480)
     a = ap.parse_args()
@@ -318,55 +337,77 @@ def main():
     views, ycut = pick_views(a.room, src_b, doors, rtp, w, h)
     views[0].ycut = ycut
     refs = {}
+    hb = round(w * 336 / 512)                                  # Dolphin raw XFB band (512 x 336 of 512 x 448)
     for spec in a.ref or []:
-        # label;x,y,z;yaw[;png[;back_mm;up_mm;pitch_deg;fov_deg]]: Leon at x,y,z facing yaw (RE4: forward = sin, cos),
-        # the camera back_mm behind him and up_mm above his feet (GC over-the-shoulder rig approximated)
         f = spec.split(';')
-        p = np.array([float(x) for x in f[1].split(',')])
-        yaw = float(f[2])
-        back, up, pitch, fov = (float(x) for x in (f[4:8] if len(f) >= 8 else (1300, 1700, -8, 60)))
-        fwd = np.array([math.sin(yaw), 0, math.cos(yaw)])
-        eye = p - fwd * back + np.array([0, up, 0])
-        tgt = eye + fwd * 10000 + np.array([0, 10000 * math.tan(math.radians(pitch)), 0])
-        v = View(f[0], eye, tgt, w, h, fov=fov)
-        views.insert(1, v)
-        if len(f) > 3 and f[3]:
-            refs[f[0]] = Path(f[3])
+        if f[1] == 'cam':
+            # label;cam;ex,ey,ez;tx,ty,tz;fov;png: an explicit camera (e.g. fitted to a Dolphin frame)
+            eye = [float(x) for x in f[2].split(',')]
+            tgt = [float(x) for x in f[3].split(',')]
+            v = View(f[0], eye, tgt, w, hb, fov=float(f[4]))
+            png = f[5] if len(f) > 5 else ''
+        else:
+            # label;x,y,z;yaw[;png[;back_mm;up_mm;pitch_deg;fov_deg]]: Leon at x,y,z facing yaw (forward = sin, cos),
+            # the camera back_mm behind him and up_mm above his feet (GC over-the-shoulder rig approximated)
+            p = np.array([float(x) for x in f[1].split(',')])
+            yaw = float(f[2])
+            back, up, pitch, fov = (float(x) for x in (f[4:8] if len(f) >= 8 else (1300, 1700, -8, 60)))
+            fwd = np.array([math.sin(yaw), 0, math.cos(yaw)])
+            eye = p - fwd * back + np.array([0, up, 0])
+            tgt = eye + fwd * 10000 + np.array([0, 10000 * math.tan(math.radians(pitch)), 0])
+            v = View(f[0], eye, tgt, w, hb, fov=fov)
+            png = f[3] if len(f) > 3 else ''
+        views.insert(1 + len(refs), v)
+        if png:
+            refs[f[0]] = Path(png)
+    pkg2 = None
+    if a.pkg2:
+        pkg2_b, counts2 = package_tris(a.pkg2)
+        rows2 = json.loads((a.pkg2 / 'ps2-world.json').read_text())['texture_rows']
+        tex2 = {int(k): Tex(Image.open(a.pkg2 / 'textures-packed' / ('%04d.png' % int(k)))) for k in rows2}
+        pkg2 = (pkg2_b, tex2)
     tiles, report = [], []
     for v in views:
+        cols = []
         img_dc, s_dc = render(v, pkg_b, dc_tex, dc_colour)
         img_ps, s_ps = render(v, src_b, ps_tex, ps2_colour)
+        cols.append((a.label, img_dc))
+        cols.append(('PS2 source', img_ps))
         diff = float(np.abs(img_dc.astype(int) - img_ps.astype(int)).mean())
-        row = dict(view=v.name, eye=[round(x) for x in v.eye], dc=s_dc, ps2=s_ps, mean_abs_diff=round(diff, 2),
-                   dc_mean=round(float(img_dc.mean()), 1), ps2_mean=round(float(img_ps.mean()), 1))
-        ref = None
+        row = dict(view=v.name, eye=[round(x) for x in v.eye], dc=s_dc, ps2=s_ps, mean_abs_diff=round(diff, 2))
+        if pkg2:
+            img2, s2 = render(v, pkg2[0], pkg2[1], dc_colour)
+            cols.append((a.pkg2_label, img2))
+            row['pkg2'] = s2
         if v.name in refs:
             im = Image.open(refs[v.name]).convert('RGB')
             if im.size == (512, 448):                          # Dolphin raw XFB: keep the letterbox band
                 im = im.crop((0, 56, 512, 392))
-            im = im.resize((w, round(w * im.size[1] / im.size[0])), Image.BILINEAR)
-            ref = np.asarray(im)
-            row.update(ref=str(refs[v.name]), ref_mean=round(float(ref.mean()), 1))
+            im = im.resize((w, v.h), Image.BILINEAR)
+            cols.append(('GC (Dolphin)', np.asarray(im)))
+            row['ref'] = str(refs[v.name])
+        mask = scenery_mask(v.h, w) if v.name in refs else np.ones((v.h, w), bool)
+        row['stats'] = {lab: img_stats(img, mask) for lab, img in cols}
         report.append(row)
-        tiles.append((v.name, img_dc, img_ps, diff, ref))
-        print(json.dumps(report[-1]))
-    pad, head = 6, 18
-    ncol = 3 if refs else 2
-    sheet = Image.new('RGB', (ncol * w + (ncol + 1) * pad, 30 + len(tiles) * (h + head + pad) + pad), (24, 24, 24))
+        tiles.append((v.name, cols, row['stats'], v.h))
+        print(json.dumps(dict(view=v.name, stats=row['stats'])))
+    pad, head = 6, 30
+    ncol = max(len(c) for _, c, _, _ in tiles)
+    total_h = 30 + sum(hh + head + pad for *_, hh in tiles) + pad
+    sheet = Image.new('RGB', (ncol * w + (ncol + 1) * pad, total_h), (24, 24, 24))
     dr = ImageDraw.Draw(sheet)
-    dr.text((pad, 8), '%s  left: Dreamcast package (R4IM level 0, packed textures, ARGB1555 prelit)   middle: PS2 '
-            'source (OBJ + TPL, authored colours)%s   no fog   %d placements / %d meshes / %d parts' %
-            (a.room, '   right: GameCube reference frame (Dolphin), where given' if refs else '',
+    dr.text((pad, 8), '%s   columns: %s   no fog   %d placements / %d meshes / %d parts (first package)' %
+            (a.room, ' | '.join(lab for lab, _ in max((c for _, c, _, _ in tiles), key=len)),
              counts['placements'], counts['meshes'], counts['parts']), fill=(230, 230, 230))
     y = 30
-    for name, dc, ps, diff, ref in tiles:
-        dr.text((pad, y), '%s   mean |DC-PS2| %.1f   DC mean %.1f%s' % (
-            name, diff, dc.mean(), '   GC mean %.1f' % ref.mean() if ref is not None else ''), fill=(230, 230, 180))
-        sheet.paste(Image.fromarray(dc), (pad, y + head))
-        sheet.paste(Image.fromarray(ps), (2 * pad + w, y + head))
-        if ref is not None:
-            sheet.paste(Image.fromarray(ref), (3 * pad + 2 * w, y + head + (h - ref.shape[0]) // 2))
-        y += h + head + pad
+    for name, cols, st, hh in tiles:
+        dr.text((pad, y), name, fill=(230, 230, 180))
+        for k, (lab, img) in enumerate(cols):
+            s = st[lab]
+            dr.text((pad + k * (w + pad), y + 13), '%s: luma %.1f rgb %d/%d/%d' % (lab, s['luma'], *s['rgb']),
+                    fill=(200, 200, 200))
+            sheet.paste(Image.fromarray(img), (pad + k * (w + pad), y + head))
+        y += hh + head + pad
     a.out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(a.out)
     a.out.with_suffix('.json').write_text(json.dumps(dict(room=a.room, counts=counts, views=report), indent=1))
