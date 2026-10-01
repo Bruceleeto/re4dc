@@ -98,6 +98,15 @@ PRESETS = {
     # 1.889). r103 has no events and no story flags of its own on the route (design-r103 PLAN 1.1).
     "r103-entry": dict(room=0x103, pos=(-47609, 12, 7084), ang=1.889,
                        notes="r103 from the r101 door (5 Ganados, corpses, cows, chickens, dog)"),
+    # The r103 -> r106 door (r103 AEV door 1, action button, no lock or flag). Leon stands where r106's
+    # door back to r103 puts him (r106 AEV door 0: dst 9470, 38, -759, angle -2.301), turned to face the door.
+    "r103-r106-door": dict(room=0x103, pos=(9470, 38, -759), ang=0.8406,
+                           door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                           notes="at the r103 -> r106 door (door 1 has no lock or flag)"),
+    # r106 as the r103 door delivers Leon (r103 AEV door 1: dst 11141, -893, -120, angle 0.839), before the
+    # closet event (Item_find_flg 0x00200000 clear: area 2 arms r106s00, chapter 1-1's end).
+    "r106-entry": dict(room=0x106, pos=(11141, -893, -120), ang=0.839,
+                       notes="r106 from the r103 door (hall Ganados, the closet event ahead)"),
 }
 
 

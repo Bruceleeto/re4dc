@@ -2300,10 +2300,15 @@ extern "C" void re4dc_ps2_mesh_retire(){
 }
 #if RE4DC_PS2_WORLD_ROOMS
 namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
+// The rooms that have a PS2 world package (tools/ps2_room_r4im.py, dc/native/r%03x/ps2-world.*): the one list
+// native_ps2_world.cpp (re4dc_ps2_world_covers) and the =2 preload share. r106: the route lane (stage 1-1 end).
+extern "C" int re4dc_ps2_world_room(unsigned room){
+    return room==0x100 || room==0x101 || room==0x103 || room==0x106;
+}
 #if RE4DC_PS2_WORLD_ROOMS >= 2
 // bind_mesh (room entry, file I/O allowed): open this room's PS2 world before its scenery package would open.
 extern "C" int re4dc_ps2_mesh_preload(unsigned room){
-    if(room!=0x100 && room!=0x101 && room!=0x103)return 0;
+    if(!re4dc_ps2_world_room(room))return 0;
     ps2w.want=room;
     return ps2_open();
 }

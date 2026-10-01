@@ -85,7 +85,12 @@ static inline cEm* em29EmWork(u32 no)
     if (no >= m->nArray) {
         return 0;
     }
+#if !defined(__PPC__)
+    // Scan helper: unbacked sparse slots read as absent (no allocation), as em21.cpp / em2a.cpp's scans.
+    return (cEm*) m->workAt(no);
+#else
     return (cEm*) ((u8*) m->pArray + m->size * no);
+#endif
 }
 
 // Routine bytes written through an int inline (player.cpp PlRoutineSet).
@@ -173,7 +178,13 @@ extern "C" void _unresolved()
 // EmInitFunc of the module: constructs the cEm29 class in the manager's work.
 void Em29Init(cEm* em)
 {
+#if !defined(__PPC__)
+    // `new (em) cEm29;` off the GC, as Em2aInit / Em21Init: value-initialisation zeroes the subArc that
+    // cEmMgr::construct just installed (modelInit then fails with bin_addr == NULL).
+    new (em) cEm29;
+#else
     new (em) cEm29();
+#endif
 }
 
 // Per-frame damage check (cEm29::move): an explosion / fire volume kills the bat (flag bit7, the

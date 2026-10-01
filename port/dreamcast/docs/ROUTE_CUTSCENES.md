@@ -85,6 +85,7 @@ Per-cut `Func(1)` hooks are driven by picture index: cut k starts at picture sum
 | r101 s00 | 0x10100 | `Event00` | Replaces the waitLoadOk/MemorySwap block; the rest runs. |
 | r101 s21 | 0x10121 | `Event20` | Tick at picture 635 (cut 0xA frame 0x20): window 0 SetBreakModel; Rsf 8, setEm 0x3C-0x46, ladders, player reposition unchanged. |
 | r101 s30 | 0x10130 | `Event30` | InitModule(em15) kept; SceAtDataReset(0/2), EmListSetAlive, ladders unchanged. |
+| r106 s00 | 0x10600 | `r106_Event` | Evt_R106S00_Func; em12's 0x3C0000 evd reservation released when the movie is on disc; after the movie the evd's StatusFlag 0x400 fade (FadeSetW(2, 0x2D)); PlSetCostume, SceEventEnd, SceSetChapterEnd(0, 3) unchanged. |
 
 r100c00 is not referenced by any GC event and stays unmapped. r103 has no events.
 
