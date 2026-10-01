@@ -224,16 +224,23 @@ $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/moti
 # Door load U6 (W10, design-doorload), default off: DVD_WAIT=1 a pump waiting for the DVD step
 # owner blocks on a genwait woken at step end instead of sleeping a scheduler tick; DVD_FDCACHE=1
 # DVDReadAsyncPrio keeps the last 2 files open instead of an open + close per read.
+# IO_SERIAL=1 (route lane, default off): texture-package opens (room/texture_package.cpp, any thread) wait
+# while DVDReadAsyncPrio has a file open. KOS iso9660 turns a DVD read into a 32-byte aligned game buffer
+# into a CD stream; a concurrent open on another thread left every later fs_open failing (ENOENT) on a
+# direct start in r106 (the HUD/player textures load while the room archive streams in).
 DVD_WAIT ?= 0
 DVD_FDCACHE ?= 0
+IO_SERIAL ?= 0
 .PHONY: dvd-io-force
 $(OBJDIR)/dvd-io.h: dvd-io-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_DVD_WAIT %s\n#define RE4DC_DVD_FDCACHE %s\n' '$(DVD_WAIT)' '$(DVD_FDCACHE)' > $@.tmp
+	@printf '#define RE4DC_DVD_WAIT %s\n#define RE4DC_DVD_FDCACHE %s\n#define RE4DC_IO_SERIAL %s\n' '$(DVD_WAIT)' '$(DVD_FDCACHE)' '$(IO_SERIAL)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/dvd.o: $(OBJDIR)/dvd-io.h
 $(OBJDIR)/platform/dvd.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/dvd-io.h
+$(OBJDIR)/native-reuse/texture_package.o: $(OBJDIR)/dvd-io.h
+$(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/dvd-io.h
 # D367 disc I/O probe (W10). IO_PROBE=1 (default off; the default image does not change):
 # platform/io_probe.cpp runs timed disc reads at boot when /cd/dc/ioprobe.txt exists
 # (sequential, cold, open/close, motion keys, seek sweep, a paced 225 KB/s stream alone and
