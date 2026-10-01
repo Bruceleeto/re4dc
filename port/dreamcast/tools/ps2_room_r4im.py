@@ -117,10 +117,22 @@ def gc_select(lights, sel, lo, hi):
 
 
 # ------------------------------------------------------------------------------------------------ scene
-def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0, gc_cut=0):
+def tev_multiplier(env):
+    """cLightEnv tev_scale[0] (gxCsScale[0], scenery's TEV group): GX_CS_SCALE_1 / _2 / _4 = 0 / 1 / 2."""
+    if 'tev_scale' not in env:
+        raise SystemExit('the gc-lit json has no tev_scale: regenerate it with gc_room_lit.py (or pass --tev-scale)')
+    return float(1 << env['tev_scale'][0])
+
+
+def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0, gc_cut=0,
+               gc_lit_path=None, tev_scale=None, vc_clamp=1.0):
     """color_light: 'authored' = COLOR groups keep the PS2 vertex colours (GS modulate; the landed packages);
     'gc' = the GameCube self-lit channel on PS2 geometry: material * clamp01(vertex colour + sum of the GC LIT
-    cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals)."""
+    cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals);
+    'ps2' = the PS2 pattern, fully prelit: min(vertex colour, vc_clamp) * SMX colour * the room's TEV colour scale
+    (the LIT cut's tev_scale[0] -> gxCsScale[0]: x1 / x2 / x4, light.cpp setEnv; the GC scales every scenery
+    pixel by it, and the PS2 colours are authored before it: r106 x4 median 0.05, r101/r103 x1 0.40/0.60). No
+    lights are added: the PS2 colours already carry the room's light."""
     obj = ps.read_obj(src / f'{room}_004.scenario.obj')
     mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
     mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
@@ -133,8 +145,11 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
     for name, m in mats.items():
         assert int(m['diffuse_map']) == mtl[name]['tex'], name
     gl = None
-    if color_light == 'gc':
-        gc_lit = json.loads((src / f'gc-lit-cut{gc_cut}.json').read_text())
+    if color_light in ('gc', 'ps2'):
+        gc_lit_file = Path(gc_lit_path) if gc_lit_path else src / f'gc-lit-cut{gc_cut}.json'
+        gc_lit = json.loads(gc_lit_file.read_text())
+    if color_light == 'ps2':
+        tev = float(tev_scale) if tev_scale else tev_multiplier(gc_lit['env'])
     if any(g['kind'] == 'NORMAL' for g in obj['groups']):
         lit = json.loads((src / 'gc-lit-cut0.json').read_text())
         chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
@@ -153,6 +168,8 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
             lights = [gx_light(l, smd[g['smd']]) for l in chosen]
             assert all(not l['kind'].startswith('unsupported') for l in lights)
             rgb = light_world(pos, VN[ix[:, :, 2]], lights, ambient)
+            if color_light == 'ps2':
+                rgb = rgb * tev                         # the TEV colour scale covers every scenery pixel
         elif color_light == 'gc':
             sem = smx.get(g['smx'])
             sel = int(sem['light_switch'], 16) if sem else 0xFFFFFFFF
@@ -165,6 +182,11 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
             mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
             rgb = np.clip(VC[ix[:, :, 0], :3] * vc_scale + lsum, 0, 1) * mcol
             gc_ids = [l['i'] for l in chosen_gc]
+        elif color_light == 'ps2':
+            sem = smx.get(g['smx'])
+            mc = sem.get('smx_colour_rgb') if sem else None
+            mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
+            rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale, vc_clamp) * mcol * tev
         else:
             rgb = VC[ix[:, :, 0], :3] * vc_scale      # --vc-scale: a look-review lift, 1.0 = as authored
         sem = smx.get(g['smx'])
@@ -341,6 +363,10 @@ def build(groups, gains, textures, share=True):
     stats = collections.Counter()
     for g in groups:
         g['c8'] = face_colours(g, gains)
+        inv = np.stack([np.float32(1 / gains[int(t)]).astype(np.float64) for t in g['tex']])
+        clipped = int(((g['rgb'] * inv[:, None, :]) > 1 + 1e-6).any(-1).sum())   # light the texture gain can't carry
+        if clipped:
+            stats['corners_clipped'] += clipped
         g['pass'] = np.array([textures[int(t)]['format'] if b else 0 for t, b in zip(g['tex'], g['blend'])])
         stats['vertex_alpha_below_one'] += int((g['c8'][..., 3] < 255).sum())
         match = None
@@ -415,13 +441,19 @@ def main():
     ap.add_argument('--vc-scale', type=float, default=1.0,
                     help='multiply COLOR-group vertex colours (review lift for rooms whose PS2 colours are not the '
                          'final light, e.g. r106; 1.0 = as authored, the default and the landed packages)')
-    ap.add_argument('--color-light', choices=('authored', 'gc'), default='authored',
-                    help="COLOR groups: 'authored' PS2 vertex colours (default, the landed packages) or 'gc': the "
+    ap.add_argument('--color-light', choices=('authored', 'gc', 'ps2'), default='authored',
+                    help="COLOR groups: 'authored' PS2 vertex colours (default, the landed packages); 'gc': the "
                          "GameCube self-lit channel, clamp01(vertex colour + the GC LIT cut-0 lights the model "
-                         "selects) x SMX colour, normals from the PS2 triangles; needs <src>/gc-lit-cut0.json "
-                         "(gc_room_lit.py)")
+                         "selects) x SMX colour, normals from the PS2 triangles; 'ps2': the PS2 pattern, prelit "
+                         "min(vertex colour, --vc-clamp) x SMX colour x the room's TEV colour scale (LIT tev_scale). "
+                         "gc / ps2 read <src>/gc-lit-cut<N>.json (gc_room_lit.py) or --gc-lit")
     ap.add_argument('--normal-sign', type=float, default=1.0, help='geometry normal orientation for --color-light gc')
-    ap.add_argument('--gc-cut', type=int, default=0, help='--color-light gc: the LIT cut (<src>/gc-lit-cut<N>.json)')
+    ap.add_argument('--gc-cut', type=int, default=0, help='--color-light gc/ps2: the LIT cut (<src>/gc-lit-cut<N>.json)')
+    ap.add_argument('--gc-lit', type=Path, help='--color-light gc/ps2: the LIT cut json (instead of <src>/gc-lit-cut<N>)')
+    ap.add_argument('--tev-scale', type=float, help='--color-light ps2: override the LIT tev_scale multiplier (1/2/4)')
+    ap.add_argument('--vc-clamp', type=float, default=1.0,
+                    help='--color-light ps2: clamp of the vertex colour before the SMX colour (1.0 = the GX channel '
+                         'clamp, the default; 2.0 = the GS limit 0xFF/0x80)')
     ap.add_argument('--lod-eps', default='24,48,96,192,384')
     ap.add_argument('--lod-min-gain', type=float, default=0.4)
     ap.add_argument('--lod-max-levels', type=int, default=4)
@@ -432,7 +464,7 @@ def main():
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     a.out.mkdir(parents=True, exist_ok=True)
     groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
-                        a.normal_sign, a.gc_cut)
+                        a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)

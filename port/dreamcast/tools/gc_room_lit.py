@@ -24,7 +24,11 @@ def dump(LIT, room, cut):
     o = struct.unpack_from(">%dI" % cutnum, LIT, 4)[cut]
     env = dict(ambient_scr=list(LIT[o:o + 3]), fog_type=struct.unpack_from(">i", LIT, o + 8)[0], fog_start=fB(o + 12),
                fog_end=fB(o + 16), fog_rgba=LIT[o + 0x14:o + 0x18].hex(),
-               contrast=list(struct.unpack_from(">3b", LIT, o + 0xF5)))
+               contrast=list(struct.unpack_from(">3b", LIT, o + 0xF5)),
+               # cLightEnv 0x40 tev_scale[2] -> gxCsScale (light.cpp setEnv): the TEV colour-stage scale of
+               # scenery (group 0) / characters (group 1); GX_CS_SCALE_1/2/4 = 0/1/2, i.e. x1 / x2 / x4
+               tev_scale=list(LIT[o + 0x40:o + 0x42]), tuneOn=LIT[o + 0x30], blur_rate=LIT[o + 0x2F],
+               ambient_em=list(LIT[o + 0xFC:o + 0xFF]), ambient_esp=list(LIT[o + 0x100:o + 0x103]))
     lights = []
     for j in range(be32(o + 4)):
         w = o + 0x104 + 0x12C * j
