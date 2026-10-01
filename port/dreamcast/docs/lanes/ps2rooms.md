@@ -165,15 +165,99 @@ So the bake is cost-neutral (-0.1 ms, within noise; lane enc's own control of th
 
 ## State and next step (2026-10-01)
 
-- r106 and r100 re-converted with `--color-light ps2`; sheets below. r100 is landed: the re-convert is for the
-  user's look decision only, not ready to land.
-- Next: the remaining stage-1 rooms with `--color-light ps2` (their gc-lit-cut0.json with tev_scale are in the
-  store's inputs), each with a sheet and a Dolphin frame (`dab.ps1` + an `ow-<room>-start` code), in route order.
+- r106: final package `out/r106-ps2` handed to the route lane (Ready to land below); cost and in-game look on the
+  route image below.
+- r100: KEEP CURRENT (user). The re-converts stay review-only.
+- All 24 remaining stage-1 rooms (the 20 required + alternates r10c / r10e / r11d / r11e + optional r10d) are
+  converted with `--color-light ps2` into `out/<room>-ps2`, each with a sheet and (22 of 24) a Dolphin frame
+  (table "Remaining stage-1 rooms" below).
+- Next: per-room in-game frames and cost once the route lane reaches each room; r104 / r11b Dolphin frames (below);
+  the darker-than-GC rooms (r111, r113, r118, r11d) after an in-game look (the sheets' cameras are approximate).
 - DC enhancements, from existing patterns only: the PVR fog table is already the runtime's (the sheets draw it);
   opaque textures are already VQ (converter rule: VQ when smaller than native16). Higher-resolution textures
   (e.g. the GC TPLs through the existing texture pipeline) are a separate look + VRAM question, not started.
 - Watch: r113 (x4, raw median 0 of 128, 50 % black corners) and r109 (median 2) will stay dark even at x4: their
   sheets need a Dolphin frame before any judgement.
+
+## r106 on the route image (2026-10-01)
+
+Image: lane route's route-build.sh r6 (play recipe + PACE_MODE=fast DBG_WARP=1 PC_SAMPLER=1
+ARENA_FIT_KOS_BYTES=180224; ELF 8832fa42, arm candidate-router6). Fixture: route-rel-r103-r106-walk-pw (r103 ->
+r106 door walk; r106 entered at ~vbl 1576, global frame ~270) with only the r106 PS2 package and its 42 textures
+swapped (fixtures by mkfix.py: `/root/probe/lanes/ps2rooms/fixtures/route-rel-r103-r106-walk-pw-{ctl,ps2}.json`;
+the control's rewrite equals the route lane's fixture).
+
+Cost (hwproject.sh, r106 frames 900:1380 = Leon standing past the door, 27 of 124 placements drawn; evidence
+C:\Flycast-Evidence\re4-dreamcast\hwmodel-ps2rooms-r106w-{ctlb,ps2b}):
+
+| arm | frame hw ms [low..high] | scenery | render-side | Flycast |
+|---|---|---:|---:|---:|
+| authored package (08bc3536) | 44.9 [39.1..52.8] | 5.5 | 19.7 | 30.0 |
+| **ps2 bake x4 (23d20157)** | **44.8 [39.0..52.8]** | **5.4** | 19.7 | 29.9 |
+
+Cost-neutral. Trap: the first pair with trace stride 16 (hwmodel-ps2rooms-r106w-{ctl,ps2}, 26.7 ms both) traced only
+the skipped-render ticks of PACE_MODE=fast (scenery 0.1 ms, traced insns -45 % vs counted): on a fast-paced image use
+an odd stride (15: traced -1.3 %).
+
+In game (`sheets/r106-ps2-ingame.png` + .json; harness scenarios ps2rooms-r106ctla / -r106ps2a, 150 s, same image
+and fixture; scenery-masked luma): authored 22.3-22.5 (rgb 25/22/18), **bake 54.4-54.7 (60/54/45)**; the GC Dolphin
+r106 debug-start frame (a different spot, the only GC frame of the room) 40.3 (44/40/34). The bake reads warm and
+lit, a little brighter than the GC's forest path; the authored package is near-black.
+
+## Remaining stage-1 rooms, `--color-light ps2` (2026-10-01)
+
+`out/<room>-ps2` in the store (ps2_room_r4im.py defaults + `--color-light ps2`, the room's cut-0 TEV scale); sheets
+`sheets/<room>-ps2-sheet.png` (+ .json): DC bake | PS2 source | GC Dolphin, DC fog. The GC frames
+(`gc-ref/<room>/<room>p_dump2600.png`) come from a Dolphin debug start in the room with overlays and enemies off and
+Leon pinned by an AR code (`ow-place-<room>`, placecodes.py) at the room's first door spawn, facing the farthest
+route point; the sheet's reference row uses the same position and yaw with the approximate over-the-shoulder rig, so
+views are close, not camera-matched (r107, r102, r117 and r11d's DC camera starts inside geometry: their luma is not
+comparable). Authored = the default conversion of the same inputs (/root/probe/lanes/ps2rooms/authored), for
+instancing and bytes.
+
+| room | TEV | meshes / placements (instanced; authored) | level-0 tris | re4mesh + r4pw B (authored re4mesh) | heap-4 block | tex / VRAM B | clipped corners | sheet luma: bake / PS2 src / GC |
+|---|---|---|---:|---|---:|---|---:|---|
+| r104 | x2 | 154 / 291 (137; 138) | 24,881 | 653,568 + 18,508 (658,304) | 677,212 | 55 / 446,976 | 14,943 | 45.8 / 30.2 / no GC frame |
+| r107 | x2 | 69 / 71 (2; 2) | 36,222 | 933,376 + 7,228 (936,192) | 945,740 | 50 / 516,608 | 4,893 | 35.2 / 28.6 / 46.1 |
+| r105 | x2 | 149 / 243 (94; 99) | 29,734 | 764,192 + 18,028 (735,488) | 787,356 | 149 / 1,364,992 | 14,530 | 51.6 / 39.2 / 65.5 |
+| r102 | x2 | 37 / 43 (6; 6) | 20,959 | 407,392 + 4,412 (407,712) | 416,940 | 77 / 1,063,424 | 6,986 | 26.3 / 15.2 / 36.4 |
+| r108 | x4 | 137 / 148 (11; 11) | 40,392 | 966,880 + 11,376 (958,304) | 983,392 | 72 / 984,064 | 7,640 | 32.9 / 15.6 / 44.3 |
+| r109 | x4 | 95 / 95 (0; 0) | 42,542 | 1,075,712 + 7,324 (1,056,032) | 1,088,172 | 35 / 607,232 | 880 | 28.3 / 18.3 / 35.9 |
+| r10a | x4 | 201 / 228 (27; 27) | 29,662 | 785,952 + 17,568 (784,864) | 808,656 | 42 / 742,912 | 25,603 | 55.7 / 36.4 / 47.8 |
+| r10b | x4 | 93 / 126 (33; 33) | 30,983 | 699,168 + 9,512 (699,808) | 713,816 | 53 / 1,034,752 | 30,187 | 46.8 / 46.6 / 42.0 |
+| r11b | x4 | 104 / 137 (33; 33) | 33,903 | 779,776 + 10,548 (780,288) | 795,460 | 60 / 859,136 | 8,080 | 28.1 / 11.7 / no GC frame |
+| r11a | x4 | 215 / 242 (27; 27) | 30,105 | 798,848 + 18,376 (793,504) | 822,360 | 37 / 551,424 | 4,220 | 36.8 / 17.3 / 22.7 |
+| r10c | x2 | 157 / 215 (58; 64) | 35,392 | 841,504 + 16,140 (810,944) | 862,780 | 40 / 596,992 | 24,822 | 30.1 / 15.1 / 41.9 |
+| r10e | x2 | 127 / 127 (0; 0) | 44,825 | 953,568 + 9,436 (953,664) | 968,140 | 55 / 509,952 | 8,794 | 44.6 / 24.2 / 39.1 |
+| r119 | x4 | 95 / 95 (0; 0) | 45,533 | 1,212,800 + 7,420 (1,190,752) | 1,225,356 | 35 / 422,912 | 9,550 | 82.0 / 33.4 / 44.0 |
+| r118 | x4 | 145 / 159 (14; 14) | 41,213 | 976,640 + 12,060 (973,120) | 993,836 | 72 / 984,064 | 12,029 | 28.7 / 15.7 / 46.1 |
+| r117 | x2 | 229 / 238 (9; 9) | 33,929 | 844,704 + 18,664 (850,560) | 868,504 | 59 / 619,520 | 7,691 | 34.7 / 56.7 / 42.3 |
+| r112 | x2 | 38 / 44 (6; 6) | 21,007 | 404,224 + 4,496 (404,928) | 413,856 | 79 / 1,067,520 | 9,933 | 27.9 / 16.0 / 20.3 |
+| r111 | x2 | 169 / 205 (36; 36) | 43,244 | 1,158,656 + 15,572 (1,158,240) | 1,179,364 | 95 / 978,944 | 3,341 | 18.5 / 13.8 / 34.4 |
+| r113 | x4 | 130 / 130 (0; 0) | 38,531 | 1,028,768 + 10,952 (1,017,152) | 1,044,856 | 46 / 562,176 | 897 | 18.4 / 13.5 / 26.0 |
+| r11c | x4 | 108 / 108 (0; 0) | 37,929 | 980,448 + 9,232 (973,088) | 994,816 | 66 / 427,648 | 10,717 | 36.7 / 19.0 / 28.7 |
+| r11d | x2 | 177 / 199 (22; 22) | 30,569 | 788,640 + 15,276 (790,016) | 809,052 | 34 / 395,264 | 17,731 | 24.4 / 26.0 / 68.6 |
+| r11e | x2 | 197 / 239 (42; 42) | 29,256 | 740,768 + 18,124 (732,192) | 764,028 | 28 / 253,440 | 3,915 | 49.5 / 25.6 / 41.5 |
+| r10f | x2 | 115 / 161 (46; 47) | 38,558 | 983,008 + 13,284 (977,504) | 1,001,428 | 99 / 1,022,464 | 9,989 | 59.2 / 64.2 / 60.4 |
+| r11f | x4 | 95 / 121 (26; 26) | 31,716 | 827,808 + 9,076 (827,072) | 842,020 | 77 / 903,680 | 21,128 | 38.7 / 18.3 / 25.1 |
+| r10d | x2 | 204 / 228 (24; 24) | 37,216 | 872,160 + 16,448 (870,496) | 893,744 | 61 / 444,928 | 9,140 | 28.8 / 16.1 / 34.3 |
+
+- Heap 4: every block is below r100's landed 1.65 MB (largest r119 1.23 MB, r111 1.18 MB). VRAM: all below r101's
+  1,015,808 B except r105 (1,364,992 B, 149 textures), r102 / r112 (1.06 MB), r10b (1.03 MB), r10f (1.02 MB): those
+  need the VQ pass of the existing texture pipeline (texture-vq-rooms.sh) or the room's VRAM budget check when they
+  are staged.
+- Instancing kept everywhere except r105 (94 of 99), r10c (58 of 64), r104 (137 of 138), r10f (46 of 47): placements
+  whose SMX colour differs from their first instance (a visible material difference), as in r100.
+- Look (approximate cameras): most rooms land within ~10 luma of the GC frame or above it (r10a, r10b, r10e, r119,
+  r11a, r11c, r11e, r11f, r10f above). r119 (82 vs 44) is the brightest: its x4 colours are high on the spawn's
+  walls; check in game before staging. Below the GC by more than ~10: r111 (18 vs 34), r118 (29 vs 46), r108 (33 vs
+  44), r102 / r10c (lit interiors and torches on the GC: runtime lights the bake does not carry), r11d (camera inside
+  a wall). r109 (28 vs 36) and r113 (18 vs 26) are dark night rooms on the GC too (r113's PS2 colours are half black;
+  the GC adds the torch / lamp point lights): darker than the GC but the same reading; their judgement waits for an
+  in-game frame.
+- No GC frame: r104's debug start plays the opening cutscene into a QTE that kills Leon (Continue screen by dump
+  6500: run r104q); r11b's debug start crashes Dolphin (OS ERROR ISI in Global main.obj, RoomInit; St1 r11b needs the
+  chapter state). Both need a save-state or a door entry from the previous room.
 
 ## State (2026-09-30, history)
 
@@ -245,17 +329,26 @@ Nothing for the runtime (no runtime change, no knob). The tools on lane/ps2rooms
   bea1ade4, r106 08bc3536);
 - tools/d367/ps2rooms/pr-hw.sh, pr-look.sh, mkfix.py (cost / look runs with a swapped package).
 
-Not ready (user decisions): the r100 re-convert (`out/r100-ps2`, look sheets above; staging it = replacing the r100
-package files in the play fixtures and the play recipe's staging); r106 `out/r106-ps2` waits for the route lane's r106
-container (it is the package to stage then).
+Landed: the tools above at 7cc5b893 (dreamcast-port d8e181f4, 2026-10-01).
 
-Decisions for the user:
-1. Adopt the PS2-pattern bake (`--color-light ps2`: PS2 colours x SMX colour x the room's TEV scale) for every
-   PS2 room? (r106 needs it: authored is 3.5x too dark.)
-2. r100: replace the landed package with the bake (darker birches and browns like the GC, the hedge 52-53 vs GC 56
-   instead of 39-40; cost-neutral)? Option: GS clamp variant (keeps the silver birches).
-3. r101 / r103 (x1): the same bake changes them only by the SMX colour (r101 215 / 235 on ~20 % of faces, r103 some
-   75,72,70): leave them as landed unless the user wants consistency (would need a sheet first).
+Ready to land (since d8e181f4):
+- 4a62d540: mesh_lod.py `pack_meshlets` fix (a strip wider than the meshlet limit looped forever appending empty
+  meshlets: r10e / r117 grew to 12-17 GB and were stopped; now split by `split_to_limit`, unit-tested on 2000 random
+  strips for identical triangles and winding). Every input that converted before converts byte-identically (r103
+  default 55efd327 / 7ab3747c, r106 ps2 23d20157 / 5e87bf59). mkfix.py swaps only `dc/native/<room>/ps2-world.*`.
+- **r106 package for staging: `C:\Game Dev\Emulators\re4-assets-private\ps2rooms-20260930\out\r106-ps2`** (WSL
+  `/mnt/c/Game Dev/Emulators/re4-assets-private/ps2rooms-20260930/out/r106-ps2`): `ps2-world.re4mesh` (23d20157,
+  1,038,496 B), `ps2-world.r4pw` (5e87bf59, 10,768 B), `tex/*.re4tex` (42). It replaces `out/r106` in the route
+  lane's staging (its fixture's `dc/native/r106/ps2-world.*` and the 42 r106 PS2 `dc/tex` entries; mkfix.py does
+  exactly that swap). In game: HALT 0, MISSING 0, PS2MESH open 1,054,400 B (heap 4 5,445,600 -> 4,391,104).
+  The look runs' `openfail=1` is the same in both arms (not the package).
+
+Decisions (2026-10-01):
+1. Coordinator (under the user's "PS2 approach, enhanced, use best judgment"): YES, `--color-light ps2` is the bake
+   for every PS2 room from now on.
+2. r100, the user's answer, verbatim: "KEEP CURRENT" (the landed r100 package stays; it is not replaced; the bake
+   `out/r100-ps2` and the GS-clamp variant `out/r100-ps2-gs` stay as review-only outputs).
+3. Coordinator: leave r101 / r103 as landed (x1).
 
 ## Option 2 (user 2026-09-30): GC lights on PS2 geometry, r106 result (2026-10-01)
 
