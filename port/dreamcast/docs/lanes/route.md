@@ -105,6 +105,31 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   control c8): PASSED route-kiter11 (image r11 006016f9, IO_SERIAL on in the recipe) == route-kitec8: frame 2100 at
   the same position, vbl 10399 both, spills 4 / upload FAILED 12 / HALT 0 both. Landed with this commit.
 
+## Progress 2026-10-01 (chapter 1-1 end, r106 textures)
+
+- **End of chapter 1-1 draws.** Warp preset r106-closet (AEV area 2, trigger 0x88) runs the r106s00 event. The movie
+  plays 1738/1738 frames, then the "End of Chapter 1-1" results screen draws (Leon picture, hit ratio / kills / deaths,
+  Next Chapter 1-2) with the Save? prompt (route-r106c4, image r11, fixture route-rel-r106-closet-snd3, frame at 94 s).
+- **Chapter pictures.** SS/eng/chap01.dat's 14 pictures were not on the disc (`open failed` x14 at the screen). They are
+  built from the GC original in chap-gc (chap-src/ss/eng holds chap01-07 for the later chapters):
+  ```
+  echo ss/eng/chap01.dat > chap-tex.manifest
+  python3 tools/prepare_native_ui.py chap-gc chap-tex.manifest tex-chap01                 # 25 images, 0 errors
+  python3 tools/vq_native_ui.py --textures tex-chap01 --log chap01-loads.log --output tex-chap01-vq \
+      --model-min-bytes 8192 --pvrtex /root/work/kos-re4dc-d336/utils/pvrtex/pvrtex       # 4 images VQ, 2,359,296 -> 303,104 B
+  ```
+- **em2a picture.** r106 loads 8fb0fccf-d75e4a3f (128x128 CMPR; the "b8420096" above was a misread of this load), which
+  r100-r103 never did. It lives in em/em2a.drs, found with the new tools/d367/route/find-texture-source.py.
+  - Build: `prepare_native_ui.py /root/re4data em2a-tex.manifest tex-em2a` (manifest em/em2a.drs; 2 images).
+  - route-r106c5 (fixture *-closet-snd4): open failed 0, upload FAILED 0, HALT 0.
+- **Trap: the kite base disc's own pad script.** The base disc carries dc/padscript.txt (58 entries, source clock).
+  - The fixture maker popped it from `replace`, which leaves the disc's copy in place. Every route run before *-snd3
+    also played the kite script; its B+Up turned the save screen into "Exit?" in route-r106c3.
+  - New views put it in `remove`.
+  - The landed IO_SERIAL gate is unaffected: candidate and control both ran it.
+- **Fixture maker.** Texture sets (TEXSETS chap01, em2a) are named in a view's rooms list. Views *-snd4 (closet, entry,
+  door walk) are the r106 play set.
+
 ## Numbers (image, build, evidence)
 
 ## Ready to land
