@@ -84,8 +84,43 @@ def light_world(xyz, normals, lights, ambient):
     return np.clip(out, 0, 1)
 
 
+def geometry_normals(pos, vidx, sign=1.0):
+    """Smooth vertex normals of one group from its own triangles (area-weighted face normals summed per OBJ vertex,
+    so a BIN's shared vertices are smoothed and its split vertices keep their edges); (F, 3, 3)."""
+    fn = np.cross(pos[:, 1] - pos[:, 0], pos[:, 2] - pos[:, 0]) * sign
+    uniq, inv = np.unique(vidx.ravel(), return_inverse=True)
+    acc = np.zeros((len(uniq), 3))
+    np.add.at(acc, inv, np.repeat(fn, 3, axis=0))
+    n = acc[inv].reshape(pos.shape)
+    ln = np.linalg.norm(n, axis=-1, keepdims=True)
+    face = np.repeat(fn[:, None, :], 3, axis=1)                # a lone degenerate sum falls back to the face normal
+    n = np.where(ln > 1e-12, n, face)
+    return n / np.maximum(np.linalg.norm(n, axis=-1, keepdims=True), 1e-20)
+
+
+def gc_select(lights, sel, lo, hi):
+    """ow_extract.py select() (light_house38.py rules: trans_lit.cpp LightSetModel / cLightMgr::setModel2 for
+    scenery) with the PS2 SMX LightSwitch as the model's select mask and the group's world box standing in for the
+    GC BIN light box; at most 8 lights."""
+    out = []
+    for l in lights:
+        if (l['be'] & 3) != 3 or not (l['xF'] & 0x10) or l['type'] == 4:
+            continue
+        if l['i'] <= 31 and not (sel >> l['i']) & 1:
+            continue
+        if l['col'][:3] == [0, 0, 0]:
+            continue
+        if l['R'] and any(l['pos'][k] - l['R'] > hi[k] or l['pos'][k] + l['R'] < lo[k] for k in range(3)):
+            continue
+        out.append(l)
+    return out[:8]
+
+
 # ------------------------------------------------------------------------------------------------ scene
-def read_scene(room, src, light_ids):
+def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0):
+    """color_light: 'authored' = COLOR groups keep the PS2 vertex colours (GS modulate; the landed packages);
+    'gc' = the GameCube self-lit channel on PS2 geometry: material * clamp01(vertex colour + sum of the GC LIT
+    cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals)."""
     obj = ps.read_obj(src / f'{room}_004.scenario.obj')
     mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
     mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
@@ -98,6 +133,8 @@ def read_scene(room, src, light_ids):
     for name, m in mats.items():
         assert int(m['diffuse_map']) == mtl[name]['tex'], name
     gl = None
+    if color_light == 'gc':
+        gc_lit = json.loads((src / 'gc-lit-cut0.json').read_text())
     if any(g['kind'] == 'NORMAL' for g in obj['groups']):
         lit = json.loads((src / 'gc-lit-cut0.json').read_text())
         chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
@@ -110,20 +147,34 @@ def read_scene(room, src, light_ids):
         ix = np.asarray(faces, int)
         mat = [m for _, m in g['faces']]
         pos = V[ix[:, :, 0]]
+        gc_ids = None
         if g['kind'] == 'NORMAL':
             assert (ix[:, :, 2] >= 0).all(), g['name']
             lights = [gx_light(l, smd[g['smd']]) for l in chosen]
             assert all(not l['kind'].startswith('unsupported') for l in lights)
             rgb = light_world(pos, VN[ix[:, :, 2]], lights, ambient)
+        elif color_light == 'gc':
+            sem = smx.get(g['smx'])
+            sel = int(sem['light_switch'], 16) if sem else 0xFFFFFFFF
+            chosen_gc = gc_select(gc_lit['lights_cut'], sel, pos.reshape(-1, 3).min(0), pos.reshape(-1, 3).max(0))
+            lights = [gx_light(l, smd[g['smd']]) for l in chosen_gc]
+            lights = [l for l in lights if not l['kind'].startswith('unsupported')]
+            nrm = geometry_normals(pos, ix[:, :, 0], normal_sign)
+            lsum = light_world(pos, nrm, lights, np.zeros(3)) if lights else np.zeros(pos.shape)
+            mc = sem.get('smx_colour_rgb') if sem else None
+            mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
+            rgb = np.clip(VC[ix[:, :, 0], :3] * vc_scale + lsum, 0, 1) * mcol
+            gc_ids = [l['i'] for l in chosen_gc]
         else:
-            rgb = VC[ix[:, :, 0], :3]
+            rgb = VC[ix[:, :, 0], :3] * vc_scale      # --vc-scale: a look-review lift, 1.0 = as authored
         sem = smx.get(g['smx'])
         cull = int(sem['face_culling'][2:4], 16) if sem else 0
         assert cull in (0, 1, 2)
         groups.append(dict(index=gi, name=g['name'], bin=g['bin'], kind=g['kind'], smd=g['smd'], vidx=ix[:, :, 0],
                            pos=pos, uv=VT[ix[:, :, 1]], rgb=rgb, alpha=VC[ix[:, :, 0], 3],
                            tex=np.array([int(mats[m]['diffuse_map']) for m in mat]),
-                           blend=np.array([bool(int(mats[m]['material_flag'], 16) & 4) for m in mat]), cull=cull))
+                           blend=np.array([bool(int(mats[m]['material_flag'], 16) & 4) for m in mat]), cull=cull,
+                           gc_lights=gc_ids))
     return groups
 
 
@@ -361,6 +412,15 @@ def main():
     ap.add_argument('out', type=Path)
     ap.add_argument('--lights', default='0,5', help='GC LIT cut-0 light indices for NORMAL groups (r101: 0,5)')
     ap.add_argument('--no-share', action='store_true', help='no BIN instancing (every group its own mesh)')
+    ap.add_argument('--vc-scale', type=float, default=1.0,
+                    help='multiply COLOR-group vertex colours (review lift for rooms whose PS2 colours are not the '
+                         'final light, e.g. r106; 1.0 = as authored, the default and the landed packages)')
+    ap.add_argument('--color-light', choices=('authored', 'gc'), default='authored',
+                    help="COLOR groups: 'authored' PS2 vertex colours (default, the landed packages) or 'gc': the "
+                         "GameCube self-lit channel, clamp01(vertex colour + the GC LIT cut-0 lights the model "
+                         "selects) x SMX colour, normals from the PS2 triangles; needs <src>/gc-lit-cut0.json "
+                         "(gc_room_lit.py)")
+    ap.add_argument('--normal-sign', type=float, default=1.0, help='geometry normal orientation for --color-light gc')
     ap.add_argument('--lod-eps', default='24,48,96,192,384')
     ap.add_argument('--lod-min-gain', type=float, default=0.4)
     ap.add_argument('--lod-max-levels', type=int, default=4)
@@ -370,7 +430,8 @@ def main():
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     a.out.mkdir(parents=True, exist_ok=True)
-    groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')))
+    groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
+                        a.normal_sign)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)
@@ -398,7 +459,10 @@ def main():
     report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items()}, groups=len(groups), meshes=len(meshes),
                   placements=len(placements), source_triangles=sum(len(g['tex']) for g in groups),
                   triangles_by_pass={['OP', 'PT', 'TR'][k]: v for k, v in sorted(tri.items())},
-                  stats=dict(stats), level0_triangles=summary['level0_triangles'], re4mesh_bytes=len(blob),
+                  stats=dict(stats),
+                  gc_light_sets={','.join(map(str, k)): v for k, v in collections.Counter(
+                      tuple(g['gc_lights']) for g in groups if g['gc_lights'] is not None).items()},
+                  level0_triangles=summary['level0_triangles'], re4mesh_bytes=len(blob),
                   re4mesh_sha256=hashlib.sha256(blob).hexdigest(), r4pw_bytes=len(side),
                   r4pw_sha256=hashlib.sha256(side).hexdigest(), textures=len(textures),
                   texture_vram_bytes=sum(t['vram_bytes'] for t in textures.values()),
