@@ -8,7 +8,7 @@ old_pkg = None
 rep = {}
 for k, v in d['replace'].items():
     src = os.path.normpath(str((tour / v))) if not v.startswith('/') else v
-    if k.startswith(f'dc/native/{room}/'):
+    if k.startswith(f'dc/native/{room}/ps2-world.'):
         old_pkg = Path(src).parent
         continue
     rep[k] = src
