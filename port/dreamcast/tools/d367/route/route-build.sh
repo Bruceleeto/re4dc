@@ -7,7 +7,7 @@
 # programs/candidate-route<label> + programs-route.json.
 set -euo pipefail
 L=$1; shift
-T=$(cd "$(dirname "$0")/../../../../.." && pwd)
+T=${TREE:-$(cd "$(dirname "$0")/../../../../.." && pwd)}   # TREE=<checkout>: build another tree (a landing control)
 E=/root/probe/lanes/route
 H="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
 # build-r21.sh passes ASSETS unquoted to make: the space-free link to the verified bundle.
