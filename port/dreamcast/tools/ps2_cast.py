@@ -1,0 +1,603 @@
+#!/usr/bin/env python3
+"""PS2 character converter (lane ps2cast): a PS2 RE4 character appearance (the em archive's model BINs and
+TPL on the PS2 disc) -> the external cast's pack layout that tools/cast_bundle.py (the cl lane's bundle
+maker) and coarse_ganado_cast.cpp consume. No runtime code changes; derived assets are private.
+
+The game keeps the GameCube skeleton and motions, so the PS2 mesh is bound to the GC skeleton exactly: every
+section's PS2 bone table must equal the GC BIN's (bone id == GC part attach id, parent, rest translation
+within --bone-tol mm); PS2 weight bone ids are then GC part indices (identity map, checked per bone). The
+appearance's signatures stay the GC source infos' (the runtime identifies the game's loaded GC model by them
+and draws the converted mesh in its place).
+
+Stage 1, `convert` (Windows Python: numpy, PIL):
+  inputs/        emXX.dat from the PS2 disc (ISO9660 -> BIO4DAT.AFS) and emXX.drs from the GC debug disc,
+                 sha256-recorded
+  source.json    GC skeleton (rest = capture = accumulated part translations) + GC section infos
+  mesh.json      re4dc-approved-render-mesh-1 (the cast's Blender exchange schema): PS2 positions (mm),
+                 PS2 weights on GC bone indices, per corner PS2 normal and atlas UV, section = source info
+  atlas.png      the appearance TPL's images (PS2 4/8-bit CLUT, GS-unswizzled by ps2_tpl_decode.py, the
+                 decoder validated pixel-exact against JADERLINK) in 256 x 256 cells of one power-of-two atlas
+  native/        character-prototype pack_coarse_actor.pack() output (GX triangle lists, arrays, report)
+                 + host-fixture.bin for the cast agent's host check
+  source-bindings.json, manifest.json (cast layout; levels filled by stage 2)
+  validation.json skeleton / weights / winding / normals / rest and posed surface distance to the GC mesh
+Stage 2, `native` (WSL; ps2_cast_native.sh): host check (check-dynamic, the unchanged native_actor_fast.cpp
+converter), fastpath build_blob.py (strips) + verify_blob.py + patch_header.py -> runtime header; pvrtex VQ
++ vq_export.py --pack-existing -> <key>.re4tex. Stage 3, `castdir`: assembles a cast dir for cast_bundle.py.
+
+usage:
+  ps2_cast.py convert <preset> <out dir> [--ps2-iso P] [--gc-iso G] [--poses pose-samples.json]
+  ps2_cast.py finish <out dir>              (after stage 2: fills manifest levels from fit-report / header)
+  ps2_cast.py castdir <cast dir> <out dir>...   (writes/extends a cast dir for cast_bundle.py)
+  ps2_cast.py list                          (presets)
+Env: RE4_CAST_PROTO (character-prototype-20260925, pack_coarse_actor.py), RE4_WORLD_AGENT (ps2_tpl_decode.py).
+"""
+import argparse, hashlib, importlib.util, json, math, os, re, shutil, struct, sys, zlib
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[2]
+sys.path[:0] = [str(HERE), str(REPO / 'tools')]
+import numpy as np  # noqa: E402
+from PIL import Image  # noqa: E402
+import ps2_bin as pb  # noqa: E402
+import convert_character as cc  # noqa: E402
+import drs  # noqa: E402
+from motion import modelbin  # noqa: E402
+
+PRIV = Path(os.environ.get('RE4_PRIVATE', 'C:/Game Dev/Emulators/re4-assets-private'))
+PROTO = Path(os.environ.get('RE4_CAST_PROTO', PRIV / 'character-prototype-20260925'))
+WA = Path(os.environ.get('RE4_WORLD_AGENT', PRIV / 'world-agent-20260926'))
+PS2_ISO = 'C:/Game Dev/Emulators/re4_helpers/Resident Evil 4 (USA)/Resident Evil 4 (USA).iso'
+GC_ISO = 'C:/Game Dev/Emulators/Resident Evil 4 Debug (Disc 1)/Resident Evil 4 Debug (Disc 1).iso'
+ROLES = ['body', 'head', 'right-hand', 'left-hand']
+CELL = 256
+
+
+def _ganado(archive, base, rooms, types, hands=(0x1c0, 0x1c5)):
+    return dict(archive=archive, sections=[(base, 'body'), (base + 2, 'head'), (hands[0], 'right-hand'), (hands[1], 'left-hand')],
+                tpl=base + 1, rooms=rooms, types=types, category='human')
+
+
+# arc numbers (PL_ARC = entry index + 4), from the source's Em15Set / Em12Set tables (cast recover_cast.py)
+PRESETS = {
+    'ganado-em15-00': _ganado('em15', 0x1bc, ['r101'], [0x00]),
+    'ganado-em15-0b': _ganado('em15', 0x1c9, ['r101'], [0x0b]),
+    'ganado-em15-03': _ganado('em15', 0x1dc, ['r101'], [0x03]),
+    'ganado-em15-04': _ganado('em15', 0x1e0, ['r101'], [0x04]),
+    'ganado-em12-01': dict(archive='em12', sections=[(0x1d8, 'body'), (0x1da, 'head'), (0x1c0, 'right-hand'), (0x1c5, 'left-hand')],
+                           tpl=0x1d9, rooms=['r100', 'r103'], types=[1], category='human'),
+    # not in the external cast (ps2_cast_inventory.py): Em17Set / Em16Set type 0xc, Em13Set type 6 (own hands)
+    'ganado-em17-0c': _ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]),
+    'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
+                           tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
+}
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+# ------------------------------------------------------------------------------------------ inputs
+
+
+# disc extracts are rebuildable: cached on ext4 (lane evidence), not in the private store
+INPUTS = Path(os.environ.get('PS2CAST_INPUTS', '//wsl.localhost/Ubuntu-24.04/root/probe/lanes/ps2cast/inputs'))
+
+
+def inputs(archive, out, ps2_iso, gc_iso):
+    d = INPUTS
+    d.mkdir(parents=True, exist_ok=True)
+    p, g = d / f'{archive}.dat', d / f'{archive}.drs'
+    if not p.exists():
+        p.write_bytes(pb.afs_read(ps2_iso, f'{archive}.dat'))
+    if not g.exists():
+        sys.path.insert(0, str(HERE))
+        from assetpipe.rooms import GcIso
+        g.write_bytes(GcIso(gc_iso).read(f'em/{archive}.drs'))
+    pd, gd = p.read_bytes(), g.read_bytes()
+    rec = dict(ps2=dict(iso=str(ps2_iso), afs_entry=f'{archive}.dat', bytes=len(pd), sha256=sha(pd), cache=str(p)),
+               gc=dict(iso=str(gc_iso), file=f'em/{archive}.drs', bytes=len(gd), sha256=sha(gd), cache=str(g)))
+    ps2 = {i: (t, b) for i, t, b in pb.dat_entries(pd)}
+    gc = drs.Drs(gd)
+    return ps2, gc, rec
+
+
+def gc_entry(gc, arc, tag):
+    t, b = gc.entries[arc - 4]
+    assert drs.tag_name(t) == tag, (hex(arc), t, tag)
+    return b
+
+
+def ps2_entry(ps2, arc, tag):
+    t, b = ps2[arc - 4]
+    assert t == tag, (hex(arc), t, tag)
+    return b
+
+
+# ------------------------------------------------------------------------------------------ GC side
+
+
+def gc_skeleton(bin_bytes):
+    mdl = modelbin.parse(bin_bytes)
+    mdl.check_tree()
+    bones = []
+    for p in mdl.parts:
+        m = np.eye(4)
+        m[:3, 3] = p.pos
+        if p.parent >= 0:
+            m = np.asarray(bones[p.parent]['rest']) @ m
+        bones.append(dict(id=p.no, parent=p.parent, attach=p.attach, translation=list(p.pos), rest=m.tolist(), capture=m.tolist()))
+    return bones
+
+
+def gc_mesh(bin_bytes):
+    positions, pal, ws, norm, normpal, ds, dn, nc, uv, indices, batches, bindings, *_ = cc.parse_geometry(bin_bytes)
+    weights = []
+    for ids, pct in ws:
+        rates, total = [], 0.0
+        for k, b in enumerate(ids):
+            f = pct[k] * .01 if k < len(ids) - 1 else 1 - total
+            rates.append((b, f)); total += f
+        weights.append(rates)
+    tris = [[ds[j] for j in indices[k:k + 3]] for k in range(0, len(indices), 3)]
+    nrm = [np.asarray(norm[dn[j]], float) for j in range(len(dn))]
+    corner_normals = [[nrm[j] / (np.linalg.norm(nrm[j]) or 1) for j in indices[k:k + 3]] for k in range(0, len(indices), 3)]
+    return dict(positions=np.asarray(positions, float), weights=[weights[p] for p in pal], triangles=np.asarray(tris, int),
+                corner_normals=corner_normals, palettes=len(ws), normals=len(norm))
+
+
+def gc_signature(d):
+    """source_bindings.py's signature of a GC BIN: counts + FNV-1a of the first 64 bytes of the vertex
+    array converted to little-endian s16 (what coarse_ganado_cast.cpp fingerprints on the loaded model)."""
+    vo = struct.unpack_from('>I', d, 0x30)[0]
+    raw = b''.join(struct.pack('<4h', *struct.unpack_from('>4h', d, vo + k)) for k in range(0, 64, 8))
+    fnv = 2166136261
+    for x in raw:
+        fnv = ((fnv ^ x) * 16777619) & 0xffffffff
+    mdl = modelbin.parse(d)
+    return dict(part_bindings=[dict(id=p.no, parent=p.parent, attach=p.attach, translation=list(p.pos)) for p in mdl.parts],
+                positions=struct.unpack_from('>H', d, 0x38)[0], normals=struct.unpack_from('>H', d, 0x3a)[0],
+                palettes=d[0x18], parts=d[0x19], shift=d[0x28], flags=hex(struct.unpack_from('>I', d, 0x20)[0]),
+                shape_offset=struct.unpack_from('>I', d, 0x2c)[0], source_vertex_fnv64_le=f'{fnv:08x}', bin_sha256=sha(d))
+
+
+# ------------------------------------------------------------------------------------------ geometry checks
+
+
+def closest_on_triangles(p, a, b, c):
+    """closest points on triangles (a, b, c: (..., 3)) to points p (..., 3) (Ericson, vectorised)."""
+    ab, ac, ap = b - a, c - a, p - a
+    d1, d2 = (ab * ap).sum(-1), (ac * ap).sum(-1)
+    bp = p - b
+    d3, d4 = (ab * bp).sum(-1), (ac * bp).sum(-1)
+    cp = p - c
+    d5, d6 = (ab * cp).sum(-1), (ac * cp).sum(-1)
+    va, vb, vc = d3 * d6 - d5 * d4, d5 * d2 - d1 * d6, d1 * d4 - d3 * d2
+    den = np.where(np.abs(va + vb + vc) < 1e-20, 1e-20, va + vb + vc)
+    v, w = vb / den, vc / den
+    res = a + ab * v[..., None] + ac * w[..., None]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # edge regions
+        cond = (vc <= 0) & (d1 >= 0) & (d3 <= 0)
+        t = np.clip(np.nan_to_num(d1 / (d1 - d3)), 0, 1); res = np.where(cond[..., None], a + ab * t[..., None], res)
+        cond = (vb <= 0) & (d2 >= 0) & (d6 <= 0)
+        t = np.clip(np.nan_to_num(d2 / (d2 - d6)), 0, 1); res = np.where(cond[..., None], a + ac * t[..., None], res)
+        cond = (va <= 0) & ((d4 - d3) >= 0) & ((d5 - d6) >= 0)
+        t = np.clip(np.nan_to_num((d4 - d3) / ((d4 - d3) + (d5 - d6))), 0, 1); res = np.where(cond[..., None], b + (c - b) * t[..., None], res)
+    # vertex regions
+    res = np.where(((d1 <= 0) & (d2 <= 0))[..., None], a, res)
+    res = np.where(((d3 >= 0) & (d4 <= d3))[..., None], b, res)
+    res = np.where(((d6 >= 0) & (d5 <= d6))[..., None], c, res)
+    return res
+
+
+def surface_distance(points, verts, tris, cand=None, k=24):
+    """distance from each point to the triangle mesh (verts, tris); cand = candidate triangle ids per point
+    (default: the k nearest by centroid)."""
+    A, B, C = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
+    if cand is None:
+        cen = (A + B + C) / 3
+        dd = ((points[:, None, :] - cen[None]) ** 2).sum(-1)
+        cand = np.argsort(dd, axis=1)[:, :k]
+    q = closest_on_triangles(points[:, None, :], A[cand], B[cand], C[cand])
+    return np.sqrt(((q - points[:, None, :]) ** 2).sum(-1)).min(1), cand
+
+
+def skin(verts, weights, mats):
+    out = np.zeros_like(verts)
+    h = np.c_[verts, np.ones(len(verts))]
+    for i, w in enumerate(weights):
+        m = sum(v * mats[b] for b, v in w)
+        out[i] = (m @ h[i])[:3]
+    return out
+
+
+def winding_agreement(verts, tris, corner_normals):
+    a, b, c = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
+    fn = np.cross(b - a, c - a)
+    vn = np.asarray([sum(n) for n in corner_normals])
+    s = (fn * vn).sum(1)
+    return float((s > 0).mean())
+
+
+# ------------------------------------------------------------------------------------------ convert
+
+
+def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.001):
+    spec = PRESETS[preset]
+    out.mkdir(parents=True, exist_ok=True)
+    ps2, gc, rec = inputs(spec['archive'], out, ps2_iso, gc_iso)
+    ptd = load_module('ps2_tpl_decode', WA / 'from-main/ps2-trees/tools/ps2_tpl_decode.py')
+    val = dict(preset=preset, inputs=rec, sections=[])
+    # GC skeleton from the body BIN; every section (PS2 and GC) must carry the same one
+    gbody = gc_entry(gc, spec['sections'][0][0], 'BIN')
+    bones = gc_skeleton(gbody)
+    assert all(b['attach'] == b['id'] for b in bones), 'GC body parts with attach != index'
+    id_to_index = {b['attach']: b['id'] for b in bones}
+    rest = np.asarray([b['rest'] for b in bones])
+    # texture atlas: every image the sections' materials use, one 256 cell each
+    tpl = ps2_entry(ps2, spec['tpl'], 'TPL')
+    tp = ptd.parse_tpl(tpl)
+    images = []
+    for k, h in enumerate(tp['entries']):
+        w, ht, rgba, st = ptd.decode(tpl, h)
+        images.append(dict(index=k, width=w, height=ht, rgba=bytes(rgba), format=ptd.describe(h)['format'],
+                           alpha_raw=sorted(st['alpha_raw_hist'])))
+    sections, used = [], []
+    for si, (arc, role) in enumerate(spec['sections']):
+        assert role == ROLES[si]
+        pbin = ps2_entry(ps2, arc, 'BIN')
+        gbin = gc_entry(gc, arc, 'BIN')
+        m = pb.parse_bin(pbin)
+        gsk = gc_skeleton(gbin)
+        # skeleton identity: PS2 (id, parent, translation) == GC (attach, parent, translation)
+        assert len(m.bones) == len(gsk) == len(bones), (role, len(m.bones), len(gsk))
+        id_parent = all((pb_['id'], pb_['parent']) == (g['attach'], g['parent']) for pb_, g in zip(m.bones, gsk))
+        dt = max(max(abs(x - y) for x, y in zip(pb_['pos'], g['translation'])) for pb_, g in zip(m.bones, gsk))
+        dt_body = max(max(abs(x - y) for x, y in zip(g['translation'], b['translation'])) for g, b in zip(gsk, bones))
+        assert id_parent and dt <= bone_tol, (role, id_parent, dt)
+        tris = pb.triangles(m)
+        for mat in m.materials:
+            if mat['diffuse'] not in used:
+                used.append(mat['diffuse'])
+        sections.append(dict(arc=arc, role=role, bin=m, tris=tris, gbin=gbin, gmesh=gc_mesh(gbin),
+                             check=dict(arc=hex(arc), role=role, ps2_bin_bytes=len(pbin), ps2_bin_sha256=sha(pbin),
+                                        gc_bin_bytes=len(gbin), gc_bin_sha256=sha(gbin), bones=len(m.bones),
+                                        bone_id_parent_equal=id_parent, bone_translation_max_diff_mm=dt,
+                                        gc_section_vs_body_translation_max_diff_mm=dt_body,
+                                        ps2_materials=[dict(flag=x['flag'], diffuse=x['diffuse'], opacity=x['opacity']) for x in m.materials],
+                                        ps2_triangles=len(tris), ps2_strip_vertices=sum(len(s['verts']) for n in m.nodes for s in n['segments']),
+                                        ps2_segments=sum(len(n['segments']) for n in m.nodes))))
+    used.sort()
+    cells, (aw, ah) = pack_atlas([(k, images[k]['width'], images[k]['height']) for k in used])
+    atlas = Image.new('RGBA', (aw, ah), (0, 0, 0, 255))
+    for k in used:
+        im = images[k]
+        atlas.paste(Image.frombytes('RGBA', (im['width'], im['height']), im['rgba']), cells[k][:2])
+    opaque = all(a >= 128 for im in images for a in im['alpha_raw'] if im['index'] in used)
+    atlas_rgb = atlas.convert('RGB').convert('RGBA')  # opaque: PS2 alpha 0x80 = 1.0; RGB565 VQ has no alpha
+    atlas_rgb.save(out / 'atlas.png')
+    val['texture'] = dict(tpl_arc=hex(spec['tpl']), tpl_bytes=len(tpl), tpl_sha256=sha(tpl),
+                          images=[{k: v for k, v in im.items() if k != 'rgba'} for im in images], used=used,
+                          atlas=[aw, ah], cells={str(k): v for k, v in cells.items()}, opaque=opaque,
+                          uv_rule='PS2 s16 / 256 (ps2_room_r4im.py: JADERLINK vt x 255/256), cell offset in the atlas')
+    # mesh json (PS2 geometry, GC bone indices)
+    vert_index, positions, weights, triangles = {}, [], [], []
+    zero_normals = 0
+    for si, s in enumerate(sections):
+        gm = s['gmesh']
+        for mat_i, corners in s['tris']:
+            cx, cy, cw, ch = cells[s['bin'].materials[mat_i]['diffuse']]
+            cs = []
+            fa, fb, fc = (np.asarray(c['p']) for c in corners)
+            face = np.cross(fb - fa, fc - fa)
+            if not np.linalg.norm(face):  # a degenerate strip triangle draws nothing
+                val['degenerate_triangles_dropped'] = val.get('degenerate_triangles_dropped', 0) + 1
+                continue
+            face = face / np.linalg.norm(face)
+            for c in corners:
+                if not any(c['n']):  # a zero PS2 normal: the face normal (winding as read)
+                    c = dict(c, n=tuple(face)); zero_normals += 1
+                w = [(id_to_index[b], float(v)) for b, v in c['w'] if v > 0]
+                if not w:
+                    raise ValueError(f'{s["role"]}: an unweighted PS2 vertex')
+                wk = tuple(sorted(w))
+                key = (tuple(round(x, 5) for x in c['p']), wk)
+                if key not in vert_index:
+                    vert_index[key] = len(positions)
+                    positions.append([float(x) for x in c['p']])
+                    weights.append([[b, v] for b, v in w])
+                raw_u, raw_v = c['raw']['uv']
+                u = (cx + raw_u * cw / 256.0) / aw  # PS2 UVs are normalised to the image (s16 / 256)
+                v = (cy + raw_v * ch / 256.0) / ah
+                assert 0 <= u <= 1 and 0 <= v <= 1
+                cs.append(dict(vertex=vert_index[key], normal=[float(x) for x in c['n']], uv=[u, v]))
+            triangles.append(dict(source_info=si, corners=cs))
+    P = np.asarray(positions)
+    val['zero_normals_replaced_by_face_normal'] = zero_normals
+    # winding: the GC convention (face normal vs vertex normals) must hold for the PS2 triangles too
+    flip = None
+    for si, s in enumerate(sections):
+        gm = s['gmesh']
+        g_ok = winding_agreement(gm['positions'], gm['triangles'], gm['corner_normals'])
+        ts = [t for t in triangles if t['source_info'] == si]
+        pt = np.asarray([[c['vertex'] for c in t['corners']] for t in ts])
+        p_ok = winding_agreement(P, pt, [[np.asarray(c['normal']) for c in t['corners']] for t in ts])
+        s['check'].update(gc_winding_agreement=g_ok, ps2_winding_agreement_as_read=p_ok)
+        want = g_ok > .5
+        f = (p_ok > .5) != want
+        assert flip in (None, f), 'sections disagree on the winding flip'
+        flip = f
+    if flip:
+        for t in triangles:
+            t['corners'] = t['corners'][::-1]
+    val['winding_flipped'] = bool(flip)
+    # source.json (GC side) + mesh.json
+    infos = []
+    for si, s in enumerate(sections):
+        gm = s['gmesh']
+        infos.append(dict(id=si, address=f'{spec["archive"]}:arc:{s["arc"]:03x}', source_data_address=f'{spec["archive"]}:arc:{s["arc"]:03x}',
+                          source_bin_arc=s['arc'], source_tpl_arc=spec['tpl'], source_sha256=sha(s['gbin']), role=s['role'],
+                          gc_positions=len(gm['positions']), gc_normals=gm['normals'], gc_palettes=gm['palettes'],
+                          gc_triangles=len(gm['triangles'])))
+    source = dict(name=preset, schema='ps2cast-source-1', source_units='millimetres', source_archive=spec['archive'],
+                  source_archive_sha256=rec['gc']['sha256'], ps2_archive_sha256=rec['ps2']['sha256'],
+                  bones=[dict(id=b['id'], parent=b['parent'], address=f'{spec["archive"]}:part:{b["id"]}', rest=b['rest'], capture=b['capture'])
+                         for b in bones], infos=infos, category=spec['category'], rooms=spec['rooms'], types=spec['types'])
+    sp = out / 'source.json'
+    sp.write_text(json.dumps(source))
+    mesh = dict(schema='re4dc-approved-render-mesh-1', source_sha256=sha(sp.read_bytes()), mesh=preset.replace('-', '_') + '_ps2',
+                positions_mm=positions, weights=weights, bones=source['bones'], triangles=triangles,
+                policy='PS2 source geometry, normals, UVs (atlas cells) and skin weights, bound to the GC skeleton '
+                       '(identical bone table); no reduction or refit.')
+    mp = out / 'mesh.json'
+    mp.write_text(json.dumps(mesh))
+    # skin checks: weights, rest and posed surface distance to the GC mesh
+    for si, s in enumerate(sections):
+        gm = s['gmesh']
+        ts = [t for t in triangles if t['source_info'] == si]
+        vids = sorted({c['vertex'] for t in ts for c in t['corners']})
+        pv = P[vids]
+        d0, cand = surface_distance(pv, gm['positions'], gm['triangles'])
+        # GC -> PS2 too (holes / missing parts show here)
+        pt = np.asarray([[c['vertex'] for c in t['corners']] for t in ts])
+        remap = {v: i for i, v in enumerate(vids)}
+        ptl = np.vectorize(remap.get)(pt)
+        g0, _ = surface_distance(gm['positions'], pv, ptl)
+        ws = [weights[v] for v in vids]
+        s['check'].update(
+            ps2_unique_positions=len(vids), gc_positions=len(gm['positions']), gc_triangles=len(gm['triangles']),
+            ps2_palettes=len({tuple(map(tuple, w)) for w in ws}), gc_palettes=gm['palettes'],
+            max_influences=max(len(w) for w in ws), weight_sum_range=[min(sum(x for _, x in w) for w in ws), max(sum(x for _, x in w) for w in ws)],
+            bones_used=sorted({b for w in ws for b, _ in w}),
+            rest_ps2_to_gc_surface_mm=dict(median=float(np.median(d0)), p95=float(np.percentile(d0, 95)), max=float(d0.max())),
+            rest_gc_to_ps2_surface_mm=dict(median=float(np.median(g0)), p95=float(np.percentile(g0, 95)), max=float(g0.max())))
+        # normals vs the GC's at coincident positions (< 0.5 mm)
+        angs = []
+        for t in ts:
+            for c in t['corners']:
+                p = P[c['vertex']]
+                dd = np.linalg.norm(gm['positions'] - p, axis=1)
+                j = int(dd.argmin())
+                if dd[j] < .5:
+                    gn = [gm['corner_normals'][ti][k] for ti, tri in enumerate(gm['triangles']) for k in range(3) if tri[k] == j]
+                    best = max(float(np.dot(c['normal'], n)) for n in gn)
+                    angs.append(math.degrees(math.acos(max(-1, min(1, best)))))
+        if angs:
+            s['check']['normal_angle_vs_gc_deg_at_shared_positions'] = dict(n=len(angs), median=float(np.median(angs)), p95=float(np.percentile(angs, 95)))
+        S = json.loads(Path(poses).read_text())['samples'] if poses else None
+        if S and len(S[0]['world']) != len(bones):
+            s['check']['posed_ps2_to_gc_surface_mm'] = f'skipped: the pose file has {len(S[0]["world"])} bones, the model {len(bones)}'
+        elif S:
+            worst = []
+            for k, smp in enumerate(S[::4]):
+                mats = np.asarray(smp['world']) @ np.linalg.inv(rest)
+                pp = skin(pv, ws, mats)
+                gp = skin(gm['positions'], gm['weights'], mats)
+                dk, _ = surface_distance(pp, gp, gm['triangles'], cand)
+                worst.append((float(np.percentile(dk, 95)), float(dk.max())))
+            s['check']['posed_ps2_to_gc_surface_mm'] = dict(poses=len(worst), source=str(poses),
+                                                          p95_max=max(w[0] for w in worst), max=max(w[1] for w in worst),
+                                                          p95_median=float(np.median([w[0] for w in worst])))
+    val['sections'] = [s['check'] for s in sections]
+    # pack (the cast's packer, unchanged) + host fixture
+    pk = load_module('pack_coarse_actor', PROTO / 'tools/pack_coarse_actor.py')
+    native = out / 'native'
+    if native.exists():
+        shutil.rmtree(native)
+    pk.pack(mp, sp, native, 'castmodel')
+    host_fixture(native, source)
+    report = json.loads((native / 'native-report.json').read_text())
+    val['native'] = {k: v for k, v in report.items() if k != 'chunks'}
+    val['native']['chunks'] = [{k: v for k, v in c.items() if k != 'palette_weights'} for c in report['chunks']]
+    # cast layout files (GC signatures; texture key from the atlas identity)
+    binds = []
+    for s in sections:
+        binds.append(dict(bin=s['arc'], tpl=spec['tpl'], role=s['role'], **gc_signature(s['gbin']),
+                          binding_scope='GC source array signature (the loaded model the PS2 mesh replaces)'))
+    (out / 'source-bindings.json').write_text(json.dumps(binds, indent=2))
+    key = texture_key(out / 'atlas.png')
+    val['texture'].update(key=key)
+    (out / 'validation.json').write_text(json.dumps(val, indent=1))
+    print(json.dumps(dict(preset=preset, triangles=report['triangles'], winding_flipped=val['winding_flipped'], key=key,
+                          sections=[{k: s[k] for k in ('role', 'ps2_triangles', 'gc_triangles', 'ps2_palettes', 'gc_palettes',
+                                                       'rest_ps2_to_gc_surface_mm', 'rest_gc_to_ps2_surface_mm',
+                                                       'posed_ps2_to_gc_surface_mm', 'normal_angle_vs_gc_deg_at_shared_positions',
+                                                       'gc_winding_agreement', 'ps2_winding_agreement_as_read') if k in s}
+                                    for s in val['sections']]), indent=1))
+
+
+def pack_atlas(items):
+    """Guillotine packing of power-of-two images (k, w, h) into the smallest power-of-two atlas (square or 2:1
+    wide) that holds them, largest first, deterministic. -> ({k: (x, y, w, h)}, (atlas w, atlas h))."""
+    area = sum(w * h for _, w, h in items)
+    side = max(max(w for _, w, _ in items), max(h for _, _, h in items))
+    cands = []
+    s = side
+    while s <= 2048:
+        cands += [(s, s), (2 * s, s)]
+        s *= 2
+    for aw, ah in sorted(set(cands), key=lambda c: (c[0] * c[1], c[0])):
+        if aw * ah < area or aw > 2048:
+            continue
+        free, out, ok = [(0, 0, aw, ah)], {}, True
+        for k, w, h in sorted(items, key=lambda t: (-t[1] * t[2], -t[1], t[0])):
+            fit = [f for f in free if f[2] >= w and f[3] >= h]
+            if not fit:
+                ok = False
+                break
+            f = min(fit, key=lambda f: (f[2] * f[3], f[1], f[0]))
+            free.remove(f)
+            out[k] = (f[0], f[1], w, h)
+            if f[2] > w:
+                free.append((f[0] + w, f[1], f[2] - w, h))
+            if f[3] > h:
+                free.append((f[0], f[1] + h, f[2], f[3] - h))
+        if ok:
+            return out, (aw, ah)
+    raise ValueError('atlas does not fit 2048')
+
+
+def host_fixture(n, source):
+    """prepare_dynamic_native_check.py's host-fixture.bin (the cast agent's check-dynamic input)."""
+    rest = np.asarray([b['rest'] for b in source['bones']]); cap = np.asarray([b['capture'] for b in source['bones']])
+    sk = cap @ np.linalg.inv(rest); sk[:, :3, 3] += rest[0, :3, 3] - cap[0, :3, 3]
+    r = json.loads((n / 'native-report.json').read_text())
+    buf = bytearray(struct.pack('<I', len(r['chunks'])))
+    for c in r['chunks']:
+        i = c['info']
+        parts = [(n / f'info{i}.{ext}').read_bytes() for ext in ['pos', 'nrm', 'uv', 'gx']]
+        poses = np.asarray([sum(w * sk[b] for b, w in ws)[:3, :4].T.flatten() for ws in c['palette_weights']], dtype='<f4').tobytes()
+        buf.extend(struct.pack('<10I', i, c['positions'], c['normals'], c['palettes'], c['triangles'], *[len(x) for x in parts], len(poses)))
+        for p in parts + [poses]:
+            buf.extend(p)
+    (n / 'host-fixture.bin').write_bytes(buf)
+
+
+def texture_key(png):
+    """package_coarse_texture.py's identity: CRC32 / FNV-1a of the image as GX RGBA8 (format 6) tiles."""
+    image = Image.open(png).convert('RGBA'); w, h = image.size
+    px = np.asarray(image, dtype=np.uint8)
+    enc = bytearray()
+    for y in range(0, h, 4):
+        for x in range(0, w, 4):
+            blk = px[y:y + 4, x:x + 4].reshape(16, 4)
+            enc.extend(bytes(np.stack([blk[:, 3], blk[:, 0]], 1).reshape(-1)))
+            enc.extend(bytes(np.stack([blk[:, 1], blk[:, 2]], 1).reshape(-1)))
+    ident = struct.pack('<5I', w, h, 6, 0xffffffff, 0) + bytes(enc)
+    crc = zlib.crc32(ident) & 0xffffffff
+    fnv = 2166136261
+    for b in ident:
+        fnv = ((fnv ^ b) * 16777619) & 0xffffffff
+    return f'{crc:08x}-{fnv:08x}'
+
+
+# ------------------------------------------------------------------------------------------ finish / castdir
+
+
+def blob_stats(header):
+    cb = load_module('cast_bundle', os.environ.get('RE4_CAST_BUNDLE', '//wsl.localhost/Ubuntu-24.04/root/probe/d367-agents/coarse-actors-4k/tools/cast_bundle.py'))
+    # cast_bundle.py is fixed at the Ganado's 34 bones; the stats themselves are bone-count independent
+    cb.BONES = int(re.search(r'bone_count=(\d+);', Path(header).read_text()).group(1))
+    chunks, arrays, weights, blobs = cb.parse_header(str(header), 0)
+    return cb.blob_stats(blobs, arrays, chunks), cb.skin_stream_bytes(weights, [c[3] for c in chunks], str(header))
+
+
+def finish(out):
+    """after ps2_cast_native.sh: manifest.json with the runtime header's counts (cast manifest keys)."""
+    val = json.loads((out / 'validation.json').read_text())
+    hdr = out / 'runtime' / 'castmodel_runtime.h'
+    s, skin_bytes = blob_stats(hdr)
+    tex = json.loads((out / 'texture' / 'package.json').read_text())
+    preset = val['preset']
+    spec = PRESETS[preset]
+    level = dict(runtime_header='runtime/castmodel_runtime.h', header_sha256=sha(hdr.read_bytes()), triangles=s['triangles'],
+                 transformed_records=s['records'], records_per_triangle=s['records'] / s['triangles'],
+                 strip_vertices=s['corners'], strip_vertices_per_triangle=s['corners'] / s['triangles'], palettes=s['palettes'],
+                 palette_runs=s['palette_runs'], meshlets=s['meshlets'], skin_stream_bytes=skin_bytes)
+    man = dict(name=preset, revision='ps2-v1', source=dict(name=preset, archive=spec['archive'], rooms=spec['rooms'], types=spec['types'],
+               sections=[dict(bin=a, tpl=spec['tpl'], role=r) for a, r in spec['sections']]),
+               status='PS2 conversion; needs user look review', bones=34, sections=4,
+               source_palette_sum=sum(x['gc_palettes'] for x in val['sections']),
+               ps2_palette_sum=sum(x['ps2_palettes'] for x in val['sections']),
+               levels=dict(conservative=level, lean=level),
+               texture_package=dict(package='texture/' + tex['key'] + '.re4tex', package_sha256=tex['package_sha256'], key=tex['key'],
+                                    width=tex['width'], height=tex['height'], format=tex['format'], vram_bytes=tex['vram_bytes']))
+    (out / 'manifest.json').write_text(json.dumps(man, indent=1))
+    print(json.dumps(level, indent=1))
+
+
+def castdir(cast, outs, hand_arcs=range(0x1c0, 0x1c9)):
+    """A cast dir for cast_bundle.py: <cast>/<name>/{manifest,source-bindings,source}.json + header + texture,
+    source/candidate-revisions.json, and em<archive>-hand-<i>/source-bindings.json (GC hand-pose signatures)."""
+    cast.mkdir(parents=True, exist_ok=True)
+    (cast / 'source').mkdir(exist_ok=True)
+    revs = {}
+    archives = set()
+    for o in outs:
+        man = json.loads((o / 'manifest.json').read_text())
+        name = man['name']
+        d = cast / name
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir()
+        for f in ('source-bindings.json', 'validation.json'):
+            shutil.copy2(o / f, d / f)
+        # cast_bundle.py resolves manifest paths against the cast root
+        m2 = json.loads(json.dumps(man))
+        for L in m2['levels'].values():
+            L['runtime_header'] = f'{name}/{L["runtime_header"]}'
+        m2['texture_package']['package'] = f'{name}/{man["texture_package"]["package"]}'
+        (d / 'manifest.json').write_text(json.dumps(m2, indent=1))
+        src = json.loads((o / 'source.json').read_text())
+        (d / 'source.json').write_text(json.dumps(dict(src, bones=[dict(b) for b in src['bones']])))
+        (d / 'runtime').mkdir()
+        shutil.copy2(o / 'runtime' / 'castmodel_runtime.h', d / 'runtime' / 'castmodel_runtime.h')
+        (d / 'texture').mkdir()
+        shutil.copy2(o / man['texture_package']['package'], d / man['texture_package']['package'])
+        revs[name] = dict(revision=man['revision'], reason='PS2 conversion (ps2_cast.py)')
+        archives.add((man['source']['archive'], o))
+    (cast / 'source' / 'candidate-revisions.json').write_text(json.dumps(revs, indent=1))
+    for archive, o in sorted(archives):
+        gin = json.loads((o / 'validation.json').read_text())['inputs']['gc']
+        gd = Path(gin['cache']).read_bytes()
+        assert sha(gd) == gin['sha256'], 'GC archive cache changed'
+        gc = drs.Drs(gd)
+        for i, arc in enumerate(hand_arcs):
+            d = cast / f'{archive}-hand-{i}'
+            d.mkdir(exist_ok=True)
+            b = gc_entry(gc, arc, 'BIN')
+            (d / 'source-bindings.json').write_text(json.dumps([dict(bin=arc, role='hand-pose', **gc_signature(b))], indent=1))
+    print('cast dir', cast, sorted(revs))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sp = ap.add_subparsers(dest='cmd', required=True)
+    c = sp.add_parser('convert'); c.add_argument('preset', choices=sorted(PRESETS)); c.add_argument('out', type=Path)
+    c.add_argument('--ps2-iso', default=PS2_ISO); c.add_argument('--gc-iso', default=GC_ISO); c.add_argument('--poses')
+    f = sp.add_parser('finish'); f.add_argument('out', type=Path)
+    d = sp.add_parser('castdir'); d.add_argument('cast', type=Path); d.add_argument('outs', type=Path, nargs='+')
+    sp.add_parser('list')
+    a = ap.parse_args()
+    if a.cmd == 'convert':
+        convert(a.preset, a.out, a.ps2_iso, a.gc_iso, a.poses)
+    elif a.cmd == 'finish':
+        finish(a.out)
+    elif a.cmd == 'castdir':
+        castdir(a.cast, a.outs)
+    else:
+        for k, v in sorted(PRESETS.items()):
+            print(k, v['archive'], [(hex(x), r) for x, r in v['sections']], 'tpl', hex(v['tpl']), v['rooms'])
+
+
+if __name__ == '__main__':
+    main()
