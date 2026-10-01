@@ -208,7 +208,8 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
 // source callback never draws it) with no record: both of its OT passes return "handled" without a submission. Its
 // simulation, skeleton and collision ran before and are untouched.
 //   reason 1: CROWD_CULL, every visible chunk provably off-screen (re4dc_crowd_offscreen, the cast pregate balls)
-//   reason 2: CROWD_DRAW_M, farther than D metres; reason 3: CROWD_DRAW_MAX, beyond the N nearest.
+//   reason 2: CROWD_DRAW_M, farther than D metres; reason 3: CROWD_DRAW_MAX, beyond the N nearest;
+//   reason 4: CROWD_FOGSKIP, root beyond the fogged View far + 2.5 m.
 extern "C" int re4dc_crowd_offscreen(cModel*);  // coarse_actor_owner_ganado.inc
 #if RE4DC_CROWD_OUTPUT
 extern "C" unsigned re4dc_model_output_count();  // native_ui.cpp, census / cull-check builds only
@@ -244,7 +245,7 @@ CrowdSeen crowd_prev[kCrowdSkips],crowd_cur[kCrowdSkips];
 unsigned crowd_prev_n,crowd_cur_n;
 #endif
 #if RE4DC_CROWD_CENSUS
-struct CrowdCensus { unsigned frame,game,seen,admitted,skip[4],drawn,empty,band[4],tris,cullcheck; } crowd_cc;
+struct CrowdCensus { unsigned frame,game,seen,admitted,skip[5],drawn,empty,band[4],tris,cullcheck; } crowd_cc;
 #endif
 #if RE4DC_CROWD_CULL == 2
 unsigned crowd_chk_would,crowd_chk_violations,crowd_chk_tris,crowd_chk_log;
@@ -300,6 +301,14 @@ unsigned crowd_policy(cModel* m) {
     crowd_depth=depth;crowd_fog=re4dc_fog_gate_far();crowd_why=2;
     if(re4dc_crowd_offscreen(m))return 1;
     crowd_why=0;
+#endif
+#if RE4DC_CROWD_FOGSKIP
+    // Reason 4, CROWD_FOGSKIP (look change, the user's call): the root lies more than 2.5 m beyond the fogged View far
+    // (the GC clips there; the actor path's own gate bound still emits some of these Ganados fully fogged).
+    {
+        const float fog=re4dc_fog_gate_far();
+        if(fog>0.0f && depth-2500.0f>fog)return 4;
+    }
 #endif
 #if RE4DC_CROWD_DRAW_M > 0
     if(d>float(RE4DC_CROWD_DRAW_M)*1000.0f)return 2;

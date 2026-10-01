@@ -260,7 +260,8 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
         // set up before its archive was adopted) is proved again here with the load-time proof
         // (re4dc_actor_info_adopt: current asset sections, the reviewed TPL owner and row). Nothing is assumed:
         // an info that fails the proof stays unadopted and its actor keeps the source path.
-        if(!i){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
+        // =1: Ganados only (Leon keeps whichever path he has today); =2: Ganados and Leon (appearance 256).
+        if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
 #endif
         if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;

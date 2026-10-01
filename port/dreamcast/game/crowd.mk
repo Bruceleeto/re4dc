@@ -17,6 +17,9 @@
 # CROWD_DRAW_M=D (look change, user's call; 0 = off): Ganados farther than D metres from the camera are not drawn.
 # CROWD_READOPT=1 (fix; look change vs today's play build): a Ganado info with no live material-lifetime record is
 #              proved again (the load-time proof) when its actor plans, so it stops falling back to the source path.
+#              =1 Ganados only; =2 Ganados and Leon (Leon then also leaves the lit source path for the flat owner path).
+# CROWD_FOGSKIP=1 (look change, user's call): a Ganado whose root is more than 2.5 m beyond the fogged View far
+#              (where the GC clips) is not drawn; the actor path otherwise emits some of them fully fogged.
 # CROWD_FAR_M=D (look change, user's call; 0 = off): a Ganado farther than D metres draws the far tier (the external
 #              cast's lighter v4-fit level, ganado_far_runtime.h in the asset dir: tools/d367/crowd/far_header.py).
 # CROWD_NEAR_MAX=N (look change, user's call; -1 = off): only the N nearest Ganados (previous frame's distances among
@@ -33,9 +36,10 @@ CROWD_FREEZE_AT ?= 0
 CROWD_FREEZE_AT2 ?= 0
 CROWD_FREEZE_HOLD ?= 0
 CROWD_READOPT ?= 0
+CROWD_FOGSKIP ?= 0
 CROWD_FAR_M ?= 0
 CROWD_NEAR_MAX ?= -1
-CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M) $(CROWD_FREEZE_AT) $(CROWD_READOPT) $(CROWD_FAR_M)) $(filter-out -1,$(CROWD_DRAW_MAX) $(CROWD_NEAR_MAX))
+CROWD_KNOBS := $(filter-out 0,$(CROWD_CULL) $(CROWD_CENSUS) $(CROWD_DRAW_M) $(CROWD_FREEZE_AT) $(CROWD_READOPT) $(CROWD_FOGSKIP) $(CROWD_FAR_M)) $(filter-out -1,$(CROWD_DRAW_MAX) $(CROWD_NEAR_MAX))
 ifneq ($(strip $(CROWD_KNOBS)),)
 ifneq ($(ACTOR_TRANSACTION),1)
 $(error CROWD_* knobs act on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
@@ -48,7 +52,7 @@ $(error CROWD_CULL must be 0, 1 or 2)
 endif
 CROWD_DEFS := -DRE4DC_CROWD_CULL=$(CROWD_CULL) -DRE4DC_CROWD_CENSUS=$(CROWD_CENSUS) \
   -DRE4DC_CROWD_CENSUS_FROM=$(CROWD_CENSUS_FROM) -DRE4DC_CROWD_CENSUS_TO=$(CROWD_CENSUS_TO) \
-  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_FREEZE_AT2=$(CROWD_FREEZE_AT2) -DRE4DC_CROWD_FREEZE_HOLD=$(CROWD_FREEZE_HOLD) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD=1 \
+  -DRE4DC_CROWD_DRAW_MAX=$(CROWD_DRAW_MAX) -DRE4DC_CROWD_DRAW_M=$(CROWD_DRAW_M) -DRE4DC_CROWD_FREEZE_AT=$(CROWD_FREEZE_AT) -DRE4DC_CROWD_FREEZE_AT2=$(CROWD_FREEZE_AT2) -DRE4DC_CROWD_FREEZE_HOLD=$(CROWD_FREEZE_HOLD) -DRE4DC_CROWD_READOPT=$(CROWD_READOPT) -DRE4DC_CROWD_FOGSKIP=$(CROWD_FOGSKIP) -DRE4DC_CROWD=1 \
   -DRE4DC_CROWD_FAR_M=$(CROWD_FAR_M) -DRE4DC_CROWD_NEAR_MAX=$(CROWD_NEAR_MAX)
 ifneq ($(filter-out 0,$(CROWD_FAR_M))$(filter-out -1,$(CROWD_NEAR_MAX)),)
 CROWD_DEFS += -DRE4DC_CROWD_FAR=1
