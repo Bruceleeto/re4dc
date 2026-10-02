@@ -53,8 +53,11 @@ MODULES = st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 
 # image holds one em10.cpp (-254 KB of image = +254 KB of heap 4). Both keep their REL ids and
 # entry points and share one state span (a fresh link restores it); only one Ganado REL may be
 # live at a time, which holds on the r100 -> r101 -> r103 route (platform/modules.cpp logs it).
+# em13 (r104's chapter 1-2 Ganados, route lane 2026-10-01) joins the group: alone it carried a
+# second em10.cpp (264,538 B of text = 266 KB of heap 4 in every room); r104 loads em13 only.
 EM10_SHARED ?= 0
-MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out em12 em15,$(MODULES)) em10g=em12+em15,$(MODULES))
+EM10_GROUP = $(filter em12 em15 em13,$(MODULES))
+MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out $(EM10_GROUP),$(MODULES)) em10g=$(subst $(eval) ,+,$(strip $(EM10_GROUP))),$(MODULES))
 MODULE_OBJS =
 MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))

@@ -180,14 +180,15 @@ def main():
             # (leonModelInit, numDisp, quit__9ssDbgPzzl) bind to their SH-4
             # definitions here, as tools/link.sh does for the image: once the
             # module's symbols are local the image link can no longer see them.
-            *([
-                "\t@sh-elf-nm $@.tmp | grep -E ' [TDBWRV] ' | awk '{print $$3}' | sort -u > $@.def",
-                "\t@sh-elf-c++filt < $@.def | paste $@.def - > $@.pairs",
-                "\t@sh-elf-nm $@.tmp | grep -E ' U ' | awk '{print $$2}' | sort -u | comm -23 - $@.def > $@.undef",
-                "\t@python3 tools/gen_aliases.py $@.undef $@.pairs $@.aliases.ld",
-                "\t@if [ -s $@.aliases.ld ]; then sh-elf-ld -r -EL -o $@.tmp2 $@.tmp $@.aliases.ld && mv $@.tmp2 $@.tmp; fi",
-                "\t@rm -f $@.def $@.pairs $@.undef",
-            ] if per_link else []),
+            # Every module (route lane 2026-10-01): stage modules too, e.g. r104's
+            # setPtr__7cEmWrapsSci / setEm__7cEmWrapsSciii bind to the module's own
+            # src/st/em_wrap.cpp instead of the image's halting stubs.
+            "\t@sh-elf-nm $@.tmp | grep -E ' [TDBWRV] ' | awk '{print $$3}' | sort -u > $@.def",
+            "\t@sh-elf-c++filt < $@.def | paste $@.def - > $@.pairs",
+            "\t@sh-elf-nm $@.tmp | grep -E ' U ' | awk '{print $$2}' | sort -u | comm -23 - $@.def > $@.undef",
+            "\t@python3 tools/gen_aliases.py $@.undef $@.pairs $@.aliases.ld",
+            "\t@if [ -s $@.aliases.ld ]; then sh-elf-ld -r -EL -o $@.tmp2 $@.tmp $@.aliases.ld && mv $@.tmp2 $@.tmp; fi",
+            "\t@rm -f $@.def $@.pairs $@.undef",
             *([
                 "\t@if sh-elf-nm $@.tmp | awk '$$1 == \"U\" && $$2 == \"_atexit\" {f=1} END {exit !f}'; then "
                 "echo '%s: static destructors registered with atexit' >&2; rm -f $@.tmp; exit 1; fi" % mod,
