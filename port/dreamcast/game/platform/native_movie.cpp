@@ -94,6 +94,7 @@ struct Movie {
     unsigned shown=0,dropped=0,late=0,cadence2=0,cadence_other=0,max_gap=0,last_submit=0,v0=0;
     unsigned long long sum_present=0,max_present=0,sum_idle=0,starve_since=0;
     unsigned starved=0;
+    unsigned k=0,held=0,mask=0; bool armed=false,held_end=false; plm_frame_t* pending=nullptr;  // loop state (start/iterate)
     bool full=false,hw=false; void* tex=nullptr; unsigned yuv_timeouts=0;
 #if RE4DC_ROUTE_MOVIE_DIAG
     const char* why=nullptr; unsigned reads=0,iter=0; unsigned long long read_us=0;
@@ -172,7 +173,8 @@ bool feed(){
     return true;
 }
 void path_for(unsigned id,char* out,unsigned size){
-    snprintf(out,size,"/cd/dc/movie/r%03xs%02x.seq",(id>>8)&0xfff,id&0xff);
+    // Bit 24 (RE4DC_MOVIE_CANCEL_CLIP): the PS2 clip of the event's cancel cut, rRRRsEEc (r104s00c).
+    snprintf(out,size,"/cd/dc/movie/r%03xs%02x%s.seq",(id>>8)&0xfff,id&0xff,(id&0x1000000)?"c":"");
 }
 bool header(file_t f,unsigned* video,unsigned* audio_bytes,unsigned* frames,unsigned* width=nullptr,unsigned* height=nullptr,bool* full=nullptr){
     unsigned char h[32];
@@ -367,15 +369,17 @@ plm_frame_t* decode_next(){
     return f;
 }
 // Upload picture `index` and submit it one field before its flip vblank.
-bool show(plm_frame_t* f,unsigned index,unsigned now,RouteMoviePictureTick tick){
+bool show(plm_frame_t* f,unsigned index,unsigned now,RouteMoviePictureTick tick,bool present){
     if(!re4dc_ui_movie_upload_begin())return false;
     if(!m.hw)convert_upload(f);else if(!yuv_upload(f))return false;
 #if RE4DC_ROUTE_MOVIE_TEXHASH
     if(m.tex)texhash(index);
 #endif
-    auto t=timer_us_gettime64();
-    if(!re4dc_ui_movie_present_now())return false;
-    auto dt=timer_us_gettime64()-t;m.sum_present+=dt;if(dt>m.max_present)m.max_present=dt;
+    if(present){  // stepped pictures are drawn by the caller's frame (re4dc_ui_movie_background)
+        auto t=timer_us_gettime64();
+        if(!re4dc_ui_movie_present_now())return false;
+        auto dt=timer_us_gettime64()-t;m.sum_present+=dt;if(dt>m.max_present)m.max_present=dt;
+    }
     if(m.shown){const unsigned gap=now-m.last_submit;if(gap==2)++m.cadence2;else ++m.cadence_other;if(gap>m.max_gap)m.max_gap=gap;}
     m.last_submit=now;++m.shown;
     // A presented picture is a presented frame for the source hang detector: without this, a
@@ -396,82 +400,144 @@ extern "C" unsigned re4dc_movie_picture(){return m.shown?m.shown-1:0;}
 // every picture held exactly two fields. Decode of k+1 overlaps the display
 // of k; a picture two fields late is dropped (never shown late) so audio and
 // picture stay on one clock.
-extern "C" int re4dc_movie_play(unsigned id,unsigned mask,RouteMoviePictureTick tick){
+namespace {
+// Opens the movie and primes audio + picture 0; the picture clock starts here.
+int start(unsigned id,unsigned mask){
     if(!open(id)){
         const bool missing=m.file<0;
         int st=finish(RE4DC_MOVIE_ERROR);
         if(missing){re4dc_log("route movie id=%05x: no media, source presentation applies\n",id);return RE4DC_MOVIE_UNHANDLED;}
         return st;
     }
-    unsigned held=re4dc_pad_movie_buttons();
-    bool armed=!(held&mask);
+    m.mask=mask;m.held=re4dc_pad_movie_buttons();
+    m.armed=!(m.held&mask);
     // Prime: PCM for the AICA ring and picture 0, before the clock starts.
     while(m.pcm_used<AudioStart&&m.audio_left)if(!feed()||m.failed)return finish(RE4DC_MOVIE_ERROR);
-    plm_frame_t* pending=decode_next();
-    if(!pending||!feed())return finish(RE4DC_MOVIE_ERROR);
+    m.pending=decode_next();
+    if(!m.pending||!feed())return finish(RE4DC_MOVIE_ERROR);
     m.start=timer_us_gettime64();snd_stream_start(m.stream,32000,1);m.started=true;
     m.v0=re4dc_vi_retrace_count()+1;
-    unsigned k=0;
-    for(;;){
-        const unsigned b=re4dc_pad_movie_buttons(),pressed=b&~held;held=b;
-        if(!(b&mask))armed=true;
-        if(armed&&(pressed&mask)){
-            re4dc_pad_consume_movie_skip(pressed&mask);
-            re4dc_log("route movie skip: id=%05x mask=%x picture=%u elapsed_us=%llu\n",m.id,pressed&mask,k,timer_us_gettime64()-m.entered);
+    m.k=0;
+    return RE4DC_MOVIE_RUNNING;
+}
+// One pass of the player: skip key, feed, audio poll, the due picture, the next decode.
+// Movie-owned (stepped=false): presents the picture as its own scene and waits (bounded) for
+// the next field. Stepped (re4dc_movie_step, the caller's game frames run): uploads only, the
+// frame draws the picture behind its UI (re4dc_ui_movie_background); no skip key (the source
+// event's cancel cut is not cancellable); the end holds the last picture until re4dc_movie_end.
+int iterate(RouteMoviePictureTick tick,bool stepped){
+    if(!stepped){
+        const unsigned b=re4dc_pad_movie_buttons(),pressed=b&~m.held;m.held=b;
+        if(!(b&m.mask))m.armed=true;
+        if(m.armed&&(pressed&m.mask)){
+            re4dc_pad_consume_movie_skip(pressed&m.mask);
+            re4dc_log("route movie skip: id=%05x mask=%x picture=%u elapsed_us=%llu\n",m.id,pressed&m.mask,m.k,timer_us_gettime64()-m.entered);
             return finish(RE4DC_MOVIE_SKIP);
         }
+    }
 #if RE4DC_ROUTE_MOVIE_DIAG
-        const unsigned long long d0=timer_us_gettime64();const unsigned r0=m.reads;const unsigned long long ru0=m.read_us;
+    const unsigned long long d0=timer_us_gettime64();const unsigned r0=m.reads;const unsigned long long ru0=m.read_us;
 #endif
-        if(!feed()){MOVIE_WHY(m.why?m.why:"feed");return finish(RE4DC_MOVIE_ERROR);}
-        if(poll_audio()<0){MOVIE_WHY("poll_audio");return finish(RE4DC_MOVIE_ERROR);}
-        if(m.failed){MOVIE_WHY("audio_failed");return finish(RE4DC_MOVIE_ERROR);}
-        const unsigned now=re4dc_vi_retrace_count(),due=m.v0+2*k;
+    if(!feed()){MOVIE_WHY(m.why?m.why:"feed");return finish(RE4DC_MOVIE_ERROR);}
+    if(poll_audio()<0){MOVIE_WHY("poll_audio");return finish(RE4DC_MOVIE_ERROR);}
+    if(m.failed){MOVIE_WHY("audio_failed");return finish(RE4DC_MOVIE_ERROR);}
+    const unsigned now=re4dc_vi_retrace_count(),due=m.v0+2*m.k;
 #if RE4DC_ROUTE_MOVIE_DIAG
-        {const unsigned long long fu=timer_us_gettime64()-d0;++m.iter;
-         if(m.iter<=24||fu>50000)re4dc_log("route movie diag: iter=%u k=%u now=%u due=%u frames=%u pending=%d feed_us=%llu reads=%u read_us=%llu pcm=%u" "\n",
-             m.iter,k,now,due,m.frames,pending?1:0,fu,m.reads-r0,m.read_us-ru0,m.pcm_used);}
+    {const unsigned long long fu=timer_us_gettime64()-d0;++m.iter;
+     if(m.iter<=24||fu>50000)re4dc_log("route movie diag: iter=%u k=%u now=%u due=%u frames=%u pending=%d feed_us=%llu reads=%u read_us=%llu pcm=%u" "\n",
+         m.iter,m.k,now,due,m.frames,m.pending?1:0,fu,m.reads-r0,m.read_us-ru0,m.pcm_used);}
 #endif
-        if(pending&&now+1>=due){
-            if(now>=due+2&&m.frames<m.expected_frames){++m.dropped;pending=nullptr;++k;}
-            else{
-                if(now>due)++m.late;
-                if(!show(pending,k,now,tick)){MOVIE_WHY("show");return finish(RE4DC_MOVIE_ERROR);}
-                pending=nullptr;++k;
-            }
-        }
-        if(!pending&&m.frames<m.expected_frames&&!m.starve_since){
-#if RE4DC_ROUTE_MOVIE_DIAG
-            const unsigned long long c0=timer_us_gettime64();
-#endif
-            pending=decode_next();
-#if RE4DC_ROUTE_MOVIE_DIAG
-            if(m.iter<=24||timer_us_gettime64()-c0>50000)re4dc_log("route movie diag: decode k=%u us=%llu ok=%d" "\n",k,timer_us_gettime64()-c0,pending?1:0);
-#endif
-            if(pending){m.starve_since=0;continue;}
-            // The input ran dry. A slow read (a GD seek after the game's own reads, ~190 ms)
-            // starts the picture clock late; the loop catches up by dropping pictures, which
-            // uses video faster than the audio-paced feed refills it (one record per picture).
-            // plm_video_decode returns NULL until the next picture is complete: wait for the
-            // next record. Ended input or 2 s without a picture is still an error.
-            if(!m.video_left){MOVIE_WHY("decode");return finish(RE4DC_MOVIE_ERROR);}
-            const unsigned long long t=timer_us_gettime64();
-            if(!m.starve_since){m.starve_since=t;++m.starved;}
-            else if(t-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
-            continue;
-        }
-        if(!pending&&!m.audio_left&&!m.pcm_used&&m.samples>=m.last_real_sample+4096&&now>=m.v0+2*k)
-            return finish(RE4DC_MOVIE_EOF);
-        if(timer_us_gettime64()-m.start>m.duration_us+10000000ULL){MOVIE_WHY("stalled");return finish(RE4DC_MOVIE_ERROR);} // stalled media
-        auto t=timer_us_gettime64();
-        while(re4dc_vi_retrace_count()==now&&timer_us_gettime64()-t<2000){} // ahead: wait (bounded) for the next field
-        m.sum_idle+=timer_us_gettime64()-t;
-        if(m.starve_since&&!pending&&m.frames<m.expected_frames){
-            pending=decode_next();
-            if(pending)m.starve_since=0;
-            else if(timer_us_gettime64()-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
+    if(m.pending&&now+1>=due){
+        if(now>=due+2&&m.frames<m.expected_frames){++m.dropped;m.pending=nullptr;++m.k;}
+        else{
+            if(now>due)++m.late;
+            if(!show(m.pending,m.k,now,tick,!stepped)){MOVIE_WHY("show");return finish(RE4DC_MOVIE_ERROR);}
+            m.pending=nullptr;++m.k;
         }
     }
+    if(!m.pending&&m.frames<m.expected_frames&&!m.starve_since){
+#if RE4DC_ROUTE_MOVIE_DIAG
+        const unsigned long long c0=timer_us_gettime64();
+#endif
+        m.pending=decode_next();
+#if RE4DC_ROUTE_MOVIE_DIAG
+        if(m.iter<=24||timer_us_gettime64()-c0>50000)re4dc_log("route movie diag: decode k=%u us=%llu ok=%d" "\n",m.k,timer_us_gettime64()-c0,m.pending?1:0);
+#endif
+        if(m.pending){m.starve_since=0;return RE4DC_MOVIE_RUNNING;}
+        // The input ran dry. A slow read (a GD seek after the game's own reads, ~190 ms)
+        // starts the picture clock late; the loop catches up by dropping pictures, which
+        // uses video faster than the audio-paced feed refills it (one record per picture).
+        // plm_video_decode returns NULL until the next picture is complete: wait for the
+        // next record. Ended input or 2 s without a picture is still an error.
+        if(!m.video_left){MOVIE_WHY("decode");return finish(RE4DC_MOVIE_ERROR);}
+        const unsigned long long t=timer_us_gettime64();
+        if(!m.starve_since){m.starve_since=t;++m.starved;}
+        else if(t-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
+        return RE4DC_MOVIE_RUNNING;
+    }
+    if(!m.pending&&!m.audio_left&&!m.pcm_used&&m.samples>=m.last_real_sample+4096&&now>=m.v0+2*m.k){
+        if(stepped){m.held_end=true;return RE4DC_MOVIE_EOF;}  // last picture held until re4dc_movie_end
+        return finish(RE4DC_MOVIE_EOF);
+    }
+    if(timer_us_gettime64()-m.start>m.duration_us+10000000ULL){MOVIE_WHY("stalled");return finish(RE4DC_MOVIE_ERROR);} // stalled media
+    if(stepped)return RE4DC_MOVIE_RUNNING;
+    auto t=timer_us_gettime64();
+    while(re4dc_vi_retrace_count()==now&&timer_us_gettime64()-t<2000){} // ahead: wait (bounded) for the next field
+    m.sum_idle+=timer_us_gettime64()-t;
+    if(m.starve_since&&!m.pending&&m.frames<m.expected_frames){
+        m.pending=decode_next();
+        if(m.pending)m.starve_since=0;
+        else if(timer_us_gettime64()-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
+    }
+    return RE4DC_MOVIE_RUNNING;
+}
+}
+// Movie-owned presentation: the caller's game frame is not run while the
+// picture plays (the world is hidden; the caller is a source task that simply
+// does not sleep). Picture k flips at vblank v0 + 2k: 29.97 fps on NTSC,
+// every picture held exactly two fields. Decode of k+1 overlaps the display
+// of k; a picture two fields late is dropped (never shown late) so audio and
+// picture stay on one clock.
+extern "C" int re4dc_movie_play(unsigned id,unsigned mask,RouteMoviePictureTick tick){
+    return re4dc_movie_play_until(id,mask,tick,~0u);
+}
+// As re4dc_movie_play up to picture `stop_at` (not shown): RE4DC_MOVIE_RUNNING leaves the
+// movie open, its sound playing, for re4dc_movie_step / re4dc_movie_end (route lane: r104s00's
+// QTE cut runs as game frames over the rest of the movie, the PS2 pattern).
+extern "C" int re4dc_movie_play_until(unsigned id,unsigned mask,RouteMoviePictureTick tick,unsigned stop_at){
+    int st=start(id,mask);
+    while(st==RE4DC_MOVIE_RUNNING){
+        if(m.k>=stop_at){
+            re4dc_log("route movie handoff: id=%05x picture=%u (game frames continue it)\n",m.id,m.k);
+            return RE4DC_MOVIE_RUNNING;
+        }
+        st=iterate(tick,false);
+    }
+    return st;
+}
+// Opens a movie for re4dc_movie_step only (no movie-owned pictures): r104s00c, the QTE cut
+// the source plays after a skip.
+extern "C" int re4dc_movie_play_stepped(unsigned id){
+    return re4dc_movie_play_until(id,0,nullptr,0);
+}
+// Once per game frame of the caller: feeds the open movie and uploads its due picture.
+// RUNNING while pictures remain, EOF once the last one is up (held), else the terminal.
+extern "C" int re4dc_movie_step(RouteMoviePictureTick tick){
+    if(!m.entered)return m.terminal?m.terminal:RE4DC_MOVIE_ERROR;
+    if(m.held_end)return RE4DC_MOVIE_EOF;
+    int st=RE4DC_MOVIE_RUNNING;
+    // Up to four passes: the due picture (dropping late ones) and the next decode.
+    for(unsigned i=0;i<4&&st==RE4DC_MOVIE_RUNNING;++i){
+        const unsigned k=m.k;
+        st=iterate(tick,true);
+        if(st==RE4DC_MOVIE_RUNNING&&m.k==k&&m.pending)break;  // nothing due yet
+    }
+    return st;
+}
+// Retires an open (handed-off or stepped) movie.
+extern "C" int re4dc_movie_end(void){
+    if(!m.entered)return m.terminal?m.terminal:RE4DC_MOVIE_ERROR;
+    return finish(m.held_end?RE4DC_MOVIE_EOF:RE4DC_MOVIE_CANCEL);
 }
 extern "C" int re4dc_movie_cancel(){return m.entered?finish(RE4DC_MOVIE_CANCEL):RE4DC_MOVIE_CANCEL;}
 #else
@@ -479,4 +545,8 @@ extern "C" int re4dc_movie_available(unsigned){return 0;}
 extern "C" unsigned re4dc_movie_picture(){return 0;}
 extern "C" int re4dc_movie_play(unsigned,unsigned,RouteMoviePictureTick){return RE4DC_MOVIE_UNHANDLED;}
 extern "C" int re4dc_movie_cancel(){return RE4DC_MOVIE_CANCEL;}
+extern "C" int re4dc_movie_play_until(unsigned,unsigned,RouteMoviePictureTick,unsigned){return RE4DC_MOVIE_UNHANDLED;}
+extern "C" int re4dc_movie_play_stepped(unsigned){return RE4DC_MOVIE_UNHANDLED;}
+extern "C" int re4dc_movie_step(RouteMoviePictureTick){return RE4DC_MOVIE_ERROR;}
+extern "C" int re4dc_movie_end(void){return RE4DC_MOVIE_ERROR;}
 #endif

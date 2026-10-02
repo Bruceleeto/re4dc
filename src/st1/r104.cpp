@@ -146,6 +146,32 @@ static void r104_execEvent00();
 static void r104_succeedAction();
 static void Evt_R104S00_Func(Event* e);
 static void Evt_R104S01_Func(Event* e);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES
+// Route cutscenes (route lane 2026-10-01): r104's events are presented by their PS2 movies; the
+// surrounding source code (flags, doors, enemies, the shop) runs unchanged (docs/ROUTE_CUTSCENES.md).
+// s00 (chapter 1-2's arrival) ends on a QTE at its cancel cut 0x1E (ActBtn A+B or L+R): PS2 evd camera
+// cuts put it at picture 4795, 60 frames (r104s00c is that cut alone, played after a skip). Its result
+// picks s01 (passed) or s02 (the death demo). No evd is read when the movies own the events, so the ARAM
+// pre-reads are skipped too.
+#include "route_movie.h"
+#include "game.h"
+#define R104_ROUTE_MOVIES 1
+static u8 r104MoviesOwn = 0xFF;
+static int r104MoviesOwnCheck()
+{
+    if (r104MoviesOwn == 0xFF) {
+        r104MoviesOwn = re4dc_movie_available(0x10400) && re4dc_movie_available(0x10401) &&
+                        re4dc_movie_available(0x10402) && re4dc_movie_available(0x10410) &&
+                        re4dc_movie_available(0x10420);
+        OSReport("route movie r104: %s\n", r104MoviesOwn ? "movies own s00/s01/s02/s10/s20" : "no media, source events");
+    }
+    return r104MoviesOwn;
+}
+#define R104_MOVIES_OWN() r104MoviesOwnCheck()
+#else
+#define R104_ROUTE_MOVIES 0
+#define R104_MOVIES_OWN() 0
+#endif
 
 // Room init: doors 1/2 paired as a double door with be_flag 8 and an ambient boost; the s00/s01 event
 // callbacks. First visit (Room_flg bit 1 clear, debug trigger 1 skips) runs the arrival event, else the
@@ -192,7 +218,7 @@ void R104Init()
         SceAtDataSet_exec(0x11, SCE_LEVEL10, 0, (TaskFunc) r104_execEvent10, 0, 1);
     }
     if (RsfCheck(G_ROOM_ID, 22) == 0) {
-        if (RsfCheck(G_ROOM_ID, 1)) {
+        if (RsfCheck(G_ROOM_ID, 1) && !R104_MOVIES_OWN()) {
             EvtMgr.EvtReadAram("event/evd/r104s20.evd", 0, 0, 0, 0);
         }
         SceAtDataSet_exec(0x12, SCE_LEVEL10, 0, (TaskFunc) r104_execEvent20, 0, 1);
@@ -691,6 +717,9 @@ static void r104_execEvent20()
         SceSleep(1);
     }
     RsfSet(G_ROOM_ID, 22);
+#if R104_ROUTE_MOVIES
+    if (!R104_MOVIES_OWN() || RouteMoviePlay(0x10420, ROUTE_MOVIE_SND_EVENT, 0, 0) == RE4DC_MOVIE_UNHANDLED)
+#endif
     EvtMgr.EvtReadExec("event/evd/r104s20.evd", 0x13, 0);
     FadeSetW(1, 0, 0, 0);
     setEm(0x5E, -1, 0, 1, 1);
@@ -715,6 +744,11 @@ static void r104_execEvent10()
 {
     BitOn(pG->Scenario_flg[0], 0x20000000);
     RsfSet(G_ROOM_ID, 21);
+#if R104_ROUTE_MOVIES
+    if (R104_MOVIES_OWN() && RouteMoviePlay(0x10410, ROUTE_MOVIE_SND_EVENT, 0, 0) != RE4DC_MOVIE_UNHANDLED) {
+        return;
+    }
+#endif
     EvtMgr.EvtReadExec("event/evd/r104s10.evd", 0x13, 0);
 }
 
@@ -739,16 +773,38 @@ static void r104_execEvent00()
     if (!(pG->System_flg & 0x40)) {
         SceEventStart(0);
         pG->System_flg |= 0x400;
+        if (!R104_MOVIES_OWN()) {
         EvtMgr.EvtReadAram("event/evd/r104s01.evd", 0, 0, 0, 0);
         EvtMgr.EvtReadAram("event/evd/r104s02.evd", 0, 0, 0, 0);
         EvtMgr.EvtReadAram("event/evd/r104s10.evd", 0, 0, 0, 0);
         EvtMgr.EvtReadAram("event/evd/r104s20.evd", 0, 0, 0, 0);
+        }
         if (r104_work->door0 != 0) {
             r104_work->door0->setOpenLock(1);
         }
         if (r104_work->door1 != 0) {
             r104_work->door1->setOpenLock(0);
         }
+#if R104_ROUTE_MOVIES
+        // EvtReadExec flags 0x20 = the evd StatusFlag 0x800 (keep the pose); flags 2 = a died-demo
+        // event (Event::Run starts DiedemoExec at its end; s02 is 25 frames, shorter than 0x1E).
+        if (R104_MOVIES_OWN()) {
+            RouteMoviePlayQte(0x10400, ROUTE_MOVIE_SND_EVENT | ROUTE_MOVIE_KEEP_POSE,
+                              (RouteEvtFunc) Evt_R104S00_Func, 0x1E, 4795, 60);
+            BitOn(pG->System_flg, 0x400);
+            if ((int) pG->Room_flg[0] < 0) {
+                RouteMoviePlay(0x10401, ROUTE_MOVIE_SND_EVENT | ROUTE_MOVIE_KEEP_POSE,
+                               (RouteEvtFunc) Evt_R104S01_Func, 0);
+            } else {
+                pG->System_flg &= ~0x40;
+                RouteMoviePlay(0x10402, ROUTE_MOVIE_SND_EVENT, 0, 0);
+                DiedemoExec(0, 1);
+                for (;;) {
+                    SceSleep(1);
+                }
+            }
+        } else
+#endif
         if (EvtMgr.EvtReadExec("event/evd/r104s00.evd", 0, 0x20)) {
             BitOn(pG->System_flg, 0x400);
             if ((int) pG->Room_flg[0] < 0) {

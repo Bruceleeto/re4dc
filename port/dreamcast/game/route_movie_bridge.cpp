@@ -30,6 +30,104 @@ static void routeFunc(RouteEvtFunc func, int mode)
     func(e);
 }
 
+extern "C" void re4dc_ui_movie_background(int on);
+
+// Event::ExeBeginEvt, lasting part: scenario event nesting, event-running status, begin func.
+static void routeBegin(unsigned flags, RouteEvtFunc func)
+{
+    SceEventStart(0);
+    BitOn(pG->Status_flg[2], 0x00080000);
+    BitOn(pG->Status_flg[2], 0x00010000);
+    BitOff(pG->Status_flg[3], 0x01000000);
+    routeFunc(func, 0);
+    pG->System_flg |= 0x400;
+    if (flags & ROUTE_MOVIE_SND_EVENT) {
+        SndEventInit();
+    }
+}
+
+// Event::ExeEndEvt, lasting part (see RouteMoviePlay).
+static void routeEnd(unsigned id, unsigned flags, RouteEvtFunc func, int st)
+{
+    if (!(flags & ROUTE_MOVIE_KEEP_POSE)) {
+        Vec pos = pPL->pos;
+        Vec rot = pPL->ang;
+        pPL->zeroPartsPosInit(&pos, &rot);
+    }
+    pG->Disp_flg &= ~0x800;
+    routeFunc(func, 2);
+    pG->System_flg |= 0x40;
+    if (flags & ROUTE_MOVIE_SND_EVENT) {
+        SndEventEnd();
+    }
+    BitOff(pG->Status_flg[2], 0x00080000);
+    BitOff(pG->Status_flg[2], 0x00010000);
+    SceEventEnd(0);
+    re4dc_log("route cutscene: id=%05x terminal=%d end_func=%d pose=%s scenario0=%08x system=%08x room0=%08x\n",
+              id, st, func != 0, (flags & ROUTE_MOVIE_KEEP_POSE) ? "kept" : "zero-parts", pG->Scenario_flg[0],
+              pG->System_flg, pG->Room_flg[0]);
+}
+
+extern "C" void re4dc_fixture_state(const char* name, int a, int b);  // platform/pad.cpp (padscript states)
+
+int RouteMoviePlayQte(unsigned id, unsigned flags, RouteEvtFunc func, unsigned qte_cut, unsigned qte_picture,
+                      unsigned qte_frames)
+{
+    if (!re4dc_movie_available(id)) {
+        return RE4DC_MOVIE_UNHANDLED;
+    }
+    routeBegin(flags, func);
+    const u32 disp = pG->Disp_flg;
+    pG->Disp_flg = 0xFFFFFFFF;
+    int st = re4dc_movie_play_until(id, 0x1000, 0, qte_picture);
+    pG->System_flg &= ~0x400;
+    if (st == RE4DC_MOVIE_SKIP) {
+        // Event::RunEvtCancel with a cancel cut: the cancel marker and mode 3, then the cut itself.
+        pG->Status_flg[3] |= 0x01000000;
+        routeFunc(func, 3);
+        st = re4dc_movie_play_stepped(id | RE4DC_MOVIE_CANCEL_CLIP);
+        if (st != RE4DC_MOVIE_RUNNING) {
+            re4dc_log("route cutscene: id=%05x cancel clip unavailable (terminal %d): the cut runs without a picture\n", id, st);
+        }
+    }
+    const bool open = st == RE4DC_MOVIE_RUNNING;
+    // The cut as game frames (Event::Run mode 1 at qte_cut): the world stays hidden, the action prompt
+    // (Disp_flg 0x1000 clear; the handler clears 0x800) draws over the movie picture.
+    pG->Disp_flg = 0xFFFFFFFF & ~0x1000;
+    if (open) {
+        re4dc_ui_movie_background(1);
+    }
+    alignas(8) static u8 storage[sizeof(Event)];
+    memset(storage, 0, sizeof(storage));
+    Event* e = (Event*) storage;
+    e->funcMode = 1;
+    e->NowCut = qte_cut;
+    re4dc_fixture_state("qte", 1, -1);  // a padscript press can wait for the cut ("qte=1")
+    unsigned f = 0;
+    for (; f < qte_frames; ++f) {
+        e->NowFrame = f;
+        func(e);
+        if (e->StatusFlag & 0x4000) {
+            break;  // CancelSet: the handler ends the cut (the QTE passed)
+        }
+        if (open) {
+            const int s = re4dc_movie_step(0);
+            if (s != RE4DC_MOVIE_RUNNING && s != RE4DC_MOVIE_EOF) {
+                re4dc_log("route cutscene: id=%05x QTE picture ended (terminal %d) at frame %u\n", id, s, f);
+            }
+        }
+        SceSleep(1);
+    }
+    re4dc_log("route QTE: id=%05x cut=%#x frames=%u/%u passed=%d room0=%08x picture=%s\n", id, qte_cut, f, qte_frames,
+              (e->StatusFlag & 0x4000) != 0, pG->Room_flg[0], open ? "movie" : "none");
+    re4dc_fixture_state("qte", 0, -1);
+    re4dc_ui_movie_background(0);
+    const int end = open ? re4dc_movie_end() : st;
+    pG->Disp_flg = disp;
+    routeEnd(id, flags, func, end);
+    return end == RE4DC_MOVIE_UNHANDLED ? RE4DC_MOVIE_ERROR : end;
+}
+
 int RouteMoviePlay(unsigned id, unsigned flags, RouteEvtFunc func, RouteMovieTick tick)
 {
     if (!re4dc_movie_available(id)) {

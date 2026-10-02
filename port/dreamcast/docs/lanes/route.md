@@ -131,6 +131,45 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
 - **Fixture maker.** Texture sets (TEXSETS chap01, em2a) are named in a view's rooms list. Views *-snd4 (closet, entry,
   door walk) are the r106 play set.
 
+## Progress 2026-10-01 (r104: chapter 1-2 arrival)
+
+- **Room package.** r104 (ps2rooms --color-light ps2 bake) plus em13, the chapter 1-2 Ganados (not on the kite disc):
+  - em13 joins the EM10_SHARED group (em10g = em12+em15+em13). Built alone, its own em10.cpp cost heap 4 266 KB.
+  - Its bank is prebuilt; its EM0 equals em12's. aica_banks.py now writes a bank once per key and walks `room_paths`.
+  - room_smd compaction needs `header_grow=32`: r104's 46-slot header ended flush with the payload ("layout differs").
+- **Leon without the jacket (pl08).** title.cpp keeps costume 0 (pl00) only in r120/r100/r101/r103/r106. Every
+  later room loads em/pl08.drs.
+  - The GC file is 1,057,792 B, larger than the 846,656 B player area (route-r104a: read REJECTED).
+  - prepare_enemy_motions.py textures-only cuts it to 869,728 B. The build needs `PLAYER_RESIDENT_BYTES=869728`.
+  - Its PL bank equals pl00's, so it is resident in aica_banks.py. As a room bank it overflowed the arena.
+  - Kite gate r15 vs c9 (step1 fdc151ea):
+    - identical position at frame 2100;
+    - spills 4, upload FAILED 12, HALT 0 on both;
+    - heap 4 free −23,072 B.
+- **Module alias pass for every module.** gen_modules.py's 2.95-mangled `asm("...")` alias block ran only for per-link
+  modules. em13 then linked `setPtr__7cEmWrapsSci` to a silent stub and halted. With the pass, missing stubs went from
+  4 to 1 (memset only).
+- **PS2 world.** r104 is added to `re4dc_ps2_world_room` (native_static.cpp). Without it the world draws grey
+  (route-r104b2: HALT 0, missing 0, 29.9 fps, Leon pl08 draws, no world).
+- **Route movies and the QTE (the PS2 pattern).** r104s00 (4856 pictures) ends on a QTE at its cancel cut 0x1E.
+  - The PS2 evd cameras put cut k at picture Σ_{j<k}(maxFrame_j+1): cut 0x1E starts at picture 4795 and lasts 60
+    frames. r104s00c is that cut alone, played after a skip.
+  - `RouteMoviePlayQte` (route_movie_bridge.cpp):
+    1. Plays the movie up to picture 4795 (`re4dc_movie_play_until`).
+    2. Runs the cut as game frames, Event func mode 1 at NowCut 0x1E. The ActBtn prompt draws over the stepped movie
+       picture (`re4dc_movie_step`, `re4dc_ui_movie_background`).
+    3. A pass (Room_flg[0] bit 31, `r104_succeedAction`) plays s01. A miss plays s02, then DiedemoExec.
+  - s10 and s20 play as plain route movies. No evd is read while the movies own the events, so the ARAM pre-reads are
+    skipped.
+  - ActBtn flags 0x42 fail a press of both pairs. Test pad scripts press one pair, A+B (0300) or L+R (0060); r104
+    picks the pair by Rnd. The bridge reports fixture state `qte=1` for the press to wait on.
+- **Result, image r17 (fixtures route-rel-r104-qte-{ab,lr}-pw, preset r104-arrival, 300 s):**
+  - route-r104-qte-ab: s00 hands off at picture 4795. The QTE passes 9 frames into the cut (Room_flg[0] 80000000).
+    s01 plays 565/565, then gameplay resumes in r104 with the PS2 world drawn and Leon in pl08 (shot t0240).
+  - route-r104-qte-lr: r104 picked A+B, so the L+R press misses. The cut runs 60/60 frames while the movie plays to
+    4856/4856. s02 plays 25/25, then the Continue Yes/No screen (shot t0240).
+  - Both runs: HALT 0, missing 0, s00 cadence dropped 0 / late 0.
+
 ## Numbers (image, build, evidence)
 
 ## Ready to land

@@ -448,6 +448,7 @@ extern "C" int re4dc_vi_black();
 // it replaces the UI quads and is presented even when the source holds its
 // picture (System_flg 0x400) or requests VI black.
 pvr_ptr_t movie_texture; bool movie_picture; unsigned movie_width,movie_height;
+bool movie_background;  // re4dc_ui_movie_background: the frame draws the picture behind its UI
 unsigned movie_upload_serial,movie_shown_serial,movie_presentations;
 uint64_t movie_first_picture_us;
 void movie_draw();
@@ -2595,8 +2596,9 @@ extern "C" void re4dc_ui_present(){
     }
 #endif
 #if RE4DC_ROUTE_MOVIES
-    const bool movie_override=movie_texture && movie_picture;
-    if(movie_override)movie_draw();
+    // A background picture (a route QTE cut's game frames) keeps this frame's UI quads over it.
+    const bool movie_override=movie_texture && movie_picture && !movie_background;
+    if(movie_texture && movie_picture)movie_draw();
 #else
     constexpr bool movie_override=false;
 #endif
@@ -2674,7 +2676,7 @@ extern "C" void re4dc_ui_present(){
 #if RE4DC_PVR_STREAM
     stream_close(true);
 #if RE4DC_ROUTE_MOVIES
-    if(movie_override && movie_shown_serial!=movie_upload_serial){
+    if(movie_texture && movie_picture && movie_shown_serial!=movie_upload_serial){
         movie_shown_serial=movie_upload_serial;++movie_presentations;
         if(!movie_first_picture_us)movie_first_picture_us=timer_us_gettime64();
     }
@@ -4007,7 +4009,11 @@ extern "C" int re4dc_ui_movie_present_now(){
     return 0;
 #endif
 }
+// Route QTE cuts (native_movie.cpp re4dc_movie_step): the open movie's picture is drawn by the game's
+// own frames, under their UI quads (the action prompt), until switched off.
+extern "C" void re4dc_ui_movie_background(int on){movie_background=on!=0;}
 extern "C" int re4dc_ui_movie_close(){
+    movie_background=false;
     if(!movie_texture)return 1;
 #if RE4DC_PVR_STREAM
     // A movie whose open fails after the texture was allocated (snd_stream_init_ex without heap)
