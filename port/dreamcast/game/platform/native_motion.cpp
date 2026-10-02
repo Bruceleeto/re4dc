@@ -534,3 +534,31 @@ extern "C" unsigned re4dc_motion_forget_dead_heaps() {
 extern "C" void re4dc_motion_retire_all() {
     Locked guard;for(auto& b:bindings)if(b.archive)release_binding(b);
 }
+#if RE4DC_MOVIE_HEAP_EVICT
+// MOVIE_HEAP_EVICT=1 (game30.mk): a route movie whose staging allocation fails evicts the least recently
+// used unpinned motion key and retries (native_movie.cpp plm_alloc). The movie owns the frame, so no
+// character animates while it plays; an evicted key reloads from disc at its next use, as after
+// MOTION_OOM_EVICT. Returns the bytes freed, 0 when no key can go.
+extern "C" unsigned re4dc_motion_evict_one() {
+    Locked guard;
+#if RE4DC_SUBSCREEN
+    if(hold)return 0;
+#endif
+    Binding* victim=nullptr;unsigned index=0;
+    std::uint64_t oldest=~std::uint64_t(0);
+    for(auto& q:bindings) {
+        if(!q.archive)continue;
+        for(unsigned j=0;j<q.count;++j) {
+            const auto& slot=q.slots[j];
+#if RE4DC_MOTION_RESERVE
+            if(slot.data==q.slab[0] || slot.data==q.slab[1])continue;   // evicting a slab user frees nothing
+#endif
+            if(slot.data && !slot.pins && slot.used<oldest) { victim=&q;index=j;oldest=slot.used; }
+        }
+    }
+    if(!victim)return 0;
+    const unsigned freed=aligned(word(record(*victim,index)+4));
+    discard(*victim,index);++stats.evictions;
+    return freed;
+}
+#endif

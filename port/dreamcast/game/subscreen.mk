@@ -36,7 +36,13 @@
 #                  call reset). The room's light works (LightMgr, moved by the sub screen loop too)
 #                  are moved above it right after their allocation. Same pools, same sizes, only
 #                  the address differs.
+#   SS_PACK=1      (needs SUBSCREEN=1, TEX_RESIDENT=1) the sub screen stores the area LZ4-packed: about
+#                  1.6:1 on r100 play, so the 3 MiB fit the 2 MiB bank and pool blocks are taken only for
+#                  the rest (free pool memory first). Without it each call or inventory open carved a
+#                  contiguous 1 MiB out of the room's textures (r21n r100 call: 159 uploads / 2.3 MB
+#                  released, 207 reloaded in 5.8 s after the close). Same bytes back, checked by the hash.
 SUBSCREEN ?= 0
+SS_PACK ?= 0
 W11_FIXTURE ?= 0
 SUBSCREEN_OVL ?= 0
 SS_POOL_HIGH ?= 0
@@ -64,11 +70,17 @@ $(error SUBSCREEN_OVL=1 needs SUBSCREEN=1)
 else ifeq ($(SS_POOL_HIGH),1)
 $(error SS_POOL_HIGH=1 needs SUBSCREEN=1)
 endif
+ifeq ($(SS_PACK),1)
+ifneq ($(SUBSCREEN)$(TEX_RESIDENT),11)
+$(error SS_PACK=1 needs SUBSCREEN=1 TEX_RESIDENT=1)
+endif
+endif
 .PHONY: subscreen-force
 $(OBJDIR)/subscreen.h: subscreen-force
 	@mkdir -p $(dir $@)
 	@if [ "$(SUBSCREEN_TA_SWITCH)" = 1 ]; then test "$$($(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-nm -g --defined-only $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a | grep -c ' T _pvr_set_vbuf_doublebuf$$')" -eq 1 || { echo 'SUBSCREEN=1 with TA_DOUBLEBUF=1 requires the KOS vbuf-switch patch (patches/kos-804b319-vbuf-switch.patch)' >&2; exit 1; }; fi
 	@printf '#define RE4DC_SUBSCREEN %s\n#define RE4DC_W11_FIXTURE %s\n#define RE4DC_SUBSCREEN_OVL %s\n#define RE4DC_SS_POOL_HIGH %s\n#define RE4DC_SS_UI_ORDER %s\n' '$(SUBSCREEN)' '$(W11_FIXTURE)' '$(SUBSCREEN_OVL)' '$(SS_POOL_HIGH)' '$(SS_UI_ORDER)' > $@.tmp
+	@printf '#define RE4DC_SS_PACK %s\n' '$(SS_PACK)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 # A knob change regenerates the module list.

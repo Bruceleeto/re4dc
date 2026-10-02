@@ -59,6 +59,13 @@ void re4dc_ssb_code_sync(void* p, unsigned bytes);
 void re4dc_module_overlay(u32 id, void (*prolog)(void), void (*epilog)(void), char* data, char* data_end, char* bss,
                           char* bss_end, char* pristine);  // platform/modules.cpp
 #endif
+#if RE4DC_SS_PACK
+int re4dc_ssb_open_grow();
+unsigned re4dc_ssb_cursor();
+unsigned re4dc_ssb_pack_scratch_bytes();
+unsigned re4dc_ssb_put_packed(const void* src, unsigned n, void* scratch);
+int re4dc_ssb_get_packed(void* dst, unsigned n);
+#endif
 }
 
 namespace {
@@ -92,6 +99,17 @@ int heap_free(int h, u32* largest)
     return total;
 }
 }  // namespace
+
+#if RE4DC_SS_PACK
+// Free bytes and largest free cell of the current heap (route movie heap lines, platform/native_movie.cpp).
+extern "C" unsigned re4dc_heap_largest_current(unsigned* free_bytes)
+{
+    u32 largest;
+    const int total = heap_free(MemGetCurrentHeap(), &largest);
+    *free_bytes = total < 0 ? 0 : unsigned(total);
+    return largest;
+}
+#endif
 
 #if RE4DC_W11_FIXTURE
 // Image code integrity (W11 test builds): 64 KiB chunk hashes of [_start, _etext), logged when
@@ -150,6 +168,10 @@ Span spans[kMaxSpans];
 unsigned nspan;
 u32 live_bytes, skipped_bytes, open_hash, cmmn_bytes, pzzl_bytes;
 bool swapped;
+#if RE4DC_SS_PACK
+bool packed;  // the open stored the area packed (SS_PACK)
+u32 packed_bytes;
+#endif
 u32 area_lo, area_hi;  // the window while swapped
 
 // Message state that the sub screen points into its own area data (MesData tables: ss_term's
@@ -403,15 +425,39 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
     build_spans(lo, hi);
     unsigned bank = 0, pool = 0;
     const unsigned pool_before = re4dc_ssb_pool_free();
-    if (!re4dc_ssb_open(live_bytes, &bank, &pool)) {
-        re4dc_log("subscreen backing: live=%u bank=%u pool_free=%u\n", live_bytes, re4dc_ssb_bank_bytes(), pool_before);
-        re4dc_missing("sub screen backing: no VRAM for the swapped area");
-    }
-    re4dc_ssb_rewind();
     u32 h = 2166136261U;
-    for (unsigned i = 0; i < nspan; ++i) {
-        re4dc_ssb_put(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes);
-        h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);
+#if RE4DC_SS_PACK
+    // SS_PACK=1: the live bytes go LZ4-packed into bank 1, with pool blocks only for what does not fit
+    // (platform/subscreen_backing.cpp). The encoder's table and staging use the first bytes of the
+    // area, which go raw first and are put back right after, before anything else reads the area.
+    const u32 scratch = re4dc_ssb_pack_scratch_bytes();
+    packed = nspan && spans[0].start == lo && spans[0].bytes >= scratch + 64;
+    if (packed) {
+        for (unsigned i = 0; i < nspan; ++i) h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);
+        if (!re4dc_ssb_open_grow()) re4dc_missing("sub screen backing: open failed");
+        re4dc_ssb_rewind();
+        re4dc_ssb_put(reinterpret_cast<const void*>(lo), scratch);
+        for (unsigned i = 0; i < nspan; ++i) {
+            const u32 a = i ? spans[i].start : lo + scratch, b = spans[i].start + spans[i].bytes;
+            re4dc_ssb_put_packed(reinterpret_cast<const void*>(a), b - a, reinterpret_cast<void*>(lo));
+        }
+        packed_bytes = re4dc_ssb_cursor();
+        re4dc_ssb_rewind();
+        re4dc_ssb_get(reinterpret_cast<void*>(lo), scratch);
+        bank = re4dc_ssb_bank_bytes();
+        pool = packed_bytes > bank ? packed_bytes - bank : 0;
+    } else
+#endif
+    {
+        if (!re4dc_ssb_open(live_bytes, &bank, &pool)) {
+            re4dc_log("subscreen backing: live=%u bank=%u pool_free=%u\n", live_bytes, re4dc_ssb_bank_bytes(), pool_before);
+            re4dc_missing("sub screen backing: no VRAM for the swapped area");
+        }
+        re4dc_ssb_rewind();
+        for (unsigned i = 0; i < nspan; ++i) {
+            re4dc_ssb_put(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes);
+            h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);
+        }
     }
     open_hash = h;
     swapped = true;
@@ -455,6 +501,10 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
               unsigned(wk->type), lo, kSsAramSize, live_bytes, skipped_bytes, nspan, bank, pool, blocks, reclaimed,
               reclaimed_bytes, pool_before, re4dc_ssb_pool_free(), unsigned(t1 - t0), unsigned(t2 - t1), cmmn, pzzl,
               frozen_pools, open_hash);
+#if RE4DC_SS_PACK
+    if (packed)
+        re4dc_log("subscreen backing: packed %u -> %u B (bank %u, pool %u B)\n", live_bytes, packed_bytes, bank, pool);
+#endif
 }
 
 extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
@@ -464,6 +514,19 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
     const unsigned long long t0 = re4dc_ssb_us();
     re4dc_ssb_rewind();
     u32 h = 2166136261U;
+#if RE4DC_SS_PACK
+    if (packed) {
+        const u32 lo = u32(wk->pBuf), scratch = re4dc_ssb_pack_scratch_bytes();
+        re4dc_ssb_get(reinterpret_cast<void*>(lo), scratch);
+        for (unsigned i = 0; i < nspan; ++i) {
+            const u32 a = i ? spans[i].start : lo + scratch, b = spans[i].start + spans[i].bytes;
+            if (!re4dc_ssb_get_packed(reinterpret_cast<void*>(a), b - a))
+                re4dc_missing("sub screen backing: a packed span did not decode");
+        }
+        for (unsigned i = 0; i < nspan; ++i) h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);
+        packed = false;
+    } else
+#endif
     for (unsigned i = 0; i < nspan; ++i) {
         re4dc_ssb_get(reinterpret_cast<void*>(spans[i].start), spans[i].bytes);
         h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);

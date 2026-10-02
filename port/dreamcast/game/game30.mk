@@ -92,6 +92,17 @@ endif
 # MOTION_OOM_EVICT=1 (native_motion.cpp, default 0): a motion key whose room-heap allocation fails evicts
 # LRU unpinned keys and retries instead of halting (r100 after-ambush HALT, 2026-09-28). Logic-neutral.
 MOTION_OOM_EVICT ?= 0
+# MOVIE_HEAP_EVICT=1 (needs MOTION_OOM_EVICT=1, ROUTE_MOVIES=1; native_motion.cpp + native_movie.cpp, default 0):
+# a route movie whose heap-4 staging does not fit evicts unpinned motion keys, least recently used first,
+# and retries (r100 s30 after the ambush failed with 313 KB free in pieces of at most 148 KB). Logic-neutral:
+# the keys reload from disc at their next use.
+MOVIE_HEAP_EVICT ?= 0
+ifneq ($(MOVIE_HEAP_EVICT),0)
+ifneq ($(MOTION_OOM_EVICT)$(ROUTE_MOVIES),11)
+$(error MOVIE_HEAP_EVICT=1 needs MOTION_OOM_EVICT=1 ROUTE_MOVIES=1)
+endif
+$(OBJDIR)/platform/native_motion.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_HEAP_EVICT=1
+endif
 ifneq ($(MOTION_OOM_EVICT),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_OOM_EVICT=$(MOTION_OOM_EVICT)
 endif

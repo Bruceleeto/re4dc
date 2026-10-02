@@ -10,6 +10,11 @@ B pictures; with `plm_video_set_no_delay(1)` the returned frame is the newest
 picture. Saves one 320x240 frame (115,200 bytes). Upstream behaviour is
 unchanged when the macro is not defined.
 
+Local option `PLM_VIDEO_SPLIT_FRAMES` (with `PLM_VIDEO_TWO_FRAMES`; the route player defines it with
+MOVIE_HEAP_EVICT=1, 2026-10-02): each plane of the two frames comes from its own allocation (six pieces, the
+largest one luma plane, 55,296 bytes at 288x192), so a fragmented heap opens the stream (r100 s30 after the
+ambush had no 83 KB piece). Decoding is unchanged.
+
 Local option `PLM_RE4DC_FAST` (off unless defined; the route player defines it):
 word-at-a-time `plm_buffer_read` when the bits are buffered, VLC tree walk
 without per-bit refill checks when 32 bits are buffered, IDCT all-zero-AC

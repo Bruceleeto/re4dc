@@ -3035,7 +3035,27 @@ int plm_video_decode_sequence_header(plm_video_t *self) {
 	size_t chroma_plane_size = self->chroma_width * self->chroma_height;
 	size_t frame_data_size = (luma_plane_size + 2 * chroma_plane_size);
 
-#ifdef PLM_VIDEO_TWO_FRAMES
+#if defined(PLM_VIDEO_TWO_FRAMES) && defined(PLM_VIDEO_SPLIT_FRAMES)
+	// RE4DC local option: each plane of the two frames is its own allocation, so a fragmented heap
+	// whose largest piece is below a frame still opens the stream (the largest piece needed is one
+	// luma plane). Only for allocators that release in bulk (PLM_FREE frees frames_data alone).
+	uint8_t *plane[6];
+	for (int i = 0; i < 6; i++) {
+		plane[i] = (uint8_t*)PLM_MALLOC(i % 3 == 0 ? luma_plane_size : chroma_plane_size);
+		if (!plane[i]) {
+			return FALSE;
+		}
+	}
+	(void)frame_data_size;
+	self->frames_data = plane[0];
+	plm_frame_t *frames[2] = {&self->frame_current, &self->frame_forward};
+	for (int i = 0; i < 2; i++) {
+		plm_video_init_frame(self, frames[i], plane[3 * i]);
+		frames[i]->cr.data = plane[3 * i + 1];
+		frames[i]->cb.data = plane[3 * i + 2];
+	}
+	self->frame_backward = self->frame_forward;
+#elif defined(PLM_VIDEO_TWO_FRAMES)
 	// RE4DC local option: I/P-only streams ping-pong two frames (see PL_MPEG_PIN.md).
 	self->frames_data = (uint8_t*)PLM_MALLOC(frame_data_size * 2);
 	if (!self->frames_data) {

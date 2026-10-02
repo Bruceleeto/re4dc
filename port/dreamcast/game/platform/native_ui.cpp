@@ -1864,6 +1864,9 @@ extern "C" unsigned re4dc_ui_reclaim_one(){
     if(!victim) return 0;
     const unsigned bytes=victim->package.vram_bytes();
     RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(*victim);
+#if RE4DC_SS_PACK && RE4DC_TEX_RESIDENT
+    if(vram_claims)++claim_released; // the preload after the last unclaim brings it back
+#endif
     return bytes?bytes:1;
 }
 #endif
@@ -2020,6 +2023,14 @@ int vram_claim(unsigned bytes,bool movie){
 }
 }
 extern "C" int re4dc_ui_vram_claim(unsigned bytes){return vram_claim(bytes,false);}
+#if RE4DC_SS_PACK
+// SS_PACK=1: the packed sub screen backing holds the preload like a claim but releases nothing here;
+// it takes free pool blocks as it fills and only then re4dc_ui_reclaim_one (counted in claim_released).
+extern "C" void re4dc_ui_vram_hold(){
+    ++vram_claims;
+    re4dc_log("native texture hold: claims=%u free=%u\n",vram_claims,(unsigned)pvr_mem_available());
+}
+#endif
 extern "C" void re4dc_ui_vram_unclaim(){
     if(!vram_claims)return;
     if(!--vram_claims && claim_released){preload_pending=true;claim_released=0;}

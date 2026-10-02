@@ -40,6 +40,9 @@ namespace { void* plm_alloc(size_t n); }
 #define PLM_FREE(p) ((void)0)
 #define PLM_NO_STDIO
 #define PLM_VIDEO_TWO_FRAMES
+#if RE4DC_MOVIE_HEAP_EVICT
+#define PLM_VIDEO_SPLIT_FRAMES  // the frames in two 83 KB pieces (288x192), not one 166 KB piece
+#endif
 #define PLM_RE4DC_FAST        // bit-exact fast paths (third_party/PL_MPEG_PIN.md)
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg.h"
@@ -78,7 +81,11 @@ namespace {
 // the clock starts; VideoCap holds the video of those records plus one more.
 constexpr unsigned Ring=32768, VideoCap=65536, AudioCap=49152, AudioStart=40960, CallbackCap=Ring, ReadCap=16384;
 constexpr unsigned Rows=8, MaxWidth=320, MaxHeight=240;
+#if RE4DC_MOVIE_HEAP_EVICT
+constexpr unsigned MaxAllocs=16;  // + the frames' planes as six pieces
+#else
 constexpr unsigned MaxAllocs=10;
+#endif
 struct Movie {
     unsigned id=0; char path[40]{};
     file_t file=-1; plm_buffer_t* input=nullptr; plm_video_t* decoder=nullptr;
@@ -105,9 +112,35 @@ struct Movie {
 #else
 #define MOVIE_WHY(s) ((void)0)
 #endif
+#if RE4DC_MOVIE_HEAP_EVICT
+extern "C" unsigned re4dc_motion_evict_one();   // native_motion.cpp
+extern "C" unsigned re4dc_heap_largest_current(unsigned* free_bytes);   // sscrn_bridge.cpp (SS_PACK)
+extern "C" unsigned re4dc_heap_largest_current(unsigned*) __attribute__((weak));
+#endif
+void* stage_alloc(size_t n){
+    void* p=re4dc_ui_stage_alloc((unsigned)n);
+#if RE4DC_MOVIE_HEAP_EVICT
+    // Heap 4 short or fragmented (r100 s30 after the ambush: 257,568 B free for 363 KB, the largest piece under
+    // 83 KB): unpinned motion keys go, least recently used first, until the piece fits.
+    if(!p){
+        unsigned evicted=0,freed=0;
+        while(!p){
+            const unsigned f=re4dc_motion_evict_one();
+            if(!f)break;
+            ++evicted;freed+=f;
+            p=re4dc_ui_stage_alloc((unsigned)n);
+        }
+        unsigned free_bytes=0,largest=0;
+        if(re4dc_heap_largest_current)largest=re4dc_heap_largest_current(&free_bytes);
+        re4dc_log("route movie heap: need=%u evicted=%u motion keys (%u B) %s free=%u largest=%u\n",(unsigned)n,
+                  evicted,freed,p?"ok":"FAILED",free_bytes,largest);
+    }
+#endif
+    return p;
+}
 void* plm_alloc(size_t n){
     if(m.nallocs==MaxAllocs)return nullptr;
-    void* p=re4dc_ui_stage_alloc((unsigned)n);
+    void* p=stage_alloc(n);
     if(p){m.allocs[m.nallocs++]=p;m.staged+=n;}
     return p;
 }
@@ -255,6 +288,11 @@ bool open(unsigned id){
     m.hw=want_hw&&m.tex;
     if(want_hw&&!m.hw)return false;
     m.owns_service=!re4dc_movie_stream_initialized();
+#if RE4DC_MOVIE_HEAP_EVICT
+    // The service's separation buffer (Ring + 32 B, native_movie_stream.c) is staged without eviction: make
+    // room for a piece that size first and hand it back, so the service's first-fit allocation finds one.
+    if(m.owns_service)if(void* room=stage_alloc(Ring+32))re4dc_ui_stage_free(room);
+#endif
     if(snd_stream_init_ex(2,Ring)<0)return false;
     m.stream=snd_stream_alloc(audio,Ring);if(m.stream<0)return false;
     m.staged+=re4dc_movie_stream_staged;

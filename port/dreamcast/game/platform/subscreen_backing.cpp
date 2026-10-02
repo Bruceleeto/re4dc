@@ -14,6 +14,11 @@
 //         released first (re4dc_ui_reclaim_one; the world is not drawn while the sub screen
 //         opens and they reload on demand after it closes).
 //    The data never reaches the PVR, so no render fence is involved.
+//    SS_PACK=1 (sub screen only, sscrn_bridge.cpp): re4dc_ssb_open_grow + re4dc_ssb_put_packed store
+//    the area LZ4-block compressed (~1.6:1 on r100 play, so 3 MiB of live bytes fit the 2 MiB bank).
+//    Pool blocks are taken only as the stream outgrows the bank, from free pool memory first; the
+//    preload is held (re4dc_ui_vram_hold) rather than claimed, so no contiguous 1 MiB is carved out of
+//    the room's textures (the plain open released 2.3 MB / 159 uploads, a 5.8 s reload, per call).
 //  - whole-file disc reads for the sub screen's own files (ss_cmmn / ss_pzzl);
 //  - a microsecond clock for the open/close cost lines.
 #if RE4DC_SUBSCREEN || RE4DC_W11_FIXTURE  // (subscreen.mk; empty in the default image)
@@ -43,12 +48,20 @@ extern "C" unsigned re4dc_ui_reclaim_one();
 // fits and holds the room preload until the matching unclaim. Weak: absent in other builds.
 extern "C" int re4dc_ui_vram_claim(unsigned bytes) __attribute__((weak));
 extern "C" void re4dc_ui_vram_unclaim() __attribute__((weak));
+#if RE4DC_SS_PACK
+extern "C" void re4dc_ui_vram_hold() __attribute__((weak));
+extern "C" void re4dc_ssb_put(const void* src, unsigned bytes);
+#endif
 
 namespace {
 constexpr unsigned kBankOffset = 0x400000;  // pvr_allocate_buffers(): bank 1 starts half way
 constexpr unsigned kBankBytes = RE4DC_TA_VERTBUF_KB * 1024U;
 volatile unsigned* const kBank = reinterpret_cast<volatile unsigned*>(PVR_RAM_BASE + kBankOffset);
+#if RE4DC_SS_PACK
+constexpr unsigned kMaxBlocks = 64, kMinBlock = 32 * 1024;
+#else
 constexpr unsigned kMaxBlocks = 16, kMinBlock = 32 * 1024;
+#endif
 struct Store {
     bool open;
     unsigned bytes, bank_bytes, pool_bytes;
@@ -57,6 +70,9 @@ struct Store {
     unsigned cursor;  // byte position of the next put/get
     unsigned reclaimed_bytes, reclaimed_uploads;
     bool claimed;
+#if RE4DC_SS_PACK
+    bool grows;  // re4dc_ssb_open_grow: pool blocks are taken as the puts need them
+#endif
 };
 Store store{};
 
@@ -84,7 +100,87 @@ void free_blocks()
     for (unsigned i = 0; i < store.nblock; ++i) pvr_mem_free(store.block[i]);
     store.nblock = 0;
 }
+
+#if RE4DC_SS_PACK
+constexpr unsigned kGrowStep = 64 * 1024, kGrowMin = 8 * 1024;
+constexpr unsigned kPackHashBits = 12, kPackTableBytes = 2U << kPackHashBits, kPackStage = 512;
+
+// Adds pool blocks until `need` more bytes fit: free pool memory first (the largest block the pool
+// gives, kGrowStep or more, halved down to kGrowMin), then the least recently used uploads.
+bool grow(unsigned need)
+{
+    while (need) {
+        if (store.nblock == kMaxBlocks) {
+            re4dc_log("subscreen backing: %u blocks cannot hold %u B more\n", kMaxBlocks, need);
+            return false;
+        }
+        unsigned ask = ((need > kGrowStep ? need : kGrowStep) + 31) & ~31U;
+        pvr_ptr_t p = nullptr;
+        while (!(p = pvr_mem_malloc(ask)) && ask > kGrowMin) ask = ((ask / 2) + 31) & ~31U;
+        if (p) {
+            store.block[store.nblock] = p;
+            store.block_bytes[store.nblock++] = ask;
+            store.bytes += ask;
+            store.pool_bytes += ask;
+            need -= ask < need ? ask : need;
+            continue;
+        }
+        const unsigned freed = re4dc_ui_reclaim_one();
+        if (!freed) {
+            re4dc_log("subscreen backing: texture pool short by %u B (free %u, blocks %u) after releasing %u uploads\n",
+                      need, (unsigned) pvr_mem_available(), store.nblock, store.reclaimed_uploads);
+            return false;
+        }
+        store.reclaimed_bytes += freed;
+        ++store.reclaimed_uploads;
+    }
+    return true;
 }
+
+// Byte loads only: the packed spans start anywhere (the SH-4 faults on a misaligned word load).
+inline unsigned rd32(const unsigned char* p)
+{
+    return (unsigned) p[0] | (unsigned) p[1] << 8 | (unsigned) p[2] << 16 | (unsigned) p[3] << 24;
+}
+
+struct Emit {
+    unsigned char* buf;  // kPackStage bytes, 4-aligned
+    unsigned n, total;
+};
+inline void emit(Emit& e, unsigned v)
+{
+    e.buf[e.n++] = (unsigned char) v;
+    ++e.total;
+    if (e.n == kPackStage) {
+        re4dc_ssb_put(e.buf, kPackStage);
+        e.n = 0;
+    }
+}
+inline void emit_ext(Emit& e, unsigned v)
+{
+    for (; v >= 255; v -= 255) emit(e, 255);
+    emit(e, v);
+}
+void emit_bytes(Emit& e, const unsigned char* p, unsigned n)
+{
+    e.total += n;
+    while (n) {
+        unsigned k = kPackStage - e.n;
+        if (k > n) k = n;
+        memcpy(e.buf + e.n, p, k);
+        e.n += k;
+        p += k;
+        n -= k;
+        if (e.n == kPackStage) {
+            re4dc_ssb_put(e.buf, kPackStage);
+            e.n = 0;
+        }
+    }
+}
+}  // namespace
+#else
+}  // namespace
+#endif
 
 extern "C" {
 
@@ -146,12 +242,41 @@ int re4dc_ssb_open(unsigned bytes, unsigned* bank_bytes, unsigned* pool_bytes)
     return 1;
 }
 
+#if RE4DC_SS_PACK
+// The packed sub screen backing: bank 1 only at first; re4dc_ssb_put grows the store from the pool
+// as the packed stream needs it. The preload is held until close.
+int re4dc_ssb_open_grow()
+{
+    if (store.open) {
+        re4dc_log("subscreen backing: already open\n");
+        return 0;
+    }
+    store = Store{};
+#if RE4DC_SUBSCREEN && RE4DC_TA_DOUBLEBUF
+    re4dc_ui_ta_single_bank();  // before the first bank-1 write
+#endif
+    store.bytes = store.bank_bytes = kBankBytes;
+    store.grows = true;
+    store.claimed = re4dc_ui_vram_hold && re4dc_ui_vram_unclaim;
+    if (store.claimed) re4dc_ui_vram_hold();
+    store.open = true;
+    return 1;
+}
+
+unsigned re4dc_ssb_cursor() { return store.cursor; }
+unsigned re4dc_ssb_pack_scratch_bytes() { return kPackTableBytes + kPackStage; }
+#endif
+
 void re4dc_ssb_rewind() { store.cursor = 0; }
 
 // Appends `bytes` (multiple of 4, `src` 4-aligned) at the cursor.
 void re4dc_ssb_put(const void* src, unsigned bytes)
 {
     const unsigned* s = static_cast<const unsigned*>(src);
+#if RE4DC_SS_PACK
+    if (store.open && store.grows && store.cursor + bytes > store.bytes && !grow(store.cursor + bytes - store.bytes))
+        re4dc_missing("subscreen backing: no VRAM for the packed area");
+#endif
     if (!store.open || store.cursor + bytes > store.bytes) re4dc_missing("subscreen backing overrun");
     while (bytes) {
         unsigned run;
@@ -177,6 +302,134 @@ void re4dc_ssb_get(void* dst, unsigned bytes)
         bytes -= run;
     }
 }
+
+#if RE4DC_SS_PACK
+// Appends [src, src + n) as one LZ4 block (greedy, 4096-entry hash table of 16-bit positions, offsets
+// up to 64 KiB back into the same range): a word holding the block length, then the block padded to a
+// word. `scratch` (re4dc_ssb_pack_scratch_bytes(), 4-aligned, outside the range) holds the table and
+// the output staging. Returns the block length.
+unsigned re4dc_ssb_put_packed(const void* srcv, unsigned n, void* scratch)
+{
+    const unsigned char* src = static_cast<const unsigned char*>(srcv);
+    unsigned short* table = static_cast<unsigned short*>(scratch);
+    Emit e{static_cast<unsigned char*>(scratch) + kPackTableBytes, 0, 0};
+    for (unsigned i = 0; i < (1U << kPackHashBits); ++i) table[i] = 0;
+    const unsigned header = store.cursor, zero = 0;
+    re4dc_ssb_put(&zero, 4);
+    unsigned ip = 0, anchor = 0, misses = 0;
+    if (n >= 12) {
+        const unsigned limit = n - 12, mend = n - 5;
+        unsigned v = rd32(src);
+        while (ip <= limit) {
+            const unsigned h = (v * 2654435761U) >> (32 - kPackHashBits);
+            // The table keeps the low 16 bits of a position: within the 64 KiB window that names it
+            // exactly; anything else is rejected by the compare.
+            const unsigned dist = (ip - table[h]) & 0xFFFFU;
+            table[h] = (unsigned short) ip;
+            if (dist && dist <= ip && rd32(src + ip - dist) == v) {
+                const unsigned char* m = src + ip - dist;
+                unsigned ml = 4;
+                while (ip + ml < mend && m[ml] == src[ip + ml]) ++ml;
+                const unsigned lit = ip - anchor, extra = ml - 4;
+                emit(e, (lit < 15 ? lit : 15) << 4 | (extra < 15 ? extra : 15));
+                if (lit >= 15) emit_ext(e, lit - 15);
+                emit_bytes(e, src + anchor, lit);
+                emit(e, dist & 0xFF);
+                emit(e, dist >> 8);
+                if (extra >= 15) emit_ext(e, extra - 15);
+                ip += ml;
+                anchor = ip;
+                misses = 0;
+                if (ip <= limit) v = rd32(src + ip);
+            } else {
+                // The LZ4 skip: after 64 misses in a row the probe steps 2 bytes, after 128 steps 3, ...
+                // (r100 area: 21 % fewer probes, 1.624 -> 1.622 : 1).
+                const unsigned step = 1 + (misses++ >> 6);
+                ip += step;
+                if (ip <= limit) v = step == 1 ? v >> 8 | (unsigned) src[ip + 3] << 24 : rd32(src + ip);
+            }
+        }
+    }
+    const unsigned lit = n - anchor;
+    emit(e, (lit < 15 ? lit : 15) << 4);
+    if (lit >= 15) emit_ext(e, lit - 15);
+    emit_bytes(e, src + anchor, lit);
+    if (e.n) {
+        const unsigned padded = (e.n + 3) & ~3U;
+        for (unsigned i = e.n; i < padded; ++i) e.buf[i] = 0;
+        re4dc_ssb_put(e.buf, padded);
+    }
+    unsigned run;
+    *word_at(header, &run) = e.total;
+    return e.total;
+}
+
+// Reads one re4dc_ssb_put_packed block back into [dst, dst + n). Returns 0 if the block does not
+// decode to exactly n bytes.
+int re4dc_ssb_get_packed(void* dstv, unsigned n)
+{
+    unsigned char* const d0 = static_cast<unsigned char*>(dstv);
+    unsigned char* d = d0;
+    unsigned char* const end = d0 + n;
+    unsigned length;
+    re4dc_ssb_get(&length, 4);
+    alignas(4) unsigned char buf[256];
+    unsigned pos = 0, have = 0, left = (length + 3) & ~3U, used = 0;
+    bool bad = false;
+    auto refill = [&]() {
+        have = left < sizeof(buf) ? left : sizeof(buf);
+        re4dc_ssb_get(buf, have);
+        left -= have;
+        pos = 0;
+    };
+    auto next = [&]() -> unsigned {
+        if (used == length) {
+            bad = true;
+            return 0;
+        }
+        if (pos == have) refill();
+        ++used;
+        return buf[pos++];
+    };
+    auto ext = [&](unsigned v) {
+        unsigned b;
+        do v += (b = next());
+        while (b == 255 && !bad);
+        return v;
+    };
+    while (used < length && !bad) {
+        const unsigned token = next();
+        unsigned lit = token >> 4;
+        if (lit == 15) lit = ext(lit);
+        if (bad || lit > unsigned(end - d)) return 0;
+        while (lit) {
+            if (pos == have) refill();
+            unsigned k = have - pos;
+            if (k > lit) k = lit;
+            if (!k || k > length - used) return 0;
+            memcpy(d, buf + pos, k);
+            d += k;
+            pos += k;
+            used += k;
+            lit -= k;
+        }
+        if (used == length) break;  // the last sequence is literals only
+        const unsigned lo = next();
+        const unsigned off = lo | next() << 8;
+        unsigned ml = token & 15;
+        if (ml == 15) ml = ext(ml);
+        ml += 4;
+        if (bad || !off || off > unsigned(d - d0) || ml > unsigned(end - d)) return 0;
+        for (const unsigned char* m = d - off; ml; --ml) *d++ = *m++;
+    }
+    while (left) {  // the padding
+        have = left < sizeof(buf) ? left : sizeof(buf);
+        re4dc_ssb_get(buf, have);
+        left -= have;
+    }
+    return !bad && d == end;
+}
+#endif
 
 void re4dc_ssb_close()
 {
