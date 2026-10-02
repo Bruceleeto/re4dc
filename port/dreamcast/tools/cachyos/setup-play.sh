@@ -2,7 +2,7 @@
 # RE4 Dreamcast play machine setup for CachyOS (or any Arch-based desktop), user-level only (no sudo; the system
 # packages it may need are printed for the user to install). Idempotent: safe to run again.
 #   1. gh CLI (a system `gh` if present, else the official cli/cli release in ~/.local/bin), `gh auth login` if needed
-#   2. downloads a play release's *-CachyOS.tar.gz and verifies its sha256
+#   2. downloads a play release's *-CachyOS.tar.gz from the private repo and verifies its sha256
 #   3. Flycast and GPU Screen Recorder: native packages if installed, else Flathub (--user) if Flatpak is present;
 #      OBS with --obs
 #   4. a desktop menu entry for the build's play.sh (~/.local/share/applications) unless --no-desktop
