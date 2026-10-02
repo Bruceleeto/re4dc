@@ -1,0 +1,62 @@
+name: Game bug
+description: Something wrong while playing a Dreamcast build (crash, freeze, wrong picture, slowdown, save problem)
+title: "[r21?] <room or scene>: <one line>"
+labels: [bug, game]
+body:
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The release tag or package name, e.g. r21m (Play-r21m.cmd, RE4DC-r21m-SteamOS).
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where you played
+      options:
+        - Flycast on Windows
+        - Flycast on Steam Deck / SteamOS
+        - Flycast on CachyOS / other Linux
+        - Real Dreamcast (GDEMU)
+        - Other (say below)
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the game
+      description: Chapter and room if you know them (e.g. 1-1, r101 village), or describe the place / cutscene.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - Crash or freeze
+        - Wrong or missing picture (textures, models, effects, text)
+        - Cutscene or sound
+        - Slowdown
+        - Save / VMU
+        - Controls
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did just before, what you expected, and what happened instead. Does it happen every time?
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot, video or log
+      description: Drag files here. On Windows, attach the newest file in the package's logs\ folder.
+  - type: input
+    id: pacing
+    attributes:
+      label: Frame pacing mode
+      description: Fast (default), Smooth or Off.
