@@ -234,6 +234,31 @@ $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/moti
 DVD_WAIT ?= 0
 DVD_FDCACHE ?= 0
 IO_SERIAL ?= 0
+# POISON_RAM=<byte> (hardware readiness, default 0 = off; test builds only): at boot, fill unallocated
+# main RAM (the KOS break up to the kernel stack, then the whole game arena), the free PVR texture memory
+# and the free AICA sound memory with this byte. Flycast starts with zeroed memory; a Dreamcast does not.
+# A run that differs from the same fixture with POISON_RAM=0 reads memory it never wrote.
+POISON_RAM ?= 0
+# CRASH_SCREEN=1 (hardware readiness, default 0): a fault, a source HALT() or 30 s without a new frame
+# draws a report (stop kind, PC/PR/stage, threads, newest log lines) into frame buffer 0, for a photo
+# on hardware where the log ring cannot be read. platform/crash_screen.cpp.
+CRASH_SCREEN ?= 0
+.PHONY: crash-screen-force
+$(OBJDIR)/crash-screen.h: crash-screen-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_CRASH_SCREEN %s\n' '$(CRASH_SCREEN)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o: $(OBJDIR)/crash-screen.h
+$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
+.PHONY: poison-force
+$(OBJDIR)/poison.h: poison-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_POISON_RAM %s\n' '$(POISON_RAM)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+$(OBJDIR)/platform/mem.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/audio_aica.o: $(OBJDIR)/poison.h
+$(OBJDIR)/platform/mem.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/poison.h
 .PHONY: dvd-io-force
 $(OBJDIR)/dvd-io.h: dvd-io-force
 	@mkdir -p $(dir $@)

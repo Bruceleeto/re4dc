@@ -17,7 +17,7 @@ struct CameraMotionWork {
     u8 nParts;          // 0x30
     u8 pad_31[3];
     u8* partsNo;        // 0x34
-    u16* partsInfo;     // 0x38
+    u16_un* partsInfo;  // 0x38
     u8 pad_3C[4];
     u16 flags;          // 0x40  bit2: loop, bit3: pause
     u8 pad_42[2];

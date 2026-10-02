@@ -74,6 +74,19 @@ void re4dc_mem_init(void)
         step = 0x1000;
     }
 #endif
+#if RE4DC_POISON_RAM
+    {
+        // Everything between the KOS break and the kernel stack is unowned (mm_sbrk's limit);
+        // stay a page below the live stack pointer as well.
+        unsigned long sp;
+        __asm__ volatile("mov r15, %0" : "=r"(sp));
+        unsigned long limit = (unsigned long) _arch_mem_top - THD_KERNEL_STACK_SIZE;
+        if (sp - 4096 < limit) limit = sp - 4096;
+        const unsigned long brk = ((unsigned long) sbrk(0) + 31) & ~31UL;
+        if (brk < limit) memset((void*) brk, RE4DC_POISON_RAM, limit - brk);
+        printf("re4dc_mem: POISON_RAM %02x break %08lx-%08lx\n", (unsigned) RE4DC_POISON_RAM, brk, limit);
+    }
+#endif
     void* p = NULL;
     while (want >= fixed + kMinHeap) {
         p = memalign(32, want);
@@ -86,6 +99,11 @@ void re4dc_mem_init(void)
         printf("re4dc_mem_init: no arena (need %lu)\n", fixed + kMinHeap);
         arch_exit();
     }
+#if RE4DC_POISON_RAM
+    memset(p, RE4DC_POISON_RAM, want);  // the arena may also reuse freed KOS chunks
+    printf("re4dc_mem: POISON_RAM %02x arena %08lx-%08lx\n", (unsigned) RE4DC_POISON_RAM, (unsigned long) p,
+           (unsigned long) p + want);
+#endif
     unsigned long lo = (unsigned long) p;
     re4dc_mem.arena_lo = lo;
     re4dc_mem.arena_hi = lo + want;

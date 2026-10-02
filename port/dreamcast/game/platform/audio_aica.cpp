@@ -344,6 +344,13 @@ void aica_init()
     snd_init();
     g_init = true;
     S.aica_free = snd_mem_available();
+#if RE4DC_POISON_RAM
+    if (const u32 a = snd_mem_malloc(S.aica_free & ~31u)) {
+        spu_memset(a, 0x01010101u * (u32) RE4DC_POISON_RAM, (int) (S.aica_free & ~31u));
+        snd_mem_free(a);
+        re4dc_log("aica: POISON_RAM %02x sound RAM %u bytes\n", (unsigned) RE4DC_POISON_RAM, (unsigned) (S.aica_free & ~31u));
+    }
+#endif
     re4dc_log("aica: backend up, largest free %u bytes\n", (unsigned) S.aica_free);
 }
 

@@ -13,8 +13,16 @@ class cModel;
 class cCtrl : public cUnit {
 public:
     u8 Id;                  // 0x0C  construct id (light: 1 = electric power path control)
+#if defined(__PPC__)
     u8 pad_D[6];
     u8 work[0x214 - 0x13];  // 0x13  per-type work area
+#else
+    // The PowerPC reads the per-type work at 0x13 with misaligned halfword / word accesses
+    // (Ctrl12Work timers, Ctrl11Work's u32 sound ids, ctrl01's s32); the SH-4 raises an address
+    // error on them (Flycast does not). One byte later the work is word aligned; same size class.
+    u8 pad_D[7];
+    u8 work[0x214 - 0x14];  // 0x14  per-type work area
+#endif
 
     virtual ~cCtrl() {}
     virtual void move();

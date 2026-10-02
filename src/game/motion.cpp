@@ -1313,7 +1313,7 @@ int HermiteInterpolation(HermitePrm* prm, Vec* out, u16* hist)
     f32 f1 = r;
     int ret = 0;
     int axis = 0;
-    u16* frames;
+    u16_un* frames;
     u8* data;
     f32 val[2];
     f32 tan[2];
@@ -1324,8 +1324,8 @@ int HermiteInterpolation(HermitePrm* prm, Vec* out, u16* hist)
     int found;
 
     for (; axis <= 2; axis++) {
-        n = *(u16*) p;
-        frames = (u16*) (p + 2);
+        n = *(u16_un*) p;
+        frames = (u16_un*) (p + 2);
         data = p + n * 2 + 2;
         hp++;
         p = data + Fcc_next_axis_addr(prm->type, n);
@@ -1366,7 +1366,7 @@ int HermiteInterpolation(HermitePrm* prm, Vec* out, u16* hist)
         }
         if (cnt != 0) {
             asm("" : "+r"(idx));  // COMPILER-DIFF: the table lis is issued before the fp init
-            u16* fp = (u16*) (idx * 2 + (u32) frames);
+            u16_un* fp = (u16_un*) (idx * 2 + (u32) frames);
 
             do {
                 f0 = (f32) *fp;
@@ -1522,8 +1522,8 @@ int hermiteFast(HermitePrm* prm, Vec* out, u16* hist)
     f32 tan[2];
 
     for (int axis = 0; axis <= 2; axis++) {
-        const int n = *(u16*) p;
-        u16* frames = (u16*) (p + 2);
+        const int n = *(const u16_un*) p;
+        const u16_un* frames = (const u16_un*) (p + 2);
         u8* data = p + n * 2 + 2;
         hp++;
         p = data + (stride < 0 ? -1 : n * stride);
@@ -1555,7 +1555,7 @@ int hermiteFast(HermitePrm* prm, Vec* out, u16* hist)
             ret = 1;
         }
         if (cnt != 0) {
-            u16* fp = frames + idx;
+            const u16_un* fp = frames + idx;
             do {
                 f0 = (f32) *fp;
                 if (f0 == frame) {

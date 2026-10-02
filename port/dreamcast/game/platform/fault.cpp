@@ -36,6 +36,11 @@ static dbgio_handler_t g_ringHandler = {
 #if RE4DC_VMU_DEBUG_SLOT
 extern "C" void re4dc_dbgslot_ring(unsigned kind, unsigned a, unsigned b);
 #endif
+#if RE4DC_CRASH_SCREEN
+extern "C" void re4dc_crash_screen_init(void);
+extern "C" void re4dc_crash_screen_fault(unsigned code, unsigned long pc, unsigned long pr, unsigned long addr);
+extern "C" void re4dc_crash_screen_halt(const char* file, int line);
+#endif
 static void onFault(irq_t code, irq_context_t* ctx, void* data)
 {
     (void) data;
@@ -55,6 +60,10 @@ static void onFault(irq_t code, irq_context_t* ctx, void* data)
     re4dc_dbgslot_ring(3, (unsigned) ctx->pc, (unsigned) ctx->pr);  // kept in RAM for the next debug save
 #endif
     irq_disable();
+#if RE4DC_CRASH_SCREEN
+    re4dc_crash_screen_fault((unsigned) code, (unsigned long) ctx->pc, (unsigned long) ctx->pr,
+                             *(volatile unsigned long*) 0xff00000c);  // TEA: the faulting data address
+#endif
     for (;;) {
     }
 }
@@ -69,6 +78,9 @@ extern "C" void re4dc_halt(const char* file, int line)
               thd_current ? thd_current->tid : -1, (int) irq_inside_int());
     re4dc_set_stage(0xDEAD0111ul);
     irq_disable();
+#if RE4DC_CRASH_SCREEN
+    re4dc_crash_screen_halt(file, line);
+#endif
     for (;;) {
     }
 }
@@ -82,4 +94,7 @@ extern "C" void re4dc_fault_init(void)
     irq_set_handler(EXC_UNHANDLED_EXC, onFault, NULL);
     irq_set_handler(EXC_DOUBLE_FAULT, onFault, NULL);
     re4dc_log("re4dc_fault_init: dbgio -> ring, unhandled-exception handler set\n");
+#if RE4DC_CRASH_SCREEN
+    re4dc_crash_screen_init();
+#endif
 }

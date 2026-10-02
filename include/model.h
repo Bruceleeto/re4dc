@@ -255,7 +255,7 @@ struct MotionWork {
     u8 Joint_num;            // 0x30
     u8 pad_31[3];
     u8* pJoint_no;          // 0x34  model parts index per motion parts
-    u16* pJoint_kind;       // 0x38  low byte: kind (1 root pos, 0x40 root rot, 2/4/8/0x30 rot/pos/scale), bits 8-11: attach camera channel, bits 12-15: Fcc type
+    u16_un* pJoint_kind;    // 0x38  low byte: kind (1 root pos, 0x40 root rot, 2/4/8/0x30 rot/pos/scale), bits 8-11: attach camera channel, bits 12-15: Fcc type
     u16 Null_pos;       // 0x3C  motion parts index of the root position (0xFFFF = none)
     u16 Null_rot;       // 0x3E  motion parts index of the root rotation
     u16 Mot_attr;            // 0x40  bit0: move the model by the root speed, bit1: reverse, bit2: loop, bit3: pause, bit6: flip, bit8, bit10: hokan speed blend, bit12: sequence reverse, bit13: blend parts, bit15: frame from seqFrame

@@ -2392,6 +2392,19 @@ extern "C" void re4dc_ui_init(){
     params.autosort_disabled=1; // source OT is the UI blending order
     ready=pvr_init(&params)==0;
     re4dc_log("native UI: PVR init %s; source ID adapter, 640x480\n",ready?"ok":"FAILED");
+#if RE4DC_POISON_RAM
+    if(ready){
+        size_t n=pvr_mem_available()&~31U;void* v=nullptr;
+        while(n>=65536 && !(v=pvr_mem_malloc(n)))n-=32768;
+        if(v){
+            const std::uint32_t w=0x01010101U*unsigned(RE4DC_POISON_RAM);
+            volatile std::uint32_t* d=static_cast<volatile std::uint32_t*>(v);
+            for(size_t i=0;i<n/4;++i)d[i]=w;
+            pvr_mem_free(v);
+        }
+        re4dc_log("native UI: POISON_RAM %02x VRAM %u bytes\n",unsigned(RE4DC_POISON_RAM),unsigned(v?n:0));
+    }
+#endif
     if(ready){
 #if RE4DC_PVR_STREAM
         if(pvr_set_manual_flip(true)<0)re4dc_missing("native manual presentation init failed");

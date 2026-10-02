@@ -176,7 +176,7 @@ struct ShapeWork {
     u8 num;            // 0x30
     u8 pad_31[3];
     u8* idx;           // 0x34  shape table index per channel
-    u16* flags;        // 0x38  per channel flags
+    u16_un* flags;     // 0x38  per channel flags
     u8 pad_3C[4];
     u16 x40;           // 0x40
     u8 pad_42[2];

@@ -24,6 +24,17 @@ typedef float f32;
 typedef double f64;
 typedef int BOOL;
 
+// Unaligned halfwords. GameCube data packs u16 arrays straight after byte fields (motion and
+// camera-motion parts kinds and shape flags at offset 3 of their headers, Hermite key counts and
+// frames after odd-stride key blocks) and the PowerPC reads them in place. The SH-4 raises an
+// address error on a misaligned access (Flycast does not, so only hardware shows it); through
+// u16_un GCC reads and writes a byte at a time. The plain type on the PowerPC.
+#if defined(__PPC__)
+typedef u16 u16_un;
+#else
+typedef u16 u16_un __attribute__((aligned(1)));
+#endif
+
 // `register T x asm("rN")` pins reproduce the original register allocation.
 // They are PowerPC register names; on any other target the pin is dropped and
 // the declaration is an ordinary local.
