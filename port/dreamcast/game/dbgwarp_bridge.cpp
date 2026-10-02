@@ -78,7 +78,7 @@ struct Warp {
     f32 area_dx, area_dz;
     Rsf rsf[32];
     unsigned n_rsf;
-    u32 scenario[2], find, unlock[2];
+    u32 scenario[2], find, unlock[2], items[2];  // items: pG->item_flags[0..1] (key-item pickups, r105 area 8)
     u8 dead[64];
     unsigned n_dead;
     Act act[16];
@@ -158,6 +158,8 @@ void load()
             wp.find |= num(tok[1]);
         } else if (!strcmp(k, "unlock") && n >= 3) {
             wp.unlock[num(tok[1]) & 1] |= num(tok[2]);
+        } else if (!strcmp(k, "items") && n >= 3) {
+            wp.items[num(tok[1]) & 1] |= num(tok[2]);
         } else if (!strcmp(k, "dead") && n >= 2) {
             for (int i = 1; i < n && wp.n_dead < 64; ++i) wp.dead[wp.n_dead++] = (u8) num(tok[i]);
         } else if (!strcmp(k, "inv") && n >= 2) {
@@ -234,8 +236,15 @@ void dump_areas()
                       no, w->type, w->flag, w->trigger, area.type, (int) c.x, (int) c.y, (int) c.z, w->dstStage,
                       w->dstRoom, (int) w->dstPos.x, (int) w->dstPos.y, (int) w->dstPos.z, w->lockType, w->lockFlag);
         } else {
-            re4dc_log("warp: area %02x type=%u flag=%02x trig=%02x shape=%u center=%d,%d,%d\n", no, w->type, w->flag,
-                      w->trigger, area.type, (int) c.x, (int) c.y, (int) c.z);
+            re4dc_log("warp: area %02x type=%u flag=%02x trig=%02x shape=%u center=%d,%d,%d check=%02x angle=%d range=%d\n",
+                      no, w->type, w->flag, w->trigger, area.type, (int) c.x, (int) c.y, (int) c.z, w->checkFlag,
+                      2 * (int) w->angle, 2 * (int) w->angleRange);  // degrees (sce_at.h: * 2 degrees)
+            if (area.type == AREA_TYPE_XZ4) {
+                const AreaXZ4& q = area.u.xz4;
+                re4dc_log("warp: area %02x xz4 floor=%d height=%d p=%d,%d %d,%d %d,%d %d,%d\n", no, (int) q.floor,
+                          (int) q.height, (int) q.p[0].x, (int) q.p[0].z, (int) q.p[1].x, (int) q.p[1].z, (int) q.p[2].x,
+                          (int) q.p[2].z, (int) q.p[3].x, (int) q.p[3].z);
+            }
         }
     }
 }
@@ -357,6 +366,9 @@ void re4dc_warp_room_enter(void)
     pG->Item_find_flg |= wp.find;
     pG->door_unlock[0] |= wp.unlock[0];
     pG->door_unlock[1] |= wp.unlock[1];
+    pG->item_flags[0] |= wp.items[0];
+    pG->item_flags[1] |= wp.items[1];
+    if (wp.items[0] | wp.items[1]) re4dc_log("warp: item_flags %08x/%08x\n", (unsigned) pG->item_flags[0], (unsigned) pG->item_flags[1]);
     for (unsigned i = 0; i < wp.n_dead; ++i) EmListSetAlive(wp.dead[i], 0);
     if (wp.n_dead) re4dc_log("warp: %u enemy-list entries set dead\n", wp.n_dead);
     re4dc_log("warp: flags applied rsf[%03x]=%08x scenario=%08x/%08x find=%08x unlock=%08x/%08x\n",

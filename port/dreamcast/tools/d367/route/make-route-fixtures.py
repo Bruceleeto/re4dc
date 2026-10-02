@@ -52,7 +52,10 @@ ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room 
 #           and r100-r103 never did (the kite disc stages no em2a pictures).
 TEXSETS = {'chap01': [L / 'tex-chap01-vq', L / 'tex-chap01'], 'em2a': [L / 'tex-em2a'], 'em13': [L / 'tex-em13'], 'pl08': [L / 'tex-pl08'], 'em27': [L / 'tex-em27'],
            # pairs-r107: material-pair pictures (tools/d367/pairs_from_log.py over route-r107a's "pair missing").
-           'pairs-r107': [L / 'pairs-r107'], 'pairs-r105': [L / 'pairs-r105']}
+           'pairs-r107': [L / 'pairs-r107'], 'pairs-r105': [L / 'pairs-r105'],
+           # chap02: SS/eng/chap02.dat from the GC disc (chap-gc; chap-src's copy has no handler), 25 images; three
+           # results pictures are shared with chap01 (stage both).
+           'chap02': [L / 'tex-chap02']}
 # Files a set stages besides its pictures. pl08: Leon without the jacket (costume 1 after r106; title.cpp),
 # prepare_enemy_motions.py textures-only (869,728 B resident: needs PLAYER_RESIDENT_BYTES=869728), with its
 # prebuilt PL bank (identical to pl00's, resident in aica_banks.py).
@@ -72,7 +75,11 @@ PADSCRIPTS = {'qte-ab': '0 0000 1 qte=1 200000\n+20 0300 8\n', 'qte-lr': '0 0000
               # card state 2/6, and A there returns to the list, 2/1): A to the save screen, A on slot 01 at 2/1,
               # Left to Yes at 2/6, A (the VMU save), then A every 2 s into chapter 1-2.
               'chapter-save': '5400 0100 6\n+120 0100 6\n5500 0100 6 card=2/1 3000\n5500 0001 6 card=2/6 3000\n'
-                              '+20 0100 6\n' + '+120 0100 6\n' * 30}
+                              '+20 0100 6\n' + '+120 0100 6\n' * 30,
+              # chapter-save-r105: r105s00 ends ~vbl 4650 and "Save?" is up by ~5400 (route-r105e6): A, A, then the
+              # card-state-gated slot / Left / Yes (as chapter-save), then A every 2 s into chapter 1-3.
+              'chapter-save-r105': '5300 0100 6\n+180 0100 6\n5500 0100 6 card=2/1 6000\n5500 0001 6 card=2/6 6000\n'
+                                   '+20 0100 6\n' + '+120 0100 6\n' * 30}
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     # *-snd (2026-10-01): + the r106 AICA banks (room .dar, em29, em2e); *-ps2 had GC banks (no room sound).
     'r106-entry-snd': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
@@ -115,6 +122,15 @@ VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     'r105-entry-a': ('r105-entry', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08'], []),
     # *-b: + pairs-r105 (route-r105a: 8b7f9449, 6378dfee), --dump (the AEV areas: area 8 runs s00).
     'r105-entry-b': ('r105-entry', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--dump']),
+    'r105-event-a': ('r105-event', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--door']),
+    # *-b: + --dump with each area's check flag / angle / range (r105e1: area 8 never fired at angle 0).
+    'r105-event-b': ('r105-event', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--door', '--dump']),
+    'r105-event-c': ('r105-event-front', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--door']),
+    'r105-event-d': ('r105-event-pi', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--door']),
+    'r105-event-e': ('r105-event-west', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--door']),
+    # r105 s00 -> chapter 1-2 end -> save -> chapter 1-3 (results pictures chap01 + chap02).
+    'r105-event-f': ('r105-event-west', 'rel-r103-entry-pw.json',
+                     ['r105', 'em2a', 'pl08', 'pairs-r105', 'chap01', 'chap02', 'pad-chapter-save-r105'], ['--door']),
     'r104-qte-none': ('r104-arrival', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08', 'r104mov', 'pad-none'], []),
 }
 # The kite base disc carries its own dc/padscript.txt (58 entries, source clock): dropping it from 'replace' left
