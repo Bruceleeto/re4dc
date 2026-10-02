@@ -30,18 +30,25 @@ MOVIES = Path('/root/probe/d367-agents/cutscenes/movies-288x192-full')
 
 # AICA banks (aica_banks.py build --route title,r100,r101,r103,<rooms> --fixed-route title,r100,r101,r103):
 # the room's own sound banks converted into the disc's frozen AICA layout (r100-r103 banks unchanged).
-AICA = L / 'aica-r106'
+AICA = {'r106': L / 'aica-r106', 'r104': L / 'aica-r104'}  # per room, each against the same frozen layout
 ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room uses)
     # r106: the PS2-pattern bake (--color-light ps2, room TEV x4; ps2rooms 2026-10-01, cost-neutral vs the
     # authored package: 44.8 vs 44.9 hw ms at the r106 entry).
     'r106': (PS2 / 'r106-ps2', ['r106s00'], ['em/em29.drs', 'em/em2e.drs']),
+    # r104 (2026-10-01): ps2rooms --color-light ps2 bake; em13 (chapter 1-2 Ganados, not on the kite disc) with its
+    # bank prebuilt (its EM0 equals em12's). Movies: none yet (s00 needs the QTE path; s10/s20 follow it).
+    'r104': (PS2 / 'r104-ps2', [], ['em/em13.drs']),
 }
 # Texture sets a view stages by naming the key in its rooms list (first dir wins):
 #   chapNN  the chapter-results pictures of SS/eng/chapNN.dat (prepare_native_ui.py over the GC original, then
 #           vq_native_ui.py with the run's load log); r106's s00 event ends chapter 1-1 on this screen.
 #   em2a    em/em2a.drs (prepare_native_ui.py /root/re4data, manifest em/em2a.drs): 8fb0fccf, which r106 loads
 #           and r100-r103 never did (the kite disc stages no em2a pictures).
-TEXSETS = {'chap01': [L / 'tex-chap01-vq', L / 'tex-chap01'], 'em2a': [L / 'tex-em2a']}
+TEXSETS = {'chap01': [L / 'tex-chap01-vq', L / 'tex-chap01'], 'em2a': [L / 'tex-em2a'], 'em13': [L / 'tex-em13'], 'pl08': [L / 'tex-pl08']}
+# Files a set stages besides its pictures. pl08: Leon without the jacket (costume 1 after r106; title.cpp),
+# prepare_enemy_motions.py textures-only (869,728 B resident: needs PLAYER_RESIDENT_BYTES=869728), with its
+# prebuilt PL bank (identical to pl00's, resident in aica_banks.py).
+SET_FILES = {'pl08': {'em/pl08.drs': AICA['r104'] / 'em/pl08.drs'}}
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     # *-snd (2026-10-01): + the r106 AICA banks (room .dar, em29, em2e); *-ps2 had GC banks (no room sound).
     'r106-entry-snd': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
@@ -57,6 +64,11 @@ VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     'r106-closet-snd4': ('r106-closet', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], ['--door']),
     'r106-entry-snd4': ('r106-entry', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], []),
     'r103-r106-walk-snd4': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], ['--door']),
+    # r104 bring-up (arrival event skipped by its own room flag); em13 pictures: prepare_native_ui.py over the GC
+    # em/em13.drs (iso-src-r104, manifest em/em13.drs; 87 images).
+    'r104-noevt-a': ('r104-entry-noevt', 'rel-r103-entry-pw.json', ['r104', 'em13'], []),
+    # *-b: + pl08 (the r104-noevt-a run halted reading pl08.drs: 1,057,792 B > the 846,656 B player area).
+    'r104-noevt-b': ('r104-entry-noevt', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08'], []),
 }
 # The kite base disc carries its own dc/padscript.txt (58 entries, source clock): dropping it from 'replace' left
 # it running in these views (written before 2026-10-01 evening, kept as recorded). Later views remove it.
@@ -77,13 +89,14 @@ def room_files(room):
         rep = {}
         for t in [t for d in TEXSETS[room] for t in sorted(d.glob('*.re4tex'))]:
             rep.setdefault(f'dc/tex/{t.name[0]}/{t.name}', t)
+        rep.update(SET_FILES.get(room, {}))
         return rep
     ps2, movies, banks = ROOMS[room]
     rep = {}
-    rep[f'st1/{room}.dar'] = AICA / f'st1/{room}.dar'
+    rep[f'st1/{room}.dar'] = AICA[room] / f'st1/{room}.dar'
     rep[f'st1/{room}.arc'] = L / f'rel-{room}/st1/{room}.arc'
     for b in banks:
-        rep[b] = AICA / b
+        rep[b] = AICA[room] / b
     rep[f'dc/native/{room}/MAINSCENARIO.re4mesh'] = L / f'pkg-{room}/MAINSCENARIO.re4mesh'
     for ext in ('re4mesh', 'r4pw'):
         rep[f'dc/native/{room}/ps2-world.{ext}'] = ps2 / f'ps2-world.{ext}'

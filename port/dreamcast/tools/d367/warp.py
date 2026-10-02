@@ -112,6 +112,13 @@ PRESETS = {
     "r106-closet": dict(room=0x106, pos=(158150, -9246, -44000), ang=0.0,
                         door=[("a", 60, 4), ("a", 150, 4), ("a", 240, 4), ("a", 330, 4)],
                         notes="in the closet event area (r106s00, chapter 1-1 end)"),
+    # r104 as the r106 door delivers Leon (r106 AEV door 3: dst -3443, 0, 12338, angle -1.581). rsf 0x104 bit 1 is
+    # R104Init's own "arrival done" flag (its DebugTrg(1) path): the s00 arrival event (QTE) is skipped and the
+    # kill-count waves / patrols start at once. Room bring-up only; the first visit plays s00 (preset r104-arrival).
+    "r104-entry-noevt": dict(room=0x104, pos=(-3443, 0, 12338), ang=-1.581, rsf={0x104: [1]},
+                             notes="r104 from the r106 door, arrival event done (room bring-up)"),
+    "r104-arrival": dict(room=0x104, pos=(-3443, 0, 12338), ang=-1.581,
+                         notes="r104 from the r106 door, first visit: the s00 arrival event and its QTE"),
 }
 
 

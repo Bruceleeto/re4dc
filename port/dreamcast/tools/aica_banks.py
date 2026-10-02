@@ -88,7 +88,9 @@ LOWER_ORDER = (8, 5, 1, 6, 2, 7, 0, 3)
 
 # Route: resident banks and the room-arena banks of each room (enemy lists from
 # the frontier ESL audit, /root/probe/d367-agents/frontier/frontier-ledger.json).
-RESIDENT = ['etc/core.das', 'em/pl00.drs', 'em/wep02.drs', 'bgm/bio4midi.dat#0', 'bgm/doorse.dat#*']
+# em/pl08.drs: Leon without the jacket (costume 1, every room after r106; title.cpp) loads into the same player
+# area as pl00 and carries the identical PL bank (fnv 556f69f1), so it is resident like pl00 and adds no bytes.
+RESIDENT = ['etc/core.das', 'em/pl00.drs', 'em/pl08.drs', 'em/wep02.drs', 'bgm/bio4midi.dat#0', 'bgm/doorse.dat#*']
 ROOMS = {
     'title': ['ss/cmn/title.snd'],                  # title / menu ROOM bank, on every boot
     'r100': ['st1/r100.dar', 'em/em12.drs', 'em/em23.drs', 'em/em21.drs'],
@@ -96,6 +98,8 @@ ROOMS = {
     'r103': ['st1/r103.dar', 'em/em26.drs', 'em/em28.drs', 'em/em21.drs', 'em/em12.drs'],
     # r106 (route lane): R106Init EmReadSearch 0x12/0x29/0x2A/0x2E (hall Ganados, bats, the dog's em2a, crawlers)
     'r106': ['st1/r106.dar', 'em/em12.drs', 'em/em29.drs', 'em/em2a.drs', 'em/em2e.drs'],
+    # r104 (route lane): no EmReadSearch; the ESL (etc/emleon00.esl) lists em13 only (assets.sh discover r104)
+    'r104': ['st1/r104.dar', 'em/em13.drs'],
 }
 
 
@@ -458,7 +462,10 @@ def build(mirror, out, res, per_room, uniq, slots, cache_dir, check):
     # every occurrence of a bank (also duplicates in other files) gets the same caps
     by_key = {b.key: b for b in uniq.values()}
     written = []
-    for path in sorted({b.path for b in uniq.values()} | set(archive_bases(mirror, s)[0] for s in RESIDENT)):
+    # Every planned room's files too: a file whose banks all duplicate another file's (em13.drs's EM0 is em12's,
+    # route lane 2026-10-01) holds no unique bank, but its copy still needs the prebuilt image.
+    room_paths = set(archive_bases(mirror, s)[0] for r in per_room for s in ROOMS[r])
+    for path in sorted({b.path for b in uniq.values()} | set(archive_bases(mirror, s)[0] for s in RESIDENT) | room_paths):
         if not os.path.exists(path):
             continue
         with open(path, 'rb') as f:

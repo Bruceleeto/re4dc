@@ -29,13 +29,17 @@ SMALL=('em26.drs','em28.drs','em21.drs')
 # frame count from the FCV header (*(u16*)ARC(0xB)), which stays resident, and lends its subArc
 # to the player's trap motions (same leased evaluator). Their textures are not audited: motion only.
 MOTION_SMALL=('em21.drs','em23.drs','em2a.drs')
+# Leon's archives, textures-only: pl00 (jacket, costume 0) and pl08 (no jacket, costume 1: title.cpp picks it in
+# every room but r120/r100/r101/r103/r106 once the r106 closet event has run). Same cPlLeon consumers, so pl08
+# takes pl00's reviewed textures-only contract (route lane 2026-10-01, r104).
+LEON=('pl00.drs','pl08.drs')
 
 def prepare(source, destination, hot_slots=(), textures=None, keep_motion_resident=False, compact_effects=False):
     source,destination=map(Path,(source,destination))
     name=source.name.lower();file='em/'+name
-    if name not in GANADO+SMALL+MOTION_SMALL+('pl00.drs','wep02.drs') or (name not in GANADO+MOTION_SMALL and not keep_motion_resident):
-        raise ValueError('supported contracts: Ganado (em12/em15) and em21/em23/em2a motion; em26/em28/em21/pl00/wep02 textures')
-    if textures is not None and name not in GANADO+SMALL+('pl00.drs','wep02.drs'):raise ValueError('textures not audited for '+name)
+    if name not in GANADO+SMALL+MOTION_SMALL+LEON+('wep02.drs',) or (name not in GANADO+MOTION_SMALL and not keep_motion_resident):
+        raise ValueError('supported contracts: Ganado (em12/em15) and em21/em23/em2a motion; em26/em28/em21/pl00/pl08/wep02 textures')
+    if textures is not None and name not in GANADO+SMALL+LEON+('wep02.drs',):raise ValueError('textures not audited for '+name)
     if compact_effects and name not in GANADO+SMALL:raise ValueError('only enemy EFF slot0 effect consumers qualified')
     if keep_motion_resident and textures is None and not compact_effects:raise ValueError('no selected compaction')
     if destination.exists():raise FileExistsError(destination)
