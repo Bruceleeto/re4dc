@@ -353,18 +353,25 @@ def native_identity_index(selected, mapped, original_bytes, resident_bytes):
     return header+table+bytes(table_size-32-len(table))
 
 
-def _compact_upload_only(decoded, references, palettes, textures, allowed, effect_ranges=(), effect_entries=(), indexed_allowed=None, model_ranges=(), model_entries=(), native_mips=False):
+def _compact_upload_only(decoded, references, palettes, textures, allowed, effect_ranges=(), effect_entries=(), indexed_allowed=None, model_ranges=(), model_entries=(), native_mips=False, header_grow=0):
     """Shared source-layout transform, using the existing converter's offsets."""
     import compact_effect_records as effects
     n=struct.unpack_from('<I',decoded)[0]
     offsets=struct.unpack_from('<%dI'%n,decoded,16)
     tags=[bytes(decoded[16+4*n+4*i:20+4*n+4*i]) for i in range(n)]
     extra=1+bool(effect_entries)
-    if min(x for x in offsets if x)<16+8*(n+extra):
+    first=min(x for x in offsets if x)
+    # header_grow (a room contract's reviewed value, 32-byte aligned): the source header ends flush with the
+    # first payload (r104: 46 slots, 384 B), so the payloads move up by header_grow through compact_spans'
+    # own rebasing (an empty source span replaced by zeros at the first payload).
+    if first+header_grow<16+8*(n+extra):
         raise ValueError('archive lacks spare native-identity header slot')
+    grow_ranges=[(first,first,bytes(header_grow))] if header_grow else []
     ranges,selected,retained=select_upload_only(decoded,palettes,textures,allowed,indexed_allowed,native_mips)
     if not ranges:raise ValueError('no qualified upload-only payloads')
-    out,mapped=compact_spans(decoded,references,sorted(ranges+list(effect_ranges)+list(model_ranges)))
+    out,mapped=compact_spans(decoded,references,sorted(grow_ranges+ranges+list(effect_ranges)+list(model_ranges)))
+    if any(struct.unpack_from('<I',out,16+4*i)[0]!=(mapped(off) if off else 0) for i,off in enumerate(offsets)):
+        raise ValueError('archive slot offsets not rebased')
     table_size=(32+12*len(selected)+31)&~31
     effect_size=((32+12*len(effect_entries)+31)&~31) if effect_entries else 0
     final_bytes=len(out)+table_size+effect_size
@@ -413,6 +420,10 @@ ROOM_CONTRACTS={
     # r106 (route lane): 55 slots, r101's owner layout: SMD#4 scenery TPL0, EFF#7 room
     # effects, EFF#42 local effects, ITM#9, model TPLs #47/#49/#51 (after BIN #46/#48/#50).
     'r106':dict(slots=55,smd=4,effs=(7,42),itm=9,model_slots=(47,49,51)),
+    # r104 (route lane): 46 slots, r106's owner layout without the model BIN/TPL pairs: SMD#4 scenery
+    # TPL0, EFF#7 room effects, EFF#42 local effects, ITM#9.
+    # Its header ends flush with the first payload: header_grow=32 makes room for the NTR slot.
+    'r104':dict(slots=46,smd=4,effs=(7,42),itm=9,model_slots=(),header_grow=32),
 }
 
 def compact_room(source_file, textures, destination, compact_effects=False, compact_palettes=False, compact_uvs=False, compact_mips=False):
@@ -425,7 +436,7 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
     name=source_file.name.lower()
     room=name[:-4] if name.endswith('.das') else ''
     if room not in ROOM_CONTRACTS:
-        raise ValueError('only the reviewed r100/r101/r103/r106 consumer contracts are supported')
+        raise ValueError('only the reviewed r100/r101/r103/r104/r106 consumer contracts are supported')
     if room!='r100' and (compact_effects or compact_palettes or compact_uvs):
         raise ValueError('effect/palette/UV compaction is reviewed for r100 only')
     contract=ROOM_CONTRACTS[room]
@@ -457,7 +468,7 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
     if (n!=contract['slots'] or tags[contract['smd']]!=b'SMD\0' or tags[contract['itm']]!=b'ITM\0' or
         any(tags[e]!=b'EFF\0' for e in contract['effs']) or
         (room!='r100' and any(tags[m]!=b'TPL\0' or tags[m-1]!=b'BIN\0' for m in contract['model_slots'])) or
-        min(offsets)<16+8*(n+1)):
+        min(offsets)+contract.get('header_grow',0)<16+8*(n+1)):
         raise ValueError('%s archive layout differs from reviewed contract'%room)
     eff_ids_by_slot={}
     for slot in contract['effs']:
@@ -503,7 +514,7 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
         model_ranges,model_entries,model_retained=compact_model_uvs(decoded,models)
         if not model_entries:raise ValueError('no qualified scenery UV saving')
     out,stats=_compact_upload_only(decoded,references,palettes,textures,allowed,
-        effect_ranges,effect_entries,indexed_allowed,model_ranges,model_entries,compact_mips)
+        effect_ranges,effect_entries,indexed_allowed,model_ranges,model_entries,compact_mips,contract.get('header_grow',0))
     if compact_uvs:stats['model_uvs']['retained']=model_retained
     if compact_effects:stats['effects']['skipped']=skipped
     _,packaged=mirror.prepare_native_room(rel,container,out,coverage)

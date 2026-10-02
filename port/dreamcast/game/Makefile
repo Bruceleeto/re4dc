@@ -47,14 +47,17 @@ OBJDIR = obj
 # turns every module in MODULES into one partially linked object whose only
 # global symbols are its renamed entry points (obj/modules.mk), and
 # platform/modules.cpp maps the REL header ids to them for OSLink.
-MODULES = st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e
+MODULES = st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13
 # EM10_SHARED=1 (default 0): the Ganado RELs em12 (r100/r103) and em15 (r101) are both
 # em10.cpp + their own <em>_set.cpp; link them as one object (gen_modules.py group em10g) so the
 # image holds one em10.cpp (-254 KB of image = +254 KB of heap 4). Both keep their REL ids and
 # entry points and share one state span (a fresh link restores it); only one Ganado REL may be
 # live at a time, which holds on the r100 -> r101 -> r103 route (platform/modules.cpp logs it).
+# em13 (r104's chapter 1-2 Ganados, route lane 2026-10-01) joins the group: alone it carried a
+# second em10.cpp (264,538 B of text = 266 KB of heap 4 in every room); r104 loads em13 only.
 EM10_SHARED ?= 0
-MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out em12 em15,$(MODULES)) em10g=em12+em15,$(MODULES))
+EM10_GROUP = $(filter em12 em15 em13,$(MODULES))
+MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out $(EM10_GROUP),$(MODULES)) em10g=$(subst $(eval) ,+,$(strip $(EM10_GROUP))),$(MODULES))
 MODULE_OBJS =
 MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))
@@ -348,14 +351,17 @@ ROUTE_MOVIE_TEXHASH ?= 0
 #   movie opens inside the interrupted frame's scene, so a later open failure (heap 4 staging)
 #   retires the texture with that scene open (re4dc_ui_movie_close discards it).
 ROUTE_MOVIE_DIAG ?= 0
+# ROUTE_QTE_FRAMES=<n>: test builds hold a route QTE cut (r104 s00 cut 0x1E) for n game frames instead of the
+#   event's own (60), so a timed screenshot catches the prompt over the movie. 0 (default) = the event's.
+ROUTE_QTE_FRAMES ?= 0
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' > $@.tmp
+	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n#define RE4DC_ROUTE_QTE_FRAMES %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' '$(ROUTE_QTE_FRAMES)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 ROUTE_MOVIE_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/pad.o
-ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
+ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
 $(ROUTE_MOVIE_PLATFORM) $(ROUTE_MOVIE_GAME): $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/route-movies.h
@@ -544,7 +550,7 @@ ENEMY_DEMAND ?= 0
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13,$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif

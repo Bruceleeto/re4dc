@@ -25,6 +25,15 @@ int re4dc_movie_available(unsigned id);
 // GameCube PAD bits (START 0x1000 = the source event cancel key, Key bit 29).
 int re4dc_movie_play(unsigned id, unsigned mask, RouteMoviePictureTick tick);
 int re4dc_movie_cancel(void);
+// Route QTE cuts (r104s00, the PS2 pattern): play up to picture `stop_at` movie-owned, then hand
+// the open movie to the caller's game frames: re4dc_movie_step once per frame (the frame draws the
+// picture behind its UI, re4dc_ui_movie_background), re4dc_movie_end to retire it. _stepped opens one
+// for stepping only. Bit 24 of an id names the event's cancel clip (r104s00c).
+enum { RE4DC_MOVIE_CANCEL_CLIP = 0x1000000 };
+int re4dc_movie_play_until(unsigned id, unsigned mask, RouteMoviePictureTick tick, unsigned stop_at);
+int re4dc_movie_play_stepped(unsigned id);
+int re4dc_movie_step(RouteMoviePictureTick tick);
+int re4dc_movie_end(void);
 // Index of the last presented picture; 0 before the first.
 unsigned re4dc_movie_picture(void);
 #ifdef __cplusplus

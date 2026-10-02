@@ -91,5 +91,10 @@ if __name__=='__main__':
     OUT.mkdir(parents=True,exist_ok=True); idx=afs_index()
     with cf.ThreadPoolExecutor(6) as ex:
         res=list(ex.map(lambda n:one(n,idx),NAMES))
-    (OUT/'route-movies.json').write_text(json.dumps(res,indent=1))
+    # Merge by name (route lane 2026-10-01): a run over some names keeps every other movie's entry.
+    index=OUT/'route-movies.json'
+    old=json.loads(index.read_text()) if index.exists() else []
+    new={r['name']:r for r in res}
+    merged=[new.pop(r['name'],r) for r in old]+list(new.values())
+    index.write_text(json.dumps(merged,indent=1))
     for r in res: print(json.dumps(r))

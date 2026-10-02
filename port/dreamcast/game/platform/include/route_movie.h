@@ -13,3 +13,11 @@ typedef void (*RouteMovieTick)(unsigned picture);  // per-cut source hooks, by m
 // terminal (EOF/SKIP/ERROR); RE4DC_MOVIE_UNHANDLED means nothing happened and
 // the caller's source event path applies unchanged.
 int RouteMoviePlay(unsigned id, unsigned flags, RouteEvtFunc func, RouteMovieTick tick);
+// An event whose cancel cut is a QTE (r104 s00: ActBtn A+B / L+R, success -> s01, else s02), the PS2
+// pattern: the movie plays to the cut's first picture (`qte_picture`, PS2 evd camera cuts), then the
+// cut runs as `qte_frames` game frames over the rest of the movie: `func` in mode 1 at cut `qte_cut`
+// each frame (the source ActBtn.set), the game's own ActBtn / HUD drawn over the picture, until the
+// handler cancels (StatusFlag 0x4000, the QTE passed) or the cut ends. A skip (START) jumps to the cut
+// as RunEvtCancel does (func mode 3), and the cut runs over the event's cancel clip (rRRRsEEc).
+int RouteMoviePlayQte(unsigned id, unsigned flags, RouteEvtFunc func, unsigned qte_cut, unsigned qte_picture,
+                      unsigned qte_frames);

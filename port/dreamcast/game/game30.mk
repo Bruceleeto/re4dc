@@ -1692,7 +1692,7 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 endif
-# PS2_WORLD_ROOMS=1 (render only, default off; needs PS2_WORLD_MESH=1): the PS2 world in r100, r103 and r106 too
+# PS2_WORLD_ROOMS=1 (render only, default off; needs PS2_WORLD_MESH=1): the PS2 world in r100, r103, r104 and r106 too
 # (the room list: native_static.cpp re4dc_ps2_world_room)
 # (tools/ps2_room_r4im.py, staged as dc/native/r%03x/ps2-world.re4mesh / .r4pw). Each room opens its own
 # package at its first coarse draw (another room's is freed first); a room whose package fails to open

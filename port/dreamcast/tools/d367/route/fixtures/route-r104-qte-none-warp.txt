@@ -1,0 +1,6 @@
+name r104-arrival
+# r104 from the r106 door, first visit: the s00 arrival event and its QTE
+room 0x104
+pos -3443 0 12338
+ang -1.5810
+inv default

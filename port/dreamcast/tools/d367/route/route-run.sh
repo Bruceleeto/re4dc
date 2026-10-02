@@ -1,5 +1,6 @@
 #!/bin/bash
 # route-run.sh <name> <label> <fixture> [seconds]  (Git Bash; lane route, 2026-10-01; lane enc's enc-census-run.sh)
+# PERIOD=<s> (5..90): screenshot period, default 60.
 # Dynarec Flycast run of one route view: stages scenario route-<name> with candidate-route<label> (route-build.sh)
 # + the fixture (make-route-fixtures.py), runs the harness's run-emulator.py, writes route.txt (warp, room, movie,
 # heap, HALT and MISSING lines) next to the capture, deletes the disc (disc.sha256 kept). Names are single-use.
@@ -17,10 +18,10 @@ D=$(MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/lambd/AppData/Lo
 rm -f /c/Users/lambd/AppData/Local/Temp/route-stage-$N.sh
 echo "stage $D"
 case "$D" in STAGED_PAYLOAD_IDENTITY_PASS*) ;; *) echo "stage failed"; exit 1 ;; esac
-python run-emulator.py route-$N --seconds $SECS --period 60 > $S-run-stdout.txt 2>&1
+python run-emulator.py route-$N --seconds $SECS --period ${PERIOD:-60} > $S-run-stdout.txt 2>&1
 C=$S/capture
 python -c "import json;d=json.load(open('$C/run-result.json'));print(d['status'],d.get('errors'))"
-grep -a -E 'warp:|route movie|room |heap4|heap 4|HALT|RE4DC MISSING|no-std|PS2MESH|native mesh|exec error|chapter' $C/run-output.txt > $S/route.txt
+grep -a -E 'warp:|route movie|route QTE|route cutscene|room |heap4|heap 4|HALT|RE4DC MISSING|no-std|PS2MESH|native mesh|exec error|chapter' $C/run-output.txt > $S/route.txt
 echo "route lines $(wc -l < $S/route.txt) halt=$(grep -ac HALT $C/run-output.txt) missing=$(grep -ac 'RE4DC MISSING' $C/run-output.txt)"
 echo "$(echo $D | awk '{print $2}')  disc.bin (deleted after run)" > $S/disc.sha256
 rm -f $C/disc.bin $S/disc/disc.bin

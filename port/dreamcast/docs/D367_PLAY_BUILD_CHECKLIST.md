@@ -22,6 +22,16 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   textures, dc/movie/r106s00.seq, and the dc/native/r106 directory (stage-scenario.py creates missing directories).
   tools/d367/route/make-route-fixtures.py writes these fixtures (recipe in docs/lanes/route.md). Open: a direct start
   in r106 (warp or a save made there) fails every disc open after the room read.
+- r106 end of chapter 1-1 (route lane, 2026-10-01): also the chapter results pictures (tex-chap01-vq + tex-chap01) and
+  the em2a picture (tex-em2a); make-route-fixtures.py sets chap01 / em2a.
+- r104 (route lane, 2026-10-01; lane/route d4424cf3, landing pending): the build needs PLAYER_RESIDENT_BYTES=869728 (in
+  build-r21.sh) and em13 in MODULES (em10g group). The disc needs:
+  - st1/r104.{dar,arc} and em/em13.drs from the r104 AICA build;
+  - em/pl08.drs, textures-only (Leon without the jacket);
+  - dc/native/r104/MAINSCENARIO.re4mesh and ps2-world.* from ps2rooms out/r104-ps2, with its tex;
+  - the tex-r104 / tex-em13 / tex-pl08 pictures;
+  - dc/movie/r104s00, s00c, s01, s02, s10, s20 .seq.
+  make-route-fixtures.py sets r104, em13, pl08 and r104mov stage these files.
 
 ## Steps
 
