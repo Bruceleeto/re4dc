@@ -33,6 +33,13 @@ import sys
 # nothing accumulates in the KOS atexit list across opens.
 PER_LINK_CTORS = {"Sscrn"}
 
+# Cross-REL imports: a module's partial link keeps only its entry points and state global, so a
+# direct call from one REL into another binds to the image's missing-symbol stub. On the GameCube
+# OSLink binds these by module id while both are linked. Each entry keeps the named symbols of that
+# module global (route lane 2026-10-01: r107.cpp (st1_1) calls cEm27::setWaterHeight on its fish; the
+# only cross-REL import in the image, found by an nm scan of every module object).
+CROSS_REL_EXPORTS = {"em27": ["__ZN5cEm2714setWaterHeightEf"]}
+
 
 def units(cfg, mod):
     text = open(os.path.join(cfg, mod, "splits.txt")).read()
@@ -160,7 +167,8 @@ def main():
         ]) + "\n"
         if not os.path.exists(script_path) or open(script_path).read() != script:
             open(script_path, "w").write(script)
-        keep = " ".join("-G %s" % s for s in ["_%s_prolog" % mod, "_%s_epilog" % mod] + state)
+        keep = " ".join("-G %s" % s for s in ["_%s_prolog" % mod, "_%s_epilog" % mod] + state +
+                        CROSS_REL_EXPORTS.get(mod, []))
         mk += [
             "MOD_%s_OBJS = %s $(OBJDIR)/mod/%s/unresolved.o" % (mod, objs, mod),
             "$(OBJDIR)/mod/%s/%%.o: $(ROOT)/%%.cpp" % mod,

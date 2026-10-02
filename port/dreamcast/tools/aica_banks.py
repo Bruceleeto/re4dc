@@ -100,6 +100,8 @@ ROOMS = {
     'r106': ['st1/r106.dar', 'em/em12.drs', 'em/em29.drs', 'em/em2a.drs', 'em/em2e.drs'],
     # r104 (route lane): no EmReadSearch; the ESL (etc/emleon00.esl) lists em13 only (assets.sh discover r104)
     'r104': ['st1/r104.dar', 'em/em13.drs'],
+    # r107 (route lane): the ESL lists em12 / em27 (the lake fish) / em2a (assets.sh discover r107)
+    'r107': ['st1/r107.dar', 'em/em12.drs', 'em/em27.drs', 'em/em2a.drs'],
 }
 
 

@@ -10,8 +10,8 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
 gameplay, and the miss leads to Continue.
 
 Next, in stage_route.py order:
-1. The r106 door 3 -> r104 walk with the full play set: Leon's costume switches to pl08 on that door.
-2. r107.
+1. Done: chapter 1-1 -> 1-2 (r106 -> save -> r104), see below.
+2. r107: in game (2026-10-02, below); the r104 -> r107 door walk next.
 3. r105.
 
 The history of the r106 bring-up is below.
@@ -208,6 +208,45 @@ The history of the r106 bring-up is below.
   - VRAM free at the r104 entry is 223,488 B (drift −2.29 MB): the native UI cache holds the results and save screen
     pictures. It evicts on demand.
   - The s00 movie dropped 23 pictures (max gap 42 fields) on this path; a warp start drops 0.
+
+## Progress 2026-10-02 (r107: the path after r104)
+
+`assets.sh discover r107` lists:
+- em12, em27 (the lake fish) and em2a, from the ESL;
+- no evd events, so no movies;
+- the room container, not prepared.
+
+- **Room container.**
+  - le_mirror rejected `st1/r107.arc#15`, AEV scenario entry type 14. Type 14 is "stoop" (sce_at.cpp
+    `sceAtFunc_stoop`: PlSetCrouch) and reads no payload. It is now qualified only with an all-zero payload, like
+    types 0/2/6/7/20.
+  - prepare_native_ui gets the r107 contract: 27 slots, r103's owner layout (SMD#4, EFF#7, ITM#9), no model slots.
+  - Resident archive: 4,398,848 → 1,323,968 B (r103 1,455,456). 207 scenery BINs released; container 5,370,944 B.
+    Recipe as r104's: iso-src-r107, mirror-r107, tex-r107 (166 images), w-r107c, pkg-r107, rel-r107.
+- **em27.** `assets.sh discover r107 --fix --wire` fixed the value-init and slot-math lint errors and wired
+  Makefile MODULES, the ENEMY_DEMAND audit list and modules.cpp MODULE(16, em27). Pictures: tex-em27 (manifest
+  em/em27.drs).
+- **Cross-REL import (trap).** r107.cpp (st1_1) calls `cEm27::setWaterHeight` on its fish.
+  - A module's partial link keeps only its entry points and state global, so the call bound to the image's
+    missing-symbol stub: route-r107a (image r21) halted with `RE4DC MISSING: __ZN5cEm2714setWaterHeightEf`.
+  - On the GC, OSLink binds the import by module id. gen_modules.py now has `CROSS_REL_EXPORTS = {"em27": [...]}`.
+  - An nm scan of every module object finds this as the only cross-REL import in the image (scratchpad
+    k143.py: module U symbols defined in another module).
+- **Sound.** aica-r107 plans r106 and r107 together against the frozen title..r103 layout, because em2a's bank is one
+  disc file shared by both rooms. Every shared bank comes out identical to aica-r106 (em12, em2a, em29, em2e, r106.dar,
+  r100-r103, core, pl00). r107 adds st1/r107.dar and em/em27.drs.
+- **Runtime.** r107 is in `re4dc_ps2_world_room`, and warp preset `r107-entry` puts Leon at r104 door 0's destination:
+  (29683, −13, −28512), angle 2.286 (stage_route.py).
+- **Missing material pair.** route-r107a/b log `pair missing 06a93b5a-bea302c6 color=2d1f80f9 mask=10592447`, built by
+  `pairs_from_log.py ... --file st1/r107.das ...` into pairs-r107 (fixture texture set `pairs-r107`).
+- **route-r107b** (image r22, fixture r107-entry-a): HALT 0, missing 0.
+  - Room identities ok (85); the PS2 world opens (945,728 B).
+  - The world, Leon (pl08) and the HUD draw (shot t0091).
+  - PACE (Flycast proxy): about 15 drawn fps at speed ~97-100, draw_us 43-45 ms. r107 is heavier than r104 (29.9);
+    not measured on the hw model yet.
+- **route-r107c** (r22, fixture r107-entry-b with pairs-r107): open failed 0, upload FAILED 0, HALT 0.
+- **Kite gate r22 vs c9 / l18:** identical position at frame 2100 (610,0,-4346); spills 4, upload FAILED 12, HALT 0;
+  heap 4 free 8,178,432 (l18 8,194,816: −16,384 B, em27 joins the image).
 
 ## Numbers (image, build, evidence)
 
