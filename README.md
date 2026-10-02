@@ -21,6 +21,7 @@ RAM and its PowerVR graphics chip.
 ## Status
 
 Published builds are public prerelease test builds. Each one is checked in [Flycast](https://github.com/flyinghead/flycast).
+They are not a full game disc: a build holds only the data for the rooms below.
 
 | Chapter | Rooms | State |
 | --- | --- | --- |
@@ -74,7 +75,8 @@ As of build r21m, checked in Flycast:
 
 ## Playing
 
-Download a build from [Releases](https://github.com/lamb2k/re4dc/releases). No BIOS is included.
+Download a build from [Releases](https://github.com/lamb2k/re4dc/releases). Each build covers only the
+rooms in [Status](#status), not the full game. No BIOS is included.
 
 - **Windows:** unzip `RE4DC-<build>.zip`, double-click `Play-<build>.cmd`.
 - **Steam Deck / SteamOS:** extract `RE4DC-<build>-SteamOS.tar.gz` and run `play.sh`. It installs

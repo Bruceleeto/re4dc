@@ -1,7 +1,7 @@
 name: Game bug
 description: Something wrong while playing a Dreamcast build (crash, freeze, wrong picture, slowdown, save problem)
 title: "[r21?] <room or scene>: <one line>"
-labels: [bug, game]
+labels: [bug]
 body:
   - type: input
     id: build
