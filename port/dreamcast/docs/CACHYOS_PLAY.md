@@ -10,11 +10,11 @@ machine: report anything that differs. The SteamOS equivalent is `STEAMOS_PLAY.m
 
 | Piece | Where | Why |
 |---|---|---|
-| Play build | `~/Games/RE4DC/<tag>/<name>-CachyOS/` (`disc/` + `play.sh` + `record.sh` + README) | From a `play-*` release on the private repo `lamb2k/re4dc` (asset `*-CachyOS.tar.gz`, sha256 in the release notes) |
+| Play build | `~/Games/RE4DC/<tag>/<name>-CachyOS/` (`disc/` + `play.sh` + `record.sh` + README) | From a public `play-*` prerelease on `lamb2k/re4dc` (asset `*-CachyOS.tar.gz`, sha256 in the release notes) |
 | Flycast | a native `flycast` (AUR `flycast`, chaotic-aur `flycast-git`) if installed, else Flathub `org.flycast.Flycast` (`--user`) | The emulator. `play.sh` passes the play settings with `-config` (transient) |
 | GPU Screen Recorder | native `gpu-screen-recorder` if installed, else Flathub `com.dec05eba.gpu_screen_recorder` (`--user`) | Hardware-encoded 60 fps recording, so Flycast keeps the CPU |
 | OBS Studio (optional) | native `obs` or Flathub `com.obsproject.Studio` | Only with `--obs` |
-| `gh` | system `gh` (`sudo pacman -S github-cli`) or `~/.local/bin/gh` | Downloads the release from the private repo (`gh auth login` once, as the user) |
+| `gh` | system `gh` (`sudo pacman -S github-cli`) or `~/.local/bin/gh` | Downloads the release; the script prompts for sign-in if `gh` is not authenticated |
 | Menu entry | `~/.local/share/applications/re4dc-<tag>.desktop` | Starts the build from the desktop menu |
 
 ## Steps
@@ -48,8 +48,7 @@ Keyboard and DualSense mappings: Flycast Settings > Controls.
 - `command -v flycast` or `flatpak list --user --app | grep org.flycast.Flycast`.
 - `disc/disc.cue` and `disc/disc.bin` exist in the build folder; `disc/elf.sha256` names the ELF.
 - A 10 s `record.sh` test produces a playable MP4 (delete it afterwards).
-- Do not upload recordings, discs or logs anywhere unless the user asks: the disc holds game data and the
-  repo is private.
+- Do not upload recordings, discs or logs anywhere unless the user asks: the disc holds game data.
 
 ## Making a new CachyOS package (on the build machine)
 

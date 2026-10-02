@@ -9,11 +9,11 @@ run on a Deck: report anything that differs. CachyOS / Arch: `CACHYOS_PLAY.md`.
 
 | Piece | Where | Why |
 |---|---|---|
-| Play build | `~/Games/RE4DC/<tag>/<name>-SteamOS/` (`disc/` + `play.sh` + README) | From a `play-*` release on the private repo `lamb2k/re4dc` (asset `*-SteamOS.tar.gz`, sha256 in the release notes) |
+| Play build | `~/Games/RE4DC/<tag>/<name>-SteamOS/` (`disc/` + `play.sh` + README) | From a public `play-*` prerelease on `lamb2k/re4dc` (asset `*-SteamOS.tar.gz`, sha256 in the release notes) |
 | Flycast | Flathub `org.flycast.Flycast` (`--user`) | The emulator. `play.sh` passes the play settings with `-config` (transient) |
 | GPU Screen Recorder | Flathub `com.dec05eba.gpu_screen_recorder` (`--user`) | Hardware-encoded 60 fps recording, so Flycast keeps the CPU |
 | OBS Studio (optional) | Flathub `com.obsproject.Studio` | Only with `--obs`: commentary, scenes |
-| `gh` | `~/.local/bin/gh` if missing | Downloads the release from the private repo (`gh auth login` once, as the user) |
+| `gh` | `~/.local/bin/gh` if missing | Downloads the release; the script prompts for sign-in if `gh` is not authenticated |
 | Steam shortcut | via `steamos-add-to-steam` | So the build also runs from Game Mode (Steam's own Game Recording works there) |
 
 ## Steps
@@ -41,8 +41,7 @@ r21h build defaults to Fast). Remap in Flycast Settings > Controls if needed.
 - `flatpak list --user --app` shows `org.flycast.Flycast` and `com.dec05eba.gpu_screen_recorder`.
 - `disc/disc.cue` and `disc/disc.bin` exist in the build folder; `disc/elf.sha256` names the ELF.
 - A 10 s `record.sh` test produces a playable MP4 (delete it afterwards).
-- Do not upload recordings, discs or logs anywhere unless the user asks: the disc holds game data
-  and the repo is private.
+- Do not upload recordings, discs or logs anywhere unless the user asks: the disc holds game data.
 
 ## Making a new SteamOS package (on the build machine)
 

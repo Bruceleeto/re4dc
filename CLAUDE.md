@@ -17,7 +17,7 @@ Build recipes are in [tools/d367/README.md](port/dreamcast/tools/d367/README.md)
 2026-09-28: r19 -> r21 landed on dreamcast-port (4fb68a8..36e28e0; route doc "Progress 2026-09-28"): the Codex
 playability integration, the PS2 r101 world through R4IM + MeshDraw (PS2_WORLD_MESH) and coarse_finite. Recipe:
 port/dreamcast/tools/d367/build-r21.sh. Release kite fight 93.3 hw ms: G ~29.0, R ~64 (characters ~35, world 21.9).
-The remote is the private repo lamb2k/re4dc (the account was renamed from stevedamnvan on 2026-09-29; old URLs redirect).
+The remote is lamb2k/re4dc (the account was renamed from stevedamnvan on 2026-09-29; old URLs redirect).
 
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
