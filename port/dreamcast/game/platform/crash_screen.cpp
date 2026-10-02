@@ -70,13 +70,14 @@ void show(const char* kind, const char* detail, bool wait_render)
     for (int i = 0; i < kW * kH; ++i) fb[i] = 0x0008;
     char line[96];
     int row = 0;
-    put_text(0, row++, "RE4DC stopped - please photograph this screen", 0xFFE0);
+    put_text(0, row++, "RE4DC stopped - please raise a ticket with a photo", 0xFFE0);
+    put_text(0, row++, "of this screen: github.com/lamb2k/re4dc/issues", 0xFFE0);
     snprintf(line, sizeof(line), "%s %s", kind, detail);
     put_text(0, row++, line, 0xF800);
     snprintf(line, sizeof(line), "stage %08lx  ui frame %u", re4dc_stage, re4dc_ui_frame());
     put_text(0, row++, line, 0xFFFF);
     // Threads: id, state, pc, pr (the saved context; the running thread's is stale).
-    for (int tid = 1; tid <= 24 && row < 9; ++tid) {
+    for (int tid = 1; tid <= 24 && row < 10; ++tid) {
         kthread_t* t = thd_by_tid(tid);
         if (!t) continue;
         snprintf(line, sizeof(line), "t%d %.10s s%d pc %08lx pr %08lx%s", tid, t->label, (int) t->state,
