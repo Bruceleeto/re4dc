@@ -50,8 +50,9 @@ rm -rf "$OUTDIR"
 mkdir -p "$WORK/cdroot" "$WORK/t1root" "$OUTDIR"
 
 # 1ST_READ.BIN: raw binary, unscrambled.
-if ! bash "$KOS/utils/elf2bin/elf2bin" "$ELF" "$WORK/prog.bin" >/dev/null 2>&1; then
-  sh-elf-objcopy -R .stack -O binary "$ELF" "$WORK/prog.bin"
+# elf2bin can exit 0 without writing the file (2026-10-02, r21l): fall back on an empty result too.
+if ! bash "$KOS/utils/elf2bin/elf2bin" "$ELF" "$WORK/prog.bin" >/dev/null 2>&1 || [ ! -s "$WORK/prog.bin" ]; then
+  "${SH_OBJCOPY:-/opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy}" -R .stack -O binary "$ELF" "$WORK/prog.bin"
 fi
 test -s "$WORK/prog.bin"
 cp "$WORK/prog.bin" "$WORK/cdroot/1ST_READ.BIN"
