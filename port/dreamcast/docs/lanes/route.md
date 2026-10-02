@@ -188,6 +188,27 @@ The history of the r106 bring-up is below.
     - route-r104-qte-ab-l18: the QTE passes, s01 plays 565/565.
   - f16f2aec (lane f97e5431, the icons). Landing image l20: route-r104-qte-ab-l20 passes 3 frames into the cut; s01 plays 565/565; HALT 0.
 
+## Progress 2026-10-01 (night: chapter 1-1 -> 1-2 on the landed image)
+
+- **The play path r106 -> r104 works** on the landed image l20: route-r106-r104-ch2, fixture
+  route-rel-r106-r104-chapter2-pw, preset r106-closet, every r106 and r104 set staged. HALT 0, missing 0. The sequence:
+  1. The closet event; r106s00 plays 1738/1738.
+  2. The chapter 1-1 results, then Save? Yes.
+  3. The save screen: slot 01, "Save? Yes" (pad script Left + A), then the VMU write (card-vmu syswrite rc=0).
+  4. Chapter 1-2: DOORDEMO, then r104 is entered (pl08 read, the r104 PS2 world opens: 677,216 B).
+  5. r104s00 plays to the QTE handoff.
+  6. The script's lone A is not the A+B pair, so the QTE misses: s02, then the Continue screen. That is the expected
+     miss branch.
+- **Pad script (`pad-chapter-save`).** The first try (route-r106-r104-ch1, A only) looped in the save screen. A on a slot
+  opens "Save? Yes/No" with No selected (card state 2/6), and A there returns to the list (2/1). The script now gates
+  its presses on card=2/1 and card=2/6.
+- **Observations, not blockers:**
+  - At the chapter end, r104's PS2 world is opened while still in r106, with heap 4 down: `PS2MESH open failed ...
+    heap=-1`. The room's own entry retires the attempt and opens it.
+  - VRAM free at the r104 entry is 223,488 B (drift −2.29 MB): the native UI cache holds the results and save screen
+    pictures. It evicts on demand.
+  - The s00 movie dropped 23 pictures (max gap 42 fields) on this path; a warp start drops 0.
+
 ## Numbers (image, build, evidence)
 
 ## Ready to land
