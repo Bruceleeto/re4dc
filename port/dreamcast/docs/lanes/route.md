@@ -121,7 +121,8 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
 - **em2a picture.** r106 loads 8fb0fccf-d75e4a3f (128x128 CMPR; the "b8420096" above was a misread of this load), which
   r100-r103 never did. It lives in em/em2a.drs, found with the new tools/d367/route/find-texture-source.py.
   - Build: `prepare_native_ui.py /root/re4data em2a-tex.manifest tex-em2a` (manifest em/em2a.drs; 2 images).
-  - route-r106c5 (fixture *-closet-snd4): open failed 0, upload FAILED 0, HALT 0.
+  - route-r106c5 (fixture *-closet-snd4): open failed 0, upload FAILED 0, HALT 0. Door walk route-r106w4 (fixture
+    r103-r106-walk-snd4): r106 entered at vbl 1444, open failed 0, upload FAILED 0, HALT 0.
 - **Trap: the kite base disc's own pad script.** The base disc carries dc/padscript.txt (58 entries, source clock).
   - The fixture maker popped it from `replace`, which leaves the disc's copy in place. Every route run before *-snd3
     also played the kite script; its B+Up turned the save screen into "Exit?" in route-r106c3.
