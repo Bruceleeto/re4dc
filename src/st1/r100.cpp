@@ -615,6 +615,13 @@ static int r100RouteReadEvent(int no, int wait, void** out)
             // was swapped in, so only the unit is cleared. s44's caller frees it.
             if (no != 8) {
                 freeEvent(no, 0);
+            } else {
+                // s44's ExeEndEvt places the player at the event player's end pose: turned away from the car,
+                // a step from r100_EventBrige's start (GC evd measured 2026-10-02: -112274,-192,-4463, heading
+                // -2.590). Without it Leon still faces the officers inside area 0x1B and the event re-fires.
+                Vec pos = {-112274.0f, -192.0f, -4463.0f};
+                Vec rot = {0.0f, -2.590f, 0.0f};
+                pPL->zeroPartsPosInit(&pos, &rot);
             }
             if (no == 9) {
                 FadeSetW(0x80000002, 30, 0, 0);  // s40's in-event fade, after the picture
