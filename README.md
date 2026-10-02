@@ -52,8 +52,6 @@ As of build r21m, checked in Flycast:
 - **Slow spots** (Flycast, Fast frame pacing): the r101 village fight (~12 fps, ~80% game speed), r106
   (~12.5 fps, ~84%), r103 (~14 fps, 90-99%) and r105 after chapter 1-3's opening (~11 fps, ~74%). r107
   keeps ~97% speed at ~14.5 fps. The rest runs at full speed, 21-30 fps.
-- **Short slowdown after cutscenes.** A cutscene briefly takes some of the room's textures out of video
-  memory, and they reload from disc afterwards.
 - **r104's arrival cutscene drops some frames** (about 25 of 4,856) when reached from the chapter 1-1 save.
 - **Some effects are skipped in busy fights.** When video memory is full, a few effect sprites are left
   out rather than stalling the game.
