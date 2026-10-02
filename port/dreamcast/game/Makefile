@@ -351,10 +351,13 @@ ROUTE_MOVIE_TEXHASH ?= 0
 #   movie opens inside the interrupted frame's scene, so a later open failure (heap 4 staging)
 #   retires the texture with that scene open (re4dc_ui_movie_close discards it).
 ROUTE_MOVIE_DIAG ?= 0
+# ROUTE_QTE_FRAMES=<n>: test builds hold a route QTE cut (r104 s00 cut 0x1E) for n game frames instead of the
+#   event's own (60), so a timed screenshot catches the prompt over the movie. 0 (default) = the event's.
+ROUTE_QTE_FRAMES ?= 0
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' > $@.tmp
+	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n#define RE4DC_ROUTE_QTE_FRAMES %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' '$(ROUTE_QTE_FRAMES)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 ROUTE_MOVIE_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/pad.o

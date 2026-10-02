@@ -103,6 +103,9 @@ int RouteMoviePlayQte(unsigned id, unsigned flags, RouteEvtFunc func, unsigned q
     e->funcMode = 1;
     e->NowCut = qte_cut;
     re4dc_fixture_state("qte", 1, -1);  // a padscript press can wait for the cut ("qte=1")
+#if RE4DC_ROUTE_QTE_FRAMES
+    qte_frames = RE4DC_ROUTE_QTE_FRAMES;  // test builds: hold the cut for a timed screenshot
+#endif
     unsigned f = 0;
     for (; f < qte_frames; ++f) {
         e->NowFrame = f;

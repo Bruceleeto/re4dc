@@ -86,6 +86,10 @@ Per-cut `Func(1)` hooks are driven by picture index: cut k starts at picture sum
 | r101 s21 | 0x10121 | `Event20` | Tick at picture 635 (cut 0xA frame 0x20): window 0 SetBreakModel; Rsf 8, setEm 0x3C-0x46, ladders, player reposition unchanged. |
 | r101 s30 | 0x10130 | `Event30` | InitModule(em15) kept; SceAtDataReset(0/2), EmListSetAlive, ladders unchanged. |
 | r106 s00 | 0x10600 | `r106_Event` | Evt_R106S00_Func; em12's 0x3C0000 evd reservation released when the movie is on disc; after the movie the evd's StatusFlag 0x400 fade (FadeSetW(2, 0x2D)); PlSetCostume, SceEventEnd, SceSetChapterEnd(0, 3) unchanged. |
+| r104 s00 | 0x10400 (+ 0x1010400 = r104s00c) | `r104_execEvent00` | `RouteMoviePlayQte`: movie-owned to picture 4795 (cut 0x1E, the PS2 evd camera sum), then 60 game frames of Evt_R104S00_Func mode 1 at cut 0x1E over the stepped picture (ActBtn A+B or L+R by Rnd, flags 0x42). A skip before the cut: Status_flg[3] 0x01000000, func mode 3, r104s00c stepped. Room_flg[0] bit 31 (pass) -> s01, else s02. |
+| r104 s01 | 0x10401 | `r104_execEvent00` | KEEP_POSE, Evt_R104S01_Func; the room continues. |
+| r104 s02 | 0x10402 | `r104_execEvent00` | System_flg &= ~0x40; after the movie DiedemoExec(0, 1) and the source's endless SceSleep (Continue screen). |
+| r104 s10, s20 | 0x10410, 0x10420 | `r104_execEvent10/20` | Plain route movies; the ARAM evd pre-reads are skipped when all five r104 movies are on disc. |
 
 r100c00 is not referenced by any GC event and stays unmapped. r103 has no events.
 
