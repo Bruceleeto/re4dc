@@ -1811,6 +1811,9 @@ void vram_census(const char* where){
 #if RE4DC_PVR_PIPELINE
 // Called by room/texture_package.cpp (PVR_PIPELINE builds) before VRAM is
 // freed or uploaded: it may be referenced by the scene not yet resolved.
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+extern "C" void re4dc_enc_frame(unsigned frame); // ENC_CENSUS (diagnostic): coarse.cpp, one line per frame mark
+#endif
 extern "C" void re4dc_pvr_vram_fence(){present_fence();}
 #endif
 #if RE4DC_PAD_PROMPTS
@@ -2767,6 +2770,13 @@ extern "C" void re4dc_ui_end_frame(int present){
     re4dc_pcs_frame(frame+pace_skipped_frames); // one mark per iteration, skipped ones included
 #else
     re4dc_pcs_frame(frame); // PC_SAMPLER=1 only: frame boundary in the sample ring
+#endif
+#if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
+#if RE4DC_PACE_CATCHUP
+    re4dc_enc_frame(frame+pace_skipped_frames);
+#else
+    re4dc_enc_frame(frame);
+#endif
 #endif
     completed_frame.sequence=completed_frame.sequence+1;
     asm volatile("" ::: "memory");

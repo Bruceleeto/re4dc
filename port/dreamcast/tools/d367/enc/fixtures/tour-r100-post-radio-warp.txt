@@ -1,0 +1,8 @@
+name r100-post-radio
+# after s40 + radio call, at the gate
+room 0x100
+pos -99685 -484 -1343
+ang 2.2460
+rsf 0x100 13
+scenario 0 0x00000010
+inv default

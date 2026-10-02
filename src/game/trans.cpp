@@ -944,6 +944,14 @@ void emTrans(cModel* m)
         if ((s32) pG->Disp_flg < 0) {
             return;
         }
+#if defined(RE4DC_ENC_SKIP_GANADO) && RE4DC_ENC_SKIP_GANADO
+        // ENC_SKIP_GANADO (game30.mk; diagnostic A/B only, default 0, lane enc): Ganados (kindid 0, ids
+        // 0x10..0x20) get no transform pass: no OT entry, screen matrices, skinning, lights or draw. Prices the
+        // render side of the Ganados in a view; never a play build.
+        if (m->kindid == 0 && m->id >= 0x10 && m->id <= 0x20) {
+            return;
+        }
+#endif
     }
     ModelTrans(m);
 }

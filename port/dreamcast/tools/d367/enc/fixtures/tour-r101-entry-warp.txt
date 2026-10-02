@@ -1,0 +1,4 @@
+name r101-entry
+# fresh r101 entry (first visit, Item_find 0x2000 clear)
+room 0x101
+inv default
