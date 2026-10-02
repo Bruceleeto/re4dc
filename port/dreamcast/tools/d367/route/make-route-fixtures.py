@@ -30,7 +30,7 @@ MOVIES = Path('/root/probe/d367-agents/cutscenes/movies-288x192-full')
 
 # AICA banks (aica_banks.py build --route title,r100,r101,r103,<rooms> --fixed-route title,r100,r101,r103):
 # the room's own sound banks converted into the disc's frozen AICA layout (r100-r103 banks unchanged).
-AICA = {'r106': L / 'aica-r106', 'r104': L / 'aica-r104', 'r107': L / 'aica-r107'}  # per room, each against the same frozen layout
+AICA = {'r106': L / 'aica-r106', 'r104': L / 'aica-r104', 'r107': L / 'aica-r107', 'r105': L / 'aica-r105'}  # per room, each against the same frozen layout
 ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room uses)
     # r106: the PS2-pattern bake (--color-light ps2, room TEV x4; ps2rooms 2026-10-01, cost-neutral vs the
     # authored package: 44.8 vs 44.9 hw ms at the r106 entry).
@@ -41,6 +41,9 @@ ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room 
     # r107 (2026-10-01): ps2rooms bake; em27 (the lake fish) with its bank. aica-r107 plans r106 + r107 against the
     # frozen title..r103 layout: every shared bank (em12, em2a, r106's) equals aica-r106's.
     'r107': (PS2 / 'r107-ps2', [], ['em/em27.drs']),
+
+    # r105 (2026-10-02): ps2rooms bake; movies s00 (chapter 1-2's end) and s10 (Ashley's rescue).
+    'r105': (PS2 / 'r105-ps2', ['r105s00', 'r105s10'], []),
 }
 # Texture sets a view stages by naming the key in its rooms list (first dir wins):
 #   chapNN  the chapter-results pictures of SS/eng/chapNN.dat (prepare_native_ui.py over the GC original, then
@@ -49,7 +52,7 @@ ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room 
 #           and r100-r103 never did (the kite disc stages no em2a pictures).
 TEXSETS = {'chap01': [L / 'tex-chap01-vq', L / 'tex-chap01'], 'em2a': [L / 'tex-em2a'], 'em13': [L / 'tex-em13'], 'pl08': [L / 'tex-pl08'], 'em27': [L / 'tex-em27'],
            # pairs-r107: material-pair pictures (tools/d367/pairs_from_log.py over route-r107a's "pair missing").
-           'pairs-r107': [L / 'pairs-r107']}
+           'pairs-r107': [L / 'pairs-r107'], 'pairs-r105': [L / 'pairs-r105']}
 # Files a set stages besides its pictures. pl08: Leon without the jacket (costume 1 after r106; title.cpp),
 # prepare_enemy_motions.py textures-only (869,728 B resident: needs PLAYER_RESIDENT_BYTES=869728), with its
 # prebuilt PL bank (identical to pl00's, resident in aica_banks.py).
@@ -103,6 +106,15 @@ VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     'r107-entry-a': ('r107-entry', 'rel-r103-entry-pw.json', ['r107', 'em27', 'em2a', 'pl08'], []),
     # *-b: + pairs-r107 (route-r107a: 06a93b5a-bea302c6 color 2d1f80f9 + mask 10592447 not on the disc).
     'r107-entry-b': ('r107-entry', 'rel-r103-entry-pw.json', ['r107', 'em27', 'em2a', 'pl08', 'pairs-r107'], []),
+    # The r104 -> r107 door walk with both rooms' play sets.
+    'r104-r107-walk': ('r104-r107-door', 'rel-r103-entry-pw.json',
+                       ['r104', 'em13', 'pl08', 'r107', 'em27', 'em2a', 'pairs-r107'], ['--door']),
+    'r104-r107-walk2': ('r104-r107-door-unlocked', 'rel-r103-entry-pw.json',
+                        ['r104', 'em13', 'pl08', 'r107', 'em27', 'em2a', 'pairs-r107'], ['--door']),
+    # r105 bring-up: warped in from r107's door; area 8 runs s00 then the chapter 1-2 end.
+    'r105-entry-a': ('r105-entry', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08'], []),
+    # *-b: + pairs-r105 (route-r105a: 8b7f9449, 6378dfee), --dump (the AEV areas: area 8 runs s00).
+    'r105-entry-b': ('r105-entry', 'rel-r103-entry-pw.json', ['r105', 'em2a', 'pl08', 'pairs-r105'], ['--dump']),
     'r104-qte-none': ('r104-arrival', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08', 'r104mov', 'pad-none'], []),
 }
 # The kite base disc carries its own dc/padscript.txt (58 entries, source clock): dropping it from 'replace' left

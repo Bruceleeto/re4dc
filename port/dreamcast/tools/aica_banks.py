@@ -102,6 +102,8 @@ ROOMS = {
     'r104': ['st1/r104.dar', 'em/em13.drs'],
     # r107 (route lane): the ESL lists em12 / em27 (the lake fish) / em2a (assets.sh discover r107)
     'r107': ['st1/r107.dar', 'em/em12.drs', 'em/em27.drs', 'em/em2a.drs'],
+    # r105 (route lane): the ESL lists em15 (enabled later) / em23 / em2a (assets.sh discover r105)
+    'r105': ['st1/r105.dar', 'em/em15.drs', 'em/em23.drs', 'em/em2a.drs'],
 }
 
 

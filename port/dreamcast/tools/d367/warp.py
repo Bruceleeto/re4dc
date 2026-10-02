@@ -123,6 +123,22 @@ PRESETS = {
     # stage_route.py). r107 has no evd events; em12 / em27 (fish) / em2a from the ESL.
     "r107-entry": dict(room=0x107, pos=(29683, -13, -28512), ang=2.286,
                        notes="r107 from the r104 door (chapter 1-2)"),
+    # r105 (the farm with Ashley's rescue) as r107's door 1 delivers Leon (r107 AEV door 1: dst 72778, -2238, -37465,
+    # angle -1.226; stage_route.py). First visit: area 8 runs s00 (chapter 1-2's end).
+    "r105-entry": dict(room=0x105, pos=(72778, -2238, -37465), ang=-1.226,
+                       notes="r105 from the r107 door (chapter 1-2)"),
+    # The r104 -> r107 door (r104 AEV door 0, action button, no lock or flag). Leon stands where r107's door back to
+    # r104 puts him (r107 AEV door 0: dst 27604, -72, -27727, angle -1.139), turned to face the door (+pi); rsf 0x104
+    # bit 1 skips the arrival event (as r104-entry-noevt).
+    "r104-r107-door": dict(room=0x104, pos=(27604, -72, -27727), ang=2.0026, rsf={0x104: [1]},
+                           door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                           notes="at the r104 -> r107 door (door 0 has no lock or flag)"),
+    # *-unlocked: the emblem gate (door 0x97) opens once door_unlock[0] bit 0x00400000 is set (r104.cpp
+    # r104_checkDoor107KeyUse, the combined emblem 0xA6 used); route-r104-r107-w1 without it showed "It won't open".
+    "r104-r107-door-unlocked": dict(room=0x104, pos=(27604, -72, -27727), ang=2.0026, rsf={0x104: [1]},
+                                    unlock={0: 0x00400000},
+                                    door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                                    notes="at the r104 -> r107 emblem gate, unlocked"),
 }
 
 

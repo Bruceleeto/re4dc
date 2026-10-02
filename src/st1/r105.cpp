@@ -93,6 +93,42 @@ static void r105_bgmCheck();
 static void r105_checkDoor();
 extern "C" void Evt_R105S00_Func(Event* e);
 extern "C" void Evt_R105S10_Func(Event* e);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES
+// Route cutscenes (route lane 2026-10-02): r105's s00 (chapter 1-2's end) and s10 (Ashley's rescue) are presented by
+// their PS2 movies; the surrounding source code (flags, the Ganado wave, the door, the chapter end) runs unchanged
+// (docs/ROUTE_CUTSCENES.md). No evd is read while the movies own the events, so the ARAM pre-reads are skipped.
+// s10's lasting side effect, window 5's SetBreakModel at cut 0x14 frame 2, runs from a picture tick: the PS2 evd
+// cameras put cut 0x14 at picture 889, so frame 2 is picture 891 (as r101 s21's window).
+#include "route_movie.h"
+#include "fade.h"
+#define R105_ROUTE_MOVIES 1
+static u8 r105MoviesOwn = 0xFF;
+static int r105MoviesOwnCheck()
+{
+    if (r105MoviesOwn == 0xFF) {
+        r105MoviesOwn = re4dc_movie_available(0x10500) && re4dc_movie_available(0x10510);
+        OSReport("route movie r105: %s\n", r105MoviesOwn ? "movies own s00/s10" : "no media, source events");
+    }
+    return r105MoviesOwn;
+}
+#define R105_MOVIES_OWN() r105MoviesOwnCheck()
+static u8 r105MovieS10Break;
+static void r105MovieS10Tick(unsigned picture)
+{
+    cEm* win;
+
+    if (r105MovieS10Break || picture < 891) {
+        return;
+    }
+    r105MovieS10Break = 1;
+    if (getRoomEtcWindow(5, &win, 1)) {
+        ((cEmWindow*) win)->SetBreakModel();
+    }
+}
+#else
+#define R105_ROUTE_MOVIES 0
+#define R105_MOVIES_OWN() 0
+#endif
 static void r105_execOpenCover();
 static void r105_checkCloseCover();
 extern "C" void r105_checkCesspit0();
@@ -159,7 +195,7 @@ void R105Init()
         SceAtSetEnable(6, 0);
     }
     if (RsfCheck(G_ROOM_ID, 2) == 0) {
-        if (RsfCheck(G_ROOM_ID, 1)) {
+        if (RsfCheck(G_ROOM_ID, 1) && !R105_MOVIES_OWN()) {
             EvtMgr.EvtReadAram("event/evd/r105s10.evd", 0x15, 0, 0, 0);
         }
         SceAtSetEnable(0x17, 0);
@@ -170,7 +206,9 @@ void R105Init()
         SceAtSetEnable(0x17, 1);
     }
     if (RsfCheck(G_ROOM_ID, 1) == 0) {
-        EvtMgr.EvtReadAram("event/evd/r105s00.evd", 0x15, 0, 0, 0);
+        if (!R105_MOVIES_OWN()) {
+            EvtMgr.EvtReadAram("event/evd/r105s00.evd", 0x15, 0, 0, 0);
+        }
     } else {
         r105_EmSet();
         if (RsfCheck(G_ROOM_ID, 11) == 0) {
@@ -568,13 +606,28 @@ static void r105_Event()
         RsfSet(G_ROOM_ID, 1);
         pG->Room_flg[0] &= ~0x20000000;
         SndRoomStrStop(0);
+#if R105_ROUTE_MOVIES
+        // EvtReadExec flags 0x10 = the evd StatusFlag 0x400: the fade to black before the end (Event::Run), which
+        // the movie's end reproduces as r106 s00 does.
+        if (R105_MOVIES_OWN() &&
+            RouteMoviePlay(0x10500, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R105S00_Func, 0) != RE4DC_MOVIE_UNHANDLED) {
+            FadeSetW(2, 0x2D, 0, 0);
+        } else
+#endif
+        {
         EvtMgr.EvtReadExec("event/evd/r105s00.evd", 0x15, 0x10);
         EvtMgr.EvtReadAram("event/evd/r105s10.evd", 0x15, 0, 0, 0);
+        }
         pG->System_flg |= 0x400;
         SceSleep(2);
         r105_EmSet();
     } else {
         RsfSet(G_ROOM_ID, 2);
+#if R105_ROUTE_MOVIES
+        if (!R105_MOVIES_OWN() ||
+            RouteMoviePlay(0x10510, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R105S10_Func, r105MovieS10Tick) ==
+                RE4DC_MOVIE_UNHANDLED)
+#endif
         EvtMgr.EvtReadExec("event/evd/r105s10.evd", 0x15, 0);
         SceAtSetEnable(8, 0);
         getRoomEtcDoor(1, &door, 1);
