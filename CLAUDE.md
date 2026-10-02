@@ -23,6 +23,10 @@ The remote is lamb2k/re4dc (the account was renamed from stevedamnvan on 2026-09
 crash early in r100 on a console. Fixed (cCtrl work 0x14, `u16_un`), CRASH_SCREEN=1 in every play build (asks for a
 ticket), tools in port/dreamcast/tools/d367/hwready. Any new room gets an align run before a console disc.
 
+2026-10-02 (user r21n play): calls released ~2.3 MB of room textures and reloaded them for 5-6 s; SS_PACK=1 packs
+the sub screen area into TA bank 1 instead (0 released). The r100 s30 cliff cutscene failed for heap 4;
+MOVIE_HEAP_EVICT=1 evicts motion keys for it. Both in build-r21.sh (route doc "Radio calls and the cliff cutscene").
+
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
   - Step 0 (FRONT_NATIVE, RELEASE_FLAGS) landed.

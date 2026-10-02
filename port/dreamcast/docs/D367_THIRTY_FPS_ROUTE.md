@@ -61,6 +61,39 @@ does not, so r21m, clean in every Flycast test, would have crashed on hardware i
 - Rule from now on: run `tools/d367/hwready/route-hw.sh align` over any new room or data format before a console
   disc (tools/d367/hwready/README.md).
 
+## Radio calls and the cliff cutscene (2026-10-02, user play of r21n)
+
+The user played r21n and reported slow loading after cutscenes and calls, and the radio missing in some cutscenes.
+From the play log (D:\RE4DC-Play\logs\game-20261002-163147.txt):
+- **Calls.** The sub screen (call, inventory, map) parks 3 MiB of live game memory while it is open: 2 MiB in TA
+  bank 1 and 1 MiB in one contiguous texture-pool block. Carving that block out of a full, fragmented pool released
+  159-211 room textures (2.2-2.3 MB), and the preload after the close reloaded 207-209 of them (5.4-5.9 s of disc
+  reads) after every call.
+  **SS_PACK=1** (subscreen.mk): the area is stored LZ4-block packed (the VMU codec's format; 4096-entry table,
+  64 KiB window, LZ4 skip), 3,144,608 -> 1,824,352 B in the r100 post-house call (1.72:1), so it fits bank 1 and
+  takes no pool memory. If a later state packs worse, pool blocks are taken as the stream grows (free memory first,
+  then the least recently used textures), never one contiguous MiB. The encoder's table and staging sit in the
+  area's first 8.5 KiB, which go raw first and are put back before anything else reads the area. Same bytes back:
+  the close checks the hash taken at open. Route run route-pk1 (r100 s20 + ambush + post-house call): textures
+  released 0, preload after the close none (route-hs20 without it: 209 reloaded in 5.4 s). Open 583 ms and close 246 ms
+  in Flycast with the LZ4 skip and bulk literal copies (route-s30a; 656 / 349 ms without them; the plain backing
+  75 / 68 ms): about 0.8 s per call instead of ~5.5 s.
+- **The cliff cutscene (r100 s30, area 01: face west at the cliff edge and press A).** Its movie needs 363 KB of
+  heap-4 staging in pieces of up to 166 KB. After the ambush heap 4 had 257,568-313,504 B free with no 83 KB piece, so
+  the movie failed (terminal=3) and the cutscene was skipped silently.
+  **MOVIE_HEAP_EVICT=1** (game30.mk, needs MOTION_OOM_EVICT and ROUTE_MOVIES): a movie staging allocation that
+  fails evicts unpinned motion keys, least recently used first, and retries. The movie owns the frame, so nothing
+  animates; evicted keys reload from disc at their next use, as with MOTION_OOM_EVICT. Each of the decoder's two frames is also split into its three planes (largest piece 55,296 B; pl_mpeg local
+  option PLM_VIDEO_SPLIT_FRAMES), and the sound service's 32,800 B separation buffer gets the same eviction first.
+  Route run route-s30d (r100 s20 + ambush + post-house call + the cliff, A at area 01): 17 motion keys evicted
+  (251,360 B), the movie plays 340/340 with audio (dropped 0, HALT 0, MISSING 0) and the game continues into the
+  examine view ("I hope they got out in time."). With whole frames (route-s30b) the same 17 keys went and no 83 KB
+  piece appeared; with planes but no room for the buffer (route-s30c) the sound service could not start.
+- Both knobs are in the play recipe (build-r21.sh); with them off the image is unchanged.
+- Also from the same play: the house ambush runs 12-17 fps, and outdoors Fast pacing draws 17.7 fps by skipping
+  about 2 frames in 5 (each drawn frame ~43 ms against the 33 ms tick), which reads as skippy. Hold R + START cycles
+  Smooth / Fast / Off.
+
 ## Hardware budget
 
 Sources are the official Sega documents (catalogue and citations in the

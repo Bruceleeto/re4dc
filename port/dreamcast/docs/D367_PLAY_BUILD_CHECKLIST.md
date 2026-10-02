@@ -10,6 +10,9 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
 - Recipe: `tools/d367/build-r21.sh` plus `DBG_WARP=0 QUALITY_PICKER=0 ARENA_FIT_KOS_BYTES=147456 PACE_MODE=fast
   PACE_DEBUG=1 LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0`; keep `GAME_PWC_DIAG=1` (an exact logic
   cut; only =2 is test-only). Test spots use a `DBG_WARP=1` twin; the pad fixture works without it.
+- Calls and cutscene memory (2026-10-02, r21n play): build-r21.sh sets `SS_PACK=1` (the sub screen packs its
+  3 MiB into TA bank 1 instead of releasing ~2.3 MB of room textures per call) and `MOVIE_HEAP_EVICT=1` (a route
+  movie short of heap 4 evicts unpinned motion keys; the r100 s30 cliff cutscene failed without it).
 - Crash screen (user 2026-10-02): build-r21.sh sets `CRASH_SCREEN=1` for every play build. Before a console disc
   the build must log 0 misaligned accesses over its rooms (`tools/d367/hwready/route-hw.sh align`).
 - Disc: `debug/config.txt` ROOM 0x20 (New Game -> r120 intro), no `dc/quality.txt`, the r100 release (route fix e)
