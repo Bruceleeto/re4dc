@@ -43,6 +43,24 @@ checkpoints remain evidence.
   `experiment/ps2-fmv-spike`: it has the menu, the intro FMV with audio, and
   the route entry. Its FMV state is largely uncommitted in that worktree.
 
+## Hardware readiness (2026-10-02)
+
+User asked for a pass over what could stop the game on a real console. Flycast runs some code a Dreamcast
+does not, so r21m, clean in every Flycast test, would have crashed on hardware in the first minutes of r100:
+- **Misaligned accesses** (the SH-4 raises an address error; Flycast without its MMU performs them). An
+  alignment-checking interpreter Flycast found 17 PCs on the new-game route: cCtrl's work at 0x13 (Ctrl11 /
+  Ctrl12 / ctrl01), and the u16 arrays motion, camera-motion and shape data keep at offset 3 plus Hermite key
+  counts / frames after odd-stride key blocks. Fixed off the PowerPC only: work at 0x14, `u16_un` (types.h).
+  The fixed build logs 0 over every route room (r100-r107, movies, VMU saves, QTE, manual).
+- **Memory never written**, **vertex buffer size** and **no logs without a serial cable**: POISON_RAM runs match
+  r21m; TA peak 1.67 MB of input in the r101 fight against the 2 MB buffer; CRASH_SCREEN=1.
+- **User decisions:** CRASH_SCREEN is in every play build (build-r21.sh), and the screen asks the player to
+  raise a ticket with a photo (github.com/lamb2k/re4dc/issues).
+- Gates for the fixes + crash screen against r21m (pc12w): kite frame 2100 identical (heap 4 -12,288 B);
+  bridge, r105, chapter end and r107 game state identical apart from heap figures.
+- Rule from now on: run `tools/d367/hwready/route-hw.sh align` over any new room or data format before a console
+  disc (tools/d367/hwready/README.md).
+
 ## Hardware budget
 
 Sources are the official Sega documents (catalogue and citations in the

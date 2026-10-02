@@ -58,7 +58,9 @@ As of build r21m, checked in Flycast:
 - **Over-bright colours in r100.** Parts of the PS2 world are flat and bright, e.g. the hedge by the gate
   after the radio call.
 - **Never run on a real Dreamcast.** The GDEMU image is only tested in Flycast, which boots with its
-  built-in BIOS.
+  built-in BIOS. Builds up to r21m would crash on a console early in the first room (misaligned memory
+  reads that Flycast lets through); this is fixed for the next build, which also shows a crash report on
+  screen if the game stops.
 
 ## Playing
 

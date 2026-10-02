@@ -19,6 +19,10 @@ playability integration, the PS2 r101 world through R4IM + MeshDraw (PS2_WORLD_M
 port/dreamcast/tools/d367/build-r21.sh. Release kite fight 93.3 hw ms: G ~29.0, R ~64 (characters ~35, world 21.9).
 The remote is lamb2k/re4dc (the account was renamed from stevedamnvan on 2026-09-29; old URLs redirect).
 
+2026-10-02: hardware readiness (route doc "Hardware readiness"): Flycast hides SH-4 misaligned faults; r21m would
+crash early in r100 on a console. Fixed (cCtrl work 0x14, `u16_un`), CRASH_SCREEN=1 in every play build (asks for a
+ticket), tools in port/dreamcast/tools/d367/hwready. Any new room gets an align run before a console disc.
+
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
   - Step 0 (FRONT_NATIVE, RELEASE_FLAGS) landed.
