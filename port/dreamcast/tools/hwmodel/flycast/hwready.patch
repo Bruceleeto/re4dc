@@ -1,0 +1,130 @@
+--- a/core/hw/sh4/interpr/sh4_interpreter.cpp
++++ b/core/hw/sh4/interpr/sh4_interpreter.cpp
+@@ -18,6 +18,7 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ Sh4ICache icache;
+@@ -278,11 +279,13 @@
+ 		trS = 1;
+ 	if (const char *s = getenv("HWTRACE_EXIT"))
+ 		exitAfter = atoi(s) != 0;
++	if (const char *s = getenv("HWTRACE_ALIGN"))
++		alignCheck = atoi(s) != 0;
+ 	logf = fopen((dir + "/hwtrace.log").c_str(), "a");
+ 	if (logf != nullptr)
+ 	{
+-		fprintf(logf, "hwtrace init frameaddr=%08x count=%u:%u trace=%u:%u:%u exit=%d\n",
+-				frameAddr, cntA, cntB, trA, trB, trS, (int)exitAfter);
++		fprintf(logf, "hwtrace init frameaddr=%08x count=%u:%u trace=%u:%u:%u exit=%d align=%d\n",
++				frameAddr, cntA, cntB, trA, trB, trS, (int)exitAfter, (int)alignCheck);
+ 		fflush(logf);
+ 	}
+ 	counts = (u32 *)calloc(1u << 23, 4);
+@@ -304,6 +307,21 @@
+ 			runStart = pc;
+ 			runCount = 1;
+ 		}
++	}
++}
++
++// HWTRACE_ALIGN=1: log every guest PC that makes a data access the SH-4 would
++// fault on (address not a multiple of the size; Flycast performs it anyway).
++bool alignCheck;
++static std::unordered_map<u32, u32> alignSeen;
++void misalign(u32 addr, u32 size, u32 write)
++{
++	u32 &n = alignSeen[curPc];
++	if (n++ == 0 && logf != nullptr)
++	{
++		fprintf(logf, "MISALIGN pc=%08x addr=%08x size=%u %s frame-insns=%llu\n", curPc, addr, size,
++				write ? "write" : "read", (unsigned long long)insns);
++		fflush(logf);
+ 	}
+ }
+ 
+--- a/core/hw/sh4/interpr/hwtrace.h
++++ b/core/hw/sh4/interpr/hwtrace.h
+@@ -38,6 +38,9 @@
+ void init();
+ void fetchSlow(u32 pc);
+ void event(u32 addr, u32 type, u32 sizecode);
++// HWTRACE_ALIGN=1: log guest PCs making misaligned data accesses (the SH-4 faults; Flycast doesn't)
++extern bool alignCheck;
++void misalign(u32 addr, u32 size, u32 write);
+ void frameWrite(u32 value);
+ void op(u16 op, u32 rn);
+ // DMA from/to system RAM started by hardware (kind: 1 ch2 TA, 2 ch2 texture, 3 PVR-DMA, 4 G2/AICA, 5 GD-ROM)
+--- a/core/hw/sh4/sh4_mem.cpp
++++ b/core/hw/sh4/sh4_mem.cpp
+@@ -297,17 +297,18 @@
+ static ReadMem8Func o_r8; static ReadMem16Func o_r16; static ReadMem32Func o_r32; static ReadMem64Func o_r64;
+ static WriteMem8Func o_w8; static WriteMem16Func o_w16; static WriteMem32Func o_w32; static WriteMem64Func o_w64;
+ static u8 DYNACALL t_r8(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 0); return o_r8(a); }
+-static u16 DYNACALL t_r16(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 1); return o_r16(a); }
+-static u32 DYNACALL t_r32(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 2); return o_r32(a); }
+-static u64 DYNACALL t_r64(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 3); return o_r64(a); }
++static u16 DYNACALL t_r16(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 1); if ((a & 1) && hwtrace::alignCheck) hwtrace::misalign(a, 2, 0); return o_r16(a); }
++static u32 DYNACALL t_r32(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 2); if ((a & 3) && hwtrace::alignCheck) hwtrace::misalign(a, 4, 0); return o_r32(a); }
++static u64 DYNACALL t_r64(u32 a) { if (hwtrace::tracing) hwtrace::event(a, 2, 3); if ((a & 7) && hwtrace::alignCheck) hwtrace::misalign(a, 8, 0); return o_r64(a); }
+ static void DYNACALL t_w8(u32 a, u8 d) { if (hwtrace::tracing) hwtrace::event(a, 3, 0); o_w8(a, d); }
+-static void DYNACALL t_w16(u32 a, u16 d) { if (hwtrace::tracing) hwtrace::event(a, 3, 1); o_w16(a, d); }
++static void DYNACALL t_w16(u32 a, u16 d) { if (hwtrace::tracing) hwtrace::event(a, 3, 1); if ((a & 1) && hwtrace::alignCheck) hwtrace::misalign(a, 2, 1); o_w16(a, d); }
+ static void DYNACALL t_w32(u32 a, u32 d) {
+ 	if (hwtrace::tracing) hwtrace::event(a, 3, 2);
++	if ((a & 3) && hwtrace::alignCheck) hwtrace::misalign(a, 4, 1);
+ 	o_w32(a, d);
+ 	if ((a & 0x1fffffff) == hwtrace::frameAddr) hwtrace::frameWrite(d);
+ }
+-static void DYNACALL t_w64(u32 a, u64 d) { if (hwtrace::tracing) hwtrace::event(a, 3, 3); o_w64(a, d); }
++static void DYNACALL t_w64(u32 a, u64 d) { if (hwtrace::tracing) hwtrace::event(a, 3, 3); if ((a & 7) && hwtrace::alignCheck) hwtrace::misalign(a, 8, 1); o_w64(a, d); }
+ 
+ void SetMemoryHandlers()
+ {
+--- a/core/hw/pvr/Renderer_if.cpp
++++ b/core/hw/pvr/Renderer_if.cpp
+@@ -530,6 +530,41 @@
+ 	if (ctx == nullptr)
+ 		return;
+ 
++	// RE4DC hardware readiness: RE4DC_TA_STATS=<file> logs the TA input bytes of each rendered scene
++	// (all linked passes). A real PVR stores about this much in its fixed vertex buffer; Flycast has no limit.
++	{
++		static FILE *taStats = nullptr;
++		static bool taInit = false;
++		static u64 taMaxAll = 0, taMaxWin = 0, taRenders = 0;
++		if (!taInit)
++		{
++			taInit = true;
++			if (const char *p = getenv("RE4DC_TA_STATS"))
++				taStats = fopen(p, "a");
++		}
++		if (taStats != nullptr)
++		{
++			u64 bytes = 0;
++			for (TA_context *c = ctx; c != nullptr; c = c->nextContext)
++				bytes += (u64)(c->tad.End() - c->tad.thd_root);
++			taRenders++;
++			if (bytes > taMaxWin)
++				taMaxWin = bytes;
++			if (bytes > taMaxAll)
++			{
++				taMaxAll = bytes;
++				fprintf(taStats, "TA peak render=%llu bytes=%llu\n", (unsigned long long)taRenders, (unsigned long long)bytes);
++			}
++			if (taRenders % 300 == 0)
++			{
++				fprintf(taStats, "TA window render=%llu max=%llu all=%llu\n", (unsigned long long)taRenders,
++						(unsigned long long)taMaxWin, (unsigned long long)taMaxAll);
++				fflush(taStats);
++				taMaxWin = 0;
++			}
++		}
++	}
++
+ 	FillBGP(ctx);
+ 
+ 	ctx->rend.isRTT = (FB_W_SOF1 & 0x1000000) != 0;
