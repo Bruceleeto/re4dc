@@ -29,20 +29,8 @@ They are not a full game disc: a build holds only the data for the rooms below.
 | 1-2 | r104, r107, r105 | **Playable** to the chapter end and save (build r21m); emblem and key-item pickups not yet checked in play |
 | 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene plays; the rooms are next |
 
-Speed in Flycast with frame pacing on (Fast):
-
-| Spot | Pictures / s | Game speed |
-| --- | --- | --- |
-| r100 forest, ambush | 21-23 | 100% |
-| r103 farm | ~14 | 90-99% |
-| r101 village fight | ~12 | ~80% |
-| r106 woods | ~12.5 | ~84% |
-| r100 bridge (police car) | ~27.5 | ~100% |
-| r104 | 30 | 100% |
-| r107 | ~14.5 | ~97% |
-| r105, after chapter 1-3's opening | ~11 | ~74% |
-
-The target is 30 fps on a real NTSC Dreamcast. Flycast is only a stand-in for that.
+The target is 30 fps on a real NTSC Dreamcast. Flycast is only a stand-in for that; the slow spots are
+under [Known issues](#known-issues).
 
 ## Backlog
 
@@ -61,8 +49,9 @@ As of build r21m, checked in Flycast:
   saves load fine.
 - **Untested pickups.** The emblem (the r104 gate to r107) and r105's key item were only forced in tests,
   never picked up in normal play.
-- **Below full speed:** the r101 village fight (~80%), r106 (~84%), r103 (~90%) and r105 after chapter 1-3's
-  opening (~74%). r107 runs at full speed but only ~14.5 fps.
+- **Slow spots** (Flycast, Fast frame pacing): the r101 village fight (~12 fps, ~80% game speed), r106
+  (~12.5 fps, ~84%), r103 (~14 fps, 90-99%) and r105 after chapter 1-3's opening (~11 fps, ~74%). r107
+  keeps ~97% speed at ~14.5 fps. The rest runs at full speed, 21-30 fps.
 - **Short slowdown after cutscenes.** A cutscene briefly takes some of the room's textures out of video
   memory, and they reload from disc afterwards.
 - **r104's arrival cutscene drops some frames** (about 25 of 4,856) when reached from the chapter 1-1 save.
