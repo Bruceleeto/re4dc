@@ -2,7 +2,7 @@
 # RE4 Dreamcast play machine setup for SteamOS Desktop Mode (Steam Deck), user-level only
 # (no sudo, no changes to the read-only system image). Idempotent: safe to run again.
 #   1. gh CLI in ~/.local/bin if missing (official cli/cli release tarball), then `gh auth login` if needed
-#   2. downloads a play release's *-SteamOS.tar.gz from the private repo and verifies its sha256
+#   2. downloads a play release's *-SteamOS.tar.gz and verifies its sha256
 #   3. installs Flycast and GPU Screen Recorder from Flathub (--user); OBS with --obs
 #   4. adds the build's play.sh to Steam as a non-Steam game (steamos-add-to-steam) unless --no-steam
 # Usage: setup-play.sh [--tag play-...] [--dir ~/Games/RE4DC] [--obs] [--no-steam]

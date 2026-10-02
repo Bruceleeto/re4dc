@@ -20,7 +20,7 @@ RAM and its PowerVR graphics chip.
 
 ## Status
 
-Builds are private test builds. Each one is checked in [Flycast](https://github.com/flyinghead/flycast).
+Published builds are public prerelease test builds. Each one is checked in [Flycast](https://github.com/flyinghead/flycast).
 
 | Chapter | Rooms | State |
 | --- | --- | --- |

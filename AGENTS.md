@@ -101,7 +101,7 @@ commands; inspect a stalled process before restarting it.
 
 An agent asked to set up a Steam Deck (or other SteamOS machine) to play and record the port's builds
 follows [STEAMOS_PLAY.md](port/dreamcast/docs/STEAMOS_PLAY.md): run
-`port/dreamcast/tools/steamos/setup-play.sh` (newest `play-*` release of the private repo
+`port/dreamcast/tools/steamos/setup-play.sh` (newest `play-*` release of
 `lamb2k/re4dc`, sha256-checked; Flathub Flycast + GPU Screen Recorder, user installs, no sudo; a Steam
 shortcut), then `record.sh` to record. The user signs in to GitHub themselves (`gh auth login`); never
 upload discs, logs or recordings anywhere unless the user asks. The GitHub account was renamed from
