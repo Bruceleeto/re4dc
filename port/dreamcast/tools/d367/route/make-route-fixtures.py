@@ -56,7 +56,15 @@ SET_FILES = {'pl08': {'em/pl08.drs': AICA['r104'] / 'em/pl08.drs'},
 # r104 s00 QTE press, 20 frames into the cut (route_movie_bridge.cpp reports fixture state qte=1 while it runs);
 # ActBtn flags 0x42 fail a press of both pairs, so each run presses one (r104 picks A+B or L+R by Rnd).
 PADSCRIPTS = {'qte-ab': '0 0000 1 qte=1 200000\n+20 0300 8\n', 'qte-lr': '0 0000 1 qte=1 200000\n+20 0060 8\n',
-              'none': ''}
+              'none': '',
+              # chapter-a: A every 2 s from 90 s (the r106 closet results screen draws at ~94 s): Next Chapter, the
+              # Save? prompt and the save screens, into chapter 1-2. A alone neither skips a movie nor fails the QTE.
+              'chapter-a': '5400 0100 6\n' + '+120 0100 6\n' * 40,
+              # chapter-save (route-r106-r104-ch1 looped in the save screen: A on slot 01 opens "Save? Yes/No" on No,
+              # card state 2/6, and A there returns to the list, 2/1): A to the save screen, A on slot 01 at 2/1,
+              # Left to Yes at 2/6, A (the VMU save), then A every 2 s into chapter 1-2.
+              'chapter-save': '5400 0100 6\n+120 0100 6\n5500 0100 6 card=2/1 3000\n5500 0001 6 card=2/6 3000\n'
+                              '+20 0100 6\n' + '+120 0100 6\n' * 30}
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     # *-snd (2026-10-01): + the r106 AICA banks (room .dar, em29, em2e); *-ps2 had GC banks (no room sound).
     'r106-entry-snd': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
@@ -81,6 +89,11 @@ VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     'r104-qte-ab': ('r104-arrival', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08', 'r104mov', 'pad-qte-ab'], []),
     'r104-qte-lr': ('r104-arrival', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08', 'r104mov', 'pad-qte-lr'], []),
     # *-none: no press (the miss branch; 5 s shots catch the 2 s QTE window for the prompt over the movie).
+    # r106 closet -> chapter 1-1 end -> chapter 1-2 (r104 s00): the play path into r104, every set staged.
+    'r106-r104-chapter': ('r106-closet', 'rel-r103-entry-pw.json',
+                          ['r106', 'chap01', 'em2a', 'r104', 'em13', 'pl08', 'r104mov', 'pad-chapter-a'], ['--door']),
+    'r106-r104-chapter2': ('r106-closet', 'rel-r103-entry-pw.json',
+                           ['r106', 'chap01', 'em2a', 'r104', 'em13', 'pl08', 'r104mov', 'pad-chapter-save'], ['--door']),
     'r104-qte-none': ('r104-arrival', 'rel-r103-entry-pw.json', ['r104', 'em13', 'pl08', 'r104mov', 'pad-none'], []),
 }
 # The kite base disc carries its own dc/padscript.txt (58 entries, source clock): dropping it from 'replace' left

@@ -6,11 +6,15 @@ Rules: port/dreamcast/docs/D367_WORKSTREAMS.md. Branch lane/route, tree /root/wo
 The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4_FIRST_STAGE_GAP_AUDIT.md "Full stage-1 route".
 
 ## State and next step
-`assets.sh discover r106` (2026-10-01):
-- em29 / em2e: lint value-init (`new (em) cEmXX();`), not in MODULES / modules.cpp / the ENEMY_DEMAND audit list.
-- The room container st1/r106 is not prepared.
-- Event r106s00 (4,268,192 B, 165 assets) has no route movie and no prepared evd.
-- Heap 4: 4 enemy archives, worst case 1,524,352 B, no measured budget yet.
+2026-10-01 (evening): r104, the chapter 1-2 arrival, is landed (750aa52f, QTE icons f16f2aec). The QTE pass leads to
+gameplay, and the miss leads to Continue.
+
+Next, in stage_route.py order:
+1. The r106 door 3 -> r104 walk with the full play set: Leon's costume switches to pl08 on that door.
+2. r107.
+3. r105.
+
+The history of the r106 bring-up is below.
 
 ## Progress 2026-10-01
 
@@ -169,6 +173,41 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   - route-r104-qte-lr: r104 picked A+B, so the L+R press misses. The cut runs 60/60 frames while the movie plays to
     4856/4856. s02 plays 25/25, then the Continue Yes/No screen (shot t0240).
   - Both runs: HALT 0, missing 0, s00 cadence dropped 0 / late 0.
+- **The prompt over the movie.** route-run.sh takes `PERIOD=<s>` for the screenshot period. The test knob
+  `ROUTE_QTE_FRAMES=600` holds the cut for 20 s so a timed shot can catch it. Without the knob, the cut lasts 2 s and
+  three 5 s-period runs all missed it.
+  - route-r104-qte-hold1 (r18): "DODGE" drew without the button icons. The cut set Disp_flg = all bits but 0x1000.
+    Disp_flg bits hide when set: IdSys draws no ID units under 0x2000 and skips OT type 0x13 (the cockpit's action
+    icons) under 0x10000.
+  - The fix uses the source's event-UI mask (sce_com.cpp): all bits but 0x1000 | 0x2000 | 0x10000.
+  - route-r104-qte-hold2 (r19): A+B and DODGE draw over the s00 picture, as on the GC, with no HUD.
+- **Landed.**
+  - 750aa52f (lane 99a82a6c). Landing image l18, from a clean objdir:
+    - kitel18 vs kitec9: identical position at frame 2100 (610,0,-4346); spills 4, upload FAILED 12, HALT 0;
+      heap 4 free −23,072 B (pl08).
+    - route-r104-qte-ab-l18: the QTE passes, s01 plays 565/565.
+  - f16f2aec (lane f97e5431, the icons). Landing image l20: route-r104-qte-ab-l20 passes 3 frames into the cut; s01 plays 565/565; HALT 0.
+
+## Progress 2026-10-01 (night: chapter 1-1 -> 1-2 on the landed image)
+
+- **The play path r106 -> r104 works** on the landed image l20: route-r106-r104-ch2, fixture
+  route-rel-r106-r104-chapter2-pw, preset r106-closet, every r106 and r104 set staged. HALT 0, missing 0. The sequence:
+  1. The closet event; r106s00 plays 1738/1738.
+  2. The chapter 1-1 results, then Save? Yes.
+  3. The save screen: slot 01, "Save? Yes" (pad script Left + A), then the VMU write (card-vmu syswrite rc=0).
+  4. Chapter 1-2: DOORDEMO, then r104 is entered (pl08 read, the r104 PS2 world opens: 677,216 B).
+  5. r104s00 plays to the QTE handoff.
+  6. The script's lone A is not the A+B pair, so the QTE misses: s02, then the Continue screen. That is the expected
+     miss branch.
+- **Pad script (`pad-chapter-save`).** The first try (route-r106-r104-ch1, A only) looped in the save screen. A on a slot
+  opens "Save? Yes/No" with No selected (card state 2/6), and A there returns to the list (2/1). The script now gates
+  its presses on card=2/1 and card=2/6.
+- **Observations, not blockers:**
+  - At the chapter end, r104's PS2 world is opened while still in r106, with heap 4 down: `PS2MESH open failed ...
+    heap=-1`. The room's own entry retires the attempt and opens it.
+  - VRAM free at the r104 entry is 223,488 B (drift −2.29 MB): the native UI cache holds the results and save screen
+    pictures. It evicts on demand.
+  - The s00 movie dropped 23 pictures (max gap 42 fields) on this path; a warp start drops 0.
 
 ## Numbers (image, build, evidence)
 
