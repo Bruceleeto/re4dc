@@ -92,8 +92,10 @@ int RouteMoviePlayQte(unsigned id, unsigned flags, RouteEvtFunc func, unsigned q
     }
     const bool open = st == RE4DC_MOVIE_RUNNING;
     // The cut as game frames (Event::Run mode 1 at qte_cut): the world stays hidden, the action prompt
-    // (Disp_flg 0x1000 clear; the handler clears 0x800) draws over the movie picture.
-    pG->Disp_flg = 0xFFFFFFFF & ~0x1000;
+    // draws over the movie picture: its message (Disp_flg 0x1000 clear; the handler clears 0x800) and its
+    // button icons, cockpit ID units of OT type 0x13 (0x2000 and 0x10000 clear, the source's event-UI mask,
+    // sce_com.cpp).
+    pG->Disp_flg = 0xFFFFFFFF & ~(0x1000 | 0x2000 | 0x10000);
     if (open) {
         re4dc_ui_movie_background(1);
     }
