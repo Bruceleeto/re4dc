@@ -24,8 +24,8 @@ Published builds are public prerelease test builds. Each one is checked in [Flyc
 
 | Chapter | Rooms | State |
 | --- | --- | --- |
-| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | **Playable** from the title to the chapter end and save (build r21l) |
-| 1-2 | r104, r107, r105 | r104 playable; r107 and r105 run in tests, chapter end and save work |
+| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | **Playable** from the title to the chapter end and save |
+| 1-2 | r104, r107, r105 | **Playable** to the chapter end and save (build r21m); emblem and key-item pickups not yet checked in play |
 | 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene plays; the rooms are next |
 
 Speed in Flycast with frame pacing on (Fast):
@@ -36,19 +36,20 @@ Speed in Flycast with frame pacing on (Fast):
 | r103 farm | ~14 | 90-99% |
 | r101 village fight | ~12 | ~80% |
 | r106 woods | ~12.5 | ~84% |
-| r100 bridge (police car) | ~3 | ~12% |
+| r100 bridge (police car) | ~27.5 | ~100% |
 | r104 | 30 | 100% |
+| r107 | ~14.5 | ~97% |
+| r105, after chapter 1-3's opening | ~11 | ~74% |
 
 The target is 30 fps on a real NTSC Dreamcast. Flycast is only a stand-in for that.
 
 ## Backlog
 
 1. First test on a real Dreamcast (GDEMU image built, boots in Flycast).
-2. The r100 bridge scene slowdown.
-3. Speed in r103, the r101 fight and r106, toward 30 fps.
-4. Finish chapter 1-2: r105 merged, emblem and key-item pickups checked in play, r107 speed.
-5. Chapter 1-3 rooms.
-6. Loading a save made inside r106.
+2. Speed in r103, the r101 fight, r106 and r105, toward 30 fps.
+3. Chapter 1-2: emblem and key-item pickups checked in play.
+4. Chapter 1-3 rooms.
+5. Loading a save made inside r106.
 
 ## Playing
 
