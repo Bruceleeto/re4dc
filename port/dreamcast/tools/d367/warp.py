@@ -107,6 +107,11 @@ PRESETS = {
     # closet event (Item_find_flg 0x00200000 clear: area 2 arms r106s00, chapter 1-1's end).
     "r106-entry": dict(room=0x106, pos=(11141, -893, -120), ang=0.839,
                        notes="r106 from the r103 door (hall Ganados, the closet event ahead)"),
+    # The closet event (r106 AEV area 2: action button, trigger 0x88, the box (157104,-45133)..(159344,-42698) at
+    # floor -9246): Leon in the box centre, A pressed a few times; r106_Event -> r106s00 movie -> chapter 1-1 end.
+    "r106-closet": dict(room=0x106, pos=(158150, -9246, -44000), ang=0.0,
+                        door=[("a", 60, 4), ("a", 150, 4), ("a", 240, 4), ("a", 330, 4)],
+                        notes="in the closet event area (r106s00, chapter 1-1 end)"),
 }
 
 

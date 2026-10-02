@@ -36,13 +36,31 @@ ROOMS = {  # room -> (PS2 world package dir, route movies, banks only this room 
     # authored package: 44.8 vs 44.9 hw ms at the r106 entry).
     'r106': (PS2 / 'r106-ps2', ['r106s00'], ['em/em29.drs', 'em/em2e.drs']),
 }
+# Texture sets a view stages by naming the key in its rooms list (first dir wins):
+#   chapNN  the chapter-results pictures of SS/eng/chapNN.dat (prepare_native_ui.py over the GC original, then
+#           vq_native_ui.py with the run's load log); r106's s00 event ends chapter 1-1 on this screen.
+#   em2a    em/em2a.drs (prepare_native_ui.py /root/re4data, manifest em/em2a.drs): 8fb0fccf, which r106 loads
+#           and r100-r103 never did (the kite disc stages no em2a pictures).
+TEXSETS = {'chap01': [L / 'tex-chap01-vq', L / 'tex-chap01'], 'em2a': [L / 'tex-em2a']}
 VIEWS = {  # name -> (warp preset, base fixture, rooms staged, warp.py options)
     # *-snd (2026-10-01): + the r106 AICA banks (room .dar, em29, em2e); *-ps2 had GC banks (no room sound).
     'r106-entry-snd': ('r106-entry', 'rel-r103-entry-pw.json', ['r106'], []),
     # r103-r106-door (2026-10-01, single-use name) was written without --door: Leon stood at the door.
     # *-ps2 (2026-10-01): the r106 bake; the earlier names staged the authored r106 package.
     'r103-r106-walk-snd': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
+    'r106-closet-snd': ('r106-closet', 'rel-r103-entry-pw.json', ['r106'], ['--door']),
+    # *-snd2: + the chapter 1-1 results pictures (r106-closet-snd showed the screen without them).
+    'r106-closet-snd2': ('r106-closet', 'rel-r103-entry-pw.json', ['r106', 'chap01'], ['--door']),
+    # *-snd3: no pad script (the snd2 run's B+Up from the kite script turned the save screen into "Exit?").
+    'r106-closet-snd3': ('r106-closet', 'rel-r103-entry-pw.json', ['r106', 'chap01'], ['--door']),
+    # *-snd4 / r106-entry-snd4 / r103-r106-walk-snd4: + em2a; the r106 play set from here on.
+    'r106-closet-snd4': ('r106-closet', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], ['--door']),
+    'r106-entry-snd4': ('r106-entry', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], []),
+    'r103-r106-walk-snd4': ('r103-r106-door', 'rel-r103-entry-pw.json', ['r106', 'chap01', 'em2a'], ['--door']),
 }
+# The kite base disc carries its own dc/padscript.txt (58 entries, source clock): dropping it from 'replace' left
+# it running in these views (written before 2026-10-01 evening, kept as recorded). Later views remove it.
+KITE_PADSCRIPT = {'r106-entry-snd', 'r103-r106-walk-snd', 'r106-closet-snd', 'r106-closet-snd2'}
 
 
 def new_file(path, text):
@@ -55,6 +73,11 @@ def new_file(path, text):
 
 
 def room_files(room):
+    if room in TEXSETS:
+        rep = {}
+        for t in [t for d in TEXSETS[room] for t in sorted(d.glob('*.re4tex'))]:
+            rep.setdefault(f'dc/tex/{t.name[0]}/{t.name}', t)
+        return rep
     ps2, movies, banks = ROOMS[room]
     rep = {}
     rep[f'st1/{room}.dar'] = AICA / f'st1/{room}.dar'
@@ -81,6 +104,8 @@ for name, (preset, base, rooms, opts) in VIEWS.items():
     rep = d['replace']
     rep['dc/warp.txt'] = f'route-{name}/warp.txt'
     rep.pop('dc/padscript.txt', None)
+    if name not in KITE_PADSCRIPT:
+        d['remove'] = sorted(set(d.get('remove', [])) | {'dc/padscript.txt'})
     added = 0
     for room in rooms:
         for k, v in room_files(room).items():
