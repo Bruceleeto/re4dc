@@ -6,11 +6,15 @@ Rules: port/dreamcast/docs/D367_WORKSTREAMS.md. Branch lane/route, tree /root/wo
 The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4_FIRST_STAGE_GAP_AUDIT.md "Full stage-1 route".
 
 ## State and next step
-`assets.sh discover r106` (2026-10-01):
-- em29 / em2e: lint value-init (`new (em) cEmXX();`), not in MODULES / modules.cpp / the ENEMY_DEMAND audit list.
-- The room container st1/r106 is not prepared.
-- Event r106s00 (4,268,192 B, 165 assets) has no route movie and no prepared evd.
-- Heap 4: 4 enemy archives, worst case 1,524,352 B, no measured budget yet.
+2026-10-01 (evening): r104, the chapter 1-2 arrival, is landed (750aa52f, QTE icons f16f2aec). The QTE pass leads to
+gameplay, and the miss leads to Continue.
+
+Next, in stage_route.py order:
+1. The r106 door 3 -> r104 walk with the full play set: Leon's costume switches to pl08 on that door.
+2. r107.
+3. r105.
+
+The history of the r106 bring-up is below.
 
 ## Progress 2026-10-01
 
@@ -169,6 +173,20 @@ The play build continues past r103: r103 -> r106 (chapter 1-1 end), following R4
   - route-r104-qte-lr: r104 picked A+B, so the L+R press misses. The cut runs 60/60 frames while the movie plays to
     4856/4856. s02 plays 25/25, then the Continue Yes/No screen (shot t0240).
   - Both runs: HALT 0, missing 0, s00 cadence dropped 0 / late 0.
+- **The prompt over the movie.** route-run.sh takes `PERIOD=<s>` for the screenshot period. The test knob
+  `ROUTE_QTE_FRAMES=600` holds the cut for 20 s so a timed shot can catch it. Without the knob, the cut lasts 2 s and
+  three 5 s-period runs all missed it.
+  - route-r104-qte-hold1 (r18): "DODGE" drew without the button icons. The cut set Disp_flg = all bits but 0x1000.
+    Disp_flg bits hide when set: IdSys draws no ID units under 0x2000 and skips OT type 0x13 (the cockpit's action
+    icons) under 0x10000.
+  - The fix uses the source's event-UI mask (sce_com.cpp): all bits but 0x1000 | 0x2000 | 0x10000.
+  - route-r104-qte-hold2 (r19): A+B and DODGE draw over the s00 picture, as on the GC, with no HUD.
+- **Landed.**
+  - 750aa52f (lane 99a82a6c). Landing image l18, from a clean objdir:
+    - kitel18 vs kitec9: identical position at frame 2100 (610,0,-4346); spills 4, upload FAILED 12, HALT 0;
+      heap 4 free −23,072 B (pl08).
+    - route-r104-qte-ab-l18: the QTE passes, s01 plays 565/565.
+  - f16f2aec (lane f97e5431, the icons). Landing image l20: route-r104-qte-ab-l20 passes 3 frames into the cut; s01 plays 565/565; HALT 0.
 
 ## Numbers (image, build, evidence)
 
