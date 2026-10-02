@@ -9,6 +9,17 @@ unsigned char owner_info_count[32]{};
 unsigned short owner_source_bin[32][5]{};
 cModelInfo* owner_extra_info[32]{};
 unsigned owner_current_slot;
+// Lane crowd far tier: far chunks use their own immutable asset IDs (coarse_actor_geometry_once.inc grows by 20
+// under RE4DC_CROWD_FAR). owner_plan_app is the tier appearance (a, or a + kApps) of the last plan.
+constexpr unsigned kOwnerFarAsset=47u;
+unsigned owner_plan_app;
+inline unsigned owner_tier_app(const Re4dcActorPlan& p) {
+#if RE4DC_CROWD_FAR
+    return p.immutable_asset_id[0]>=kOwnerFarAsset?p.appearance+kApps:p.appearance;
+#else
+    return p.appearance;
+#endif
+}
 bool owner_ganado_bind(cModel* m) {
     if(!m || m->id<0x10 || m->id>0x20 || m->nParts!=kBones ||
        !m->pList || (m->be_flag&0x4000))return false;
@@ -70,27 +81,27 @@ const ganado_extra::Chunk* owner_original_chunk(unsigned role) {
     return nullptr;
 }
 int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
-    if(!owner_ganado_bind(m) || bound->appearance!=p.appearance || p.count!=owner_info_count[owner_current_slot] || !skin_init(p.appearance))return 0;
+    if(!owner_ganado_bind(m) || bound->appearance!=p.appearance || p.count!=owner_info_count[owner_current_slot] || !skin_init(owner_tier_app(p)))return 0;
     for(unsigned i=0;i<p.count;++i)
         if(p.info[i]!=(i<4?bound->infos[i]:owner_extra_info[owner_current_slot]) || !output[i])return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
     alignas(32) float invx[16];coarse_inv_xmtrx(inv,invx);
-    const unsigned a=p.appearance;
+    const unsigned a=p.appearance,ta=owner_tier_app(p);
     // Extra source palettes may reference bones absent from the reduced body.
     // Only those actors evaluate all34 matrices; default actors retain the set.
     bool extra=false;for(unsigned i=2;i<p.count;++i)extra|=owner_original_chunk(i)!=nullptr;
-    const unsigned used=extra?kBones:skin_used[a];
+    const unsigned used=extra?kBones:skin_used[ta];
     for(unsigned u=0;u<used;++u) {
-        const unsigned b=extra?u:skin_bone[a][u];
+        const unsigned b=extra?u:skin_bone[ta][u];
         skin_jobs[u]={&bound->parts[b]->mat[0][0],&gc::bind[a][b][0],bone_T[b]};
     }
     re4dc_coarse_skin_bones(invx,skin_jobs,used);
     for(unsigned i=0;i<p.count;++i) {
         const auto* source=owner_original_chunk(i);
-        const unsigned palettes=source?source->palette_count:gc::chunks[a][i].palette_count;
+        const unsigned palettes=source?source->palette_count:cast_chunk(ta,i).palette_count;
         if(p.input[i].palette_count!=palettes)return 0;
         if(source)re4dc_coarse_skin_groups(source->groups,source->group_count,&bone_T[0][0],output[i],palettes);
-        else re4dc_coarse_skin_groups(skin_stream+skin_first[a][i],skin_groups[a][i],&bone_T[0][0],output[i],palettes);
+        else re4dc_coarse_skin_groups(skin_stream+skin_first[ta][i],skin_groups[ta][i],&bone_T[0][0],output[i],palettes);
         for(unsigned j=0;j<palettes*12;++j)if(!coarse_finite(output[i][j]))return 0;
     }
     return 1;
@@ -107,6 +118,37 @@ bool owner_add_source_material(cModel* m,Re4dcActorPlan& p,unsigned role,unsigne
     index=p.material_count++;p.materials[index]=mat;return true;
 }
 }
+#if RE4DC_CROWD_FAR
+extern "C" int re4dc_crowd_far(cModel*);  // coarse_actor_transaction.inc
+#endif
+#if RE4DC_CROWD
+// Lane crowd (crowd.mk CROWD_CULL; render only, exact): the owner path's whole-actor form of COARSE_PREGATE. Called
+// right after re4dc_actor_plan_ganado bound m. 1 when every visible chunk is provably outside one of the actor path's
+// culling planes (gate_cull_once: per-bone balls from the cast chunk's own positions and weights), so
+// re4dc_actor_submit_owned_runs would emit nothing for the actor. The balls cover the four cast chunks only: an actor
+// with a fifth (attachment) info or an original source hand is never culled.
+// The far plane is the actor path's fog-gate cull depth (native_actor_fast.cpp fog_gate_depth: the fogged View far
+// when it lies between the projection near and far): a culled actor has every vertex beyond the source View far,
+// which the GC clips. The actor path's own gate bound is looser (it can keep such a chunk and emit it fully fogged);
+// the =2 check build counts those as violations with why=2 depth>fog.
+extern "C" float re4dc_fog_gate_far();
+extern "C" int re4dc_crowd_offscreen(cModel* m) {
+#if RE4DC_CROWD_CULL
+    if(!bound || bound->owner!=m || owner_info_count[owner_current_slot]!=4)return 0;
+    for(unsigned role=2;role<4;++role)if(owner_original_chunk(role))return 0;
+    Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
+    float P[7];GXGetProjectionv(P);
+    const float pnear=P[6]/(P[5]-1.0f),pfar=P[6]/P[5],view_far=re4dc_fog_gate_far();
+    gate_far_limit=view_far>pnear && view_far<pfar?view_far:3.0e38f;
+    Mtx mv[4];
+    const unsigned skip=gate_cull_checked(m,owner_plan_app,bound->infos,bound->parts,inv,mv);
+    gate_far_limit=3.0e38f;
+    return skip==gate_visible;
+#else
+    (void)m;return 0;
+#endif
+}
+#endif
 extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
     if(!out || !owner_ganado_bind(m))return 0;
     Re4dcActorPlan p{};const unsigned a=bound->appearance,t=gc::appearance_texture[a];
@@ -115,8 +157,26 @@ extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
 #define RE4DC_GANADO_APP(app) \
     case app: RE4DC_GANADO_ROLE(app,0,a##app##_i0);RE4DC_GANADO_ROLE(app,1,a##app##_i1); \
               RE4DC_GANADO_ROLE(app,2,a##app##_i2);RE4DC_GANADO_ROLE(app,3,a##app##_i3);break
+    owner_plan_app=a;
+#if RE4DC_CROWD_FAR
+    if(re4dc_crowd_far(m) && skin_init(a+kApps)) {
+#define RE4DC_GANADO_FAR_ROLE(app,role,prefix) re4dc_actor::plan_chunk(p,role,bound->infos[role],gc::far::chunks[app][role],RE4DC_OWNER_INPUT(ganadocast::far,prefix,gc::far::chunks[app][role],34))
+#define RE4DC_GANADO_FAR_APP(app) \
+    case app: RE4DC_GANADO_FAR_ROLE(app,0,a##app##_i0);RE4DC_GANADO_FAR_ROLE(app,1,a##app##_i1); \
+              RE4DC_GANADO_FAR_ROLE(app,2,a##app##_i2);RE4DC_GANADO_FAR_ROLE(app,3,a##app##_i3);break
+        switch(a) { RE4DC_GANADO_FAR_APP(0);RE4DC_GANADO_FAR_APP(1);RE4DC_GANADO_FAR_APP(2);RE4DC_GANADO_FAR_APP(3);RE4DC_GANADO_FAR_APP(4);default:return 0; }
+#undef RE4DC_GANADO_FAR_APP
+#undef RE4DC_GANADO_FAR_ROLE
+        for(unsigned role=0;role<4;++role)p.immutable_asset_id[role]=kOwnerFarAsset+a*4u+role;
+        const unsigned ft=far_texture(a);  // skin_init's far_same proved it is a near atlas
+        p.image=image_of(ft);p.crc=gc::textures[ft].crc;p.fnv=gc::textures[ft].fnv;
+        owner_plan_app=a+kApps;
+    } else
+#endif
+    {
     switch(a) { RE4DC_GANADO_APP(0);RE4DC_GANADO_APP(1);RE4DC_GANADO_APP(2);RE4DC_GANADO_APP(3);RE4DC_GANADO_APP(4);default:return 0; }
     for(unsigned role=0;role<4;++role)p.immutable_asset_id[role]=9u+a*4u+role;
+    }
 #undef RE4DC_GANADO_APP
 #undef RE4DC_GANADO_ROLE
     p.material_count=1;p.materials[0].image=p.image;p.materials[0].crc=p.crc;p.materials[0].fnv=p.fnv;

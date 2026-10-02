@@ -1,0 +1,6 @@
+hw ck3 cw-ck3-l l
+hw ck3 cw-ck3-b b
+hw r1c2 cw-r1c2-l l
+hw r1c2 cw-r1c2-e e
+hw r1c2 cw-r1c2-b b
+hw ck3 cw-ck3-e e

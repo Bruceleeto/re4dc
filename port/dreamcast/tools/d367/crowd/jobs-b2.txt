@@ -1,0 +1,12 @@
+build f12 ASSETS=/root/probe/lanes/crowd/assets-far CROWD_READOPT=1 CROWD_CULL=1 CROWD_FAR_M=12
+build fn3 ASSETS=/root/probe/lanes/crowd/assets-far CROWD_READOPT=1 CROWD_CULL=1 CROWD_NEAR_MAX=3
+build p2 ASSETS=/root/probe/lanes/crowd/assets-ps2 CROWD_READOPT=1 CROWD_CULL=1
+build p2n3 ASSETS=/root/probe/lanes/crowd/assets-ps2far CROWD_READOPT=1 CROWD_CULL=1 CROWD_NEAR_MAX=3
+hw p2 cw-p2-l l2
+hw p2n3 cw-p2n3-l l2
+hw fn3 cw-fn3-l l
+hw f12 cw-f12-l l
+hw p2 cw-p2-s s2
+hw p2n3 cw-p2n3-s s2
+hw fn3 cw-fn3-s s
+hw f12 cw-f12-s s

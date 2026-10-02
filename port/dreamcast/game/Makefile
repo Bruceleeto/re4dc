@@ -901,3 +901,5 @@ include pace.mk
 include demo_candidate.mk
 # D367 post30 (Filter00 contrast pass / dither; default off: no effect).
 include post30.mk
+# D367 lane crowd (CROWD_CULL, CROWD_CENSUS, CROWD_DRAW_MAX / _M; default off: no effect).
+include crowd.mk

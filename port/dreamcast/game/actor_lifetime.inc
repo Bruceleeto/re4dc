@@ -2,6 +2,12 @@
 // Full BIN identity is computed at archive adoption, before relocation/FE.
 // Metadata borrows real source allocations; it never owns or duplicates them.
 #include "actor_transaction_diag.h"
+#if RE4DC_CROWD_CENSUS
+unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos,crowd_readopt_ok,crowd_readopt_fail;
+#define CROWD_LIFE(stmt) stmt
+#else
+#define CROWD_LIFE(stmt)
+#endif
 namespace re4dc_material { namespace life {
 constexpr unsigned kArchives=8,kAssets=40,kInfos=160,kModels=40;
 struct Archive { const void* key;const unsigned char* base;unsigned bytes,revision,family; };
@@ -28,6 +34,10 @@ bool overlap(const void* a,unsigned an,const void* b,unsigned bn) {
 }
 void changed() {epoch=next();}
 void revoke(unsigned owner) {
+#if RE4DC_CROWD_CENSUS
+    ++crowd_revokes;
+    for(auto& i:infos_live)if(i.info && (i.tpl_owner==owner || assets[i.asset].archive==owner))++crowd_revoked_infos;
+#endif
     for(auto& i:infos_live)if(i.info && (i.tpl_owner==owner || assets[i.asset].archive==owner))i={};
     for(auto& a:assets)if(a.data && a.archive==owner)a={};
     archives[owner]={};changed();
@@ -99,7 +109,7 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
     // Overlapping adoption revokes the old owner before any positive proof.
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && overlap(base,bytes,archives[k].base,archives[k].bytes))revoke(k);
     if(exhausted || !key || !readable(base,bytes) || bytes<16 || family<1 || family>3)return;
-    unsigned oi=0;while(oi<kArchives && archives[oi].key)++oi;if(oi==kArchives)return;
+    unsigned oi=0;while(oi<kArchives && archives[oi].key)++oi;if(oi==kArchives){CROWD_LIFE(++crowd_archive_full);return;}
     auto& owner=archives[oi];owner={key,static_cast<const unsigned char*>(base),bytes,next(),family};
     for(unsigned t=0;t<sizeof(source_blobs)/sizeof(source_blobs[0]);++t) {
         const auto& s=source_blobs[t];if(s.family!=family)continue;
@@ -121,7 +131,7 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
     // Unrelated animals/actors must not consume all eight reviewed owner slots.
     // They retain their source preparation/rendering and acquire no proof.
     bool supported=false;for(const auto& a:assets)if(a.data && a.archive==oi)supported=true;
-    if(!supported)owner={};
+    if(!supported){owner={};CROWD_LIFE(++crowd_archive_unsupported);}
     changed();
 }
 extern "C" void re4dc_actor_archive_retire_transient() {
@@ -132,11 +142,27 @@ extern "C" void re4dc_actor_info_retire(const void* p) {
     using namespace re4dc_material::life;
     if(auto* i=find_info(p)){*i={};changed();}
 }
+#if RE4DC_CROWD_CENSUS
+// Lane crowd census (diagnostic): why infos stay unadopted (every owner-path plan of their actor then fails at
+// find_info and the actor draws through the source path). adopt_fail: [0] no asset, [1] asset not current, [2] no
+// role / TPL row, [3] no free info slot; revokes: archives revoked (their infos dropped until setTplAddr runs again).
+extern "C" void re4dc_crowd_life_report(unsigned frame) {
+    using namespace re4dc_material::life;
+    unsigned ar=0,as=0,in=0;
+    for(const auto& a:archives)ar+=a.key!=nullptr;
+    for(const auto& a:assets)as+=a.data!=nullptr;
+    for(const auto& i:infos_live)in+=i.info!=nullptr;
+    re4dc_log("CROWDLIFE f=%u archives=%u/%u assets=%u/%u infos=%u/%u exhausted=%u adopt=%u ok=%u fail=%u/%u/%u/%u archive_full=%u unsupported=%u revokes=%u revoked_infos=%u readopt=%u/%u\n",
+        frame,ar,kArchives,as,kAssets,in,kInfos,unsigned(exhausted),crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[0],crowd_adopt_fail[1],
+        crowd_adopt_fail[2],crowd_adopt_fail[3],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos,crowd_readopt_ok,crowd_readopt_fail);
+}
+#endif
 extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
     using namespace re4dc_material;using namespace life;
     re4dc_actor_info_retire(info);if(exhausted || !info)return;
+    CROWD_LIFE(++crowd_adopt_calls);
     unsigned ai=0;while(ai<kAssets && assets[ai].data!=info->pData)++ai;
-    if(ai==kAssets || !current(assets[ai]))return;
+    if(ai==kAssets || !current(assets[ai])){CROWD_LIFE(++crowd_adopt_fail[ai==kAssets?0:1]);return;}
     const auto& a=assets[ai];Info found{};
     for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r) {
         const auto& row=roles[r];bool match=false;
@@ -153,8 +179,9 @@ extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
             found={info,ai,a.serial,{found.roles[0],found.roles[1]},k,o.revision,p,n};
         }
     }
-    if(!found.info)return;
-    for(auto& slot:infos_live)if(!slot.info){slot=found;changed();return;}
+    if(!found.info){CROWD_LIFE(++crowd_adopt_fail[2]);return;}
+    for(auto& slot:infos_live)if(!slot.info){slot=found;changed();CROWD_LIFE(++crowd_adopt_ok);return;}
+    CROWD_LIFE(++crowd_adopt_fail[3]);
 }
 extern "C" void re4dc_actor_forget_range(const void* p,unsigned bytes) {
     using namespace re4dc_material::life;if(!p || !bytes)return;
@@ -227,7 +254,16 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
     unsigned seen=0,n=0;for(unsigned k=0;k<count;++k)out[k]=nullptr;
     static const unsigned char leon_order[8]={0,1,2,3,4,7,5,6};
     for(auto* p=m->pModelInfo;p;p=p->pList) {
-        if(n++==count){ATD(m,21,appearance,n);return 0;}auto* i=find_info(p);if(!i){ATD(m,22,appearance,n-1);return 0;}
+        if(n++==count){ATD(m,21,appearance,n);return 0;}auto* i=find_info(p);
+#if RE4DC_CROWD_READOPT
+        // Lane crowd (CROWD_READOPT=1): an info with no live record (dropped by a heap free / forget_range, or
+        // set up before its archive was adopted) is proved again here with the load-time proof
+        // (re4dc_actor_info_adopt: current asset sections, the reviewed TPL owner and row). Nothing is assumed:
+        // an info that fails the proof stays unadopted and its actor keeps the source path.
+        // =1: Ganados only (Leon keeps whichever path he has today); =2: Ganados and Leon (appearance 256).
+        if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
+#endif
+        if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;
         for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)
             if(roles[r].appearance==appearance && info_current(*i,r)) {if(role!=count && role!=roles[r].role){ATD(m,24,appearance,n-1);return 0;}role=roles[r].role;}

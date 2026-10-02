@@ -1,0 +1,13 @@
+build g1 CROWD_READOPT=1 CROWD_CULL=1
+build g1f CROWD_READOPT=1 CROWD_CULL=1 CROWD_FOGSKIP=1
+build g1n2 CROWD_READOPT=1 CROWD_CULL=1 CROWD_DRAW_MAX=2
+hw g1 cw-g1-l l
+hw g1f cw-g1f-l l
+hw g1 cw-g1-e e
+hw g1f cw-g1f-e e
+hw g1 cw-g1-k k
+hw g1f cw-g1f-k k
+hw g1n2 cw-g1n2-k k
+hw g1 cw-g1-b b
+hw g1f cw-g1f-b b
+hw g1n2 cw-g1n2-l l

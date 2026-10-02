@@ -14,6 +14,9 @@
 #include "model.h"
 #include "native_actor.hpp"
 #include "ganado_cast_runtime.h" // private generated bundle, outside the repository
+#if RE4DC_CROWD_FAR
+#include "ganado_far_runtime.h" // lane crowd far tier, private generated (tools/d367/crowd/far_header.py)
+#endif
 #include <cstring>
 #include <kos/fs.h>
 #if RE4DC_COARSE_GANADO_CAST == 2
@@ -35,6 +38,35 @@ namespace {
 namespace gc = ganadocast;
 constexpr unsigned kApps = gc::appearance_count, kBones = gc::bone_count;
 static_assert(kBones == 34, "the coarse Ganado skeleton");
+#if RE4DC_CROWD_FAR
+// Lane crowd far tier (crowd.mk CROWD_FAR_M / CROWD_NEAR_MAX; render only, a look change): appearance indexes
+// kApps..2 kApps-1 are the far bundle's appearances (ganadocast::far, tools/d367/crowd/far_header.py) in the near
+// order. They share the near skeleton, bind and atlas (far_same checks it before a far appearance's first use; a
+// mismatch never draws far: its skin_init fails and the owner plan keeps the near appearance).
+constexpr unsigned kTierApps = kApps * 2, kFarSkinBytes = gc::far::skin_stream_bytes;
+static_assert(gc::far::appearance_count == kApps && gc::far::bone_count == kBones, "far tier layout");
+inline const gc::Chunk& cast_chunk(unsigned a, unsigned i) { return a < kApps ? gc::chunks[a][i] : gc::far::chunks[a - kApps][i]; }
+inline unsigned cast_app(unsigned a) { return a < kApps ? a : a - kApps; }
+// The near texture index holding far appearance x's atlas (the far bundle's atlases must be near atlases too:
+// the near PS2 em15-00 bundle adds its own atlas, the far tier keeps the cast's), or texture_count.
+unsigned far_texture(unsigned x) {
+    const auto& f = gc::far::textures[gc::far::appearance_texture[x]];
+    for (unsigned t = 0; t < gc::texture_count; ++t)
+        if (gc::textures[t].crc == f.crc && gc::textures[t].fnv == f.fnv && gc::textures[t].width == f.width &&
+            gc::textures[t].height == f.height) return t;
+    return gc::texture_count;
+}
+bool far_same(unsigned a) {
+    const unsigned x = cast_app(a);
+    return !std::strcmp(gc::far::appearance_names[x], gc::appearance_names[x]) &&
+        !std::memcmp(gc::far::bind[x], gc::bind[x], sizeof(gc::bind[x])) && !std::memcmp(gc::far::parents, gc::parents, sizeof(gc::parents)) &&
+        far_texture(x) < gc::texture_count;
+}
+#else
+constexpr unsigned kTierApps = kApps, kFarSkinBytes = 0;
+inline const gc::Chunk& cast_chunk(unsigned a, unsigned i) { return gc::chunks[a][i]; }
+inline unsigned cast_app(unsigned a) { return a; }
+#endif
 unsigned texture_token[gc::texture_count];
 Re4dcUiImage image_of(unsigned t){return Re4dcUiImage{&texture_token[t],nullptr,gc::textures[t].width,gc::textures[t].height,6,0xffffffffU,0};}
 struct Binding { cModel* owner; unsigned serial; cParts* list; cParts* parts[kBones]; unsigned appearance;
@@ -52,32 +84,35 @@ re4dc::render::SourceLighting light; // constant texture colour for this proof
 unsigned attempts, drawn, fallback, rejected, missing_texture;
 #if RE4DC_COARSE_SKIN_FTRV
 // FTRV palettes: each appearance's entries built once (on its first draw) from the generated weights.
-alignas(32) unsigned char skin_stream[(gc::skin_stream_bytes + 31) & ~31U];
+alignas(32) unsigned char skin_stream[(gc::skin_stream_bytes + kFarSkinBytes + 31) & ~31U];
 alignas(32) float bone_T[kBones][12];
 CoarseBoneJob skin_jobs[kBones];
-unsigned char skin_bone[kApps][kBones];
-unsigned skin_first[kApps][4], skin_groups[kApps][4], skin_used[kApps], skin_state[kApps], skin_next;
+unsigned char skin_bone[kTierApps][kBones];
+unsigned skin_first[kTierApps][4], skin_groups[kTierApps][4], skin_used[kTierApps], skin_state[kTierApps], skin_next;
 #if RE4DC_COARSE_SKIN_FTRV == 2
 CoarseSkinCheck skin_chk;
 #endif
 bool skin_init(unsigned a) {
     if (skin_state[a]) return skin_state[a] == 1;
+#if RE4DC_CROWD_FAR
+    if (a >= kApps && !far_same(a)) { skin_state[a] = 2; re4dc_log("CROWD_FAR %s: far bundle differs (bind/atlas)\n", gc::appearance_names[cast_app(a)]); return false; }
+#endif
     unsigned n = 0, bytes = skin_next; unsigned char used[kBones] = {};
     for (unsigned i = 0; i < 4; ++i) {
-        const auto& c = gc::chunks[a][i];
+        const auto& c = cast_chunk(a, i);
         for (unsigned j = 0; j < c.palette_count; ++j)
             for (unsigned k = 0; k < c.weights[j].count; ++k)
                 if (c.weights[j].bone[k] >= kBones) { skin_state[a] = 2; return false; }
         skin_first[a][i] = bytes;
         const unsigned b = coarse_group_build(c.weights, c.palette_count, skin_stream + bytes, sizeof(skin_stream) - bytes, &skin_groups[a][i], used);
-        if (!b) { skin_state[a] = 2; re4dc_log("COARSE_GANADO_CAST %s skin palette does not fit\n", gc::appearance_names[a]); return false; }
+        if (!b) { skin_state[a] = 2; re4dc_log("COARSE_GANADO_CAST %s skin palette does not fit\n", gc::appearance_names[cast_app(a)]); return false; }
         bytes += b; n += c.palette_count;
     }
     skin_next = bytes;
     skin_used[a] = 0;
     for (unsigned b = 0; b < kBones; ++b) if (used[b]) skin_bone[a][skin_used[a]++] = (unsigned char)b;
     re4dc_log("COARSE_GANADO_CAST skin ftrv=%d %s entries=%u bones=%u stream=%u/%u\n", RE4DC_COARSE_SKIN_FTRV,
-              gc::appearance_names[a], n, skin_used[a], skin_next, (unsigned)sizeof(skin_stream));
+              gc::appearance_names[cast_app(a)], n, skin_used[a], skin_next, (unsigned)sizeof(skin_stream));
     skin_state[a] = 1;
     return true;
 }
@@ -104,12 +139,12 @@ extern "C" unsigned re4dc_model_output_count();
 // =2 (check build): nothing is skipped; each chunk the gate would skip is submitted as before and must
 // add 0 to the frame owner's emitted-triangle count (model_output): "COARSE_PREGATE" lines.
 struct GateBall { float c[3], r; };
-constexpr unsigned kGatePool = kApps * kBones * 2;
+constexpr unsigned kGatePool = kTierApps * kBones * 2;
 constexpr float kGateQ = 1.0f / 16.0f;  // the chunks' shift 4: a position is its s16 x 2^-4 (Frame::q)
 GateBall gate_ball[kGatePool];
 unsigned char gate_bone[kGatePool];
-unsigned short gate_first[kApps][4];
-unsigned char gate_count[kApps][4], gate_state[kApps];  // state: 0 not built, 1 ready, 2 never culled
+unsigned short gate_first[kTierApps][4];
+unsigned char gate_count[kTierApps][4], gate_state[kTierApps];  // state: 0 not built, 1 ready, 2 never culled
 unsigned gate_next, gate_visible;
 unsigned gate_actors, gate_culled_actors, gate_chunks, gate_culled_chunks, gate_ungated;
 #if RE4DC_COARSE_PREGATE == 2
@@ -121,7 +156,7 @@ inline void gate_local(const float* B, const float x[3], float y[3]) {
 bool gate_build(unsigned a) {
     unsigned next = gate_next;
     for (unsigned i = 0; i < 4; ++i) {
-        const auto& c = gc::chunks[a][i];
+        const auto& c = cast_chunk(a, i);
         if (!c.palette_count || !c.positions) return false;
         float lo[kBones][3], hi[kBones][3], rr[kBones];
         bool use[kBones] = {};
@@ -143,7 +178,7 @@ bool gate_build(unsigned a) {
                     if (!(w.value[k] > 0.0f)) continue;
                     const unsigned b = w.bone[k];
                     float y[3];
-                    gate_local(gc::bind[a][b], x, y);
+                    gate_local(gc::bind[cast_app(a)][b], x, y);
                     if (pass) {
                         float d2 = 0.0f;
                         for (unsigned j = 0; j < 3; ++j) { const float d = y[j] - 0.5f * (lo[b][j] + hi[b][j]); d2 += d * d; }
@@ -173,12 +208,12 @@ bool gate_init(unsigned a) {
         gate_state[a] = gate_build(a) ? 1 : 2;
         unsigned flat = 1;  // the crowd-tier argument above: lighting off, no LOD levels / pending build / bake
         for (unsigned i = 0; i < 4; ++i) {
-            const unsigned char* h = gc::chunks[a][i].stream;
+            const unsigned char* h = cast_chunk(a, i).stream;
             if (h[0] != 0xFE || h[3] || (h[2] & 0x82)) flat = 0;
         }
         if (light.enable) flat = 0;
         re4dc_log("COARSE_PREGATE=%d %s state=%u balls=%u/%u/%u/%u pool=%u/%u flat=%u\n", RE4DC_COARSE_PREGATE,
-                  gc::appearance_names[a], gate_state[a], gate_count[a][0], gate_count[a][1], gate_count[a][2],
+                  gc::appearance_names[cast_app(a)], gate_state[a], gate_count[a][0], gate_count[a][1], gate_count[a][2],
                   gate_count[a][3], gate_next, kGatePool, flat);
     }
     return gate_state[a] == 1;
@@ -302,6 +337,9 @@ void gate_matrix(const float (*rows)[3], const float (*mv)[4], const Mtx inv, fl
 }
 struct GateView { bool valid, ok; unsigned P[7], V[6]; float far, rows[3][3]; };
 GateView gate_view;
+#if RE4DC_CROWD_CULL
+float gate_far_limit = 3.0e38f;  // lane crowd (re4dc_crowd_offscreen only): a nearer far plane for one call
+#endif
 #if RE4DC_COARSE_GATE_ONCE == 2
 unsigned g1_calls, g1_mask_mismatch, g1_visible_mismatch, g1_mv_mismatch, g1_mv_reused, g1_g_reused, g1_g_mismatch,
     g1_view_reused, g1_scales, g1_scale_mismatch, g1_rho, g1_rho_skipped;
@@ -347,7 +385,12 @@ unsigned gate_cull_once(cModel* m, unsigned app, cModelInfo* const* infos, cPart
     else ++g1_view_reused;
 #endif
     if (!gv.ok) return 0;
+#if RE4DC_CROWD_CULL
+    // Lane crowd: re4dc_crowd_offscreen's far plane is the actor path's cull depth (the fogged View far when nearer).
+    const float far = gate_far_limit < gv.far ? gate_far_limit : gv.far;
+#else
     const float far = gv.far;
+#endif
     float scale[kBones];
     unsigned have[2] = {0, 0};
     unsigned culled = 0;
