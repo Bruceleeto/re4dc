@@ -426,6 +426,8 @@ ROOM_CONTRACTS={
     'r104':dict(slots=46,smd=4,effs=(7,42),itm=9,model_slots=(),header_grow=32),
     # r107 (route lane): 27 slots, r103's owner layout (SMD#4, EFF#7, ITM#9; no EMI/BIN/FCV/SEQ tail).
     'r107':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    # r105 (route lane): r107's 27-slot layout.
+    'r105':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
 }
 
 def compact_room(source_file, textures, destination, compact_effects=False, compact_palettes=False, compact_uvs=False, compact_mips=False):
@@ -438,7 +440,7 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
     name=source_file.name.lower()
     room=name[:-4] if name.endswith('.das') else ''
     if room not in ROOM_CONTRACTS:
-        raise ValueError('only the reviewed r100/r101/r103/r104/r106/r107 consumer contracts are supported')
+        raise ValueError('only the reviewed r100/r101/r103/r104/r105/r106/r107 consumer contracts are supported')
     if room!='r100' and (compact_effects or compact_palettes or compact_uvs):
         raise ValueError('effect/palette/UV compaction is reviewed for r100 only')
     contract=ROOM_CONTRACTS[room]

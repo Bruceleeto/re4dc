@@ -361,7 +361,7 @@ $(OBJDIR)/route-movies.h: route-movies-force
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 ROUTE_MOVIE_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/pad.o
-ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
+ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r105.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
 $(ROUTE_MOVIE_PLATFORM) $(ROUTE_MOVIE_GAME): $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/route-movies.h
@@ -627,6 +627,11 @@ UI_VRAM_RESERVE_KB ?= 64
 # contiguous block in play (taken before anything is evicted, returned when it closes). Needs TEX_RESIDENT.
 UI_FRAG_LATCH ?= 0
 UI_OVERLAY_SLAB_KB ?= 0
+# MOVIE_WINDOW=1 (needs VRAM_PAGES=1 and TEX_RESIDENT=1): a route movie's VRAM claim releases the cheapest
+# page-aligned window of room textures instead of LRU uploads until a hole appears (r100 s44: 0.5-1.1 MB and
+# 160-240 reloads per movie), and the movie texture is only the picture's rows (288x192: 192 KiB, not 256).
+# A held 256 KiB block (tried 2026-10-02) fixed the bridge but cost the r101 fight 80% -> 50% game speed.
+MOVIE_WINDOW ?= 0
 # VRAM_PAGES=1: platform/vram_pages.cpp replaces KOS's weak pvr_mem_* (dlmalloc, in-VRAM block
 # headers) with a best-fit allocator whose bookkeeping is in main RAM; >= 2 KiB blocks start on a
 # 2 KiB page and smaller ones never straddle one, so UI_VRAM's VQ page placement no longer pads
@@ -656,6 +661,8 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_KEEP %s\n' '$(TEX_KEEP)' >> $@.tmp
+	@printf '#define RE4DC_MOVIE_WINDOW %s\n' '$(MOVIE_WINDOW)' >> $@.tmp
+	@if [ "$(MOVIE_WINDOW)" = 1 ] && { [ "$(VRAM_PAGES)" != 1 ] || [ "$(TEX_RESIDENT)" != 1 ]; }; then echo 'MOVIE_WINDOW=1 needs VRAM_PAGES=1 TEX_RESIDENT=1' >&2; exit 1; fi
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/model_bridge.o: $(OBJDIR)/pipeline30.h

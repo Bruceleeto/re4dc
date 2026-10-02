@@ -118,6 +118,16 @@ size_t pvr_mem_available(void) { return base ? free_bytes : 0; }
 void pvr_mem_print_list(void) {}
 void pvr_mem_stats(void) {}
 
+// MOVIE_WINDOW: the allocations (offset, length; sorted by offset), the pool size, and the absolute address
+// of offset 0, for native_ui.cpp's targeted claim. Returns the count copied (at most cap).
+unsigned re4dc_vram_pages_snapshot(unsigned* off, unsigned* len, unsigned cap, unsigned* base_out, unsigned* pool_out) {
+    irq_disable_scoped();
+    const unsigned n = nalloc < cap ? nalloc : cap;
+    for(unsigned i = 0; i < n; ++i) { off[i] = alloc_list[i].off; len[i] = alloc_list[i].len; }
+    *base_out = unsigned(base); *pool_out = pool;
+    return n;
+}
+
 // VRAM_CENSUS: allocator view for native_ui.cpp.
 void re4dc_vram_pages_census(unsigned* out) {
     // out: allocs, alloc_bytes, extents, free_bytes, largest, hist[5] (<2K, <8K, <32K, <128K, >=128K),

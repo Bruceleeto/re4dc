@@ -123,6 +123,41 @@ PRESETS = {
     # stage_route.py). r107 has no evd events; em12 / em27 (fish) / em2a from the ESL.
     "r107-entry": dict(room=0x107, pos=(29683, -13, -28512), ang=2.286,
                        notes="r107 from the r104 door (chapter 1-2)"),
+    # r105 (the farm with Ashley's rescue) as r107's door 1 delivers Leon (r107 AEV door 1: dst 72778, -2238, -37465,
+    # angle -1.226; stage_route.py). First visit: area 8 runs s00 (chapter 1-2's end).
+    "r105-entry": dict(room=0x105, pos=(72778, -2238, -37465), ang=-1.226,
+                       notes="r105 from the r107 door (chapter 1-2)"),
+    # r105's s00 (chapter 1-2's end): R105Main arms area 8 (action button, centre 7580, 6020, 5506; warp --dump of
+    # route-r105b) once the key item's item_flags[0] bit 0x20000000 is set (its pickup); Leon at the centre presses A.
+    "r105-event": dict(room=0x105, pos=(7580, 6020, 5506), ang=0.0, items={0: 0x20000000},
+                       door=[("a", 90, 4), ("a", 180, 4), ("a", 270, 4)],
+                       notes="r105 area 8 with the key item: s00, then the chapter 1-2 end"),
+    # *-front: area 8's check flag is 01 (the hit test uses the point in front of Leon, no angle check; r105e2 dump):
+    # Leon 700 units short of the centre on z, facing +z (angle 0), so his front point is inside.
+    "r105-event-front": dict(room=0x105, pos=(7580, 6020, 4806), ang=0.0, items={0: 0x20000000},
+                             door=[("a", 90, 4), ("a", 180, 4), ("a", 270, 4)],
+                             notes="r105 area 8 (front point) with the key item: s00, then the chapter 1-2 end"),
+    # *-pi: the same spot facing angle pi (area 8 box x 7225..7935, z 4840..6137, floor 6020 + 1484: r105e4 dump; at
+    # angle 0 from z 5506 / 5060 the front point never fired, so the front is taken to be -z at angle 0).
+    "r105-event-pi": dict(room=0x105, pos=(7580, 6020, 5060), ang=3.1416, items={0: 0x20000000},
+                          door=[("a", 90, 4), ("a", 180, 4), ("a", 270, 4)],
+                          notes="r105 area 8 facing +z with the key item: s00, then the chapter 1-2 end"),
+    # *-west: r105e1/e3/e5 all drifted to x ~7942 after placement (just east of the box's 7935 edge); the west half.
+    "r105-event-west": dict(room=0x105, pos=(7400, 6020, 5500), ang=0.0, items={0: 0x20000000},
+                            door=[("a", 90, 4), ("a", 180, 4), ("a", 270, 4)],
+                            notes="r105 area 8 (west half) with the key item: s00, then the chapter 1-2 end"),
+    # The r104 -> r107 door (r104 AEV door 0, action button, no lock or flag). Leon stands where r107's door back to
+    # r104 puts him (r107 AEV door 0: dst 27604, -72, -27727, angle -1.139), turned to face the door (+pi); rsf 0x104
+    # bit 1 skips the arrival event (as r104-entry-noevt).
+    "r104-r107-door": dict(room=0x104, pos=(27604, -72, -27727), ang=2.0026, rsf={0x104: [1]},
+                           door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                           notes="at the r104 -> r107 door (door 0 has no lock or flag)"),
+    # *-unlocked: the emblem gate (door 0x97) opens once door_unlock[0] bit 0x00400000 is set (r104.cpp
+    # r104_checkDoor107KeyUse, the combined emblem 0xA6 used); route-r104-r107-w1 without it showed "It won't open".
+    "r104-r107-door-unlocked": dict(room=0x104, pos=(27604, -72, -27727), ang=2.0026, rsf={0x104: [1]},
+                                    unlock={0: 0x00400000},
+                                    door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                                    notes="at the r104 -> r107 emblem gate, unlocked"),
 }
 
 
@@ -145,6 +180,8 @@ def lines_for(p, door=False, dump=False, name=None):
         out.append("find 0x%08x" % p["find"])
     for i, v in sorted((p.get("unlock") or {}).items()):
         out.append("unlock %d 0x%08x" % (i, v))
+    for i, v in sorted((p.get("items") or {}).items()):
+        out.append("items %d 0x%08x" % (i, v))
     dead = list(p.get("dead") or [])
     for i in range(0, len(dead), 10):   # the rig reads at most 12 tokens per line
         out.append("dead " + " ".join("0x%02x" % n for n in dead[i:i + 10]))

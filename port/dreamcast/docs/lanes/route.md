@@ -248,6 +248,47 @@ The history of the r106 bring-up is below.
 - **Kite gate r22 vs c9 / l18:** identical position at frame 2100 (610,0,-4346); spills 4, upload FAILED 12, HALT 0;
   heap 4 free 8,178,432 (l18 8,194,816: −16,384 B, em27 joins the image).
 
+## Progress 2026-10-02 (r104 -> r107 walk, r105: chapter 1-2's end)
+
+- **r104 -> r107 door walk.**
+  - route-r104-r107-w1 (preset r104-r107-door): the emblem gate says "It won't open". r104.cpp keeps door 0x97 disabled
+    until `door_unlock[0]` bit 0x00400000 is set (r104_checkDoor107KeyUse, the combined emblem 0xA6 used).
+  - Preset r104-r107-door-unlocked adds `unlock 0 0x00400000`. route-r104-r107-w2 (r22): door demo, r107 entered, the
+    PS2 world opens, HALT 0.
+- **r105 room.** Same recipe as r107: r107's 27-slot contract.
+  - Resident archive 1,399,936 B, 110 scenery BINs released.
+  - aica-r105 plans r106 + r107 + r105 against the frozen layout; every shared bank equals aica-r107's.
+  - r105 is in `re4dc_ps2_world_room`. Warp preset `r105-entry` is r107 door 1's destination (72778, −2238, −37465,
+    −1.226).
+  - pairs-r105 holds 8b7f9449 and 6378dfee (route-r105a).
+  - route-r105a (r23): HALT 0, about 26 drawn fps.
+- **r105 route movies.** r105s00 (1667 pictures, chapter 1-2's end) and r105s10 (1107, Ashley's rescue) were converted
+  with `convert_route_movies.py r105s00 r105s10`.
+  - r105.cpp presents both through RouteMoviePlay (0x10500 / 0x10510), with Evt_R105S00/S10_Func as the begin/end
+    funcs, and skips the ARAM pre-reads.
+  - s00's evd flag 0x10 (StatusFlag 0x400, the fade 30 frames before the end) becomes `FadeSetW(2, 0x2D)` after the
+    movie, as r106.
+  - s10's lasting side effect, window 5 SetBreakModel at cut 0x14 frame 2, is a picture tick at 891. The cut->picture
+    sums equal both movies' picture counts (1107, 1667).
+  - r105.o gets the route-movies header (Makefile ROUTE_MOVIE_GAME).
+- **Reaching r105's event (test rig).**
+  - R105Main arms area 8 only once the key item is picked up (`item_flags[0]` bit 0x20000000). Warp gains a test-only
+    `items <idx> <mask>` line (DBG_WARP builds).
+  - The warp `--dump` now prints each area's check flag, angle and range, and an xz4 area's box.
+  - Area 8: check 01 (front point), box x 7225..7935, z 4840..6137, floor 6020 + 1484.
+  - At the box centre Leon is pushed east out of the box (x ~7942) and nothing fires (r105e1/e3/e5). Preset
+    r105-event-west (7400, 6020, 5500, angle 0) fires it: route-r105e6 (r26) plays r105s00 1667/1667, then the chapter
+    1-2 "Save?" prompt.
+  - The chapter 1-2 results pictures were missing (15 loads). tex-chap02 comes from the GC disc's SS/eng/chap02.dat
+    (chap-src's copy has no handler), 25 images; 3 are shared with chap01.
+- **Chapter 1-2 end -> save -> chapter 1-3 (route-r105e7, r26, view r105-event-f).** r105s00 1667/1667, the chapter
+  1-2 results pictures (chap01 + chap02 staged; open failed 0), "Save?" -> Yes -> slot, `card-vmu: op=syswrite rc=0`,
+  then chapter 1-3 opens with r105s10 1107/1107 (Ashley's rescue, cadence 29.97, dropped 0) and gameplay in r105.
+  HALT 0, MISSING 0. Gameplay after s10 runs ~11 drawn fps / 74% game speed (Flycast, draw ~75 ms) with 3
+  `native UI: upload FAILED vram=0` (VRAM free 115 KB during s10): the next r105 item, with r107's ~15 fps.
+- Not yet proven: the emblem halves (r104 -> r107) and r105's key item picked up in play; the warp rig sets
+  `door_unlock` / `item_flags`. A user play disc is the check (memory: user play over scripts).
+
 ## Numbers (image, build, evidence)
 
 ## Ready to land

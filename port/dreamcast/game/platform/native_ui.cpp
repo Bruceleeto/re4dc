@@ -1888,6 +1888,62 @@ extern "C" unsigned re4dc_ui_reclaim_one(){
 #define RE4DC_CLAIM_TEST 0
 #endif
 namespace {
+#if RE4DC_MOVIE_WINDOW
+// MOVIE_WINDOW=1 (needs VRAM_PAGES): the route movie's claim releases one window instead of the least
+// recently used uploads. LRU release in a fragmented pool freed 0.5-1.1 MB (58-129 entries) before a
+// 256 KiB hole appeared, and all of it reloaded from disc after the movie (r100 s44 at the police car:
+// 160-240 loads, seconds of slow frames, after each 5 s movie). Here every page-aligned window of
+// `bytes` that starts at an allocation or a free extent is scored by the VRAM bytes of the cache
+// entries it overlaps; a window touching a block no releasable entry owns (glyph atlas, overlay slab,
+// sub screen, a pinned entry unless `pinned_ok`) is skipped. The cheapest window's entries are closed.
+// Returns the entries released (0: no window qualifies).
+extern "C" unsigned re4dc_vram_pages_snapshot(unsigned* off,unsigned* len,unsigned cap,unsigned* base,unsigned* pool);
+unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_bytes){
+    constexpr unsigned kCap=512,kPage=2048;
+    static unsigned off[kCap],len[kCap];static short owner[kCap];static unsigned seen[kTextureCount];static unsigned stamp;
+    unsigned base=0,pool=0;
+    const unsigned n=re4dc_vram_pages_snapshot(off,len,kCap,&base,&pool);
+    auto block_of=[&](unsigned a)->int{unsigned lo=0,hi=n;while(lo<hi){const unsigned m=(lo+hi)/2;if(off[m]+len[m]<=a)lo=m+1;else hi=m;}
+        return lo<n && off[lo]<=a ? int(lo) : -1;};
+    for(unsigned i=0;i<n;++i)owner[i]=-1;
+    for(unsigned ei=0;ei<kTextureCount;++ei){
+        const Entry& e=entries[ei];
+        if(!e.valid || !e.package.vram_bytes() || (!pinned_ok && RE4DC_ENTRY_PINNED(e)))continue;
+        const unsigned count=e.package.header().texture_count;
+        for(unsigned t=0;t<count;++t){
+            const pvr_ptr_t p=e.package.pvr_texture(t);if(!p)continue;
+            const int b=block_of(unsigned(p)-base);if(b>=0)owner[b]=short(ei);
+        }
+    }
+    unsigned best_cost=~0U,best_start=0;
+    auto score=[&](unsigned s){
+        s=(s+kPage-1)&~(kPage-1);
+        if(s+bytes>pool)return;
+        if(++stamp==0){std::memset(seen,0,sizeof(seen));stamp=1;}
+        unsigned cost=0;
+        for(int b=block_of(s)>=0?block_of(s):0;b<int(n) && off[b]<s+bytes;++b){
+            if(off[b]+len[b]<=s)continue;
+            if(owner[b]<0)return;
+            if(seen[owner[b]]!=stamp){seen[owner[b]]=stamp;cost+=entries[owner[b]].package.vram_bytes();}
+            if(cost>=best_cost)return;
+        }
+        best_cost=cost;best_start=s;
+    };
+    score(0);
+    for(unsigned i=0;i<n;++i){score(off[i]);score(off[i]+len[i]);}
+    if(best_cost==~0U)return 0;
+    unsigned released=0;
+    for(unsigned b=0;b<n;++b){
+        if(off[b]>=best_start+bytes || off[b]+len[b]<=best_start || owner[b]<0)continue;
+        Entry& e=entries[owner[b]];
+        if(!e.valid)continue; // closed through an earlier block of the same entry
+        released_bytes+=e.package.vram_bytes();++released;
+        RE4DC_PROFILE_COUNT(TextureEvictions,1);close_entry(e);
+    }
+    re4dc_log("native texture claim: movie window at %08x cost=%u B entries=%u pinned_ok=%d\n",base+best_start,best_cost,released,pinned_ok?1:0);
+    return released;
+}
+#endif
 int vram_claim(unsigned bytes,bool movie){
     ++vram_claims;
     unsigned released=0,released_bytes=0;
@@ -1917,7 +1973,19 @@ int vram_claim(unsigned bytes,bool movie){
     unsigned fallback_released=0,fallback_bytes=0;
     for(;;){
         unsigned since_probe=0;
-        while(!ok){
+#if RE4DC_MOVIE_WINDOW
+        // The movie releases one window: unpinned entries first; when none qualifies, the scene is ended
+        // (fallback below) and pinned entries may go too. Plain LRU release only if that also fails.
+        if(!ok && movie && !forced){
+            unsigned wb=0;const unsigned wr=movie_window_release(bytes,fell_back,wb);
+            released+=wr;released_bytes+=wb;if(fell_back){fallback_released+=wr;fallback_bytes+=wb;}
+            if(wr)ok=fits();
+        }
+        const bool skip_lru=movie && !forced && !fell_back;
+#else
+        const bool skip_lru=false;
+#endif
+        while(!ok && !skip_lru){
             Entry* victim=nullptr;
             for(auto& e:entries) if(e.valid && (fell_back || (!forced && !RE4DC_ENTRY_PINNED(e))) && (!victim || e.frame<victim->frame)) victim=&e;
             if(!victim){ok=since_probe && fits();break;}
@@ -3941,16 +4009,23 @@ extern "C" void* re4dc_model_deferred_storage(unsigned* bytes){
 extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
     // Macroblock sizes inside the 512x256 texture; rows load as 32-byte blocks.
     if(movie_texture || !ready || !width || !height || width>512 || height>256 || (width&15))return 0;
+#if RE4DC_MOVIE_WINDOW
+    // Only the picture's rows are allocated (1024-byte rows; v is clamped inside them, rows below are
+    // never sampled): 288x192 needs 192 KiB of the 512x256 texture's 256 KiB.
+    const unsigned movie_bytes=1024U*height;
+#else
+    const unsigned movie_bytes=512*256*2;
+#endif
 #if RE4DC_TEX_RESIDENT
     // Released with the texture (re4dc_ui_movie_close). The movie's claim may end this frame's
     // scene and release its uploads when nothing else frees a block (fallback in vram_claim).
 #if RE4DC_CLAIM_TEST==3
-    if(!vram_claim(512*256*2,true)){re4dc_ui_vram_unclaim();return 0;} // test: the pre-fallback outcome
+    if(!vram_claim(movie_bytes,true)){re4dc_ui_vram_unclaim();return 0;} // test: the pre-fallback outcome
 #else
-    vram_claim(512*256*2,true);
+    vram_claim(movie_bytes,true);
 #endif
 #endif
-    movie_texture=pvr_mem_malloc(512*256*2);movie_picture=false;movie_width=width;movie_height=height;
+    movie_texture=pvr_mem_malloc(movie_bytes);movie_picture=false;movie_width=width;movie_height=height;
     movie_upload_serial=movie_shown_serial=movie_presentations=0;movie_first_picture_us=0;
 #if RE4DC_TEX_RESIDENT
     if(!movie_texture)re4dc_ui_vram_unclaim();
