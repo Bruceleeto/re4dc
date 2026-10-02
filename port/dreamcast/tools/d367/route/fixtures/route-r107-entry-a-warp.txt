@@ -1,0 +1,6 @@
+name r107-entry
+# r107 from the r104 door (chapter 1-2)
+room 0x107
+pos 29683 -13 -28512
+ang 2.2860
+inv default

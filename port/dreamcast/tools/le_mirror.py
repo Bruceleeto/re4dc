@@ -1046,6 +1046,10 @@ def fmt_sce_at(sw, off, size, ctx):
             sw.f32s(d, 4)
         elif kind == 17:
             sw.u16s(d, 2)
+        elif kind == 14:
+            # Stoop (sce_at.cpp sceAtFunc_stoop: PlSetCrouch) reads no payload; qualified only all-zero (r107).
+            if any(sw.data[d:d + 64]):
+                raw.append('scenario%d type14 payload is nonzero' % i)
         else:
             raw.append('scenario%d type%d payload' % (i, kind))
     return raw

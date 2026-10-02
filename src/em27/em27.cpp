@@ -100,7 +100,12 @@ extern "C" void _unresolved()
 // EmInitFunc of the module: constructs the cEm27 class in the manager's work.
 void Em27Init(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Value-initialisation would zero the fields cEmMgr::construct set (e6f65cc).
+    new (em) cEm27;
+#else
     new (em) cEm27();
+#endif
 }
 
 // Per-frame damage check (cEm27::move): a weapon hit (not 0x14 / 0x16 / flash 0x17 / 0x2A) takes
@@ -1046,7 +1051,13 @@ int em27JumpCk(cEm27* em)
     u32 i;
 
     for (i = 0; i < EmMgr.nArray; i++) {
+#if !defined(__PPC__)
+        // Unbacked sparse enemy slots read as absent (as em21's scans).
+        cEm* e = (cEm*) EmMgr.workAt(i);
+        if (!e) continue;
+#else
         cEm* e = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
 
         if (e->isAlive() && e->id == 0xF) {
             if ((em->pos.x - e->pos.x) * (em->pos.x - e->pos.x) + (em->pos.z - e->pos.z) * (em->pos.z - e->pos.z)

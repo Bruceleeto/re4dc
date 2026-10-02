@@ -119,6 +119,10 @@ PRESETS = {
                              notes="r104 from the r106 door, arrival event done (room bring-up)"),
     "r104-arrival": dict(room=0x104, pos=(-3443, 0, 12338), ang=-1.581,
                          notes="r104 from the r106 door, first visit: the s00 arrival event and its QTE"),
+    # r107 (the lake path) as r104's door 0 delivers Leon (r104 AEV door 0: dst 29683, -13, -28512, angle 2.286;
+    # stage_route.py). r107 has no evd events; em12 / em27 (fish) / em2a from the ESL.
+    "r107-entry": dict(room=0x107, pos=(29683, -13, -28512), ang=2.286,
+                       notes="r107 from the r104 door (chapter 1-2)"),
 }
 
 
