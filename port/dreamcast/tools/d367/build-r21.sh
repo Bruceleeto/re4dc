@@ -3,9 +3,9 @@
 # the r19 playability integration, the PS2 r101 world through R4IM (PS2_WORLD_MESH=1), the HUD source
 # mask with the 230 lens alpha, MESH_PRIME_LAZY=1 (2026-09-28). Traced (LOGIC_TRACE=1, the STRICT gate build) by
 # default; release measurement adds: LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG=0.
-# Recipe truth (architect review 2026-10-03): MESH_CLIP_LEAN is NOT in this recipe (game30.mk default 0); the
-# 2026-09-28 note claimed "MESH_CLIP_LEAN=1 (-1.8 hw ms, STRICT kite-r21lzt)" but the make line never had it. Its
-# adoption is a separate decision (route doc). MODEL_DRAW_PLANS is forced to 1 by D349_RENDERER_STACK=1 (Makefile
+# MESH_CLIP_LEAN=1 (user 2026-10-03; the architect review had found the 2026-09-28 note claiming it while the make
+# line never had it): strips wholly outside a frustum plane skip the near/far clipper. H2 58.71 -> 56.53 hw ms (scenery
+# 9.10 -> 6.44), STRICT 120/120 + whole r100 1391/1391; house and r101 square off/on captures draw the same scenery. MODEL_DRAW_PLANS is forced to 1 by D349_RENDERER_STACK=1 (Makefile
 # override): the line says 1 to match; it was 0 here and built the same image. Every build writes the knobs as make
 # resolved them to $OUT/resolved-knobs.txt (game/knobs.mk).
 # PLAYER_RESIDENT_BYTES=869728 (route lane 2026-10-01): pl08, Leon without the jacket in every room after r106, prepared
@@ -76,7 +76,7 @@ R21=(
   MOTION_RESERVE_SPILL=524288 COARSE_FX_SPRITES=2 COARSE_SCENERY_FALLBACK=1 AVK_RIGID6=1 GAME_WPAL_FAST=3
   GAME_SK1_ASM=1 ACTOR_STATS_LEAN=1 PS2_WORLD_DRAW=1 TA_GUARD=0 PS2_WORLD_KERNEL=0 PS2_WORLD_MESH=1
   PS2_WORLD_ROOMS=2 TEX_KEEP=1 IO_ALIGNED=1 DVD_WAIT=1 UI_HUD_MASK=1 UI_HUD_LENS_ALPHA=230 EFFECT_ROOM=7
-  CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1
+  CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 MESH_CLIP_LEAN=1
   TEX_SLOTS=448 MOVIE_WINDOW=1 IO_SERIAL=1 CRASH_SCREEN=1 SS_PACK=1 MOVIE_HEAP_EVICT=1 CLOSED_PASS_KEEP=1
   PS2_PRELOAD_LEAN=1 TEX_PACK=1
 )

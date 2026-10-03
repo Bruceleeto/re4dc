@@ -11,8 +11,8 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   PACE_DEBUG=1 LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0`; keep `GAME_PWC_DIAG=1` (an exact logic
   cut; only =2 is test-only). Test spots use a `DBG_WARP=1` twin; the pad fixture works without it.
   Recipe truth (2026-10-03, 8f34aa63): build-r21.sh writes `$OUT/resolved-knobs.txt` (make's own resolved values;
-  route-build.sh records its path in programs-route.json): read that, not the make line. MESH_CLIP_LEAN is not in the
-  play recipe (default 0; adoption needs the route gate); MODEL_DRAW_PLANS is forced to 1 by the D349 renderer-stack
+  route-build.sh records its path in programs-route.json): read that, not the make line. MESH_CLIP_LEAN=1 is in the
+  play recipe since 2026-10-03 (user; H2 -2.18 hw ms, STRICT, off/on captures); MODEL_DRAW_PLANS is forced to 1 by the D349 renderer-stack
   override in the Makefile.
 - Calls and cutscene memory (2026-10-02, r21n play): build-r21.sh sets `SS_PACK=1` (the sub screen packs its
   3 MiB into TA bank 1 instead of releasing ~2.3 MB of room textures per call) and `MOVIE_HEAP_EVICT=1` (a route

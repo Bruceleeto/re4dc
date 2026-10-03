@@ -566,7 +566,10 @@ MESH_CLIP_LEAN (exact in pixels): 94% of the strips reaching the near/far clippe
 frustum plane (ground under the camera); they are dropped by a homogeneous test, and each clipped corner is computed
 once: 91.5 -> **88.4** hw ms, accepted strips identical, STRICT kite-r21clt. Recipe truth (architect review
 2026-10-03, 8f34aa63): MESH_CLIP_LEAN is **not** in the play recipe (build-r21.sh's make line never had it; game30.mk
-default 0; the recipe header that claimed it is corrected). Adopting it is a separate decision that needs the current route gate. World distance detail is on (MESH_LOD;
+default 0; the recipe header that claimed it is corrected). **Adopted 2026-10-03 (user):** build-r21.sh sets it. Gate (impl lane,
+WP1d tree): H2 58.71 -> 56.53 hw ms (-2.18, all scenery 9.10 -> 6.44), STRICT 120/120, 100/100, r100 1391/1391; off/on
+captures in the house and the r101 square fight (near fences and posts, wide views to the frustum edges, blood spray)
+draw the same complete scenery. Not proven: pixel-exact frames, r103 views, console TA time. World distance detail is on (MESH_LOD;
 Standard uses QUALITY_LOD_PX = 5 px, MESH_LOD_PX only applies to Original): 10 px 86.4, 1000 px (coarsest level
 everywhere) 84.4, so world LOD is worth at most ~4 ms in the kite square (near geometry dominates).
 Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
