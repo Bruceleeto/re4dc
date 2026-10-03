@@ -796,9 +796,19 @@ void stream_select(pvr_list_t list){
     // End the old list once. Never reopen it or replay source ModelRender.
 #if RE4DC_PS2_WORLD_DRAW
     if(stream_closed_lists&(1u<<unsigned(list))){
+#if RE4DC_CLOSED_PASS_KEEP
+        // CLOSED_PASS_KEEP (game30.mk): stay in the open list; the TA keeps the list type latched at its first header.
+        static unsigned kept;
+        if(kept<16 || !(kept&255))
+            re4dc_log("PS2PASS kept frame=%u from=%u to=%u mask=%x finished=%u ra=%p count=%u\n",frame,unsigned(stream_list),
+                unsigned(list),stream_closed_lists,unsigned(source_draws_finished),__builtin_return_address(0),kept+1);
+        ++kept;
+        return;
+#else
         re4dc_log("PS2PASS closed frame=%u from=%u to=%u mask=%x finished=%u\n",
             frame,unsigned(stream_list),unsigned(list),stream_closed_lists,unsigned(source_draws_finished));
         re4dc_missing("native closed pass requested");
+#endif
     }
     if(stream_pass_logs<12 || !(frame%120)){
         ++stream_pass_logs;
@@ -2807,6 +2817,32 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0) re4dc_log("native UI: frame=%u quads=%u drawn=%u missing=%u unsupported=%u drops=%u vram=%u peak=%u staging=%u loads=%u freed=%u culled=%u fb=%08x,%08x black=%d\n",frame,nquad,drawn,missing,unsupported,dropped,used,peak,staging_peak,loads,reclaimed,culled,(unsigned)pvr_get_front_buffer(),(unsigned)pvr_get_back_buffer(),re4dc_vi_black());
 #if RE4DC_UI_VRAM
     if(frame%120==0) re4dc_log("native UI VRAM: frame=%u budget=%u used=%u free=%u rejects=%u retries=%u evicted=%u\n",frame,vram_budget,used,(unsigned)pvr_mem_available(),vram_rejects,vram_retries,reclaimed);
+#if RE4DC_TEX_USE_CENSUS
+    // TEX_USE_CENSUS (test only): how much of the resident set the last 2 s / 20 s actually drew (entry.frame is the
+    // last frame a draw or a preload touched it).
+    if(frame%600==0){
+        unsigned n=0,b=0,i60=0,b60=0,i600=0,b600=0;
+        for(const auto& e:entries)if(e.valid){
+            const unsigned sz=e.package.vram_bytes();++n;b+=sz;
+            if(e.frame+60<frame){++i60;b60+=sz;}
+            if(e.frame+600<frame){++i600;b600+=sz;}
+        }
+        // the room archive's identities among them (the room-entry preload's first pass)
+        unsigned rn=0,rb=0,r600=0,rb600=0;
+        for(unsigned i=0;i<room_identities.count();++i){
+            unsigned crc,fnv,w,h,f;
+            if(!room_identities.record(i,crc,fnv,w,h,f))continue;
+            const Key key{crc,fnv};
+            for(const auto& e:entries)if(e.valid && e.key==key){
+                const unsigned sz=e.package.vram_bytes();++rn;rb+=sz;
+                if(e.frame+600<frame){++r600;rb600+=sz;}
+                break;
+            }
+        }
+        re4dc_log("tex use census: frame=%u resident=%u/%u B idle2s=%u/%u B idle20s=%u/%u B loads=%u freed=%u "
+                  "room=%u/%u B room_idle20s=%u/%u B\n",frame,n,b,i60,b60,i600,b600,loads,reclaimed,rn,rb,r600,rb600);
+    }
+#endif
 #if RE4DC_VRAM_CENSUS
     if(frame%120==0)vram_census("frame");
 #endif

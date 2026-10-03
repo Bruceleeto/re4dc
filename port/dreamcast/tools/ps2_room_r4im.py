@@ -455,6 +455,9 @@ def main():
                     help='--color-light ps2: clamp of the vertex colour before the SMX colour (1.0 = the GX channel '
                          'clamp, the default; 2.0 = the GS limit 0xFF/0x80)')
     ap.add_argument('--lod-eps', default='24,48,96,192,384')
+    ap.add_argument('--lod-uv-guard', type=float, default=None,
+                    help='refuse LOD collapses that move a corner\'s UV off its triangle\'s mapping by more than this '
+                         '(UV units; e.g. 0.002); default off (the historical packages)')
     ap.add_argument('--lod-min-gain', type=float, default=0.4)
     ap.add_argument('--lod-max-levels', type=int, default=4)
     ap.add_argument('--lod-floor', type=float, default=2.0)
@@ -462,6 +465,9 @@ def main():
     ap.add_argument('--meshlet-vertices', type=int, default=64)
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
+    if a.lod_uv_guard is not None:
+        import mesh_lod  # noqa: E402 (MESH_TOOLS is on sys.path)
+        mesh_lod.UV_GUARD = a.lod_uv_guard
     a.out.mkdir(parents=True, exist_ok=True)
     groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
                         a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp)

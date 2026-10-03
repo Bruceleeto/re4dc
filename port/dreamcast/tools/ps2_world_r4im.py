@@ -100,6 +100,9 @@ def main():
     ap.add_argument("--lod-floor", type=float, default=2.0)
     ap.add_argument("--lod-cluster", type=float, default=20000.0)
     ap.add_argument("--no-share", action="store_true")
+    ap.add_argument("--lod-uv-guard", type=float, default=None,
+                    help="refuse LOD collapses that move a corner's UV off its triangle's mapping by more "
+                         "than this (UV units, e.g. 0.002; mesh_lod.UV_GUARD); default off")
     ap.add_argument("--strip-swaps", action="store_true",
                     help="stripify with swaps (repeat a corner to turn; same drawn triangles, longer strips)")
     ap.add_argument("--meshlet-vertices", type=int, default=64,
@@ -109,6 +112,7 @@ def main():
         raise SystemExit("--meshlet-vertices must be 3..256")
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     mesh_lod.STRIP_SWAPS = a.strip_swaps
+    mesh_lod.UV_GUARD = a.lod_uv_guard
     pkg = ps2src.Package(a.r4p)
     tab = ps2src.load_tables(a.inc)
     if ps2src.payload_crc(pkg.payload) != tab["payload_crc"]:

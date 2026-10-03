@@ -1646,6 +1646,24 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 endif
+# TEX_USE_CENSUS=1 (test only, native_ui.cpp, default 0): every 600 frames, the resident textures and how many the
+# last 2 s / 20 s drew ("tex use census"), to size what the room preload loads but nothing draws.
+TEX_USE_CENSUS ?= 0
+ifneq ($(TEX_USE_CENSUS),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_USE_CENSUS=1
+endif
+# CLOSED_PASS_KEEP=1 (needs PS2_WORLD_DRAW=1; native_ui.cpp, render only, default 0): a draw that asks for a PVR list
+# this scene already closed (an opaque or punch-through packet after the translucent list opened) stays in the open
+# list instead of halting ("native closed pass requested"; user r21o play 2026-10-03, r100 after pressing A). The TA
+# latches the list type at the list's first header, so the packet draws with its own blend (an opaque packet's
+# ONE/ZERO looks opaque) in the open list. Logged with the caller ("PS2PASS kept") for the root fix.
+CLOSED_PASS_KEEP ?= 0
+ifneq ($(CLOSED_PASS_KEEP),0)
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error CLOSED_PASS_KEEP needs PS2_WORLD_DRAW=1)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CLOSED_PASS_KEEP=1
+endif
 
 # PS2_WORLD_KERNEL (render only, default off): 1 = the coarse-world kernel shape on the PS2 world
 # (box/plane group classify, fast path without the clipper for wholly-inside groups, static

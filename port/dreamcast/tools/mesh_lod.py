@@ -23,6 +23,13 @@ Corner attributes follow their triangle: a corner that moves from u to v takes
 v's attributes from a removed triangle with the same UV at u when one exists
 (same chart), otherwise its UV is extrapolated through the triangle's own
 affine UV mapping, clamped to that triangle's UV range.
+
+UV_GUARD (None = off, the historical behaviour): a tolerance in UV units. A
+collapse is then refused when any surviving corner's new UV differs by more
+than the tolerance from the triangle's own UV mapping evaluated at the kept
+position, i.e. when the collapse would shear or squeeze the texture (flat walls
+cost nothing geometrically, so without it a collapse across a UV seam or a
+tiling restart draws the texture skewed: the r100 house wainscot, 2026-10-03).
 """
 import heapq
 import math
@@ -56,6 +63,24 @@ def _qeval(q, p):
     x, y, z = p
     return max(0.0, q[0] * x * x + 2 * q[1] * x * y + 2 * q[2] * x * z + 2 * q[3] * x + q[4] * y * y +
                2 * q[5] * y * z + 2 * q[6] * y + q[7] * z * z + 2 * q[8] * z + q[9])
+
+
+# Converter option (ps2_room_r4im.py --lod-uv-guard): see the module docstring.
+UV_GUARD = None
+
+
+def _uv_affine(p0, p1, p2, t0, t1, t2, x):
+    """The triangle's UV mapping at x (barycentric in the triangle's plane, unclamped); None if degenerate."""
+    e1, e2, d = _sub(p1, p0), _sub(p2, p0), _sub(x, p0)
+    d00, d01, d11 = _dot(e1, e1), _dot(e1, e2), _dot(e2, e2)
+    d20, d21 = _dot(d, e1), _dot(d, e2)
+    den = d00 * d11 - d01 * d01
+    if den <= 1e-12 * max(d00 * d11, 1e-30):
+        return None
+    b1 = (d11 * d20 - d01 * d21) / den
+    b2 = (d00 * d21 - d01 * d20) / den
+    b0 = 1.0 - b1 - b2
+    return tuple(b0 * t0[a] + b1 * t1[a] + b2 * t2[a] for a in range(2))
 
 
 def _uv_extrapolate(p0, p1, p2, t0, t1, t2, x):
@@ -159,6 +184,34 @@ class Simplifier:
             p = [pv if x == u else self.pos[x] for x in tv]
             n1 = _cross(_sub(p[1], p[0]), _sub(p[2], p[0]))
             if _dot(n0, n1) < 0:
+                return False
+        if UV_GUARD is not None and not self._uv_kept(u, v):
+            return False
+        return True
+
+    def _uv_kept(self, u, v):
+        """Every surviving corner at u keeps its triangle's UV mapping when moved to v (see UV_GUARD)."""
+        wedge = {}
+        for t in self.vt[u]:
+            tv = self.tv[t]
+            if v in tv:
+                ta = self.ta[t]
+                wedge.setdefault(ta[tv.index(u)][0], ta[tv.index(v)][0])
+        pv = self.pos[v]
+        for t in self.vt[u]:
+            tv = self.tv[t]
+            if v in tv:
+                continue
+            ta = self.ta[t]
+            k = tv.index(u)
+            o1, o2 = tv[(k + 1) % 3], tv[(k + 2) % 3]
+            uv_u = ta[k][0]
+            want = _uv_affine(self.pos[u], self.pos[o1], self.pos[o2], uv_u, ta[(k + 1) % 3][0], ta[(k + 2) % 3][0], pv)
+            if want is None:
+                return False
+            got = wedge[uv_u] if uv_u in wedge else _uv_extrapolate(
+                self.pos[u], self.pos[o1], self.pos[o2], uv_u, ta[(k + 1) % 3][0], ta[(k + 2) % 3][0], pv)
+            if abs(got[0] - want[0]) > UV_GUARD or abs(got[1] - want[1]) > UV_GUARD:
                 return False
         return True
 
