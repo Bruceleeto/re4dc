@@ -1661,6 +1661,17 @@ $(error PS2_PRELOAD_LEAN needs QUALITY_ASSETS=1)
 endif
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PRELOAD_LEAN=1
 endif
+# TEX_PACK=1 (needs TEX_RESIDENT=1; native_ui.cpp + room/texture_package.cpp, default 0): texture packages load
+# from dc/tex.pak (tools/d367/texpack.py, every dc/tex package of the staged disc in one file with a sorted index)
+# instead of one dc/tex/<n>/<key>.re4tex open per texture; keys not in the pack (or no pack) use the per-file path.
+# r100 room entry (IO_PROBE): 130 opens were 3.9 of 6.5 s with 234 directory-sector reads. Same bytes uploaded.
+TEX_PACK ?= 0
+ifneq ($(TEX_PACK),0)
+ifneq ($(TEX_RESIDENT),1)
+$(error TEX_PACK needs TEX_RESIDENT=1)
+endif
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PACK=1
+endif
 # TEX_USE_CENSUS=1 (test only, native_ui.cpp, default 0): every 600 frames, the resident textures and how many the
 # last 2 s / 20 s drew ("tex use census"), to size what the room preload loads but nothing draws.
 TEX_USE_CENSUS ?= 0

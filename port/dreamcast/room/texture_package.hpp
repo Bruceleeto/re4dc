@@ -93,6 +93,11 @@ public:
     // shared storage bounce buffer. upload() reads native payloads in chunks.
     // Linear layouts are rejected here; legacy adopt/open remain available.
     bool open_streamed(const char* path);
+#if RE4DC_TEX_PACK
+    // TEX_PACK (game30.mk): the same package stored at [base, base+size) of a pack file (dc/tex.pak). Opens its own
+    // handle, so loads on different threads never share a file position; every read is offset by base.
+    bool open_streamed_at(const char* path, std::uint32_t base, std::uint32_t size);
+#endif
     bool adopt(const std::uint8_t* data, std::size_t size);
     // Uploads every descriptor's payload into texture memory. Succeeds only
     // by finishing: a package whose earlier attempt stopped part way is
@@ -138,6 +143,10 @@ private:
 
     bool validate();
     bool streamed_ = false;
+#if RE4DC_TEX_PACK
+    bool open_streamed_impl(const char* path, std::uint32_t base, std::uint32_t size);
+    std::uint32_t base_ = 0;   // the package's offset in its file (TEX_PACK; 0 for a .re4tex)
+#endif
 
     file_t file_ = FILEHND_INVALID;
     const std::uint8_t* data_ = nullptr;
@@ -162,5 +171,13 @@ private:
     std::uint32_t shared_textures_ = 0;
     const char* error_ = "not opened";
 };
+
+#if RE4DC_TEX_PACK
+// TEX_PACK (native_ui.cpp texpack::): reads `bytes` at `offset` of `path` through a handle of its own, closed before
+// returning, after the IO_SERIAL wait (as Package opens). A sector-aligned read into a 32-byte aligned buffer is a KOS
+// CD DMA stream; on a long-lived handle the stream stays open and another thread's read then fails ("Previous DMA
+// request is in progress", route pak3). Unaligned reads avoid the stream but cost ~16 ms a sector (route pak5).
+bool read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes);
+#endif
 
 } // namespace re4dc::texture

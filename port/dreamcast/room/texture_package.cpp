@@ -218,12 +218,42 @@ bool Package::open(const char* path) {
     return validate();
 }
 
+#if RE4DC_TEX_PACK
+bool read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes) {
+    RE4DC_IO_SERIAL_WAIT();
+    const file_t f=fs_open(path,O_RDONLY);
+    if(f==FILEHND_INVALID) return false;
+    const bool ok=fs_seek(f,static_cast<off_t>(offset),SEEK_SET)==static_cast<off_t>(offset) &&
+                  fs_read(f,out,bytes)==static_cast<ssize_t>(bytes);
+    fs_close(f);
+    return ok;
+}
+bool Package::open_streamed(const char* path) { return open_streamed_impl(path,0,0); }
+bool Package::open_streamed_at(const char* path, std::uint32_t base, std::uint32_t size) {
+    return size ? open_streamed_impl(path,base,size) : (close(),error_="empty pack entry",false);
+}
+bool Package::open_streamed_impl(const char* path, std::uint32_t base, std::uint32_t size) {
+    close();
+    RE4DC_IO_SERIAL_WAIT();
+    file_ = fs_open(path,O_RDONLY);
+    if(file_ == FILEHND_INVALID) { error_="open failed"; return false; }
+    base_=base;
+    if(size){
+        const ssize_t whole=fs_total(file_);
+        if(whole<0 || std::uint64_t(base)+size>std::uint64_t(whole) ||
+           fs_seek(file_,static_cast<off_t>(base),SEEK_SET)!=static_cast<off_t>(base)) {
+            error_="pack entry outside the pack";close();return false;
+        }
+    }
+    const ssize_t total=size?static_cast<ssize_t>(size):fs_total(file_);
+#else
 bool Package::open_streamed(const char* path) {
     close();
     RE4DC_IO_SERIAL_WAIT();
     file_ = fs_open(path,O_RDONLY);
     if(file_ == FILEHND_INVALID) { error_="open failed"; return false; }
     const ssize_t total=fs_total(file_);
+#endif
     Header h{};
     if(total < static_cast<ssize_t>(sizeof(h)) || !storage::read_exact(file_,&h,sizeof(h))) {
         error_="streamed header read failed";close();return false;
@@ -261,7 +291,11 @@ bool Package::open_streamed(const char* path) {
 #endif
     // Validate once before any VRAM allocation or publishing this package.
     std::uint32_t crc=0xffffffffU;
+#if RE4DC_TEX_PACK
+    if(fs_seek(file_,static_cast<off_t>(base_+sizeof(Header)),SEEK_SET)!=static_cast<off_t>(base_+sizeof(Header)) ||
+#else
     if(fs_seek(file_,sizeof(Header),SEEK_SET)!=sizeof(Header) ||
+#endif
        !storage::read_chunks(file_,size_-sizeof(Header),[](const std::uint8_t* p,std::size_t n,void* ctx) {
            auto& c=*static_cast<std::uint32_t*>(ctx);c=crc_update(c,p,n);return true;
        },&crc) || ~crc!=header_->payload_crc32) {
@@ -467,7 +501,11 @@ bool Package::upload() {
         ++uploaded;
         if(streamed_) {
             auto* target=static_cast<std::uint8_t*>(pvr_textures_[index]);
+#if RE4DC_TEX_PACK
+            if(fs_seek(file_,static_cast<off_t>(base_+texture.data_offset),SEEK_SET)!=static_cast<off_t>(base_+texture.data_offset) ||
+#else
             if(fs_seek(file_,texture.data_offset,SEEK_SET)!=static_cast<off_t>(texture.data_offset) ||
+#endif
                !storage::read_chunks(file_,texture.data_size,[](const std::uint8_t* src,std::size_t n,void* ctx) {
                    auto*& dst=*static_cast<std::uint8_t**>(ctx);
                    upload_native(src,dst,n);dst+=n;return true;
@@ -597,6 +635,9 @@ void Package::close() {
     released_bytes_ = 0;
     payload_released_ = false;
     streamed_ = false;
+#if RE4DC_TEX_PACK
+    base_ = 0;
+#endif
     upload_complete_ = false;
     inject_failure_after_ = 0;
     data_ = nullptr;
