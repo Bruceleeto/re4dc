@@ -39,6 +39,14 @@ buf_off = int(sys.argv[1], 0)
 head_off = int(sys.argv[2], 0)
 stage_off = int(sys.argv[3], 0)
 poll = float(sys.argv[4]) if len(sys.argv) > 4 else 20.0
+# RE4DC_LOG_STOP=<frame-word-offset>:<frame> (hwtrace-run.ps1 -Tail): stop once the guest's frame word
+# (re4dc_pcs LAST_FRAME) reaches <frame>, after one more full drain of the log, so the records written
+# after the hwtrace window's last frame are kept (the emulator's own exit lost the last tick).
+stop_off = stop_frame = None
+if os.environ.get("RE4DC_LOG_STOP"):
+    a, b = os.environ["RE4DC_LOG_STOP"].split(":")
+    stop_off, stop_frame = int(a, 0), int(b, 0)
+stopping = False
 started = time.time()
 end = started + poll
 reason = "deadline"
@@ -82,6 +90,16 @@ while time.time() < end:
     if stage != last_stage:
         print("[stage %s]" % stage)
         last_stage = stage
+    if stopping:
+        reason = "stop-frame"
+        break
+    if stop_off is not None:
+        f = read(stop_off, 4)
+        if f is not None and struct.unpack("<I", f)[0] >= stop_frame:
+            stopping = True
+            print("[stop frame %d reached; final drain]" % stop_frame)
+            time.sleep(0.05)
+            continue
     time.sleep(0.005)
 if pending:
     print(pending)  # the last, unterminated line

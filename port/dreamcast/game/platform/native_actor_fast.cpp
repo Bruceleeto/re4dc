@@ -39,6 +39,7 @@
 #if RE4DC_ACTOR_LOG
 #include "re4dc_platform.h"
 #endif
+#include "warp_late.h"
 #include "../../room/pvr_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -3132,6 +3133,12 @@ void pass_baked(Part& e, const Records& r, unsigned n, const unsigned* scale) {
 #define RE4DC_ACTOR_LOD_PX 2.0f
 #endif
 float lod_tau = RE4DC_ACTOR_LOD_PX;
+// Late-activation arms (warp_late.h bit 2, DBG_WARP builds): 8 px from the activation tick on.
+#if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
+#define RE4DC_NEAR_LOD_TAU (RE4DC_WARP_LATE(RE4DC_LATE_ACTOR_LOD8) ? 8.0f : lod_tau)
+#else
+#define RE4DC_NEAR_LOD_TAU lod_tau
+#endif
 // LOD building is deferred and budgeted: a conversion only marks an opaque
 // part kLodPending (it draws level 0, full detail); on a later frame whose
 // workspace has at least kLodMinWorkspace (more parts fit their simplifier
@@ -3971,7 +3978,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     const unsigned rs = 3U + ((blob->flags & kHasCi) ? 1U : 0U) + ((blob->flags & kHasBake) ? 1U : 0U);
     const unsigned color_index = blob->color_index;
     const unsigned level = tier == kTierFar ? blob->levels
-                           : select_level(p, *blob, near_distance, tier == kTierMid ? crowd_mid_tau : lod_tau);
+                           : select_level(p, *blob, near_distance, tier == kTierMid ? crowd_mid_tau : RE4DC_NEAR_LOD_TAU);
     const LevelInfo* li = level ? reinterpret_cast<const LevelInfo*>(base + blob->lod4 * 4U) + (level - 1) : nullptr;
     const MeshletLevel* lt = li ? reinterpret_cast<const MeshletLevel*>(base + li->table4 * 4U) : nullptr;
     const u8* lists = li ? base + li->lists4 * 4U : base + blob->idx4 * 4U;
@@ -4504,7 +4511,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     const unsigned rs = 3U + ((blob->flags & kHasCi) ? 1U : 0U) + ((blob->flags & kHasBake) ? 1U : 0U);
     const unsigned color_index = blob->color_index;
     const unsigned level = tier == kTierFar ? blob->levels
-                           : select_level(p, *blob, near_distance, tier == kTierMid ? crowd_mid_tau : lod_tau);
+                           : select_level(p, *blob, near_distance, tier == kTierMid ? crowd_mid_tau : RE4DC_NEAR_LOD_TAU);
     const LevelInfo* li = level ? reinterpret_cast<const LevelInfo*>(base + blob->lod4 * 4U) + (level - 1) : nullptr;
     const MeshletLevel* lt = li ? reinterpret_cast<const MeshletLevel*>(base + li->table4 * 4U) : nullptr;
     const u8* lists = li ? base + li->lists4 * 4U : base + blob->idx4 * 4U;

@@ -41,6 +41,7 @@
 #ifndef RE4DC_PACE_MODE
 #define RE4DC_PACE_MODE 0
 #endif
+#include "warp_late.h"
 
 extern "C" u32 re4dc_vi_retrace_count(void);
 extern "C" void* re4dc_ui_movie_texture() __attribute__((weak));   // ROUTE_MOVIES builds
@@ -225,6 +226,9 @@ extern "C" void re4dc_pace_begin(void)
     iter_us = timer_us_gettime64();
     decide_us = iter_us;
     if (!w_vb0) w_vb0 = now;
+#if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
+    if (RE4DC_WARP_LATE(RE4DC_LATE_NODRAW)) override_mode = PACE_FAST;   // test arms only (warp_late.h)
+#endif
     refresh_mode("setting");
 #if RE4DC_PACE_TEST_TOGGLE_S
     test_toggle(now);

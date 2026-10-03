@@ -29,6 +29,9 @@
 #   --keep-disc      keep the staged disc copy (default: delete it after the run)
 #   --drop-traces    delete trace-*.bin after simulating (keeps counts, logs and proj/; ~0.8 GB saved)
 #   --jobs N         parallel hwsim jobs (default 4)
+#   --tail N         keep the log reader running N frames past the window (the emulator does not exit by
+#                    itself; the tree's read_log.py stops after a final drain), so the window's last tick's
+#                    log records (LOGIC_TRACE behaviour arms) are kept. Counts and traces are unchanged.
 # Output: <hwmodel dir>/proj/{nominal,low,high,nodma}.*, proj/rep/{functions,areas}.tsv,
 #         proj/projection.txt (the printed tables)
 set -euo pipefail
@@ -44,18 +47,18 @@ HWM_TID12=${HWM_TID12:-/root/probe/d367-agents/hwmodel/data/ld-pcs-func-tid12.cs
 PCS_SYMBOLIZE=${PCS_SYMBOLIZE:-/root/probe/d367-agents/profiler/host/pcs_symbolize.py}
 PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 
-NAME= DISC= COUNT=2401:2520 TRACE=2401:2520:8 REF=$HWM_REF PCS= KEEP=0 DROP=0 JOBS=4 IN= ELFIN= FRAMEADDR= AREARULES=
+NAME= DISC= COUNT=2401:2520 TRACE=2401:2520:8 REF=$HWM_REF PCS= KEEP=0 DROP=0 JOBS=4 IN= ELFIN= FRAMEADDR= AREARULES= TAIL=0
 while [ $# -gt 0 ]; do
   case $1 in
     --name) NAME=$2; shift ;; --disc) DISC=$2; shift ;; --count) COUNT=$2; shift ;;
     --trace) TRACE=$2; shift ;; --ref) REF=$2; shift ;; --pcs) PCS=$2; shift ;;
     --elf) ELFIN=$2; shift ;; --frameaddr) FRAMEADDR=$2; shift ;; --area-rules) AREARULES=$2; shift ;;
-    --keep-disc) KEEP=1 ;; --drop-traces) DROP=1 ;; --jobs) JOBS=$2; shift ;;
-    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+    --keep-disc) KEEP=1 ;; --drop-traces) DROP=1 ;; --jobs) JOBS=$2; shift ;; --tail) TAIL=$2; shift ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) IN=$1 ;;
   esac; shift
 done
-[ -n "$IN" ] || { sed -n '2,39p' "$0"; exit 2; }
+[ -n "$IN" ] || { sed -n '2,42p' "$0"; exit 2; }
 winp() { case $1 in [A-Za-z]:\\*|[A-Za-z]:/*) wslpath -u "$1" ;; *) echo "$1" ;; esac; }
 IN=$(cd "$(winp "$IN")" && pwd)
 [ -z "$DISC" ] || DISC=$(winp "$DISC")
@@ -90,6 +93,9 @@ else
   [ "$FREE" -gt "$NEED" ] || { echo "only ${FREE} MB free on $HWM_EVROOT; need ~$((NFR * 70 + 100)) MB and to keep ${HWM_MINFREE_MB} MB free" >&2; exit 1; }
   mkdir -p "$E/disc-output" "$HWM_DISCS"
   cp -r "$HWM_BIN"/. "$E"/
+  if [ "$TAIL" -gt 0 ]; then   # the tail needs this tree's runner and log reader (RE4DC_LOG_STOP)
+    cp "$HERE/flycast/hwtrace-run.ps1" "$HERE/../flycast-harness/read_log.py" "$E"/
+  fi
   # A real pad must never drive a traced run: this Flycast reads pads while unfocused, and a user's
   # DualSense press sent a fixture into the VMU menu (stdrt g-shw orig arms). Same block as the harness.
   if ! grep -q '^maple_sdl_joystick_0 = -1' "$E/emu.cfg"; then
@@ -112,7 +118,7 @@ else
   echo "[tracing $NFR frames in $E; ~6 min for 2401:2520:8]"
   T0=$(date +%s)
   "$PS" -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$E/hwtrace-run.ps1")" -Out trace -Cue "$(wslpath -w "$DC")" \
-        "${FA[@]}" -Count "$COUNT" -Trace "$TRACE" </dev/null | tr -d '\r'
+        "${FA[@]}" -Count "$COUNT" -Trace "$TRACE" -Tail "$TAIL" </dev/null | tr -d '\r'
   echo "[trace run $(( $(date +%s) - T0 )) s]"
   [ "$KEEP" = 1 ] || rm -f "$DB" "$DC"
   N=$(ls "$E"/trace/trace-*.bin 2>/dev/null | wc -l)

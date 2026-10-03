@@ -42,6 +42,7 @@
 #include "geometry.h"
 #include "camera.h"
 #include "re4dc_platform.h"
+#include "warp_late.h"
 
 #ifndef RE4DC_ACT_CAP
 #define RE4DC_ACT_CAP 0
@@ -131,6 +132,10 @@ bool inView(const cEm* e)
 
 bool roomOn()
 {
+#if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
+    // late-activation arms (warp_late.h): the cap works only once the late mask's bit 8 is open
+    if (RE4DC_WARP_LATE_SET() && !RE4DC_WARP_LATE(RE4DC_LATE_ACT_CAP)) return false;
+#endif
     if (!pG || !pPL) return false;
     if (RE4DC_ACT_CAP_ROOM && (((u32) pG->stage_no << 8) | pG->room_no) != (u32) RE4DC_ACT_CAP_ROOM) return false;
     // event pause / frozen characters: emMove already skips or the scene is scripted

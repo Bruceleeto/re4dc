@@ -39,7 +39,7 @@
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
 //   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
-//   goto <frame> x y z [ang] | dump | name <preset>
+//   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h)
 #if RE4DC_DBG_WARP
 #include "types.h"
 #include "global.h"
@@ -103,6 +103,10 @@ struct Warp {
     unsigned long long boot_us;
     u32 card_frames;
     u32 last_pad_vbl;
+    // late <mask> [tick] [room] (warp_late.h): same-binary A/B switches from a global tick on
+    bool has_late, late_logged;
+    u32 late_mask, late_tick;
+    u16 late_room;
 };
 Warp wp;
 
@@ -202,6 +206,11 @@ void load()
             g.done = false;
         } else if (!strcmp(k, "dump")) {
             wp.dump = true;
+        } else if (!strcmp(k, "late") && n >= 2) {
+            wp.has_late = true;
+            wp.late_mask = num(tok[1]);
+            wp.late_tick = n >= 3 ? num(tok[2]) : 1400;
+            wp.late_room = n >= 4 ? (u16) num(tok[3]) : 0x100;
         } else {
             re4dc_log("warp: unknown line '%s'\n", k);
         }
@@ -485,6 +494,21 @@ int re4dc_warp_debug_trg(int no)
     stamp(what);
     return 1;
 }
+
+// warp_late.h: the `late` mask from global tick late_tick (pG->Frame_cnt) in room late_room, else 0. The
+// first open call logs once in every arm (mask 0 included), so the arms' logs stay alike.
+unsigned re4dc_warp_late(void)
+{
+    if (!wp.has_late || !pG || pG->room_id != wp.late_room || pG->Frame_cnt < wp.late_tick) return 0;
+    if (!wp.late_logged) {
+        wp.late_logged = true;
+        re4dc_log("warp: late 0x%02x open at t=%u room=%03x (1=world20px 2=actor8px 4=nodraw 8=cap)\n",
+                  (unsigned) wp.late_mask, (unsigned) pG->Frame_cnt, (unsigned) pG->room_id);
+    }
+    return wp.late_mask;
+}
+
+int re4dc_warp_late_set(void) { return wp.has_late ? 1 : 0; }
 
 }  // extern "C"
 #endif  // RE4DC_DBG_WARP

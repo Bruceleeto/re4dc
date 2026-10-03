@@ -13,6 +13,7 @@
 
 #include "re4dc_platform.h"
 #include "quality.h"
+#include "warp_late.h"
 
 #ifndef RE4DC_QUALITY_DEFAULT
 #define RE4DC_QUALITY_DEFAULT 1
@@ -157,7 +158,20 @@ extern "C" __attribute__((weak)) int re4dc_quality_cfg_store(const Re4dcQualityC
     return 1;
 }
 
+#if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
+// Late-activation arms (warp_late.h bit 1): world LOD error 20 px from the activation tick on.
+extern "C" const Re4dcQuality* re4dc_quality(void) {
+    if (RE4DC_WARP_LATE(RE4DC_LATE_WORLD_LOD20)) {
+        static Re4dcQuality diagnostic;
+        diagnostic = q;
+        diagnostic.lod_px = 20.0f;
+        return &diagnostic;
+    }
+    return &q;
+}
+#else
 extern "C" const Re4dcQuality* re4dc_quality(void) { return &q; }
+#endif
 
 extern "C" void re4dc_quality_init(void)
 {

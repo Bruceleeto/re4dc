@@ -202,6 +202,10 @@ def lines_for(p, door=False, dump=False, name=None):
         out.append("goto %d %d %d %d" % ((frame,) + tuple(pos)) + (" %.4f" % g[2] if len(g) > 2 else ""))
     if dump:
         out.append("dump")
+    if p.get("late") is not None:
+        mask, tick, room = (tuple(p["late"]) + (1400, 0x100))[:3]
+        # fixed width: the arms of a pair differ only in the mask's two digits (same warp.txt length)
+        out.append("late 0x%02x %d 0x%03x" % (mask, tick, room))
     return "\n".join(out) + "\n"
 
 
@@ -220,6 +224,9 @@ def main(argv=None):
     ap.add_argument("--trg", help="NO:FRAME[:ROOM] make DebugTrg(NO) return 1 once (r101 bell: 0)")
     ap.add_argument("--kill", help="ID:FRAME[:ROOM] shoot the first live enemy with model id ID dead from that "
                                    "room frame (r100 s03 Ganado: 0x12)")
+    ap.add_argument("--late", help="MASK[:TICK[:ROOM]] same-binary A/B switches from global tick TICK (default 1400) "
+                                   "in ROOM (default 0x100); bits: 1 world LOD 20 px, 2 actor LOD 8 px, 4 no draw, "
+                                   "8 r100 cap (warp_late.h)")
     ap.add_argument("-o", "--output")
     a = ap.parse_args(argv)
     if a.preset == "list":
@@ -263,6 +270,9 @@ def main(argv=None):
     if a.kill:
         f = a.kill.split(":")
         p["kill"] = (int(f[0], 0), int(f[1], 0), int(f[2], 0) if len(f) > 2 else 0)
+    if a.late:
+        f = a.late.split(":")
+        p["late"] = (int(f[0], 0), int(f[1], 0) if len(f) > 1 else 1400, int(f[2], 0) if len(f) > 2 else 0x100)
     text = lines_for(p, door=a.door or bool(a.act), dump=a.dump, name=a.preset or "explicit")
     if a.output:
         open(a.output, "w").write(text)

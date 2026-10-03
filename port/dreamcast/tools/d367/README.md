@@ -469,6 +469,39 @@ few bytes of code that push `.text` over that boundary cost 8 KiB of heap 4. Whe
 compare arms only when their `re4dc_mem: arena fit` lines match (sh-elf-objdump -h: `.init` address;
 sh-elf-nm: `_end`). Levers for test arms: STALL_DIAG, ROUTE_MOVIE_DIAG, PC_SAMPLER_BYTES (a .bss ring).
 
+### Late activation: same-binary A/B (`late`, 2026-10-03)
+
+Two arms built separately differ in timing before the window, and the house fixture is timing-sensitive (a 2 ms
+delay-only control already FAILs STRICT from tick 777). So a render or schedule switch is compared inside **one ELF**:
+the arms share the binary and the prelude, and switch at a fixed tick.
+
+- warp.txt line `late <mask> [tick] [room]` (`warp.py <preset> --late MASK[:TICK[:ROOM]]`; defaults 1400 / 0x100).
+  From global tick `tick` (pG->Frame_cnt) while the room is `room`, `RE4DC_WARP_LATE(bits)` (game/platform/include/
+  warp_late.h) returns the mask's bits. Keep the line the same length in every arm (`late 0x00 1400 0x100` /
+  `late 0x04 1400 0x100`). The first open call logs `warp: late 0xNN open at t=1400 room=100` in every arm.
+- Bits (diagnostics, not production options):
+
+  | Bit | Switch | Where |
+  |---|---|---|
+  | 0x01 | world LOD error 20 px | quality.cpp `re4dc_quality()` lod_px |
+  | 0x02 | actor LOD threshold 8 px outside the mid-crowd rule | native_actor_fast.cpp |
+  | 0x04 | Fast pacing from the tick; with `PACE_FORCE=A` every eligible image is dropped (no draw: a G diagnostic) | pace.cpp |
+  | 0x08 | ACT_CAP only after the tick (ACT_CAP builds; a gameplay change) | act_cap.cpp |
+
+- DBG_WARP=1 builds only; with DBG_WARP=0 every hook is an `#if` block and the image is byte-identical.
+- **H2** (architect review 2026-10-03): the r100 house after the s20 ambush, guarded PS2 worlds, the r21s texture
+  pack (fixture `tour/pak-calls-r100-s30-pw.json` with the -uvg worlds and title-c14-pak.pak; provenance in
+  architect-review-20261003/scratch-01a1025a/spikes). Cost window 1450:1569, all 120 frames traced:
+  `hwproject.sh --count 1450:1569 --trace 1450:1569:1 --drop-traces`; work = total minus the rows `main`,
+  `re4dc_pace_end`, `re4dc_vi_retrace_count`. Cost build: `route-build.sh impl-<x> PC_SAMPLER_BYTES=8192
+  PACE_MODE=off ACT_CAP=0 ENC_CENSUS=1 ACTOR_CENSUS=1 MESH_CLIP_LEAN=1 PACE_FORCE=A LOGIC_TRACE=0
+  GAME_DECISION_TRACE=0`; behaviour build: the same with `LOGIC_TRACE=1 GAME_DECISION_TRACE=1`.
+- **Last tick:** the hwtrace Flycast exits right after the window's last frame, before the log reader drains it, so
+  the trace log ended at 1568. `hwproject.sh --tail 3` keeps the emulator running and stops the reader (the tree's
+  read_log.py, `RE4DC_LOG_STOP`) 3 frames later after a final drain; counts and traces are unchanged. A/A on H2
+  (2026-10-03, impl-w0t, two runs, `late 0x00`): STRICT 120/120 (1450..1569), 100/100 before (1300..1399), room
+  0x100 aligned 1391/1391.
+
 ### Cost, heap-4 and class options (W9b)
 
 | Option | Effect |

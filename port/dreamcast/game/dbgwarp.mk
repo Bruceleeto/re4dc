@@ -22,6 +22,13 @@ $(DBGWARP_GAME): $(OBJDIR)/dbgwarp.h
 $(DBGWARP_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
 $(OBJDIR)/platform/pad.o: $(OBJDIR)/dbgwarp.h
 $(OBJDIR)/platform/pad.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
+# Late activation (platform/include/warp_late.h, `late <mask> [tick] [room]`): same-binary A/B switches.
+# With DBG_WARP=0 every hook is an #if block that compiles out (knob-off identity).
+DBGWARP_LATE_GAME = $(OBJDIR)/pace.o $(OBJDIR)/act_cap.o
+DBGWARP_LATE_PLATFORM = $(OBJDIR)/platform/quality.o $(OBJDIR)/platform/native_actor_fast.o
+$(DBGWARP_LATE_GAME) $(DBGWARP_LATE_PLATFORM): $(OBJDIR)/dbgwarp.h
+$(DBGWARP_LATE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
+$(DBGWARP_LATE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
 ifeq ($(DBG_WARP),1)
 PLATFORM_OBJS += $(OBJDIR)/dbgwarp_bridge.o
 # Included after the link rule: name the object as its prerequisite here.

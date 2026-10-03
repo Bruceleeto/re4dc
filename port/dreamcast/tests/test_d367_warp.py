@@ -9,7 +9,7 @@ warp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(warp)
 
 KEYS = {"name", "room", "jp", "pos", "dir", "ang", "rsf", "scenario", "find", "unlock", "inv", "area", "act", "trg",
-        "dead", "kill", "goto", "dump"}
+        "dead", "kill", "goto", "dump", "late", "items"}
 
 
 class WarpPresets(unittest.TestCase):
@@ -21,6 +21,13 @@ class WarpPresets(unittest.TestCase):
                 if line.startswith("#"):
                     continue
                 self.assertIn(line.split()[0], KEYS, (name, line))
+
+    def test_late_line_fixed_width(self):
+        a = warp.lines_for(dict(warp.PRESETS["r100-s20"], late=(0x00,)), name="r100-s20")
+        b = warp.lines_for(dict(warp.PRESETS["r100-s20"], late=(0x04, 1400, 0x100)), name="r100-s20")
+        self.assertIn("late 0x00 1400 0x100", a.splitlines())
+        self.assertIn("late 0x04 1400 0x100", b.splitlines())
+        self.assertEqual(len(a), len(b))
 
     def test_s20_presets_kill_and_goto(self):
         lines = warp.lines_for(warp.PRESETS["r100-s20"], name="r100-s20").splitlines()
