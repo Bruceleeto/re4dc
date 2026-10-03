@@ -95,13 +95,16 @@ MOTION_OOM_EVICT ?= 0
 # MOVIE_HEAP_EVICT=1 (needs MOTION_OOM_EVICT=1, ROUTE_MOVIES=1; native_motion.cpp + native_movie.cpp, default 0):
 # a route movie whose heap-4 staging does not fit evicts unpinned motion keys, least recently used first,
 # and retries (r100 s30 after the ambush failed with 313 KB free in pieces of at most 148 KB). Logic-neutral:
-# the keys reload from disc at their next use.
+# the keys reload from disc at their next use. First it lends the movie the model preparation cache (ui_bridge.cpp,
+# 128 KB, rebuilt per frame; reallocated when the movie retires): LRU keys alone left 197 KB in holes of at most
+# 40 KB when the route reached the cliff at another frame (route-hm1); a final failure logs heap 4's free map.
 MOVIE_HEAP_EVICT ?= 0
 ifneq ($(MOVIE_HEAP_EVICT),0)
 ifneq ($(MOTION_OOM_EVICT)$(ROUTE_MOVIES),11)
 $(error MOVIE_HEAP_EVICT=1 needs MOTION_OOM_EVICT=1 ROUTE_MOVIES=1)
 endif
 $(OBJDIR)/platform/native_motion.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_HEAP_EVICT=1
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_MOVIE_HEAP_EVICT=1
 endif
 ifneq ($(MOTION_OOM_EVICT),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_OOM_EVICT=$(MOTION_OOM_EVICT)

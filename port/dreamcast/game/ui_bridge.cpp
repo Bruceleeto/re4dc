@@ -598,6 +598,37 @@ static void heap4_census(){
     for(unsigned i=0;i<n;++i)re4dc_log("heap4 census: %7u B x%-3u %s\n",rows[i].bytes,rows[i].count,rows[i].tag);
 }
 #endif
+#if RE4DC_MOVIE_HEAP_EVICT
+// MOVIE_HEAP_EVICT diagnostic (platform/native_movie.cpp, a staging allocation that still fails): heap 4's free
+// cells of 4 KB or more in address order, with the tagged cells on either side ("-" = untagged or free).
+namespace {
+const char* heap4_tag(unsigned a,int size){
+    if(size<0x40)return "-";
+    const auto* t=reinterpret_cast<const unsigned char*>(a+unsigned(size)-0x20U);
+    return !t[0] && t[1]=='M' && t[2]=='A' && t[3]=='D'?reinterpret_cast<const char*>(t+4):"-";
+}
+}
+extern "C" void re4dc_heap4_free_map(){
+    if(!memCheckHeapActive(4))return;
+    const auto* d=reinterpret_cast<const OSHeapDescriptor*>((u32(re4dc_mem.heap)+0x1FU)&~0x1FU)+Heap[4].handle;
+    const OSHeapCell* f=d->free;
+    unsigned a=(Heap[4].start+31U)&~31U,prev=0,logged=0;int prev_size=0;
+    const unsigned end=Heap[4].end;
+    while(a+0x20U<=end && logged<24){
+        const int size=reinterpret_cast<const OSHeapCell*>(a)->size;
+        if(size<0x20 || (size&31) || a+unsigned(size)>end)break;
+        while(f && unsigned(f)<a)f=f->next;
+        if(f && unsigned(f)==a && size>=4096){
+            const unsigned next=a+unsigned(size);
+            const int next_size=next+0x20U<=end?reinterpret_cast<const OSHeapCell*>(next)->size:0;
+            re4dc_log("heap4 free map: %08x %u between %s %d and %s %d\n",a,unsigned(size),
+                prev?heap4_tag(prev,prev_size):"start",prev_size,next_size>0?heap4_tag(next,next_size):"end",next_size);
+            ++logged;
+        }
+        prev=a;prev_size=size;a+=unsigned(size);
+    }
+}
+#endif
 extern "C" void* re4dc_model_retained_storage(unsigned* bytes){
     *bytes=0;
 #if RE4DC_D349_RENDERER_STACK
@@ -619,6 +650,19 @@ extern "C" void* re4dc_model_retained_storage(unsigned* bytes){
     return nullptr;
 #endif
 }
+#if RE4DC_MOVIE_HEAP_EVICT && RE4DC_D349_RENDERER_STACK
+// MOVIE_HEAP_EVICT (platform/native_movie.cpp): a route movie owns the frame, so the model preparation cache (rebuilt
+// every frame) is lent to its staging. r100 s30 after the ambush (route-hm1): the decoder's second 55,296 B plane
+// found 197 KB free in holes of at most 40,736 B, that one next to this 131,168 B cell. The first model draw after
+// the movie allocates the cache again (re4dc_model_retained_storage).
+extern "C" unsigned re4dc_model_release_retained(){
+    if(!retained_preparation)return 0;
+    re4dc_model_detach_retained_storage();
+    room_free4(retained_preparation,"native model preparation");
+    retained_preparation=nullptr;preparation_attempted=false;
+    return kRetainedBytes;
+}
+#endif
 
 // Native static packages share heap 4 and the retained preparation's reserve
 // policy: never below 80 KiB left for the source. Opened at the first bind of
