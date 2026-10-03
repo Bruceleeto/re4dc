@@ -116,12 +116,24 @@ struct Movie {
 extern "C" unsigned re4dc_motion_evict_one();   // native_motion.cpp
 extern "C" unsigned re4dc_heap_largest_current(unsigned* free_bytes);   // sscrn_bridge.cpp (SS_PACK)
 extern "C" unsigned re4dc_heap_largest_current(unsigned*) __attribute__((weak));
+extern "C" void re4dc_heap4_free_map() __attribute__((weak));   // ui_bridge.cpp (diagnostic)
+extern "C" unsigned re4dc_model_release_retained() __attribute__((weak));   // ui_bridge.cpp
 #endif
 void* stage_alloc(size_t n){
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
     // Heap 4 short or fragmented (r100 s30 after the ambush: 257,568 B free for 363 KB, the largest piece under
-    // 83 KB): unpinned motion keys go, least recently used first, until the piece fits.
+    // 83 KB): first the model preparation cache (rebuilt per frame; the movie owns the frame) is lent to the movie,
+    // then unpinned motion keys go, least recently used first, until the piece fits. LRU keys alone did not always
+    // make a contiguous piece: with the texture pack the route reached the cliff earlier and the second luma plane
+    // failed with 197 KB free in holes of at most 40 KB (route-hm1).
+    if(!p && re4dc_model_release_retained){
+        const unsigned lent=re4dc_model_release_retained();
+        if(lent){
+            p=re4dc_ui_stage_alloc((unsigned)n);
+            re4dc_log("route movie heap: need=%u model preparation cache lent (%u B) %s\n",(unsigned)n,lent,p?"ok":"short");
+        }
+    }
     if(!p){
         unsigned evicted=0,freed=0;
         while(!p){
@@ -134,6 +146,7 @@ void* stage_alloc(size_t n){
         if(re4dc_heap_largest_current)largest=re4dc_heap_largest_current(&free_bytes);
         re4dc_log("route movie heap: need=%u evicted=%u motion keys (%u B) %s free=%u largest=%u\n",(unsigned)n,
                   evicted,freed,p?"ok":"FAILED",free_bytes,largest);
+        if(!p && re4dc_heap4_free_map)re4dc_heap4_free_map();
     }
 #endif
     return p;
