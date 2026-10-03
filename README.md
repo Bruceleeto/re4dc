@@ -52,9 +52,8 @@ As of build r21m, checked in Flycast:
 - **Slow spots** (Flycast, Fast frame pacing): the r101 village fight (~12 fps, ~80% game speed), r106
   (~12.5 fps, ~84%), r103 (~14 fps, 90-99%) and r105 after chapter 1-3's opening (~11 fps, ~74%). r107
   keeps ~97% speed at ~14.5 fps. The rest runs at full speed, 21-30 fps.
-- **Loading pauses on entering a room** (about 6 s in Flycast: the room's textures still load one file at a time).
-  The reloads after the first area's cutscenes and most loads while running are gone; a one-file-per-room texture
-  pack is next.
+- **Loading pauses on entering a room** (about 3 s in Flycast, down from 6.5 s: textures now load from one pack
+  file). The reloads after the first area's cutscenes and most loads while running are gone.
 - **The first house fight runs at 12-17 fps**, and outdoors in the first area Fast pacing skips about 2 frames
   in 5 (17-20 fps), which looks choppy. Hold R and press START to cycle the pacing: Off draws every frame
   but the game runs slower there.

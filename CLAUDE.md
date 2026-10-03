@@ -31,7 +31,8 @@ MOVIE_HEAP_EVICT=1 evicts motion keys for it. Both in build-r21.sh (route doc "R
 seams), not the PS2 data; PS2 world packages are now built with --lod-uv-guard 0.002 (fixture title-c13). The
 "native closed pass requested" halt is caught by CLOSED_PASS_KEEP=1 (build-r21.sh); its caller is still unknown.
 Loading: PS2_PRELOAD_LEAN=1 (build-r21.sh) preloads the PS2 world package's textures instead of the replaced GameCube
-scenery's (r100 route preload 16.3 -> 7.2 s); TEX_PACK (design-doorload U4) is next.
+scenery's (r100 route preload 16.3 -> 7.2 s); TEX_PACK=1 (build-r21.sh) + dc/tex.pak (tools/d367/route/pack-fixture.sh)
+loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.5 -> 2.7 s).
 
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**

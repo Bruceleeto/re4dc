@@ -17,6 +17,9 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   (tour/play/title-c13-pw.json; the unguarded LOD shears wall textures). build-r21.sh sets `CLOSED_PASS_KEEP=1`
   (an opaque draw after the translucent list no longer halts) and `PS2_PRELOAD_LEAN=1` (PS2 world rooms preload
   the package's textures, not the replaced GameCube scenery's).
+- Texture pack (2026-10-03): build-r21.sh sets `TEX_PACK=1`; a play disc stages the pack fixture made by
+  `tools/d367/route/pack-fixture.sh tour/play/<fixture> <arm> tour/play/<fixture>-pak.json` (re-run whenever the
+  fixture's or the base disc's textures change). Without dc/tex.pak the build loads per file, as before.
 - Crash screen (user 2026-10-02): build-r21.sh sets `CRASH_SCREEN=1` for every play build. Before a console disc
   the build must log 0 misaligned accesses over its rooms (`tools/d367/hwready/route-hw.sh align`).
 - Disc: `debug/config.txt` ROOM 0x20 (New Game -> r120 intro), no `dc/quality.txt`, the r100 release (route fix e)

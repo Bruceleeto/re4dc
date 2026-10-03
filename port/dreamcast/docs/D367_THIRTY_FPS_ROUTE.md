@@ -133,8 +133,23 @@ drawn with diagonal seams, and the floor smeared.
   s20 cutscene 141 loads / 4.1 s -> 4 / 0.6 s, the route reaches the cliff ~30 s earlier. r100 east walk
   (route-tuse3 -> route-lean2): preload 8.2 -> 6.5 s, first-sight loads 48 -> 28, evictions 73 -> 0; draw ms
   26.40 -> 26.33. HALT 0, MISSING 0, screenshots fully textured.
-- Still per file: the room entry's ~130 loads take 6.5 s in Flycast (~50 ms each). The per-room texture pack
-  (design-doorload U4 TEX_PACK: one file, coalesced aligned reads) is the next step for loading.
+- Still per file after that: the room entry's ~130 loads took 6.5 s in Flycast (~50 ms each). IO_PROBE: 130 opens
+  were 3.9 s of it, each a directory lookup (234 directory-sector reads) in dc/tex/<n>/.
+- **TEX_PACK=1** (game30.mk, in build-r21.sh; design-doorload U4 step 1): every dc/tex package of the disc in one
+  file, dc/tex.pak (tools/d367/texpack.py: 2048-byte header, an index sorted by (crc, fnv), the packages byte for
+  byte at 2048-byte boundaries). The runtime keeps the first key of each index sector (20 sectors for 2,512
+  packages, 160 B); a lookup reads one index sector, a load opens the pack and seeks to its package. Keys not in the
+  pack (texlow, absent) and discs without one take the per-file path. Play discs stage the derived fixture:
+  `tools/d367/route/pack-fixture.sh <fixture> <arm> <out fixture>` stages the fixture once, packs its disc and
+  writes a fixture that adds dc/tex.pak and removes the packed loose files (texlow/ and the media overlay's stay).
+  Same bytes uploaded, same loads: r100 s20..cliff (route-lean1 -> route-pak7) preload 7.2 -> 3.1 s; east walk
+  (route-lean2 -> route-pak8) 6.5 -> 2.7 s; HALT 0, MISSING 0, no rejects, screenshots fully textured.
+  Trap (route-pak3): a sector-aligned read into a 32-byte aligned buffer is a KOS CD DMA stream; on a long-lived
+  index handle it stayed open and an audio-stream start then failed a texture upload ("Previous DMA request is in
+  progress"). Unaligned reads avoid the stream but cost ~16 ms a sector (route-pak5: preload 4.5 s). Index reads
+  now go through re4dc::texture::read_file_range: its own handle, closed before returning, after the IO_SERIAL wait.
+- Next for loading (U4 step 2): coalesce a room's preload into a few long reads (its packages are scattered over
+  the pack; ordering the pack by room would make the room pass one sequential read).
 
 ## Hardware budget
 
