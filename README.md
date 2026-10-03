@@ -52,10 +52,8 @@ As of build r21m, checked in Flycast:
 - **Slow spots** (Flycast, Fast frame pacing): the r101 village fight (~12 fps, ~80% game speed), r106
   (~12.5 fps, ~84%), r103 (~14 fps, 90-99%) and r105 after chapter 1-3's opening (~11 fps, ~74%). r107
   keeps ~97% speed at ~14.5 fps. The rest runs at full speed, 21-30 fps.
-- **Slow frames after radio calls and the inventory** (about 5 s while the room's textures reload). Fixed for
-  the next build.
-- **The cliff cutscene in the first area doesn't play** (examining the cliff edge; not enough memory for its
-  video). Fixed for the next build.
+- **Slow loading after cutscenes and while running around** the first area (the room's textures load one file at
+  a time; up to 6 s after a cutscene). Being worked on.
 - **The first house fight runs at 12-17 fps**, and outdoors in the first area Fast pacing skips about 2 frames
   in 5 (17-20 fps), which looks choppy. Hold R and press START to cycle the pacing: Off draws every frame
   but the game runs slower there.

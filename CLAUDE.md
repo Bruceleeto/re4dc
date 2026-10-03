@@ -27,6 +27,10 @@ ticket), tools in port/dreamcast/tools/d367/hwready. Any new room gets an align 
 the sub screen area into TA bank 1 instead (0 released). The r100 s30 cliff cutscene failed for heap 4;
 MOVIE_HEAP_EVICT=1 evicts motion keys for it. Both in build-r21.sh (route doc "Radio calls and the cliff cutscene").
 
+2026-10-03 (user r21o play): skewed wall textures came from mesh_lod's geometry-only collapses (UVs clamped across
+seams), not the PS2 data; PS2 world packages are now built with --lod-uv-guard 0.002 (fixture title-c13). The
+"native closed pass requested" halt is caught by CLOSED_PASS_KEEP=1 (build-r21.sh); its caller is still unknown.
+
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
   - Step 0 (FRONT_NATIVE, RELEASE_FLAGS) landed.

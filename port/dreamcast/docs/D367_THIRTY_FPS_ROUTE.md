@@ -94,6 +94,36 @@ From the play log (D:\RE4DC-Play\logs\game-20261002-163147.txt):
   about 2 frames in 5 (each drawn frame ~43 ms against the 33 ms tick), which reads as skippy. Hold R + START cycles
   Smooth / Fast / Off.
 
+## Skewed wall textures and the closed-pass crash (2026-10-03, user play of r21o)
+
+The user: "the texture on the wall looks like floor", "the textures on the first house look backwards", "game also
+crashes". Live frames from the user's Flycast showed the r100 house wainscot (texture 0038, vertical board seams)
+drawn with diagonal seams, and the floor smeared.
+- **Cause: the LOD simplifier, not the PS2 data.** The OBJ export maps every 0038 face straight (8 of 8 at 0 degrees).
+  mesh_lod.py's quadric collapse judges geometry only; on a flat wall every collapse is free, and a corner moved
+  across a UV seam or a tiling restart gets its UV extrapolated and clamped, which shears the texture. It happens at
+  every distance: level 0 is the `--lod-floor 2.0` level, already simplified.
+- **Fix: `--lod-uv-guard 0.002`** (ps2_room_r4im.py and ps2_world_r4im.py -> mesh_lod.UV_GUARD; default off, so the
+  shipped packages still rebuild byte-identical: all seven reproduced). A collapse is refused when a surviving
+  corner's new UV leaves its triangle's own mapping by more than the tolerance. Level-0 triangles: r100 68,261 ->
+  70,231, r101 47,772 -> 49,565, r103 41,507 -> 42,558, r104 24,881 -> 26,228, r105 29,734 -> 32,653, r106 41,802
+  -> 44,226, r107 36,222 -> 39,256; every package gets smaller (fewer coarse levels pass min_gain). Packages
+  `<room>-uvg` / `<room>-ps2-uvg` / `world-mesh-r21/package-uvg` in the store (re4mesh sha256 r100 508e5ba2,
+  r101 50d1d1e5, r103 b98d867c, r104 d44ed564, r105 35205b01, r106 99e01506, r107 3887749a); play fixture
+  `tour/play/title-c13-pw.json` = c12 with the 14 package entries swapped.
+- Look: route-uvhb / route-uvhg (Leon placed in the house facing each wall): the window-wall and back-wall wainscot
+  straight, the floor planks no longer smeared. Cost (Flycast draw ms per drawn frame, same fixture): r100 house
+  route mean 41.49 -> 41.84, worst window +1.1; r101 entry fight steady windows +0.6..+1.3 (12.1 -> 12.0 fps).
+- **Crash:** "RE4DC MISSING: native closed pass requested" in r100 right after an A press (PS2PASS closed from=2 to=0:
+  an opaque draw after the translucent list opened; the PVR cannot reopen a closed list). **CLOSED_PASS_KEEP=1**
+  (game30.mk, render only, in build-r21.sh) keeps the packet in the open list (the TA latches the list type at the
+  list's first header, so the packet draws with its own blend) and logs "PS2PASS kept ... ra=" for the root fix. The
+  late opaque caller is still unknown.
+- **Loading (same play):** after the s03 and s20 cutscenes the area change reloads 157 / 203 textures (4.9 / 6.1 s), and
+  running around loads 644 more while the pool is full (2.44 MB budget). TEX_USE_CENSUS=1 (test only) counts the
+  resident set the last 2 s / 20 s drew: at the r100 cliff 146 of 178 resident textures (1.69 of 2.13 MB) were idle
+  for 20 s.
+
 ## Hardware budget
 
 Sources are the official Sega documents (catalogue and citations in the
