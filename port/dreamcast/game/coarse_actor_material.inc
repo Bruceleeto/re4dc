@@ -282,6 +282,17 @@ extern "C" int re4dc_actor_material_certificate(cModel* m,const Re4dcActorPlan* 
         static unsigned logged;
         if(logged++<8)re4dc_log("ACTOR_MATERIAL decline=%u app=%u role=%u part=%u need=%x matched=%u\n",
           unsigned(r.error),p?p->appearance:~0u,r.role,r.part,r.required,r.identity_roles);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+        // WP2 census: the model-level modifier state behind a LiveModifier decline (bounded).
+        static unsigned live_logged;
+        if(r.error==re4dc_material::Error::LiveModifier && m && live_logged++<16)
+            re4dc_log("ACTOR_MATERIAL live m=%p id=%02x type=%u app=%u role=%u texchg=%p shader=%u cull=%u inv=%d/%d alpha=%u "
+                      "tevgrp=%u csscale=%u amb=%u,%u,%u info_be=%x\n",m,unsigned(m->id),unsigned(m->type),p?p->appearance:~0u,r.role,
+                      m->pTexChg,unsigned(m->Shader_type),unsigned(m->CullMode),int(m->invisible_factor*1000),
+                      int(m->invisible_factor2*1000),unsigned(m->alpha_omit),unsigned(m->TevScaleGroup),
+                      unsigned(gxCsScale[m->TevScaleGroup]),unsigned(m->AddAmb_r),unsigned(m->AddAmb_g),unsigned(m->AddAmb_b),
+                      p && r.role<p->count && p->info[r.role]?unsigned(p->info[r.role]->be_flag):0u);
+#endif
         return 0;
     }
     return 1;
