@@ -122,7 +122,19 @@ drawn with diagonal seams, and the floor smeared.
 - **Loading (same play):** after the s03 and s20 cutscenes the area change reloads 157 / 203 textures (4.9 / 6.1 s), and
   running around loads 644 more while the pool is full (2.44 MB budget). TEX_USE_CENSUS=1 (test only) counts the
   resident set the last 2 s / 20 s drew: at the r100 cliff 146 of 178 resident textures (1.69 of 2.13 MB) were idle
-  for 20 s.
+  for 20 s; on the r100 east walk 103 of the 105 room-archive textures (896 of 921 KB) were idle. In a PS2 world
+  room the room archive's textures are the GameCube scenery the PS2 world replaces, and the Standard index's shells
+  and impostor atlases are not drawn either, yet the room preload loaded them first and the PS2 world's own
+  textures loaded on first sight.
+- **PS2_PRELOAD_LEAN=1** (game30.mk, render only, in build-r21.sh): with the room's PS2 world package open, the
+  room pass preloads the package's own textures instead (r100: 59 loads, 2.4 s, in place of 141, 4.1 s); the room
+  archive's textures load on first sight if an object draws them. r100 s20 + ambush + call + cliff (route-tuse2 ->
+  route-lean1): preload 457 loads / 16.3 s -> 134 / 7.2 s, first-sight loads 298 -> 150, the area change after the
+  s20 cutscene 141 loads / 4.1 s -> 4 / 0.6 s, the route reaches the cliff ~30 s earlier. r100 east walk
+  (route-tuse3 -> route-lean2): preload 8.2 -> 6.5 s, first-sight loads 48 -> 28, evictions 73 -> 0; draw ms
+  26.40 -> 26.33. HALT 0, MISSING 0, screenshots fully textured.
+- Still per file: the room entry's ~130 loads take 6.5 s in Flycast (~50 ms each). The per-room texture pack
+  (design-doorload U4 TEX_PACK: one file, coalesced aligned reads) is the next step for loading.
 
 ## Hardware budget
 
