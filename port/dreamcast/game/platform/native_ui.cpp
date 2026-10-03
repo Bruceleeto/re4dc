@@ -1201,6 +1201,10 @@ void log_pair_miss(const Re4dcModelPart* p,const Key& key){
 extern "C" int re4dc_std_texlow(unsigned crc,unsigned fnv);
 extern "C" int re4dc_std_dropped(unsigned crc,unsigned fnv);
 extern "C" int re4dc_std_texture(unsigned i,unsigned out[5]);
+#if RE4DC_PS2_PRELOAD_LEAN
+extern "C" int re4dc_ps2_mesh_texture(unsigned i,unsigned out[4]);   // native_static.cpp
+unsigned preload_ps2_lean_runs;
+#endif
 #define RE4DC_TEX_PATH(buf,key) std::sprintf(buf,re4dc_std_texlow((key).crc,(key).fnv)?"/cd/dc/texlow/%x/%08x-%08x.re4tex":"/cd/dc/tex/%x/%08x-%08x.re4tex",(key).crc>>28,(key).crc,(key).fnv)
 #else
 #define RE4DC_TEX_PATH(buf,key) std::sprintf(buf,"/cd/dc/tex/%x/%08x-%08x.re4tex",(key).crc>>28,(key).crc,(key).fnv)
@@ -1651,6 +1655,28 @@ void preload_identities(){
     const unsigned limit=kTextureCount>RE4DC_TEX_RESIDENT_RESERVE_SLOTS+pinned?kTextureCount-RE4DC_TEX_RESIDENT_RESERVE_SLOTS-pinned:0;
     const unsigned byte_limit=budget>reserve+pinned_bytes?budget-reserve-pinned_bytes:0;
     unsigned n=0,resident=0,bytes=0; // resident: already uploaded, pinned for the loop
+#if RE4DC_PS2_PRELOAD_LEAN
+    // PS2_PRELOAD_LEAN (game30.mk): with the room's PS2 world package open, its scenery is drawn from the package's
+    // own textures, so those are the room pass; the room archive's identities (the GameCube scenery, ~1 MB nothing
+    // draws: TEX_USE_CENSUS r100 east walk 103 of 105 idle for 20 s) and the Standard index's shells / impostor
+    // atlases are not preloaded. Anything an object of the room does draw from them loads on first sight.
+    unsigned ps2t[4];
+    const bool ps2_lean=re4dc_ps2_mesh_texture(0,ps2t)!=0;
+    if(ps2_lean){
+        ++preload_ps2_lean_runs;
+        for(unsigned i=0;re4dc_ps2_mesh_texture(i,ps2t) && n+resident<limit;++i){
+            const Key key{ps2t[0],ps2t[1]};
+            bool known=false;
+            for(auto& e:entries)if(e.valid && e.key==key){if(e.frame!=frame){e.frame=frame;++resident;bytes+=e.package.vram_bytes();}known=true;break;}
+            for(const auto& m:missing_keys)if(!known && (m.crc|m.fnv) && m==key)known=true;
+            for(unsigned k=0;k<n && !known;++k)if(preload_picks[k].key==key)known=true;
+            const unsigned least=preload_least(ps2t[2],ps2t[3]);
+            if(known || bytes+least>byte_limit)continue;
+            preload_picks[n++]={key,(unsigned short)ps2t[2],(unsigned short)ps2t[3],5};bytes+=least;
+        }
+    }
+    else {
+#endif
 #if RE4DC_QUALITY_ASSETS
     preload_room_pass=true;preload_select(room_identities,n,resident,bytes,limit,byte_limit);preload_room_pass=false;
     // Standard: the textures the index adds (shells, impostor atlases), after the room pass.
@@ -1666,6 +1692,9 @@ void preload_identities(){
      }}
 #else
     preload_select(room_identities,n,resident,bytes,limit,byte_limit);
+#endif
+#if RE4DC_PS2_PRELOAD_LEAN
+    }
 #endif
     for(auto& e:enemy_identities)if(e.archive)preload_select(e.table,n,resident,bytes,limit,byte_limit);
     preload_select(player_identities,n,resident,bytes,limit,byte_limit);preload_select(weapon_identities,n,resident,bytes,limit,byte_limit);
@@ -1760,6 +1789,9 @@ void preload_identities(){
     if(frame)for(auto& e:entries)if(e.valid && e.frame==frame)e.frame=frame-1;
     re4dc_log("native texture preload: frame=%u picked=%u resident=%u loads=%u skipped=%u full=%d used=%u budget=%u entries=%u us=%u\n",frame,n,resident,preload_loads-loads,
         preload_skipped-skipped,full?1:0,used,budget,kTextureCount,unsigned(timer_us_gettime64()-start));
+#if RE4DC_PS2_PRELOAD_LEAN
+    if(ps2_lean)re4dc_log("native texture preload: ps2 world room pass (runs=%u)\n",preload_ps2_lean_runs);
+#endif
 #if RE4DC_TEX_KEEP
     re4dc_log("native texture keep: kept=%u kept_kb=%u reused=%u free=%u retries=%u\n",kept,kept_bytes/1024,resident,(unsigned)pvr_mem_available(),vram_retries);
 #endif

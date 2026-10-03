@@ -1646,6 +1646,21 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_DRAW=1
 endif
+# PS2_PRELOAD_LEAN=1 (needs PS2_WORLD_ROOMS=2 and QUALITY_ASSETS=1; native_ui.cpp + native_static.cpp, render only,
+# default 0): with the room's PS2 world package open, the room preload loads the package's own textures instead of
+# the room archive's (GameCube scenery the PS2 world replaces) and the Standard index's; those load on first sight
+# if anything draws them (user r21o play 2026-10-03: 4.9 / 6.1 s of reloads after the r100 cutscenes, a full pool
+# while running; TEX_USE_CENSUS: 103 of 105 room textures idle for 20 s on the r100 east walk).
+PS2_PRELOAD_LEAN ?= 0
+ifneq ($(PS2_PRELOAD_LEAN),0)
+ifneq ($(PS2_WORLD_ROOMS),2)
+$(error PS2_PRELOAD_LEAN needs PS2_WORLD_ROOMS=2)
+endif
+ifneq ($(QUALITY_ASSETS),1)
+$(error PS2_PRELOAD_LEAN needs QUALITY_ASSETS=1)
+endif
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PRELOAD_LEAN=1
+endif
 # TEX_USE_CENSUS=1 (test only, native_ui.cpp, default 0): every 600 frames, the resident textures and how many the
 # last 2 s / 20 s drew ("tex use census"), to size what the room preload loads but nothing draws.
 TEX_USE_CENSUS ?= 0

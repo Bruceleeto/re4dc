@@ -2329,6 +2329,16 @@ extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
     if(++images<=8 || !(images%120))re4dc_log("PS2MESH source image frame=%u room=%03x drawn=%d images=%u\n",frame,room,drawn,images);
 }
 #endif
+#if RE4DC_PS2_PRELOAD_LEAN
+// PS2_PRELOAD_LEAN (game30.mk): the open package's part textures for the room preload (native_ui.cpp), in part
+// order with repeats (the caller skips keys it has); 0 past the end or when no package is open.
+extern "C" int re4dc_ps2_mesh_texture(unsigned i,unsigned out[4]){
+    if(!ps2w.storage || !ps2w.parts || ps2w.room!=ps2w.want || i>=ps2w.package.header().part_count)return 0;
+    const auto& q=ps2w.parts[i];
+    out[0]=q.crc;out[1]=q.fnv;out[2]=q.width;out[3]=q.height;
+    return 1;
+}
+#endif
 // The room the next ps2_open serves (native_ps2_world.cpp, before each draw).
 extern "C" void re4dc_ps2_mesh_select(unsigned room){ps2w.want=room;}
 // This room's package was tried and did not open: its own scenery draws (re4dc_ps2_world_covers).
