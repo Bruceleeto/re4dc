@@ -10,20 +10,40 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
 - Recipe: `tools/d367/build-r21.sh` plus `DBG_WARP=0 QUALITY_PICKER=0 ARENA_FIT_KOS_BYTES=147456 PACE_MODE=fast
   PACE_DEBUG=1 LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0`; keep `GAME_PWC_DIAG=1` (an exact logic
   cut; only =2 is test-only). Test spots use a `DBG_WARP=1` twin; the pad fixture works without it.
+  Recipe truth (2026-10-03, 8f34aa63): build-r21.sh writes `$OUT/resolved-knobs.txt` (make's own resolved values;
+  route-build.sh records its path in programs-route.json): read that, not the make line. MESH_CLIP_LEAN is not in the
+  play recipe (default 0; adoption needs the route gate); MODEL_DRAW_PLANS is forced to 1 by the D349 renderer-stack
+  override in the Makefile.
 - Calls and cutscene memory (2026-10-02, r21n play): build-r21.sh sets `SS_PACK=1` (the sub screen packs its
   3 MiB into TA bank 1 instead of releasing ~2.3 MB of room textures per call) and `MOVIE_HEAP_EVICT=1` (a route
   movie short of heap 4 evicts unpinned motion keys; the r100 s30 cliff cutscene failed without it).
 - PS2 world packages (2026-10-03, r21o play): play fixtures stage the `--lod-uv-guard 0.002` rebuilds
   (tour/play/title-c13-pw.json; the unguarded LOD shears wall textures). build-r21.sh sets `CLOSED_PASS_KEEP=1`
-  (an opaque draw after the translucent list no longer halts) and `PS2_PRELOAD_LEAN=1` (PS2 world rooms preload
+  (an opaque draw after the translucent list no longer halts; a crash-avoidance fallback with unresolved
+  ordering / alpha / depth, not proof of correct rendering: each caller needs a visual gate) and `PS2_PRELOAD_LEAN=1` (PS2 world rooms preload
   the package's textures, not the replaced GameCube scenery's).
 - Texture pack (2026-10-03): build-r21.sh sets `TEX_PACK=1`; a play disc stages the pack fixture made by
   `tools/d367/route/pack-fixture.sh tour/play/<fixture> <arm> tour/play/<fixture>-pak.json` (re-run whenever the
   fixture's or the base disc's textures change). Without dc/tex.pak the build loads per file, as before.
+  Failure policy (2026-10-03, 766a5fa5; route doc "Pack failure policy"): an absent pack loads per file, which is
+  fine only on a loose-file disc. pack-fixture.sh play discs drop the packed loose files, so there a read error
+  means no texture until a retry (init 3 times, then once per room load) and an INVALID pack means missing
+  textures. pack-fixture.sh (13eaccec) writes verified `<name>.<sha16>.pak` packs with a provenance manifest and
+  refuses to overwrite without `--replace`; check a pack with `texpack.py --verify`.
+- Benchmark fixtures vs the play image (architect review 2026-10-03). Keep them apart:
+  - **H**, the original house timing fixture: unguarded PS2 worlds and the 2,512-entry pack.
+  - **H2**: UV-guarded PS2 worlds and the title-c14 pack (3,241 packages), the play image's assets. A diagnostic
+    house fixture, not a full play validation. Measured with same-binary late activation (warp.txt
+    `late <mask> 1400 0x100`; tools/d367/README.md "Late activation").
+  - Neither replaces the route checks of a play disc (r21s and later).
 - Crash screen (user 2026-10-02): build-r21.sh sets `CRASH_SCREEN=1` for every play build. Before a console disc
   the build must log 0 misaligned accesses over its rooms (`tools/d367/hwready/route-hw.sh align`).
 - Disc: `debug/config.txt` ROOM 0x20 (New Game -> r120 intro), no `dc/quality.txt`, the r100 release (route fix e)
   re-cut from the disc's own r100.dar (A1 blocks + A2 archive; the old A2 dar would drop r100's AICA overlay).
+  Two artifacts per disc (route doc "Goals and decision rules", disc artifacts): `<rNN>-title` is the Flycast image (`disc.cue`, one
+  MODE1/2048 track of 2048-byte logical sectors); `<rNN>-gdemu` is the GDEMU image (`disc.gdi`, `SECTOR=2352` raw
+  sectors, track 3 at LBA 45000). Same data-track sector count (r21s: 458,648); data sector n is at byte n x 2352 + 16
+  of track03.bin (GD LBA 45000 + n) and n x 2048 of disc.bin. A Flycast boot of the CUE image does not validate the GDEMU TOC or physical media.
 - World: the PS2 world in r100, r101 and r103 through PS2_WORLD_MESH + PS2_WORLD_ROOMS=2 (64-vertex packages; r101
   the adopted world-mesh-r21 package, r100/r103 from tools/ps2_room_r4im.py). The disc must stage
   dc/native/r100|r101|r103/ps2-world.{re4mesh,r4pw} and their dc/tex files (tour/play/*-pw.json); a room whose

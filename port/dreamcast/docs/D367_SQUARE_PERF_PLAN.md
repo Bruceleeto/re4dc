@@ -1,4 +1,8 @@
-# D367 square performance plan: r101 at 15 fps real time
+# D367 square performance plan: r101 at 30 fps at full game speed
+
+**Acceptance target (architect review 2026-10-03): 30 fps at full game speed** (section "30 fps rethink":
+G <= 24 + R <= 6 + margin per tick). The 15 fps goal below (2026-09-24) is historical. A 15 fps build would be a
+separately chosen compromise, never the acceptance target.
 
 Owner: the D367 main session, which since 2026-09-25 coordinates parallel lanes (section "Current order
 and status") and lands every patch. Started 2026-09-24 from the user's play tests. The repeatable loop
@@ -10,7 +14,7 @@ with every measured arm, and the plan when an item lands or is dropped.
 **This is the standing goal until it is reached. Iterate on this plan without deviating, unless a measured
 better solution appears; then record the switch and why in the ledger.** Every session resumes here.
 
-## Goal (user, 2026-09-24)
+## Goal (user, 2026-09-24; historical, replaced by the 30 fps rethink on 2026-09-25)
 
 - **The r101 square must run at least 15 fps at real game speed, "at any cost, or the player can't play".**
   The one-Ganado house fight "felt heavy" too; quiet areas feel fine.
@@ -22,7 +26,8 @@ better solution appears; then record the switch and why in the ledger.** Every s
   the hwproject figure is then the mean of W and tau per tick, so W + tau = 2 x that figure.
 - Never changed: collision, event sequencing, game state, AI decisions. Render-only changes keep the logic
   trace STRICT. FTRV/FIPR maths in logic is allowed as a measured option (deterministic, last-bit FP
-  policy, collision checked separately). Parking far, unseen Ganados (ACT_CAP) is approved.
+  policy, collision checked separately). Parking far, unseen Ganados (ACT_CAP) is approved (historical: the
+  r101 square under this 15 fps plan; see "Uncapped baseline" for what that approval does and does not cover).
 
 ## 30 fps rethink (user, 2026-09-25): the coarse complete square first
 
@@ -213,6 +218,14 @@ encounter. **Preserving RE4 gameplay is judged against the uncapped encounter (A
 ACT_CAP stays an approved option for the 15 fps plan. Capped numbers are a labelled variant, never
 "preserved gameplay".
 
+ACT_CAP scope (architect review 2026-10-03). Three separate things:
+- the historical **r101 approval** (2026-09-24, the r101 square, 15 fps plan; sq1 in the ledger);
+- the **r100 diagnostic spike** (the H2 house fixture, `late 0x08` = ACT_CAP from tick 1400 in one binary;
+  tools/d367/README.md "Late activation"): a measurement only, not an adoption;
+- any **future adoption** in a play recipe: a separate user decision with its own gates (build-r21.sh has
+  ACT_CAP=0).
+Capped results never support an `ACT_CAP=0` gameplay-preservation claim; report them separately.
+
 The same flags as sq43-sq48 with ACT_CAP=0 (act_cap.cpp is not linked, so no act_cap symbols).
 At runtime: 14 cEm10::move calls per tick in every uncapped arm.
 
@@ -310,10 +323,10 @@ develops in its own tree with its own arm prefix and hands its patch to the main
 |---|---|---|
 | cl characters | coarse-actors-4k/stack-tree | fitting the approved Leon and Ganado meshes to the character code, losslessly (look unchanged); then a cheaper adapter; then integrating the external agent's cast models. No model building. Fitting and the FTRV adapters landed 9df764b (characters 22.42 -> 15.84 ms). The cast integration COARSE_GANADO_CAST landed 08d2216 (cast v3: character rows -0.22, W +0.39 with layout, cl45); the external agent's refit v4-fit (palettes -18.5..-27.4%, the same geometry; records / strips still over target) is measured on the landed kernel next, with the worst view and the R levers left |
 | vl vertex loop | lane-vloop/tree | ACTOR_VTX_KERNEL: generated SH-4 vertex kernels for the fast actor path. Rev 1b landed 42afaa1: characters -2.97 (vl7); rev 2 landed 7726caa: a further -1.92 (vl13, characters 10.95 over stick figures); rev 3 landed d938501: a further -1.71 (vl17, characters 9.24 over stick figures); rev 4 + rev 5 landed e4fb8e8: a further -0.59 (vl26, characters 8.65 over stick figures; rev 5: movca.l skin entries, the fog gate in asm). Stopped (ROI, user 2026-09-26: the rest is the meshes); ideas left in lane-vloop/STATE.md: meshlet records sorted by palette entry (-0.2..-0.3, overlaps the cast agent's palette work), movca.l on the kernel's output lines (-0.1), the fog gate two entries in flight (-0.1) |
-| gc collision | lane-gcol/tree | Landed 7caa2f7: the collision stack (8 knobs), G -1.63 alone (gc13 29.03). Batch 6 (GAME_EM10_SCANPF) lost (+0.08). Batch 7 landed ca229cf: GAME_LINE_LEAF2, GAME_LINE_WALK_PF, GAME_LINE_TAIL, GAME_SCEAT_LIST, -0.62 (gc17 28.41 vs gc13). Batch 8: GAME_SCEAT_LIST rev 2 kept (ff32da9, about -0.04), three items measured and dropped. Batch 9 (GAME_LINE_LEAF2 rev 2: record-address lists + lineLeaf inline; GAME_LINE_WALK_PF rev 2: the root prefetch after the matrix rows; GAME_HC2_PF dropped) gained -0.096 on its own rows but ~0 in total (gc24 28.36 vs gc17 28.41, which lacks the area lists rev 2's -0.05; hitCheck2 +0.065 on identical code): not landed, parked with the lane's patch. **Parked** (ROI, user 2026-09-26; G closed at sq104) |
+| gc collision | lane-gcol/tree | Landed 7caa2f7: the collision stack (8 knobs), G -1.63 alone (gc13 29.03). Batch 6 (GAME_EM10_SCANPF) lost (+0.08). Batch 7 landed ca229cf: GAME_LINE_LEAF2, GAME_LINE_WALK_PF, GAME_LINE_TAIL, GAME_SCEAT_LIST, -0.62 (gc17 28.41 vs gc13). Batch 8: GAME_SCEAT_LIST rev 2 kept (ff32da9, about -0.04), three items measured and dropped. Batch 9 (GAME_LINE_LEAF2 rev 2: record-address lists + lineLeaf inline; GAME_LINE_WALK_PF rev 2: the root prefetch after the matrix rows; GAME_HC2_PF dropped) gained -0.096 on its own rows but ~0 in total (gc24 28.36 vs gc17 28.41, which lacks the area lists rev 2's -0.05; hitCheck2 +0.065 on identical code): not landed, parked with the lane's patch. **Parked** (ROI, user 2026-09-26; G closed at sq104: superseded, stride-8 trace aliasing, G is not closed, see "Corrections") |
 | fx effects | lane-gfx/tree | Esp / Efm bookkeeping and moves, exact (the RNG sequence kept). Landed 1d3dc4d: GAME_FX_SCAN + GAME_FX_MOVE, G -1.11 (fx9 29.55); the agent moved on to lane ob |
 | ob enemy / object bookkeeping | lane-gfx/tree | exact cuts in model.cpp (getPartsPtr, updateOldPos), em.cpp, em_set.cpp (GetEmPtrFromList), dmg.cpp, route_ck.cpp and id_sys.cpp (the HUD units' idSysMove, after a reader audit). GAME_OB_SCAN landed 0862e7c (ob3 29.36 vs fx9 29.55); batch 2 landed 9f66533: GAME_OB_MAT + GAME_OB_PATH, -0.64 (ob7 28.72); GAME_OB_ROUTE dropped (+0.11: its static data moved the layout); batch 3 landed 97874b5: GAME_OB_NEAR + GAME_OB_DECODE, -0.36 (ob14 28.36); GAME_OB_OLDPOS dropped (+0.01). Parked (ROI, user 2026-09-26: the remaining rows sit in other lanes' files). Section "Object bookkeeping" |
-| sk skeleton | lane-gskel/tree | skeleton, motion, cloth, maths: exact speedups, and the gameplay-reader map. Landed ee7d080: LIGHT_LAZY, FP_SCHED, HF_INLINE / HF_PF, PWC_SCHED / PWC_PF, TRIG_LEAN, ACOS_LEAN, sk10 29.14 alone (-1.52). Batch 3 landed 4f81bbd: GAME_VEC_NORM_INLINE + GAME_MTXINV_SCHED, sk12 28.94 (-0.20). Dropped: pass-A on the kernel (+0.17), HF_V3 / PMC_PF (+0.22), HF_TYPED (+0.04). Parked: G is under the target (sq104) |
+| sk skeleton | lane-gskel/tree | skeleton, motion, cloth, maths: exact speedups, and the gameplay-reader map. Landed ee7d080: LIGHT_LAZY, FP_SCHED, HF_INLINE / HF_PF, PWC_SCHED / PWC_PF, TRIG_LEAN, ACOS_LEAN, sk10 29.14 alone (-1.52). Batch 3 landed 4f81bbd: GAME_VEC_NORM_INLINE + GAME_MTXINV_SCHED, sk12 28.94 (-0.20). Dropped: pass-A on the kernel (+0.17), HF_V3 / PMC_PF (+0.22), HF_TYPED (+0.04). Parked: G is under the target (sq104; superseded: stride-8 aliasing, G is not closed, see "Corrections") |
 | wd world | lane-world/tree | the textured coarse world, <= ~3 ms: house shells, ground, trees, sky. Landed 6f4c91c (COARSE_WORLD): R +0.68 (wd12), STRICT (wdG4); v10 ground tones 05e402a (private data): the gauge's "88" fixed. **The user rejected the look (2026-09-26: "the world looks terrible").** The world's assets go to a specialized external agent the user launches, from a prompt the main session writes (`re4-assets-private/world-agent-20260926/`: as close to the original as the render budget allows); the wd lane idles until it delivers, then integrates, measures and captures |
 | bg route bugs | lane-bugs | the pre-pivot backlog: memory load / unload, freezes, the r100 -> r101 -> r103 playthrough (stopped 2026-09-25 before its first checkpoint; relaunched 2026-09-26 at the user's question: triage from the docs, the user's play logs and a fresh route check on today's code, then the top three fixes, each audited) |
 
@@ -383,7 +396,10 @@ develops in its own tree with its own arm prefix and hands its patch to the main
    The skeleton lane's batch 3 (4f81bbd: GAME_VEC_NORM_INLINE + GAME_MTXINV_SCHED, -0.20 alone) landed next. The
    landed stack with everything, **sq104** (tree8 land24, the landed order file): **G_q 24.57** (-0.65 vs sq103;
    never drawn, uncapped; estimate -0.60: PSVECNormalize -0.25, PSMTXInverse -0.22, the object batch 3 rows -0.27 (L_cleanup_loop, memmove, word, decode, memcpy), EspMove +0.11 and hitCheck2 +0.09 with unchanged code (layout)), **under the 24.97 target by 0.40**: G is closed on the never-drawn control; the lanes that were
-   carrying G park. At 30 fps that leaves R <= 8.76 (33.33 - G, no margin): version C's R 13.29 was 4.53 over (12.70 and 3.94
+   carrying G park. **Superseded (2026-09-26 night; architect review 2026-10-03):** 24.57 was traced at stride 8,
+   which samples one `Frame_cnt` residue and undercounts the Ganados' staggered checks. Over all ticks G_std is
+   ~25.92 and G_fight ~29.61 (G0 at stride 7: 25.75 / 29.23), so G is not closed, least of all in the fight. The
+   R <= 8.76 allowance and the fps figures derived from 24.57 below are void. Historical text: at 30 fps that leaves R <= 8.76 (33.33 - G, no margin): version C's R 13.29 was 4.53 over (12.70 and 3.94
    after the vertex kernel rev 4 + rev 5, e4fb8e8), which the characters carry (cl: the external cast refit, then its integration).
    **Lanes by return (user decision 2026-09-26).** Small G items now sit under the 0.3-0.4 ms layout noise, the
    hardware model is uncalibrated (calibration disc c8 waits for a console run), and once G is under the target
@@ -401,7 +417,7 @@ develops in its own tree with its own arm prefix and hands its patch to the main
 |---|---|
 | 1. Qualified no-draw boundary | done: PACE_TRANS_SKIP=4063, STRICT; G_q 37.52 uncapped. Calibration disc c8 awaits the user's console run |
 | 2. Coarse complete square | done: landed f4da5fd; R headroom landed 801d72d: source work ~2.1 -> ~0.8 ms, R ~4, STRICT every decision |
-| 3. Close G <= 24 | skeleton step (37.52 -> 34.40), code placement (801d72d, -1.25), the em-em candidate cache (aeefd26, -1.16), the workAt inline (3eaa868, -0.48), the line queries' leaf kernel (cf46edc, -0.44), block walk kernel (ba73027, -0.37) and the pieces' transforms in it (4e394ea, -0.28) and the effect pools (1d3dc4d, -1.11), and the collision stack (7caa2f7, -1.63 alone), all exact: the skeleton lane (ee7d080, -1.52 alone) and the object scans (0862e7c, -0.19): the landed-stack control sq100 **G_q 26.34**, gap 1.37 to 24.97 (sq99 28.29 before the last two); since then collision batch 7 (ca229cf, -0.62 alone) and the object batch 2 (9f66533, -0.64 alone): sq103 **G_q 25.22**, gap 0.25; in lanes: gc line kernels / area array, ob enemy / object bookkeeping, sk skeleton / motion / cloth / maths and the gameplay-reader map |
+| 3. Close G <= 24 | skeleton step (37.52 -> 34.40), code placement (801d72d, -1.25), the em-em candidate cache (aeefd26, -1.16), the workAt inline (3eaa868, -0.48), the line queries' leaf kernel (cf46edc, -0.44), block walk kernel (ba73027, -0.37) and the pieces' transforms in it (4e394ea, -0.28) and the effect pools (1d3dc4d, -1.11), and the collision stack (7caa2f7, -1.63 alone), all exact: the skeleton lane (ee7d080, -1.52 alone) and the object scans (0862e7c, -0.19): the landed-stack control sq100 **G_q 26.34**, gap 1.37 to 24.97 (sq99 28.29 before the last two); since then collision batch 7 (ca229cf, -0.62 alone) and the object batch 2 (9f66533, -0.64 alone): sq103 **G_q 25.22**, gap 0.25; in lanes: gc line kernels / area array, ob enemy / object bookkeeping, sk skeleton / motion / cloth / maths and the gameplay-reader map. **Not closed** (2026-09-26 night): all these G values are stride-8 traces; all ticks G_std ~25.92 / G_fight ~29.61, G0 (stride 7, 25 m) 25.75 / 29.23 |
 | 4. 30 fps on hardware | waits for 3 and the calibration run |
 | 5. Restore appearance | one-house test measured (below); version C measured (cl21: R 26.47 with the reduced characters, 22.42 over stick figures; section "Reduced characters and the character path"); the cl lane's fitted meshes + FTRV adapters (landed 9df764b): 15.84 over stick figures, R 19.89 (cl42); the vertex kernel (42afaa1, rev 2 7726caa, rev 3 d938501: 9.24 over stick figures, vl17) and the coarse world (6f4c91c: R +0.68, section "Coarse world"); in lanes: vl vertex loop rev 4, the world's near-ground tone (the gauge's "88" in one view); the world's look review is with the user; the external agent: the first level's cast models; the main session: the coarse HUD (fixed by the world's ground except in one view, section "Coarse world") |
 
@@ -442,7 +458,7 @@ Ganados costs more.
 
 Paced to full speed = (1000 - 30 x 30.66) / R images a second. On the landed stack's G (sq100, 26.34) the
 same R would pace to (1000 - 30 x 26.34) / R: vl13 14.0 fps, vl17 15.8 fps, B 30 fps (an estimate: R was measured on the
-older G base, never on one build with sq100's stack).
+older G base, never on one build with sq100's stack). Superseded: both G bases are stride-8 traces (see "Corrections").
 **Version C on the landed stack, both views (2026-09-26 evening; sq105-sq107, tree12 = land26 62ed89a, sq104's
 flags + cl54's character recipe; hw model, uncalibrated, ACT_CAP=0; twins differ only in PACE_FORCE=A vs PACE_MODE=off):**
 - Standard window (1000-1119, wall-facing, 0-1 Ganado): G_std **24.84** (sq105), +0.275 over sq104 from the character
@@ -451,7 +467,8 @@ flags + cl54's character recipe; hw model, uncalibrated, ACT_CAP=0; twins differ
 - Kite fight (warp r101-bell-fight --ang 1.2 + f1-kite.pad, 800:919, 6 Ganados from t 833): G_fight **29.30** (sq106),
   W 41.07 (sq107), **R_fight 11.77** over the window (render-only rows 10.59: characters 7.08, world 2.21, HUD 0.44,
   other 0.88), ~13.9 at the 6-Ganado frames. 30 fps allows R 4.03 there: ~10 fps paced at full speed (~8.7 at the
-  peak), 81% speed drawn every tick. "G closed" holds only in the wall-facing view.
+  peak), 81% speed drawn every tick. "G closed" holds only in the wall-facing view (and not there either over all
+  ticks: "Corrections" below).
 - G_fight - G_std = +4.45: motion / skeleton +2.05 (MotionHokan, hermiteFast, C_QUATMtx 288 calls/tick, pwc_ftrv_run),
   effects +0.82 (cEsp::CommonMove, cEsp1a::move), collision +0.68 (line walks, poly-sphere), motion loads +0.37 (one
   net_crc32le call of ~34.8 ms in a single tick: a hitch longer than a frame), audio +0.21, other +0.44.
@@ -497,9 +514,11 @@ flags + cl54's character recipe; hw model, uncalibrated, ACT_CAP=0; twins differ
   g0g (knobs on) and the C3 gate give byte-identical verdicts, so the drift predates them. It is not explained yet
   (a bisect is running), and STRICT is not re-based on the g0g / g0h twins until it is.
 
-On sq104's G (24.57, everything landed through 4f81bbd; G closed) the same estimate gives (1000 - 30 x 24.57) / R:
-vl26 20.7 fps, B 30 fps (capped). 30 fps needs R <= 8.76 (no margin) or <= 5.43 (the 3.33 margin): vl26 is 3.94
-over without margin; the rest is the characters' meshes (the external cast refit).
+Superseded (architect review 2026-10-03; stride-8 aliasing, see "Corrections" above): on sq104's G (24.57, everything
+landed through 4f81bbd; "G closed") the same estimate gave (1000 - 30 x 24.57) / R: vl26 20.7 fps, B 30 fps (capped).
+30 fps needed R <= 8.76 (no margin) or <= 5.43 (the 3.33 margin): vl26 was 3.94 over without margin; the rest
+was the characters' meshes (the external cast refit). Use G0's all-residue values and image-specific enemy counts
+instead (version C, G0, knobs off, no margin: standard window 18.2 fps, kite 10.8, six-Ganado peak 8.2).
 
 - The new renderer against the old with the same characters (cl26 - cl21): -36.55 ms a drawn tick (-39%),
   whole frame: mostly the world (scenery meshes ~13 ms), the game's draw preparation, effects and
@@ -620,6 +639,14 @@ over without margin; the rest is the characters' meshes (the external cast refit
   fixes it: the gauge reads "10" in all 8 gate shots (wdG4) and in the look review's tree-line view (v3).
   In the south view (v1e) the near ground behind the gauge rendered ~(65-74, 64-80, 57-82) against the
   source's 16-41 and the gauge read "88" until v10 (05e402a; below): it reads "10" in v1e, v3 and the fight view.
+- **WP2 Leon pair (2026-10-03, architect review follow-up).** Image H2 (r100 house after s20, Leon's radio-call
+  close-up), window ticks 1450..1569, all 120 frames traced, ACT_CAP=0, build impl-w2c, one binary (late bit 0x10
+  keeps Leon on the old path): Leon drawn by the native 4K cast 49.55 ms work per tick vs the old per-part source
+  path 56.64, **7.09 ms saved** (low-high 5.48-9.25). Cause of the old decline: after the s20 cutscene Leon's
+  material-lifetime records are dropped (a part swap at about UI frame 684, a heap teardown at about 1211) and
+  nothing re-proves them. The existing default-off CROWD_READOPT=2 re-proves them with the load-time proof. Adopting
+  it in the play recipe is a coordinator/user decision: it also changes the r100 post-cutscene Leon from the source
+  mesh to the 4K cast, as already drawn in r101/r103. hwsim projections in Flycast, not console measurements.
 
 #### Coarse world (lane wd, 2026-09-25; landed 6f4c91c, default off)
 
@@ -1532,7 +1559,7 @@ Append one row per measured arm: date, arm, change, hw ms (2L+R), logic trace ve
 | date | arm | change | hw ms | 2L+R | trace | decision |
 |---|---|---|---|---|---|---|
 | 09-24 | sq0 | base: tree5 play stack | 120.9 | ~147 | - | baseline |
-| 09-24 | sq1 | ACT_CAP=6 | 115.8 | ~139 | approved change | keep |
+| 09-24 | sq1 | ACT_CAP=6 | 115.8 | ~139 | approved change | keep (historical r101 approval; a capped arm, not ACT_CAP=0 gameplay preservation) |
 | 09-24 | sq2 | + ACTOR_FOG_GATE | 114.2 | ~136 | STRICT (r100 fight, 6667 ticks) | committed 16f8356 |
 | 09-24 | sq3 | ACT_CAP=4 + fog gate | 113.8 | - | - | no gain over 6 |
 | 09-24 | tr1 | GAME_VEC_INLINE (SDK C_VEC* bodies inline, contraction off) | see sq5 | - | STRICT vs sq-tr0, 3018 ticks | keep |
@@ -1680,7 +1707,7 @@ Append one row per measured arm: date, arm, change, hw ms (2L+R), logic trace ve
 | 09-26 | sk13 | sk12 + GAME_HF_PF=2 + GAME_HF_V3 + GAME_PMC_PF | 29.16 (+0.22) | - | skM9 STRICT | dropped |
 | 09-26 | sk14 | sk12 + GAME_HF_TYPED + its order file | 28.98 (+0.04) | - | skM10 STRICT, HERMF 0 mismatches | dropped |
 | 09-26 | land24 | the skeleton lane's batch 3 landed (4f81bbd; + the prerequisite guards) | - | - | knob-off identity (default, canonical); sk12 carry-over 447 / 455 objects identical (the rest tree5-only) | landed, default off |
-| 09-26 | sq104 | landed-stack control: sq103 + GAME_OB_NEAR / GAME_OB_DECODE + GAME_VEC_NORM_INLINE / GAME_MTXINV_SCHED (SCEAT_LIST rev 2 under its knob), tree8 land24 | G_q 24.57 (-0.65 vs sq103) | - | (the knobs' own gates) | G under 24.97 |
+| 09-26 | sq104 | landed-stack control: sq103 + GAME_OB_NEAR / GAME_OB_DECODE + GAME_VEC_NORM_INLINE / GAME_MTXINV_SCHED (SCEAT_LIST rev 2 under its knob), tree8 land24 | G_q 24.57 (-0.65 vs sq103) | - | (the knobs' own gates) | G under 24.97 (superseded by the 09-26 corrections row: stride-8 aliasing, G not closed) |
 | 09-26 | vl23 | cl42 + ACTOR_VTX_KERNEL=1 (rev 4), version C | W 43.66 (R 13.00; -0.29 vs vl17) | - | vl24 (C, =2) / vl25 (A, =2) STRICT, 0 mismatches | kept |
 | 09-26 | vl26 | cl42 + ACTOR_VTX_KERNEL=1 (rev 5), version C | W 43.36 (R 12.70; -0.30 vs vl23; characters 8.65 over stick figures) | - | vl27 (C, =2) / vl28 (A, =2) STRICT, 0 mismatches | kept |
 | 09-26 | land25 | the vertex kernel rev 4 + rev 5 landed (e4fb8e8; + the contraction guard) | - | - | knob-off identity (default, canonical); vl26 carry-over 451 / 460 objects identical (the rest tree5-only) | landed, default off |

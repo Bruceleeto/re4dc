@@ -2,7 +2,21 @@
 
 The plan and measurements are in `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md`.
 
-## Canonical recipe (integrated base; every stacked measurement and the m1 disc use this)
+## Current effective recipe (2026-10-03)
+
+- One recipe: `tools/d367/build-r21.sh` (play builds add the overrides in docs/D367_PLAY_BUILD_CHECKLIST.md,
+  "Play build rules"; route-build.sh wraps it). Since 8f34aa63 every build writes `$OUT/resolved-knobs.txt`, the
+  knobs as make resolved them (defaults, the recipe line, caller overrides, Makefile overrides); route-build.sh
+  records its path in programs-route.json. Quote that file, not a make line.
+- Known differences from the make line: MODEL_DRAW_PLANS is forced to 1 by the D349_RENDERER_STACK=1 Makefile
+  override; MESH_CLIP_LEAN is not in the recipe (default 0; adopting it needs the route gate).
+- The LH / M1 / PERF / LFV blocks below are dated snapshots (2026-09-23/24), kept as evidence. They still list
+  `QUALITY=1` (the Standard/Original picker); play builds pass `QUALITY_PICKER=0` (Standard only).
+- Profiler areas are not G. hwproject's "game-logic" area (e.g. LH's 12.0 hw ms/tick) books the shared matrix kernels
+  as render and undercounts logic. Measured G is a never-draw (`PACE_FORCE=A`) work per tick on a named image, traced
+  over all ticks (stride 7 or 1, not 8).
+
+## Canonical recipe (snapshot 2026-09-24; integrated base; every stacked measurement and the m1 disc used this)
 
 ```
 LH="NO_EH=1 NATIVE_ACTOR=1 NATIVE_ACTOR_FAST=1 NATIVE_ACTOR_SKIN=1 PVR_FAST_WAKE=1 BRIDGE_LEAN=1 PVR_PIPELINE=2 MESH_LOD=1 MESH_LOD_PX=3 NATIVE_FOG=1 COPY_LEAN=1 FRONT_LEAN=1 MESH_DIRECT=1 TA_DIRECT=1 NATIVE_ACTOR_DIRECT=1 UI_VRAM=1 TA_VERTBUF_KB=2048 GAME_FP_CONTRACT=off GAME_CPU=1 GAME_ROT_CACHE=1 GAME_O2=hot GAME_TRIG=1 GAME_PWC_DIAG=1 GAME_ATCHK=1 GAME_MOTION_INDEX=1 GAME_CONCAT_COL=1 GAME_SINCOS=1 GAME_MULTVEC_SCHED=1 GAME_VEC_INLINE=1 GAME_COL_PREFETCH=1 GAME_ATCHK_LIST=1 GAME_ESP_OWNER=1 GAME_SKEL_FTRV=1 GAME_ROTVEC_MEMO=1 AICA_AUDIO=1 RELEASE_FLAGS=1"
@@ -13,7 +27,7 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
 # tex-fx cache itself (tools/d367/tex_fx.sh). User discs add UI_OVERRIDES=/root/re4data/overrides/ui.
 ```
 
-- `LH`: the game30 logic recipe (12.0 hw ms/tick), plus the bit-exact logic cuts GAME_PWC_DIAG=1 / GAME_ATCHK=1 / GAME_MOTION_INDEX=1 (-2.65 / -3.25 hw ms/tick at 6 / 8 engaged Ganados) and GAME_CONCAT_COL=1 (dbe1abb, a further -1.06 / -1.25; needs GAME_FP_CONTRACT=off). Rejected: GAME_PWC_FAST (+0.45 hw ms), GAME_SCHED=game (no logic gain). Never ship GAME_PWC_DIAG=2 (test-only check build). `M1`: route and memory knobs for the playable disc. `QUALITY=1` is the Standard/Original picker after Start (766332d); Standard is the default. Its text draws through NATIVE_MES=1 (native cMes glyph atlas, 32 KB VRAM). VMU saves (6d5d6a9/cd0343a): `VMU_SAVE=1` saves to the VMU (17 blocks per save, never formats, overwrites in place when full, heap 4 -16 KB) and stores the picker choice as RE4DCCFG; `VMU_DEBUG_SLOT=1` adds the RE4DCDBG debug slot (hold L+START 1 s in play, reload as FILE 20; ~96 KB taken from heap 4 only during the save, refused with a log line if short) that the user asked to keep on the first disc for reloads. `SUBSCREEN_OVL=1` loads the sub-screen code from /cd/dc/sscrn.ovl at each open (heap 4 +112 KB; ~+0.1-0.2 s per open on GD-ROM).
+- `LH`: the game30 logic recipe (12.0 hw ms/tick: hwproject's "game-logic" area, not measured G), plus the bit-exact logic cuts GAME_PWC_DIAG=1 / GAME_ATCHK=1 / GAME_MOTION_INDEX=1 (-2.65 / -3.25 hw ms/tick at 6 / 8 engaged Ganados) and GAME_CONCAT_COL=1 (dbe1abb, a further -1.06 / -1.25; needs GAME_FP_CONTRACT=off). Rejected: GAME_PWC_FAST (+0.45 hw ms), GAME_SCHED=game (no logic gain). Never ship GAME_PWC_DIAG=2 (test-only check build). `M1`: route and memory knobs for the playable disc. `QUALITY=1` is the Standard/Original picker after Start (766332d); Standard is the default. Its text draws through NATIVE_MES=1 (native cMes glyph atlas, 32 KB VRAM). VMU saves (6d5d6a9/cd0343a): `VMU_SAVE=1` saves to the VMU (17 blocks per save, never formats, overwrites in place when full, heap 4 -16 KB) and stores the picker choice as RE4DCCFG; `VMU_DEBUG_SLOT=1` adds the RE4DCDBG debug slot (hold L+START 1 s in play, reload as FILE 20; ~96 KB taken from heap 4 only during the save, refused with a log line if short) that the user asked to keep on the first disc for reloads. `SUBSCREEN_OVL=1` loads the sub-screen code from /cd/dc/sscrn.ovl at each open (heap 4 +112 KB; ~+0.1-0.2 s per open on GD-ROM).
 - `PERF` lists landed lane steps: FRONT_NATIVE (c881fba, -4.1 hw ms), the approved 25 m fog far
   plane, the native effect sprites (a0a32aa), and D1 + S1a + the slab latch (27fb5a5; fight p99
   488 -> 172 ms in Flycast, -2.4 hw ms at 25 m), and TA_DOUBLEBUF (b7a7e2d: the TA double-buffered in
@@ -117,7 +131,7 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
   `GAME_LINE_PIECE=1`; the lists need `GAME_ATCHK_LIST=1`; OBJHIT_IDFIRST needs OBJHIT_LIST. =2 check builds
   log "SPW", "CBM", "EID", "LYR", "ARF", "OHL", "OID" and "EHL" lines.
 
-## Default recipe (LFV: LF + UI_VRAM + 2 MiB TA buffer + VQ UI/model textures + resident textures)
+## Default recipe (snapshot 2026-09-23; LFV: LF + UI_VRAM + 2 MiB TA buffer + VQ UI/model textures + resident textures)
 
 ```
 LFV="NO_EH=1 NATIVE_ACTOR=1 NATIVE_ACTOR_FAST=1 NATIVE_ACTOR_SKIN=1 PVR_FAST_WAKE=1 BRIDGE_LEAN=1 PVR_PIPELINE=2 MESH_LOD=1 MESH_LOD_PX=3 NATIVE_FOG=1 UI_VRAM=1 TA_VERTBUF_KB=2048 UI_HANDLES=1 TEX_RESIDENT=1"
@@ -496,7 +510,8 @@ the arms share the binary and the prelude, and switch at a fixed tick.
   `hwproject.sh --count 1450:1569 --trace 1450:1569:1 --drop-traces`; work = total minus the rows `main`,
   `re4dc_pace_end`, `re4dc_vi_retrace_count`. Cost build: `route-build.sh impl-<x> PC_SAMPLER_BYTES=8192
   PACE_MODE=off ACT_CAP=0 ENC_CENSUS=1 ACTOR_CENSUS=1 MESH_CLIP_LEAN=1 PACE_FORCE=A LOGIC_TRACE=0
-  GAME_DECISION_TRACE=0`; behaviour build: the same with `LOGIC_TRACE=1 GAME_DECISION_TRACE=1`.
+  GAME_DECISION_TRACE=0`; behaviour build: the same with `LOGIC_TRACE=1 GAME_DECISION_TRACE=1`. (MESH_CLIP_LEAN=1 is
+  part of these measurement arms only; it is not in the play recipe.)
 - **Last tick:** the hwtrace Flycast exits right after the window's last frame, before the log reader drains it, so
   the trace log ended at 1568. `hwproject.sh --tail 3` keeps the emulator running and stops the reader (the tree's
   read_log.py, `RE4DC_LOG_STOP`) 3 frames later after a final drain; counts and traces are unchanged. A/A on H2
@@ -622,6 +637,9 @@ bash port/dreamcast/tools/d367/assets.sh discover r100 --repo <tree> --obj <OBJD
   with the host cc). `SECTOR=2048` writes `.iso` tracks. Either way the user data is
   2048-byte MODE1.
 - To test in Flycast, boot `disc.gdi` (evidence `gdemu-a`; control `gdemu-a-cue`).
+- Play discs come as two artifacts (2026-10-03): `<rNN>-title/disc.cue` (one MODE1/2048 track, 2048-byte logical
+  sectors; what the launchers boot in Flycast) and `<rNN>-gdemu/disc.gdi` (raw 2352-byte sectors; user data at
+  byte 16 of each sector). A Flycast boot of the CUE image does not validate the GDEMU TOC or physical media.
 
 ### Disc IO probe and door-load telemetry (`IO_PROBE=1`, default 0)
 

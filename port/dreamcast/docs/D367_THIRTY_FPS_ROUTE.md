@@ -21,6 +21,13 @@ checkpoints remain evidence.
 - **An ODE (GDEMU) may be required.** Ship GDI with 2048-byte data tracks, not
   CDI. Design for ms-class latency and 1.5-3 MB/s sustained reads, all async
   and prefetched. The G1 bus caps reads at about 10 MB/s.
+  - Disc artifacts (architect review 2026-10-03). "2048-byte data tracks" means 2048-byte MODE1 user data; the
+    stored sector size differs between the two images. The GDEMU image (`stage.sh GDI=1` / mkgdi.sh,
+    `SECTOR=2352` default; e.g. r21s-gdemu) has three tracks with raw 2352-byte sectors (16-byte sync + header,
+    2048 user bytes, EDC/ECC); track 3 starts at LBA 45000. The Flycast play image (e.g. r21s-title `disc.cue`) is one MODE1/2048 track of 2048-byte logical
+    sectors. Same data-track sector count (r21s: 458,648). Sector n of the data track is at byte n x 2352 + 16 of
+    track03.bin (GD LBA 45000 + n) and at byte n x 2048 of disc.bin.
+    A Flycast boot of the CUE image does not validate the GDEMU TOC, the raw tracks or physical media.
 - **Floating point:** `-ffp-contract=off` everywhere was approved (logic plan
   step 6B). Recapture the determinism baseline once. After that, O2 changes
   must be strictly identical.
@@ -83,7 +90,8 @@ From the play log (D:\RE4DC-Play\logs\game-20261002-163147.txt):
   the movie failed (terminal=3) and the cutscene was skipped silently.
   **MOVIE_HEAP_EVICT=1** (game30.mk, needs MOTION_OOM_EVICT and ROUTE_MOVIES): a movie staging allocation that
   fails evicts unpinned motion keys, least recently used first, and retries. The movie owns the frame, so nothing
-  animates; evicted keys reload from disc at their next use, as with MOTION_OOM_EVICT. Each of the decoder's two frames is also split into its three planes (largest piece 55,296 B; pl_mpeg local
+  animates (true for blocking movies such as this s30 cliff; not for stepped / QTE movies, see the 2026-10-03
+  correction below); evicted keys reload from disc at their next use, as with MOTION_OOM_EVICT. Each of the decoder's two frames is also split into its three planes (largest piece 55,296 B; pl_mpeg local
   option PLM_VIDEO_SPLIT_FRAMES), and the sound service's 32,800 B separation buffer gets the same eviction first.
   Route run route-s30d (r100 s20 + ambush + post-house call + the cliff, A at area 01): 17 motion keys evicted
   (251,360 B), the movie plays 340/340 with audio (dropped 0, HALT 0, MISSING 0) and the game continues into the
@@ -95,6 +103,19 @@ From the play log (D:\RE4DC-Play\logs\game-20261002-163147.txt):
   (route-pak7). The failure-only free map (route-hm1) put that hole next to the 131,168 B model preparation
   cache, rebuilt every frame and idle while the movie owns it. MOVIE_HEAP_EVICT now lends that cache first and
   allocates it again when the movie retires: route-hm4 / route-hm3 play 340/340, cache back, HALT 0.
+- Correction (architect review 2026-10-03; f845b301, 68d3b05a):
+  - **Blocking vs stepped movies.** A blocking movie (the r100 s30 cliff) owns the frame:
+    no game frame draws while it plays. A stepped / QTE movie (r104s00) does not: game frames keep drawing and may
+    ask for the lent cache during the loan.
+  - **"Cache back" means re-acquisition was attempted**, not that capacity returned. The loan is now owned by
+    ui_bridge.cpp (f845b301): while lent, a model draw is refused and counted without latching its one attempt.
+    At retirement the log says "model preparation cache back (N B), K model draws asked during the loan", or
+    "cache back FAILED (0 B) ... the next model draw retries". Before f845b301 a failed re-allocation latched the
+    attempt and the cache never came back for the rest of the session.
+  - **Stepped-movie gate: open.** MOVIE_LOAN_TEST=1 (test only, default 0) lends the cache at each movie's first
+    staging allocation. On the r104 QTE fixture no cache is held when the movies start (0 B to lend), so the
+    stepped case is not reproduced in Flycast. The r100 s30 cliff run shows the blocking loan: lent 131,072 B,
+    back 131,072 B, 0 draws asked.
 - Also from the same play: the house ambush runs 12-17 fps, and outdoors Fast pacing draws 17.7 fps by skipping
   about 2 frames in 5 (each drawn frame ~43 ms against the 33 ms tick), which reads as skippy. Hold R + START cycles
   Smooth / Fast / Off.
@@ -123,7 +144,9 @@ drawn with diagonal seams, and the floor smeared.
   an opaque draw after the translucent list opened; the PVR cannot reopen a closed list). **CLOSED_PASS_KEEP=1**
   (game30.mk, render only, in build-r21.sh) keeps the packet in the open list (the TA latches the list type at the
   list's first header, so the packet draws with its own blend) and logs "PS2PASS kept ... ra=" for the root fix. The
-  late opaque caller is still unknown.
+  late opaque caller is still unknown. Correction (architect review 2026-10-03): CLOSED_PASS_KEEP is a
+  crash-avoidance fallback, not proof of correct rendering. Ordering, alpha and depth for a kept opaque or
+  punch-through packet in the translucent list are unresolved; each caller needs its own visual gate.
 - **Loading (same play):** after the s03 and s20 cutscenes the area change reloads 157 / 203 textures (4.9 / 6.1 s), and
   running around loads 644 more while the pool is full (2.44 MB budget). TEX_USE_CENSUS=1 (test only) counts the
   resident set the last 2 s / 20 s drew: at the r100 cliff 146 of 178 resident textures (1.69 of 2.13 MB) were idle
@@ -153,6 +176,18 @@ drawn with diagonal seams, and the floor smeared.
   index handle it stayed open and an audio-stream start then failed a texture upload ("Previous DMA request is in
   progress"). Unaligned reads avoid the stream but cost ~16 ms a sector (route-pak5: preload 4.5 s). Index reads
   now go through re4dc::texture::read_file_range: its own handle, closed before returning, after the IO_SERIAL wait.
+- **Pack failure policy (architect review 2026-10-03; 766a5fa5, 13eaccec).** "Per file after a pack failure" is
+  only safe on a loose-file disc: play discs made by pack-fixture.sh drop the packed loose files.
+  - **Absent** (fs_open fails): per-file loads, as before. Fine on a loose-file disc.
+  - **Read error** (header, an index sector at init, or a lookup's sector): no texture this time; the key is not
+    marked missing, nothing is evicted, the loose file is not probed. Init retries 3 times, then once per room load.
+  - **Invalid** (bad magic / version / count / offsets / extents / key order / index CRC): one loud
+    "tex pack: ... INVALID: <why>" line, then per-file loads. On a packed-only disc that means missing textures.
+  - Known weakness (measured in Flycast): if 3 header reads fail in a room that never changes,
+    that room has no pack textures until the next room load.
+  - Tools: `texpack.py --verify <pak>` runs the runtime's checks plus each package's magic. pack-fixture.sh
+    (13eaccec) writes content-addressed verified packs `<name>.<sha16>.pak` with a provenance manifest beside
+    them, and refuses to overwrite an output fixture without `--replace`.
 - Next for loading (U4 step 2): coalesce a room's preload into a few long reads (its packages are scattered over
   the pack; ordering the pack by room would make the room pass one sequential read).
 
@@ -181,9 +216,14 @@ plus per vertex:
 
 **Vertex buffer.** It is a pvr_init VRAM allocation, not a hardware constant.
 - dca3 uses 2 MiB per bank x2 with an adaptive per-meshlet guard.
-- We currently use 1 MiB, which r100 exceeds on hardware even after LOD.
-- Larger buffers are blocked by UI texture VRAM: the UI cache holds 3.0-3.6 MB
-  at the title screen.
+- Historical (2026-09-23): "We currently use 1 MiB, which r100 exceeds on hardware even after LOD. Larger buffers
+  are blocked by UI texture VRAM: the UI cache holds 3.0-3.6 MB at the title screen." Superseded by UI_VRAM=1
+  + tex-vq3 (700e2d0, item 16 below).
+- Current (architect review 2026-10-03): the reviewed recipe (build-r21.sh) uses `TA_VERTBUF_KB=2048` with
+  `TA_DOUBLEBUF=1`, i.e. 2 MiB x 2 TA banks, sharing VRAM with the UI texture pool. While a sub screen is open the
+  TA drops to one bank and the sub screen owns bank 1: SS_PACK=1 packs its 3 MiB area LZ4 into bank 1 (r100
+  post-house call 1,824,352 B) and takes pool blocks only if a state packs worse. Capacity evidence: TA input
+  peak 1.67 MB in the r101 fight against the 2 MiB bank ("Hardware readiness").
 
 **Overflow.** A parameter or object-list overflow means that frame cannot be
 drawn. Kamui never overflows.
@@ -282,7 +322,7 @@ Worth porting (with estimated hardware savings):
    - Proof: FRONT_NATIVE=2 compares every model part bit-exactly (0 mismatches over 349,713 parts); the logic trace is STRICT.
    - Ceiling: -11.8 if the whole model front end goes. Left for v2: per-TPL texture objects (~0.9), bridge build, and the HUD unitTrans O(n^2) scan (0.46).
    - Finding: effects are never drawn on DC. EspCommonTrans ends in a no-op GXCallDisplayList stub, so part of its ~1.5-2 hw ms is dead work. Most of it must be kept, because the bridge reads the m_Mat and ChannelSet colour results, so EFFECT_LEAN is estimated at only -0.4 to -0.6 hw ms (another -0.4 to -0.5 if nothing reads m_Mat).
-   - Native effect sprites (the default and sub-rectangle sprite paths: fire, smoke, blood, sparks, muzzle flash, weather) are estimated at +0.3 to +0.5 hw ms in r100 (~200-230 sprites, ~20 KB TA) and +0.5 to +1.0 in an r101 fight (300-450 sprites). That's roughly cost-neutral with EFFECT_LEAN. Effect VRAM and translucent fill (large fog sheets, ~1.5 ms PVR each) are unmeasured. User decision pending.
+   - Native effect sprites (the default and sub-rectangle sprite paths: fire, smoke, blood, sparks, muzzle flash, weather) are estimated at +0.3 to +0.5 hw ms in r100 (~200-230 sprites, ~20 KB TA) and +0.5 to +1.0 in an r101 fight (300-450 sprites). That's roughly cost-neutral with EFFECT_LEAN. Effect VRAM and translucent fill (large fog sheets, ~1.5 ms PVR each) are unmeasured. User decision pending. (Historical: decided 2026-09-23 and landed: EFFECT_SPRITES=1 a0a32aa, COARSE_FX_SPRITES=2, EFFECT_ROOM=7, all in build-r21.sh. Current scope keeps gore and effects; do not count these gains again.)
    - Effect creation and movement draw from the shared game random-number stream, so logic-side effect caps break the STRICT trace. Only the draw side is safe to gate.
 2. one straight per-part emission loop instead of the packet/defer layer (-5 to -6);
 3. precompiled HUD headers (~-1.5);
@@ -323,6 +363,9 @@ scenery with better textures, nearer fog and a backdrop -> square PVS -> queued 
 (`re4-research\RE4_DC_30FPS_RETHINK_2026-09-25.md`; budget G <= 24 + R <= 6 + 3.33 margin per tick).
 **Baseline correction (user review):** gameplay preservation is judged against the uncapped encounter
 (ACT_CAP=0). The first capped arms (ACT_CAP=6) throttled parked Ganados and understated G by 4.82 ms.
+ACT_CAP scope (architect review 2026-10-03): the 2026-09-24 approval is historical and covers the r101 square only;
+the r100 house cap arm (H2, `late 0x08`) is a diagnostic spike; adopting ACT_CAP in a play recipe is a separate
+decision (build-r21.sh has ACT_CAP=0). Capped results are reported apart from ACT_CAP=0 preservation claims.
 Status, uncapped, same stack, hw ms:
 - Step 1, qualified no-draw boundary: PACE_TRANS_SKIP=4063, **G_q = 37.52** (capped 32.70).
 - Step 2, the coarse square COARSE=1 v0.4: world from collision, ribbon actors, effect markers, source
@@ -376,6 +419,14 @@ Status, uncapped, same stack, hw ms:
   (cl42: W 50.55, R 19.89, 4.0 fps paced; STRICT); next is the vl lane's vertex loop. Further mesh gains
   need new assets (the external agent). Plan doc,
   "Reduced characters and the character path".
+- WP2 Leon pair (2026-10-03, architect review follow-up; hwsim projections in Flycast, not console measurements).
+  Image H2 (r100 house, Leon's radio-call close-up), ticks 1450..1569, all 120 frames traced, ACT_CAP=0, build
+  impl-w2c, one binary: Leon by the native 4K cast 49.55 ms work per tick vs the old per-part source path 56.64,
+  7.09 ms saved (low-high 5.48-9.25). The old path came back because after the s20 cutscene Leon's material-lifetime
+  records are dropped (a part swap at about UI frame 684, a heap teardown at about 1211) and nothing re-proves them.
+  The existing default-off CROWD_READOPT=2 re-proves them with the load-time proof. Adopting it in the play recipe
+  is a coordinator/user decision; it also changes the r100 post-cutscene Leon from the source mesh to the 4K cast,
+  as already drawn in r101/r103.
 - The calibration disc c8 is in `D:\RE4DC-HWCAL` with the model's predictions (hwcal PREDICTIONS.md).
   It awaits the user's console run.
 - Landed f4da5fd (default off; knob-off identity, tr42 carry-over): frame pacing (PACE_CATCHUP), PACE_TRANS_SKIP,
@@ -401,6 +452,18 @@ Asset exploration (PS2/Blender) is parked after the house images.
 ## Frame pacing (2026-09-23, design-pacing/DESIGN.md)
 
 The game runs one logic tick per rendered frame (main.cpp waits for GetSystemVcnt()=2 vsyncs; no catch-up, no delta time), so any frame over 33.3 ms is slow motion: 20 fps = 67% speed. Chosen: render skip / catch-up (PACE_CATCHUP), with logic at 30 Hz by the vsync clock and draws skipped when behind (at most 2 ticks per drawn frame, 15 fps floor knob). ModelRender plus its deferred draws is ~90% of non-logic work and writes nothing logic reads. Trans() can't be skipped (Filter08Trans uses the shared RNG), and ShadowTrans, Espgen45, TexRender, Filter00/03 and drawLaserSight write logic-read state. Stages: v1 (ModelRender + native frame; 24.3 hw ms/tick left, Standard quiet), v2 (+ModelTrans; 20.7), v3 (+effect/HUD callbacks; 16.5; needs trace digests). Estimates: Standard quiet 43 hw ms -> v2 100% speed at 17 fps, v3 at 19 fps (today 78% at 23 fps). Fights: logic alone is 71/82/93% of the CPU at 4/6/8 engaged Ganados, so no pacing gives full speed there: 43-51% speed at 13-15 fps with the floor, 59-71% at 9-11 fps without. The corrected Standard fight frame is ~65 hw ms (the earlier ~53 used area-method logic). v1 + v2 were built in the private tree and landed on 2026-09-25 as f4da5fd, default off (play discs pass `PACE_CATCHUP=2 PACE_MODE=fast PACE_CAP=2`; the Options row is a later item).
+
+**Tick vs drawn image (architect review 2026-10-03).** "One logic tick per rendered frame" above describes the
+original loop. Terms from now on:
+- a **logic tick** is one 33.3 ms game update; a **drawn image** is one presented frame;
+- with active pacing (PACE_CATCHUP=2, Fast / Smooth) ticks run without draws, so fps and game speed are separate
+  numbers;
+- capacity per second of game time is **30 x G + F x R <= 1000 ms** (G = work per tick, R = render work per drawn
+  image, F = drawn images a second). Admission uses direct cadence measurements (new images a second, game speed),
+  not the formula;
+- G / R values and the quiet / coarse / fight estimates in this document belong to their own images (Standard quiet,
+  the coarse square, the kite fight). They do not transfer to the house images H and H2 (checklist "Benchmark
+  fixtures") or to the r21s play image; measure each image.
 
 User decision 2026-09-24: TA_DOUBLEBUF (async TA double buffer, ~12.5 ms/frame of stream_open wait removed; hw projection ~16 -> 20 fps at the 50 ms target) is adopted and option C (single-bank PVR layout, bigger texture pool) is dropped. It lands after sub-screen option (b) (single-bank TA while a sub screen is open) and a matched-window hwproject pair.
 
@@ -470,7 +533,9 @@ Progress 2026-09-28. **Landed r19 -> r21** (user: "Yes land"): the Codex continu
 (4fb68a8: actor transaction/owner path, the PS2 r101 world drawer PS2_WORLD_DRAW, manual pages, pad prompts, VMU
 dialog), r20 (8745fac: PS2_WORLD_KERNEL, UI_HUD_MASK), r21 (09e6175: the PS2 world converted to R4IM v3 and drawn by
 MeshDraw, PS2_WORLD_MESH; 64-vertex meshlets and UI_HUD_LENS_ALPHA=230 user-adopted; MEMPROF) and coarse_finite
-(36e28e0). All knobs default off; the r21 recipe is tools/d367/build-r21.sh. A clean build of 36e28e0 passes STRICT vs
+(36e28e0). All knobs default off; the r21 recipe is tools/d367/build-r21.sh. (2026-10-03, 8f34aa63: it now writes
+`$OUT/resolved-knobs.txt` with make's own resolved values, whose path route-build.sh records in programs-route.json;
+MODEL_DRAW_PLANS is forced to 1 by the D349_RENDERER_STACK=1 override in the Makefile, whatever the line says.) A clean build of 36e28e0 passes STRICT vs
 r20k3w over ticks 0..1941 (kite-r21land). Private source data stays outside git: ganado_source_extras.h and
 vmu_dialog_english.inc come from the private asset dir (VMU_DIALOG_TEXT_DIR, default COARSE_ACTOR_ASSET_DIR). The shared
 checkout's dirty overlay: 57 of its 71 modified files now equal dreamcast-port; 14 still differ.
@@ -493,7 +558,9 @@ kite-r21lzt; on in tools/d367/build-r21.sh. Next: a software-pipelined meshlet t
 ~64 cycles/vertex with fsrra), the near-plane clipper (~20% of MeshDraw::draw for ~170 strips/frame).
 MESH_CLIP_LEAN (exact in pixels): 94% of the strips reaching the near/far clipper were wholly outside one
 frustum plane (ground under the camera); they are dropped by a homogeneous test, and each clipped corner is computed
-once: 91.5 -> **88.4** hw ms, accepted strips identical, STRICT kite-r21clt. World distance detail is on (MESH_LOD;
+once: 91.5 -> **88.4** hw ms, accepted strips identical, STRICT kite-r21clt. Recipe truth (architect review
+2026-10-03, 8f34aa63): MESH_CLIP_LEAN is **not** in the play recipe (build-r21.sh's make line never had it; game30.mk
+default 0; the recipe header that claimed it is corrected). Adopting it is a separate decision that needs the current route gate. World distance detail is on (MESH_LOD;
 Standard uses QUALITY_LOD_PX = 5 px, MESH_LOD_PX only applies to Original): 10 px 86.4, 1000 px (coarsest level
 everywhere) 84.4, so world LOD is worth at most ~4 ms in the kite square (near geometry dominates).
 Trap: never seed an objdir from another tree's objdir (its .d files name the old targets; edited includes keep stale
@@ -635,6 +702,10 @@ User decisions (2026-09-23):
   - Simplified house shells (item 21, MESH_TEXTURES=1): the mid mesh with a 512 VQ texture (66 KB per house), used everywhere with no near swap. -0.71 hw ms for FILE_01/17+18; ~-1.6 to -1.8 projected for all FILE_01. Step 5.
   - Effects: bring back native sprites for muzzle flash, blood and fire (+0.5 to 1.0 hw ms), together with EFFECT_LEAN. Step 4.
   - Cutscene subtitles: no, for now.
+  - **Historical (architect review 2026-10-03):** the Low / Original mode items below are not current scope. Current
+    scope: gore and effects kept, Standard quality only, `QUALITY_PICKER=0` (no boot picker; play recipe in the
+    checklist). Gains that have since landed (kernels, batching, preloading, effect sprites) are not future
+    options; do not count them again.
   - **Low setting mode (requested 2026-09-23):** a pre-game debug-menu toggle (Normal / Low, plus per-feature switches) that turns on the aggressive options: full replacement of the GC model drawing path, the Leon rebuild plus low-poly Ganados, and occlusion.
     - Normal targets 20 fps; Low pushes toward 30 fps (33 ms hw).
     - The switches are runtime, not compile-time. Only the selected asset set is resident. The logic trace is STRICT across modes.
@@ -660,7 +731,7 @@ User decisions (2026-09-23):
   - **Rejected:** reduced animation/skin update rates for any actor ("might throw off gameplay"). Crowd tiers vary geometry and shading only; every actor's pose updates every frame. This supersedes the earlier "skinned every other/3rd-4th frame" crowd tiers.
 - **Enemy/object census (aligned):**
   - Take the SAFE cuts: r103 corpses and the r100 gore object off via the JP path (CUT_GORE); effect and decal caps; no foot shadows; car and police props static.
-  - Cap concurrent active Ganados in r101 (ACT_CAP, N=4/6/8 trials, ~12 hw ms estimate). Parked Ganados stay alive for every counter; engaged or visible threats are never parked.
+  - Cap concurrent active Ganados in r101 (ACT_CAP, N=4/6/8 trials, ~12 hw ms estimate). Parked Ganados stay alive for every counter; engaged or visible threats are never parked. (Historical r101 item; capped arms throttle parked Ganados, see "Baseline correction" under the 30 fps rethink.)
   - Never cut: the r100 s03 Ganado; ESL entries 3/4/5 and 0x25; any r101 initial Ganado; the r101 kill/timer/wave logic; linked breakables.
   - Don't remove wave members: phantom kills (5 per wave) would shorten the fight.
   - Found alongside: with 10 Ganados on screen, texture_package.cpp costs 71.5 ms/frame in Flycast. It goes to the texture-hitch fix (preload per room, O(1) handles).
@@ -720,6 +791,10 @@ console calibrate them.
 rest of the way to 33 ms on hardware.
 
 ## Plan to 30 fps
+
+Historical (2026-09-23; architect review 2026-10-03): steps 2-5 below have largely landed (FP 6B + GAME_O2,
+FRONT_NATIVE / FRONT_LEAN, COPY_LEAN, PVR_PIPELINE=2 + PACE_CATCHUP, UI_VRAM + 2 MiB banks) and are in
+build-r21.sh; do not count them as future gains. The current plan is "30 fps rethink" above and D367_SQUARE_PERF_PLAN.md.
 
 Steps are ordered by expected frame-time gain.
 
