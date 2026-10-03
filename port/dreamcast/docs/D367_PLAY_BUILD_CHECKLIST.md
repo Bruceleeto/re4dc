@@ -22,6 +22,12 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
   (an opaque draw after the translucent list no longer halts; a crash-avoidance fallback with unresolved
   ordering / alpha / depth, not proof of correct rendering: each caller needs a visual gate) and `PS2_PRELOAD_LEAN=1` (PS2 world rooms preload
   the package's textures, not the replaced GameCube scenery's).
+- Crowd knobs (user 2026-10-03, implementation handoff WP2): build-r21.sh sets `CROWD_READOPT=2 CROWD_CULL=1
+  CROWD_FOGSKIP=1`. Leon re-proves his native-cast records after the r100 s20 cutscene (H2 -7.09 hw ms; the r100
+  post-cutscene Leon is now the 4K cast, as in r101/r103); Ganados outside the view or past the fog are not drawn.
+  Gate on ed818b8e: STRICT H2 120/120 + r100 1391/1391, r101 bell 120/120 + r101 941/941; route checks r100 calls,
+  r101 bell, r103 entry HALT 0 MISSING 0; Leon captures (aim, fire, reload, walk, damage) normal. The recipe image
+  equals the gated build (.text/.data/overlay identical, 5 __TIME__ bytes).
 - Texture pack (2026-10-03): build-r21.sh sets `TEX_PACK=1`; a play disc stages the pack fixture made by
   `tools/d367/route/pack-fixture.sh tour/play/<fixture> <arm> tour/play/<fixture>-pak.json` (re-run whenever the
   fixture's or the base disc's textures change). Without dc/tex.pak the build loads per file, as before.

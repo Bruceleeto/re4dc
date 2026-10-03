@@ -427,6 +427,12 @@ Status, uncapped, same stack, hw ms:
   The existing default-off CROWD_READOPT=2 re-proves them with the load-time proof. Adopting it in the play recipe
   is a coordinator/user decision; it also changes the r100 post-cutscene Leon from the source mesh to the 4K cast,
   as already drawn in r101/r103.
+  **Adopted (user 2026-10-03):** build-r21.sh sets CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1. Gate (impl lane,
+  builds from ed818b8e): STRICT H2 120/120 (1450..1569), 100/100 (1300..1399), whole r100 1391/1391; r101 bell
+  120/120 (1000..1119), 100/100 (900..999), whole r101 941/941; route checks r100 calls (movies complete, cliff
+  loan back), r101 bell, r103 entry HALT 0 MISSING 0; Leon captures normal (one two-toned hair frame at a hit, in
+  r101 where the cast was already drawn: not these knobs). r101 kite STRICT skipped (D: floor). Gore stumps take
+  the whole source path (crowd lane note; not exercised in the captures).
 - The calibration disc c8 is in `D:\RE4DC-HWCAL` with the model's predictions (hwcal PREDICTIONS.md).
   It awaits the user's console run.
 - Landed f4da5fd (default off; knob-off identity, tr42 carry-over): frame pacing (PACE_CATCHUP), PACE_TRANS_SKIP,

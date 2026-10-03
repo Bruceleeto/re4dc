@@ -22,6 +22,9 @@
 # per file otherwise (r100 room entry 6.5 -> 2.7 s).
 # MOVIE_WINDOW=1 (route lane 2026-10-02): a route movie's VRAM claim releases one cheapest window of room textures
 # (and only the picture's rows) instead of 0.5-1.1 MB of LRU uploads that reloaded after every movie.
+# CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 (user 2026-10-03, implementation handoff WP2): Leon re-opts into the
+# native actor path (H2 -7.09 hw ms), crowd members outside the view and past the fog are not drawn. Gate on ed818b8e:
+# H2 STRICT 120/120 + whole room 1391/1391, r101 bell STRICT, r100 calls / r101 bell / r103 entry HALT 0 MISSING 0.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -73,6 +76,7 @@ R21=(
   MOTION_RESERVE_SPILL=524288 COARSE_FX_SPRITES=2 COARSE_SCENERY_FALLBACK=1 AVK_RIGID6=1 GAME_WPAL_FAST=3
   GAME_SK1_ASM=1 ACTOR_STATS_LEAN=1 PS2_WORLD_DRAW=1 TA_GUARD=0 PS2_WORLD_KERNEL=0 PS2_WORLD_MESH=1
   PS2_WORLD_ROOMS=2 TEX_KEEP=1 IO_ALIGNED=1 DVD_WAIT=1 UI_HUD_MASK=1 UI_HUD_LENS_ALPHA=230 EFFECT_ROOM=7
+  CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1
   TEX_SLOTS=448 MOVIE_WINDOW=1 IO_SERIAL=1 CRASH_SCREEN=1 SS_PACK=1 MOVIE_HEAP_EVICT=1 CLOSED_PASS_KEEP=1
   PS2_PRELOAD_LEAN=1 TEX_PACK=1
 )
