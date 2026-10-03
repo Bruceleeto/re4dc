@@ -121,18 +121,21 @@ extern "C" unsigned re4dc_model_release_retained() __attribute__((weak));   // u
 // ui_bridge.cpp owns the loan: 1 when this movie had it (bytes restored, model draws that asked during the loan).
 extern "C" int re4dc_model_return_retained(unsigned* bytes,unsigned* requests) __attribute__((weak));
 #if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
-unsigned loan_test_id;   // test only: the movie whose first staging allocation was refused (+1)
+unsigned loan_test_id;   // test only: the movie that lent the cache at its first staging allocation (+1)
 #endif
 #endif
 void* stage_alloc(size_t n){
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
 #if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
-    // MOVIE_LOAN_TEST=1 (test only, game30.mk): each movie's first staging allocation is treated as failed, so
-    // the model preparation cache is lent even where heap 4 has room (the stepped-movie ownership test).
-    if(p && loan_test_id!=m.id+1){
-        loan_test_id=m.id+1;re4dc_ui_stage_free(p);p=nullptr;
-        re4dc_log("route movie heap: test: first staging allocation of %05x refused (need=%u)\n",m.id,(unsigned)n);
+    // MOVIE_LOAN_TEST=1 (test only, game30.mk): at each movie's first staging allocation the model preparation
+    // cache is lent although heap 4 had room (the stepped-movie ownership test); the allocation itself is kept, so
+    // a movie still plays when there is no cache to lend.
+    if(p && loan_test_id!=m.id+1 && re4dc_model_release_retained){
+        loan_test_id=m.id+1;
+        const unsigned lent=re4dc_model_release_retained();
+        re4dc_log("route movie heap: test: %05x lends the model preparation cache (%u B; need=%u had room)\n",m.id,lent,
+                  (unsigned)n);
     }
 #endif
     // Heap 4 short or fragmented (r100 s30 after the ambush: 257,568 B free for 363 KB, the largest piece under

@@ -101,7 +101,7 @@ MOTION_OOM_EVICT ?= 0
 # The loan is explicit state in ui_bridge.cpp: while lent no model draw takes the cache back or latches its one
 # attempt (a stepped movie's game frames keep drawing); the movie's retirement ends the loan and allocates again
 # ("cache back (N B), K model draws asked during the loan"; 0 B is a failure line, retried at the next draw).
-#   MOVIE_LOAN_TEST=1 (test only, default 0): each movie's first staging allocation is refused, forcing the loan.
+#   MOVIE_LOAN_TEST=1 (test only, default 0): each movie lends the cache at its first staging allocation (heap 4 had room).
 MOVIE_HEAP_EVICT ?= 0
 MOVIE_LOAN_TEST ?= 0
 ifneq ($(MOVIE_HEAP_EVICT),0)
