@@ -90,6 +90,11 @@ From the play log (D:\RE4DC-Play\logs\game-20261002-163147.txt):
   examine view ("I hope they got out in time."). With whole frames (route-s30b) the same 17 keys went and no 83 KB
   piece appeared; with planes but no room for the buffer (route-s30c) the sound service could not start.
 - Both knobs are in the play recipe (build-r21.sh); with them off the image is unchanged.
+- 2026-10-03 (TEX_PACK builds, r21r): the route reached the cliff at another frame and the LRU keys (166 KB)
+  never joined into the second 55,296 B luma plane: 197 KB free, largest hole 40,736 B, the cutscene skipped
+  (route-pak7). The failure-only free map (route-hm1) put that hole next to the 131,168 B model preparation
+  cache, rebuilt every frame and idle while the movie owns it. MOVIE_HEAP_EVICT now lends that cache first and
+  allocates it again when the movie retires: route-hm4 / route-hm3 play 340/340, cache back, HALT 0.
 - Also from the same play: the house ambush runs 12-17 fps, and outdoors Fast pacing draws 17.7 fps by skipping
   about 2 frames in 5 (each drawn frame ~43 ms against the 33 ms tick), which reads as skippy. Hold R + START cycles
   Smooth / Fast / Off.
