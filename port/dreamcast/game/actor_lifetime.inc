@@ -138,9 +138,17 @@ extern "C" void re4dc_actor_archive_retire_transient() {
     using namespace re4dc_material::life;
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && archives[k].family==2)revoke(k);
 }
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+void atd_drop(const char*,const re4dc_material::life::Info&,const void*,unsigned,const void*);
+#endif
 extern "C" void re4dc_actor_info_retire(const void* p) {
     using namespace re4dc_material::life;
-    if(auto* i=find_info(p)){*i={};changed();}
+    if(auto* i=find_info(p)){
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+        atd_drop("info_retire",*i,static_cast<const cModelInfo*>(p)->pData,0,__builtin_return_address(0));
+#endif
+        *i={};changed();
+    }
 }
 #if RE4DC_CROWD_CENSUS
 // Lane crowd census (diagnostic): why infos stay unadopted (every owner-path plan of their actor then fails at
@@ -183,10 +191,72 @@ extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
     for(auto& slot:infos_live)if(!slot.info){slot=found;changed();CROWD_LIFE(++crowd_adopt_ok);return;}
     CROWD_LIFE(++crowd_adopt_fail[3]);
 }
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+extern "C" unsigned re4dc_ui_frame();
+extern "C" void re4dc_log(const char*,...);
+// WP2 census (diagnostic): why an info has no live record, as the first re4dc_actor_info_adopt clause that fails
+// now (1 exhausted, 2 no recorded asset for pData, 3 asset not current, 4 no row for the asset's templates,
+// 5 no archive TPL entry equal to tpl_addr, 6 TPL entry not owned, 7 ambiguous owner, 0 would adopt now).
+// One line per info / pData / tpl / reason.
+extern "C" void re4dc_actor_txdiag_info(const cModel* m,const cModelInfo* info,unsigned index) {
+    using namespace re4dc_material;using namespace life;
+    unsigned code=0,detail=0;
+    unsigned ai=0;while(ai<kAssets && assets[ai].data!=info->pData)++ai;
+    if(exhausted)code=1;
+    else if(ai==kAssets) {
+        // detail = family<<12 | BIN entry number of pData in a live archive (0 = not in one)
+        code=2;
+        for(unsigned k=0;k<kArchives && !detail;++k) {
+            const auto& o=archives[k];if(!o.key || !span(o.base,o.bytes,info->pData,1))continue;
+            for(unsigned no=4;no<4+4096 && no-4<u32at(o.base,0);++no) {
+                const unsigned char* p=nullptr;unsigned n=0;
+                if(entry(o,no,"BIN",p,n) && p==reinterpret_cast<const unsigned char*>(info->pData)){detail=o.family<<12|no;break;}
+            }
+        }
+    }
+    else if(!current(assets[ai])){code=3;detail=ai;}
+    else {
+        const auto& a=assets[ai];bool row=false,tpl=false,owned=false;const unsigned char* first=nullptr;unsigned owner=kArchives;
+        detail=a.templates;
+        for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]) && !code;++r) {
+            bool match=false;
+            for(unsigned t=0;t<sizeof(source_blobs)/sizeof(source_blobs[0]);++t)
+                if((a.templates&(1u<<t)) && source_blobs[t].model==roles[r].model)match=true;
+            if(!match)continue;row=true;
+            for(unsigned k=0;k<kArchives;++k) {
+                const auto& o=archives[k];if(o.family!=(roles[r].appearance==256?1u:2u))continue;
+                const unsigned char* p=nullptr;unsigned n=0;
+                if(!entry(o,roles[r].source_tpl,"TPL",p,n) || p!=info->tpl_addr)continue;tpl=true;
+                if(!tpl_owned(o,p,n,roles[r]))continue;
+                if(first && (owner!=k || first!=p)){code=7;break;}
+                owned=true;first=p;owner=k;
+            }
+        }
+        if(!code)code=!row?4u:!tpl?5u:!owned?6u:0u;
+    }
+    static struct { const void* info; const void* data; const void* tpl; unsigned code; } seen[32];
+    static unsigned nseen;
+    for(unsigned k=0;k<nseen;++k)if(seen[k].info==info && seen[k].data==info->pData && seen[k].tpl==info->tpl_addr && seen[k].code==code)return;
+    if(nseen<32)seen[nseen++]={info,info->pData,info->tpl_addr,code};
+    re4dc_log("ATX_INFO f=%u m=%p id=%02x idx=%u info=%p data=%p tpl=%p why=%u detail=%x\n",re4dc_ui_frame(),m,
+              m?unsigned(m->id):0u,index,info,info->pData,info->tpl_addr,code,detail);
+}
+// Who dropped a live Leon record (appearance 256 rows; bounded): info_retire's caller or a forget_range span.
+unsigned atd_drops;
+void atd_drop(const char* how,const re4dc_material::life::Info& rec,const void* a,unsigned b,const void* ra) {
+    using namespace re4dc_material;
+    unsigned leon=0;
+    for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)if(roles[r].appearance==256 && (rec.roles[r/32]&(1u<<(r%32))))leon|=1u<<roles[r].role;
+    if(leon && atd_drops++<48)re4dc_log("ATX_DROP f=%u %s info=%p roles=%02x a=%p b=%u ra=%p\n",re4dc_ui_frame(),how,rec.info,leon,a,b,ra);
+}
+#define ATD_DROP(how,rec,a,b) atd_drop(how,rec,a,b,__builtin_return_address(0))
+#else
+#define ATD_DROP(how,info,a,b) ((void)0)
+#endif
 extern "C" void re4dc_actor_forget_range(const void* p,unsigned bytes) {
     using namespace re4dc_material::life;if(!p || !bytes)return;
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && overlap(p,bytes,archives[k].base,archives[k].bytes))revoke(k);
-    bool hit=false;for(auto& i:infos_live)if(i.info && overlap(p,bytes,i.info,sizeof(cModelInfo))){i={};hit=true;}
+    bool hit=false;for(auto& i:infos_live)if(i.info && overlap(p,bytes,i.info,sizeof(cModelInfo))){ATD_DROP("forget_range",i,p,bytes);i={};hit=true;}
     for(auto& b:bindings)if(b.model && (overlap(p,bytes,b.model,sizeof(cModel)) || span(p,bytes,b.parts,1))){b={};hit=true;}
     if(hit)changed();
 }
@@ -262,6 +332,9 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
         // an info that fails the proof stays unadopted and its actor keeps the source path.
         // =1: Ganados only (Leon keeps whichever path he has today); =2: Ganados and Leon (appearance 256).
         if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
+#endif
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+        if(!i)re4dc_actor_txdiag_info(m,p,n-1);
 #endif
         if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;

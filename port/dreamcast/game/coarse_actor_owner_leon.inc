@@ -41,6 +41,37 @@ bool owner_leon_bind(cModel* m) {
            !coarse_finite((&parts[i]->mat[0][0])[j]))return false;
     return true;
 }
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+// WP2 census (diagnostic): the first owner_leon_bind clause that fails, in its order; detail = part index etc.
+unsigned owner_leon_bind_why(cModel* m,unsigned* detail) {
+    *detail=0;
+    if(!m)return 1;
+    if(m->id)return 2;
+    if(m->nParts!=119){*detail=m->nParts;return 3;}
+    if(!m->pList)return 4;
+    if(!m->pParts)return 5;
+    if(m->be_flag&0x4000)return 6;
+    cModelInfo* roles[8]{};
+    if(!re4dc_actor_role_bindings(m,0x100,roles,8))return 7;
+    if(!re4dc_actor::exact_infos(m->pModelInfo,roles,8)){
+        for(cModelInfo* f=m->pModelInfo;f && *detail<999;f=f->pList)++*detail;
+        return 8;
+    }
+    if(!re4dc_actor_binding_revision(m))return 9;
+    cParts* part=m->pList;
+    for(unsigned i=0;i<119;++i) {
+        if(!part){*detail=i;return 10;}
+        for(unsigned j=0;j<12;++j)if(!coarse_finite((&part->lt_inv_mat[0][0])[j]) ||
+            __builtin_fabsf((&part->lt_inv_mat[0][0])[j]-leon4k::bind[i][j])>.01f){*detail=i*16+j;return 11;}
+        part=part->pList;
+    }
+    if(part)return 12;
+    part=m->pList;
+    for(unsigned i=0;i<119;++i,part=part->pList)for(unsigned j=0;j<12;++j)
+        if(!coarse_finite((&part->lt_inv_mat[0][0])[j]) || !coarse_finite((&part->mat[0][0])[j])){*detail=i;return 13;}
+    return 0;
+}
+#endif
 int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
     if(!owner_leon_bind(m) || !skin_init())return 0;
     for(unsigned i=0;i<8;++i)if(p.info[i]!=infos[i] || !output[i])return 0;

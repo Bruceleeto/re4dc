@@ -112,6 +112,64 @@ bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
     // Geometry signatures do not prove unchanged materials, costumes or TPLs.
     return re4dc_actor_material_certificate(m,&p)!=0;
 }
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+// WP2 census (diagnostic): actor_semantics' first failing clause, in its order (a read-only twin; the admission
+// decision is still actor_semantics'). detail: the info index, run index or flag word involved.
+extern "C" void re4dc_actor_txdiag_why(const cModel*,const char*,unsigned,unsigned);
+unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail) {
+    *detail=0;
+    if(!m->pParts)return 1;
+    if(!p.count || p.count>8 || !p.palettes){*detail=p.count;return 2;}
+    if(m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)return 3;
+    if(m->alpha_omit!=255){*detail=m->alpha_omit;return 4;}
+    if(m->z_mode!=0 || m->CullMode || m->Shader_type){*detail=(unsigned(m->z_mode)<<16)|(unsigned(m->CullMode)<<8)|unsigned(m->Shader_type);return 5;}
+    if(m->AddAmb_r || m->AddAmb_g || m->AddAmb_b){*detail=(unsigned(m->AddAmb_r)<<16)|(unsigned(m->AddAmb_g)<<8)|unsigned(m->AddAmb_b);return 6;}
+    if(m->be_flag&(0x4000u|0x00020000u)){*detail=m->be_flag;return 7;}
+    if(!re4dc_actor::exact_infos(m->pModelInfo,p.info,p.count)){
+        for(const cModelInfo* f=m->pModelInfo;f && *detail<999;f=f->pList)++*detail;
+        return 8;
+    }
+    if(!p.material_count || p.material_count>kRe4dcActorMaterials || !p.run_count || p.run_count>kRe4dcActorRuns)return 9;
+    if(pG->Status_flg[1]&0x100)return 10;
+    if((pG->Status_flg[2]&0x00100000) && (m->be_flag&0x02000000) &&
+       !(pG->Disp_flg&0x00040000) && (pG->Status_flg[1]&0x200))return 11;
+    unsigned palette_bytes=0,workspace_bytes=0;
+    for(unsigned i=0;i<p.count;++i) {
+        auto* info=p.info[i];*detail=i;
+        if(!info || !info->pData)return 12;
+        if(info->invisible_factor!=1.0f)return 13;
+        if(info->blend_mode){*detail=i<<16|info->blend_mode;return 14;}
+        if(info->colorWord!=0xffffffffu){*detail=info->colorWord;return 15;}
+        if(info->flagsDC){*detail=i<<16|info->flagsDC;return 16;}
+        if(info->pAddTpl || info->nAddTex)return 17;
+        if(info->texBlendTbl || info->pTexAnim)return 18;
+        if(info->uvU || info->uvV || info->uvScrollU || info->uvScrollV)return 19;
+        if((info->be_flag&2) && !(p.count==8 && i==3))return 20;
+        re4dc_source::ChunkProof proof{};
+        if(re4dc_actor_immutable_chunk_proof(p.immutable_asset_id[i],p.input[i],proof)!=re4dc_source::BlobError::None)return 21;
+        palette_bytes+=proof.palette_bytes;
+        if(proof.skin_table_bytes>workspace_bytes)workspace_bytes=proof.skin_table_bytes;
+    }
+    *detail=0;
+    if(palette_bytes!=p.palette_bytes || workspace_bytes!=p.workspace_bytes)return 22;
+    unsigned triangles[8]{},seen=0,materials=0,previous_role=0;
+    for(unsigned j=0;j<p.run_count;++j) {
+        const auto& r=p.runs[j];*detail=j;
+        if(r.role>=p.count || r.material>=p.material_count || (j && r.role<previous_role))return 23;
+        previous_role=r.role;seen|=1u<<r.role;materials|=1u<<r.material;
+        auto c=p.input[r.role];c.uv=r.uv;c.stream=r.stream;c.triangles=r.triangles;
+        re4dc_source::ChunkProof proof{};
+        if(re4dc_actor_immutable_chunk_proof(r.immutable_asset_id,c,proof)!=re4dc_source::BlobError::None)return 24;
+        if(r.triangles>p.input[r.role].triangles-triangles[r.role])return 25;
+        triangles[r.role]+=r.triangles;
+    }
+    *detail=0;
+    if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return 26;
+    for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles){*detail=i;return 27;}
+    if(!re4dc_actor_material_certificate(m,&p))return 28;
+    return 0;
+}
+#endif
 ActorOwnedRecord* actor_decline(ActorOwnedRecord& r,bool& failed) {
     const bool released=actor_release(r);Re4dcActorStreamState state{};
     if(!released || !re4dc_actor_stream_state(&state))failed=true;
@@ -412,9 +470,22 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!re4dc_actor_transaction_choose(m,1)){actor_fail();return -1;}
         if(m->ot_type==7 && (m->be_flag&0x08000000)){ATD(m,3,0,0);return 0;}
         Re4dcActorPlan p{};
-        if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){ATD(m,4,0,0);return 0;}
+        if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){
+            ATD(m,4,0,0);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+            if(m->id==0 && m->ot_type==7){unsigned d=0;const unsigned why=owner_leon_bind_why(m,&d);
+                re4dc_actor_txdiag_why(m,"leon_bind",why?why:99,d);}  // 99: bound, the plan's own checks declined
+#endif
+            return 0;
+        }
         if(!actor_plan_layout(p)){ATD(m,5,p.count,p.run_count);return 0;}
-        if(!actor_semantics(m,p)){ATD(m,6,p.appearance,p.count);return 0;}
+        if(!actor_semantics(m,p)){
+            ATD(m,6,p.appearance,p.count);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+#endif
+            return 0;
+        }
 #if RE4DC_CROWD
         if(crowd_ganado(m)) {
             crowd_would=crowd_policy(m);
