@@ -4,7 +4,9 @@
 # (D367_PLAY_BUILD_CHECKLIST.md "Play build rules"), PACE_MODE=fast, DBG_WARP=1 (warp twin), PC_SAMPLER=1
 # (hwproject frame marks). Extra knobs override.
 # Output /root/probe/lanes/route/out-<label> (fresh objdir), packaged for the playability harness as
-# programs/candidate-route<label> + programs-route.json.
+# programs/candidate-route<label> + programs-route.json. out-<label>/resolved-knobs.txt holds the knobs as make
+# resolved them (build-r21.sh + game/knobs.mk: defaults, these flags, Makefile overrides); candidate.txt only
+# repeats the command line.
 set -euo pipefail
 L=$1; shift
 T=${TREE:-$(cd "$(dirname "$0")/../../../../.." && pwd)}   # TREE=<checkout>: build another tree (a landing control)
@@ -18,6 +20,7 @@ PLAY="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG
     bash port/dreamcast/tools/d367/build-r21.sh $PLAY PACE_MODE=fast DBG_WARP=1 PC_SAMPLER=1 "$@" ) \
   > $O/build.log 2>&1 || { tail -30 $O/build.log; exit 1; }
 [ -s $O/obj/missing.txt ] && { echo "missing symbols:"; cat $O/obj/missing.txt; }
+[ -s $O/resolved-knobs.txt ] || echo "warning: no resolved-knobs.txt (a tree before game/knobs.mk)"
 TOOL=/opt/toolchains/dc/sh-elf/bin
 ELF=$O/re4dc-game.elf
 sha256sum $ELF > $O/elf.sha256
@@ -44,6 +47,7 @@ assert len(syms) >= 3, syms
 (elf.parent / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage', '_re4dc_pcs') if n in syms) + '\n')
 report = json.loads(pj.read_text()) if pj.exists() else {}
 report[arm] = dict(elf=str(elf), elf_sha256=sha(elf), overlay_sha256=sha(ovl), symbols=syms,
+                   resolved_knobs=str(elf.parent / 'resolved-knobs.txt'),
                    files={p.name: dict(bytes=p.stat().st_size, sha256=sha(p)) for p in out.iterdir() if p.is_file()})
 pj.write_text(json.dumps(report, indent=2) + '\n')
 PY
