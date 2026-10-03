@@ -226,7 +226,7 @@ def main(argv=None):
                                    "room frame (r100 s03 Ganado: 0x12)")
     ap.add_argument("--late", help="MASK[:TICK[:ROOM]] same-binary A/B switches from global tick TICK (default 1400) "
                                    "in ROOM (default 0x100); bits: 1 world LOD 20 px, 2 actor LOD 8 px, 4 no draw, "
-                                   "8 r100 cap (warp_late.h)")
+                                   "8 r100 cap, 10 Leon source path (warp_late.h)")
     ap.add_argument("-o", "--output")
     a = ap.parse_args(argv)
     if a.preset == "list":

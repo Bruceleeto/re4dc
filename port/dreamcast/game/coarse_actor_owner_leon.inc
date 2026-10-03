@@ -5,6 +5,7 @@
 #include "actor_lifetime.h"
 #include "actor_material_policy.h"
 #include "leon_hair_runs.h"
+#include "warp_late.h"
 #if !RE4DC_COARSE_SOURCE_ACTORS || !RE4DC_COARSE_ONE_SUBMIT || RE4DC_COARSE_SKIN_FTRV != 1 || !RE4DC_NATIVE_ACTOR_FAST
 #error ACTOR_TRANSACTION requires the source ledger, ONE_SUBMIT and SKIN_FTRV=1 native path
 #endif
@@ -90,6 +91,9 @@ int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) 
 }
 }
 extern "C" int re4dc_actor_plan_leon(cModel* m,Re4dcActorPlan* out) {
+#if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
+    if(RE4DC_WARP_LATE(RE4DC_LATE_LEON_SOURCE))return 0; // test-only old-path arm (warp_late.h 0x10)
+#endif
     if(!m || !out || m->id || m->ot_type!=7 || !owner_leon_bind(m))return 0;
     Re4dcActorPlan p{};p.count=8;p.appearance=0x100;p.image=image;p.crc=crc;p.fnv=fnv;p.palettes=owner_leon_palettes;
 #define RE4DC_LEON_OWNER(role,prefix) re4dc_actor::plan_chunk(p,role,infos[role],leon4k::chunks[role],RE4DC_OWNER_INPUT(leon4k,prefix,leon4k::chunks[role],119))

@@ -487,6 +487,7 @@ the arms share the binary and the prelude, and switch at a fixed tick.
   | 0x02 | actor LOD threshold 8 px outside the mid-crowd rule | native_actor_fast.cpp |
   | 0x04 | Fast pacing from the tick; with `PACE_FORCE=A` every eligible image is dropped (no draw: a G diagnostic) | pace.cpp |
   | 0x08 | ACT_CAP only after the tick (ACT_CAP builds; a gameplay change) | act_cap.cpp |
+  | 0x10 | Leon keeps the per-part source path (no native plan): the old-path arm of the WP2 Leon pair | coarse_actor_owner_leon.inc |
 
 - DBG_WARP=1 builds only; with DBG_WARP=0 every hook is an `#if` block and the image is byte-identical.
 - **H2** (architect review 2026-10-03): the r100 house after the s20 ambush, guarded PS2 worlds, the r21s texture

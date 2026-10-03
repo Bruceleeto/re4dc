@@ -11,6 +11,8 @@
 //   0x04  Fast pacing from activation (pace.cpp); in the trace emulator nearly every image is dropped, so the
 //         arm keeps the source ticks without drawing: a G diagnostic, not a playable mode
 //   0x08  ACT_CAP only after activation (act_cap.cpp; ACT_CAP builds only; a gameplay change)
+//   0x10  Leon keeps the per-part source path (coarse_actor_owner_leon.inc: no native plan), the old-path arm of
+//         the WP2 Leon pair
 //
 // With DBG_WARP=0 the macro is the constant 0 and every hook compiles out (knob-off identity).
 #pragma once
@@ -19,6 +21,7 @@
 #define RE4DC_LATE_ACTOR_LOD8 0x02u
 #define RE4DC_LATE_NODRAW 0x04u
 #define RE4DC_LATE_ACT_CAP 0x08u
+#define RE4DC_LATE_LEON_SOURCE 0x10u
 
 #if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
 #ifdef __cplusplus

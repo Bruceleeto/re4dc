@@ -502,7 +502,7 @@ unsigned re4dc_warp_late(void)
     if (!wp.has_late || !pG || pG->room_id != wp.late_room || pG->Frame_cnt < wp.late_tick) return 0;
     if (!wp.late_logged) {
         wp.late_logged = true;
-        re4dc_log("warp: late 0x%02x open at t=%u room=%03x (1=world20px 2=actor8px 4=nodraw 8=cap)\n",
+        re4dc_log("warp: late 0x%02x open at t=%u room=%03x (1=world20px 2=actor8px 4=nodraw 8=cap 10=leon-source)\n",
                   (unsigned) wp.late_mask, (unsigned) pG->Frame_cnt, (unsigned) pG->room_id);
     }
     return wp.late_mask;
