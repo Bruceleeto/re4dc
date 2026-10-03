@@ -78,5 +78,5 @@ R21=(
 )
 make -C port/dreamcast/game -j4 all "${R21[@]}" "$@"
 # The knobs as make resolved them (defaults, this line, the caller's overrides, Makefile overrides).
-NAMES=$(sed -nE 's/^(override +)?([A-Z][A-Z0-9_]*) *[?:]?= .*/\2/p' port/dreamcast/game/Makefile port/dreamcast/game/*.mk | sort -u | tr '\n' ' ')
+NAMES=$(sed -nE 's/^(override +)?([A-Z][A-Z0-9_]*) *[?:]?=( .*)?$/\2/p' port/dreamcast/game/Makefile port/dreamcast/game/*.mk | sort -u | tr '\n' ' ')
 make -s -C port/dreamcast/game re4dc-knobs "${R21[@]}" "$@" KNOBS_FILE="$OUT/resolved-knobs.txt" KNOB_NAMES="$NAMES"
