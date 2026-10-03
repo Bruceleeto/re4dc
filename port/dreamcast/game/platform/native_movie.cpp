@@ -118,12 +118,23 @@ extern "C" unsigned re4dc_heap_largest_current(unsigned* free_bytes);   // sscrn
 extern "C" unsigned re4dc_heap_largest_current(unsigned*) __attribute__((weak));
 extern "C" void re4dc_heap4_free_map() __attribute__((weak));   // ui_bridge.cpp (diagnostic)
 extern "C" unsigned re4dc_model_release_retained() __attribute__((weak));   // ui_bridge.cpp
-extern "C" void* re4dc_model_retained_storage(unsigned* bytes);              // ui_bridge.cpp
-bool cache_lent=false;   // the model preparation cache went to this movie: reallocated when it retires
+// ui_bridge.cpp owns the loan: 1 when this movie had it (bytes restored, model draws that asked during the loan).
+extern "C" int re4dc_model_return_retained(unsigned* bytes,unsigned* requests) __attribute__((weak));
+#if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
+unsigned loan_test_id;   // test only: the movie whose first staging allocation was refused (+1)
+#endif
 #endif
 void* stage_alloc(size_t n){
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
+#if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
+    // MOVIE_LOAN_TEST=1 (test only, game30.mk): each movie's first staging allocation is treated as failed, so
+    // the model preparation cache is lent even where heap 4 has room (the stepped-movie ownership test).
+    if(p && loan_test_id!=m.id+1){
+        loan_test_id=m.id+1;re4dc_ui_stage_free(p);p=nullptr;
+        re4dc_log("route movie heap: test: first staging allocation of %05x refused (need=%u)\n",m.id,(unsigned)n);
+    }
+#endif
     // Heap 4 short or fragmented (r100 s30 after the ambush: 257,568 B free for 363 KB, the largest piece under
     // 83 KB): first the model preparation cache (rebuilt per frame; the movie owns the frame) is lent to the movie,
     // then unpinned motion keys go, least recently used first, until the piece fits. LRU keys alone did not always
@@ -132,7 +143,6 @@ void* stage_alloc(size_t n){
     if(!p && re4dc_model_release_retained){
         const unsigned lent=re4dc_model_release_retained();
         if(lent){
-            cache_lent=true;
             p=re4dc_ui_stage_alloc((unsigned)n);
             re4dc_log("route movie heap: need=%u model preparation cache lent (%u B) %s\n",(unsigned)n,lent,p?"ok":"short");
         }
@@ -260,11 +270,14 @@ int finish(int status){
     m.texture=false;
     for(unsigned i=0;i<m.nallocs;++i)re4dc_ui_stage_free(m.allocs[i]);
 #if RE4DC_MOVIE_HEAP_EVICT
-    if(cache_lent){
-        cache_lent=false;unsigned bytes=0;
-        re4dc_model_retained_storage(&bytes);   // the next model draw attaches it
-        re4dc_log("route movie heap: model preparation cache back (%u B)\n",bytes);
-    }
+    // After the staging is freed: ui_bridge ends the loan and allocates the cache again (the next draw attaches it).
+    {unsigned bytes=0,requests=0;
+     if(re4dc_model_return_retained && re4dc_model_return_retained(&bytes,&requests)){
+         if(bytes)re4dc_log("route movie heap: model preparation cache back (%u B), %u model draws asked during the loan\n",
+                            bytes,requests);
+         else re4dc_log("route movie heap: model preparation cache back FAILED (0 B), %u model draws asked during the loan; "
+                        "the next model draw retries\n",requests);
+     }}
 #endif
     const unsigned long long wall=timer_us_gettime64()-(m.start?m.start:m.entered);
     const unsigned d=m.frames?m.frames:1;

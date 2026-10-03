@@ -98,13 +98,21 @@ MOTION_OOM_EVICT ?= 0
 # the keys reload from disc at their next use. First it lends the movie the model preparation cache (ui_bridge.cpp,
 # 128 KB, rebuilt per frame; reallocated when the movie retires): LRU keys alone left 197 KB in holes of at most
 # 40 KB when the route reached the cliff at another frame (route-hm1); a final failure logs heap 4's free map.
+# The loan is explicit state in ui_bridge.cpp: while lent no model draw takes the cache back or latches its one
+# attempt (a stepped movie's game frames keep drawing); the movie's retirement ends the loan and allocates again
+# ("cache back (N B), K model draws asked during the loan"; 0 B is a failure line, retried at the next draw).
+#   MOVIE_LOAN_TEST=1 (test only, default 0): each movie's first staging allocation is refused, forcing the loan.
 MOVIE_HEAP_EVICT ?= 0
+MOVIE_LOAN_TEST ?= 0
 ifneq ($(MOVIE_HEAP_EVICT),0)
 ifneq ($(MOTION_OOM_EVICT)$(ROUTE_MOVIES),11)
 $(error MOVIE_HEAP_EVICT=1 needs MOTION_OOM_EVICT=1 ROUTE_MOVIES=1)
 endif
 $(OBJDIR)/platform/native_motion.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_HEAP_EVICT=1
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_MOVIE_HEAP_EVICT=1
+ifneq ($(MOVIE_LOAN_TEST),0)
+$(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_LOAN_TEST=1
+endif
 endif
 ifneq ($(MOTION_OOM_EVICT),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_OOM_EVICT=$(MOTION_OOM_EVICT)

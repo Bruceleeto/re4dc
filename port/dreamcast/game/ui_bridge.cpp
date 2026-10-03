@@ -459,6 +459,12 @@ namespace {
 void* preparation_owner=nullptr;
 void* retained_preparation=nullptr;
 bool preparation_attempted=false;
+#if RE4DC_MOVIE_HEAP_EVICT && RE4DC_D349_RENDERER_STACK
+// The cache is lent to a route movie's staging (re4dc_model_release_retained) until the movie retires
+// (re4dc_model_return_retained). While lent no draw may take it back or latch preparation_attempted.
+bool preparation_lent=false;
+unsigned lent_requests=0;
+#endif
 constexpr unsigned kRetainedBytes=131072;
 // D360 frees147232 bytes without shrinking game capacity. Charge the complete
 // new cell (payload + OS header + MAD tag), and leave >=80KiB for source use.
@@ -632,6 +638,9 @@ extern "C" void re4dc_heap4_free_map(){
 extern "C" void* re4dc_model_retained_storage(unsigned* bytes){
     *bytes=0;
 #if RE4DC_D349_RENDERER_STACK
+#if RE4DC_MOVIE_HEAP_EVICT
+    if(preparation_lent){++lent_requests;return nullptr;}   // the movie holds it; no attempt is latched
+#endif
     if(!preparation_owner || MemGetCurrentHeap()!=4 || !memCheckHeapActive(4))return nullptr;
     if(!preparation_attempted){
         preparation_attempted=true;
@@ -653,14 +662,28 @@ extern "C" void* re4dc_model_retained_storage(unsigned* bytes){
 #if RE4DC_MOVIE_HEAP_EVICT && RE4DC_D349_RENDERER_STACK
 // MOVIE_HEAP_EVICT (platform/native_movie.cpp): a route movie owns the frame, so the model preparation cache (rebuilt
 // every frame) is lent to its staging. r100 s30 after the ambush (route-hm1): the decoder's second 55,296 B plane
-// found 197 KB free in holes of at most 40,736 B, that one next to this 131,168 B cell. The first model draw after
-// the movie allocates the cache again (re4dc_model_retained_storage).
+// found 197 KB free in holes of at most 40,736 B, that one next to this 131,168 B cell. Ownership (architect review
+// 2026-10-03): the loan is explicit state here. While lent, re4dc_model_retained_storage returns null without latching
+// preparation_attempted (a stepped movie's game frames keep drawing models); the movie's retirement
+// (re4dc_model_return_retained, after its staging is freed) clears the loan, re-arms the attempt and allocates.
 extern "C" unsigned re4dc_model_release_retained(){
-    if(!retained_preparation)return 0;
+    if(!retained_preparation || preparation_lent)return 0;
     re4dc_model_detach_retained_storage();
     room_free4(retained_preparation,"native model preparation");
-    retained_preparation=nullptr;preparation_attempted=false;
+    retained_preparation=nullptr;preparation_attempted=false;preparation_lent=true;lent_requests=0;
     return kRetainedBytes;
+}
+// The movie retired: 0 when nothing was lent; else 1 with *bytes = the restored capacity. 0 bytes is a failure (no
+// room heap now, or heap 4 short): the attempt stays armed, so the next model draw tries once more. *requests = model
+// draws that asked for the cache during the loan.
+extern "C" int re4dc_model_return_retained(unsigned* bytes,unsigned* requests){
+    *bytes=0;*requests=0;
+    if(!preparation_lent)return 0;
+    preparation_lent=false;*requests=lent_requests;lent_requests=0;
+    preparation_attempted=false;
+    re4dc_model_retained_storage(bytes);
+    if(!*bytes)preparation_attempted=false;
+    return 1;
 }
 #endif
 
