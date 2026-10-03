@@ -219,14 +219,17 @@ bool Package::open(const char* path) {
 }
 
 #if RE4DC_TEX_PACK
-bool read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes) {
+RangeRead read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes,
+                          unsigned long long* file_bytes) {
     RE4DC_IO_SERIAL_WAIT();
     const file_t f=fs_open(path,O_RDONLY);
-    if(f==FILEHND_INVALID) return false;
-    const bool ok=fs_seek(f,static_cast<off_t>(offset),SEEK_SET)==static_cast<off_t>(offset) &&
+    if(f==FILEHND_INVALID) return RangeRead::absent;
+    const ssize_t total=fs_total(f);
+    if(file_bytes) *file_bytes=total<0?0ULL:static_cast<unsigned long long>(total);
+    const bool ok=total>=0 && fs_seek(f,static_cast<off_t>(offset),SEEK_SET)==static_cast<off_t>(offset) &&
                   fs_read(f,out,bytes)==static_cast<ssize_t>(bytes);
     fs_close(f);
-    return ok;
+    return ok?RangeRead::ok:RangeRead::io_error;
 }
 bool Package::open_streamed(const char* path) { return open_streamed_impl(path,0,0); }
 bool Package::open_streamed_at(const char* path, std::uint32_t base, std::uint32_t size) {

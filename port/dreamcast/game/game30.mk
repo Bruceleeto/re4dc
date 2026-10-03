@@ -1668,12 +1668,20 @@ endif
 # from dc/tex.pak (tools/d367/texpack.py, every dc/tex package of the staged disc in one file with a sorted index)
 # instead of one dc/tex/<n>/<key>.re4tex open per texture; keys not in the pack (or no pack) use the per-file path.
 # r100 room entry (IO_PROBE): 130 opens were 3.9 of 6.5 s with 234 directory-sector reads. Same bytes uploaded.
+# Failure policy (platform/include/texpack_index.inc): pack absent -> per-file; a read error -> nothing loaded now,
+# the key not remembered as missing, init retried 3 times then once per room load; an invalid pack (count, offsets,
+# extents, key order, index CRC) -> one loud INVALID line, per-file loads.
+#   TEX_PACK_FAULT=N (test only, default 0): the first N pack reads fail as read errors (the retry test).
 TEX_PACK ?= 0
+TEX_PACK_FAULT ?= 0
 ifneq ($(TEX_PACK),0)
 ifneq ($(TEX_RESIDENT),1)
 $(error TEX_PACK needs TEX_RESIDENT=1)
 endif
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PACK=1
+ifneq ($(TEX_PACK_FAULT),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PACK_FAULT=$(TEX_PACK_FAULT)
+endif
 endif
 # TEX_USE_CENSUS=1 (test only, native_ui.cpp, default 0): every 600 frames, the resident textures and how many the
 # last 2 s / 20 s drew ("tex use census"), to size what the room preload loads but nothing draws.

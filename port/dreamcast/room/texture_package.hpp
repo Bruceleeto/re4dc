@@ -177,7 +177,11 @@ private:
 // returning, after the IO_SERIAL wait (as Package opens). A sector-aligned read into a 32-byte aligned buffer is a KOS
 // CD DMA stream; on a long-lived handle the stream stays open and another thread's read then fails ("Previous DMA
 // request is in progress", route pak3). Unaligned reads avoid the stream but cost ~16 ms a sector (route pak5).
-bool read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes);
+// Results: absent (fs_open failed: no such file), io_error (seek or short read: transient, retry), ok. file_bytes, if
+// given, receives the file's length (fs_total) whenever it opened.
+enum class RangeRead { ok, absent, io_error };
+RangeRead read_file_range(const char* path, std::uint32_t offset, void* out, std::uint32_t bytes,
+                          unsigned long long* file_bytes = nullptr);
 #endif
 
 } // namespace re4dc::texture

@@ -169,61 +169,8 @@ unsigned vram_budget,vram_retries,vram_rejects; // budget: set by re4dc_ui_init(
 #endif
 struct Key { unsigned crc,fnv; bool operator==(const Key& b)const{return crc==b.crc && fnv==b.fnv;} };
 #if RE4DC_TEX_PACK
-// TEX_PACK (game30.mk; tools/d367/texpack.py): every dc/tex/<n>/<crc>-<fnv>.re4tex of the disc in one file,
-// dc/tex.pak, so a load seeks inside one file instead of a lookup in a ~200-entry directory per texture (IO_PROBE,
-// r100 entry: 130 opens = 3.9 of 6.5 s, 234 directory-sector reads; on a GD-ROM each is a seek to the directory
-// area and back). Layout: 2048-byte header {"RE4PAK1\0", version 1, count, index_offset, data_offset, index_crc32},
-// the index sorted by (crc, fnv) as {crc, fnv, offset, size} (128 per sector), then the packages at 2048-byte
-// boundaries, byte for byte the .re4tex files. RAM: the first key of each index sector; a lookup reads one sector.
-// A key that is not in the pack (texlow, a missing file) takes the per-file path.
-namespace texpack {
-constexpr const char* kPath="/cd/dc/tex.pak";
-constexpr unsigned kMaxSectors=64;          // 8,192 entries
-mutex_t lock=MUTEX_INITIALIZER;
-bool tried=false,ready=false;
-unsigned count=0,index_offset=0,sectors=0,cached=~0U,hits=0,misses=0;
-Key first[kMaxSectors];
-alignas(32) unsigned char sector[2048];    // read by re4dc::texture::read_file_range: its own handle per read
-unsigned word(const unsigned char* p){return p[0]|p[1]<<8|p[2]<<16|unsigned(p[3])<<24;}
-bool less(const Key& a,const Key& b){return a.crc<b.crc || (a.crc==b.crc && a.fnv<b.fnv);}
-bool read_sector(unsigned offset){return re4dc::texture::read_file_range(kPath,offset,sector,2048);}
-bool open_locked(){
-    if(tried)return ready;
-    tried=true;
-    if(!read_sector(0)){re4dc_log("tex pack: %s not on the disc, per-file loads\n",kPath);return false;}
-    bool ok=!std::memcmp(sector,"RE4PAK1\0",8) && word(sector+8)==1;
-    if(ok){count=word(sector+12);index_offset=word(sector+16);sectors=(count*16+2047)/2048;ok=count && sectors<=kMaxSectors;}
-    for(unsigned s=0;ok && s<sectors;++s){
-        ok=read_sector(index_offset+2048*s);
-        if(ok){first[s]={word(sector),word(sector+4)};cached=s;}
-    }
-    if(!ok){re4dc_log("tex pack: %s rejected (count=%u sectors=%u)\n",kPath,count,sectors);cached=~0U;return false;}
-    re4dc_log("tex pack: %s count=%u index_sectors=%u\n",kPath,count,sectors);
-    return ready=true;
-}
-// The key's package in the pack: true with its offset and size.
-bool find(const Key& key,unsigned& offset,unsigned& size){
-    mutex_lock(&lock);
-    bool found=false;
-    if(open_locked()){
-        unsigned s=0;
-        while(s+1<sectors && !less(key,first[s+1]))++s;
-        if(!less(key,first[s]) && (cached==s || (cached=~0U,read_sector(index_offset+2048*s)))){
-            cached=s;
-            unsigned lo=0,hi=std::min(128U,count-128*s);
-            while(lo<hi){
-                const unsigned mid=(lo+hi)/2;const unsigned char* e=sector+16*mid;
-                const Key k{word(e),word(e+4)};
-                if(k==key){offset=word(e+8);size=word(e+12);found=true;break;}
-                if(less(k,key))lo=mid+1;else hi=mid;
-            }
-        }
-    }
-    if(found)++hits;else ++misses;
-    mutex_unlock(&lock);
-    return found;
-}
-}
+// TEX_PACK (game30.mk; tools/d367/texpack.py): dc/tex.pak index, validation and failure policy.
+#include "texpack_index.inc"
 #endif
 struct Entry { re4dc::texture::Package package; Key key{}; unsigned frame=0; bool valid=false;
 #if RE4DC_D349_RENDERER_STACK
@@ -1338,10 +1285,14 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     unsigned pack_offset=0,pack_size=0;
 #if RE4DC_QUALITY_ASSETS
     // texlow/ keys (Standard index additions) are never in tex/, so never in the pack: skip the lookup.
-    const bool in_pack=!re4dc_std_texlow(key.crc,key.fnv) && texpack::find(key,pack_offset,pack_size);
+    const texpack::Result pack=re4dc_std_texlow(key.crc,key.fnv)?texpack::kNotInPack:texpack::find(key,pack_offset,pack_size);
 #else
-    const bool in_pack=texpack::find(key,pack_offset,pack_size);
+    const texpack::Result pack=texpack::find(key,pack_offset,pack_size);
 #endif
+    // A pack read error is transient: no eviction, no per-file probe, and the key is not remembered as missing
+    // (on a packed disc its loose file is gone); a later use retries (texpack_index.inc bounds the retries).
+    if(pack==texpack::kError){RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;}
+    const bool in_pack=pack==texpack::kFound;
     if(slot->valid && !in_pack){
 #else
     if(slot->valid){
@@ -1372,7 +1323,12 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     bool ok=RE4DC_OPEN_PACKAGE();
     if(!ok) {RE4DC_PROFILE_COUNT(TextureOpenFailures,1);re4dc_log("native UI: package rejected: %s\n",slot->package.error());}
 #if RE4DC_TEX_RESIDENT || RE4DC_SUBSCREEN
+#if RE4DC_TEX_PACK
+    // The pack failing to open is a read error of the pack, not a missing package.
+    if(!ok && !in_pack && slot->package.error() && !std::strcmp(slot->package.error(),"open failed"))
+#else
     if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"open failed"))
+#endif
         missing_keys[nmissing++%(sizeof(missing_keys)/sizeof(missing_keys[0]))]=key;
 #endif
 #if RE4DC_UI_VRAM
@@ -2253,6 +2209,9 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
 }
 extern "C" void re4dc_ui_retire_room(){
     re4dc_actor_archive_retire_transient();
+#if RE4DC_TEX_PACK
+    texpack::room_loaded();   // re-arms one pack init attempt after read errors
+#endif
 #if RE4DC_MODEL_SLAB_LATCH
     model_slab_failed=false;
 #endif
