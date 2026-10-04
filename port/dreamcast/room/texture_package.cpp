@@ -226,6 +226,10 @@ RangeRead read_file_range(const char* path, std::uint32_t offset, void* out, std
     if(f==FILEHND_INVALID) return RangeRead::absent;
     const ssize_t total=fs_total(f);
     if(file_bytes) *file_bytes=total<0?0ULL:static_cast<unsigned long long>(total);
+    if(total>=0 && static_cast<unsigned long long>(offset)+bytes>static_cast<unsigned long long>(total)) {
+        fs_close(f);
+        return RangeRead::short_file;   // a truncated file stays truncated: not worth a retry
+    }
     const bool ok=total>=0 && fs_seek(f,static_cast<off_t>(offset),SEEK_SET)==static_cast<off_t>(offset) &&
                   fs_read(f,out,bytes)==static_cast<ssize_t>(bytes);
     fs_close(f);
