@@ -98,6 +98,7 @@ struct Warp {
     u32 kill_watch; // after the kill: state lines left
     struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; u8 entry; } go[4];
     unsigned n_go;
+    bool act_source_clock;  // opt-in fixture holds count source pad ticks, not wall-time stalls
     u8 parse_entry, max_entry;  // `entry <n>`: the room entry later act / goto lines belong to (1 = first room)
     // runtime
     u32 room_frames, first_room_gen, rooms;
@@ -179,6 +180,11 @@ void load()
             wp.area_dx = n >= 3 ? (f32) strtod(tok[2], nullptr) : 0.0f;
             wp.area_dz = n >= 4 ? (f32) strtod(tok[3], nullptr) : 0.0f;
             wp.has_area = true;
+        } else if (!strcmp(k, "act_clock") && n >= 2) {
+            if (strcmp(tok[1], "source") && strcmp(tok[1], "wall"))
+                re4dc_missing("warp act_clock must be source or wall");
+            wp.act_source_clock = !strcmp(tok[1], "source");
+            re4dc_log("warp: action holds clock=%s\n", wp.act_source_clock ? "source" : "wall");
         } else if (!strcmp(k, "entry") && n >= 2 && num(tok[1]) >= 1 && num(tok[1]) <= 8) {
             wp.parse_entry = (u8) num(tok[1]);
             if (wp.parse_entry > wp.max_entry) wp.max_entry = wp.parse_entry;
@@ -494,7 +500,9 @@ void re4dc_warp_pad(unsigned short* buttons, signed char* stickY)
         if (t >= 30 && t < 33) *buttons |= 0x0100;
         return;
     }
-    if (gap > 30) re4dc_warp_cut("hold");  // a movie or a load held the frame
+    // A source-clock fixture holds for its requested pad ticks across rendering/IO stalls.
+    // Source event/movie cuts below and at their existing call sites remain unchanged.
+    if (!wp.act_source_clock && gap > 30) re4dc_warp_cut("hold");
     if (wp.rooms < 1 || wp.rooms > wp.max_entry) return;
     ++wp.pad_frames;
     // An event took the game (Status_flg[1] 0x10000000): the running action ends there, so a
