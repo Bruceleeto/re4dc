@@ -25,6 +25,9 @@
 # CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 (user 2026-10-03, implementation handoff WP2): Leon re-opts into the
 # native actor path (H2 -7.09 hw ms), crowd members outside the view and past the fog are not drawn. Gate on ed818b8e:
 # H2 STRICT 120/120 + whole room 1391/1391, r101 bell STRICT, r100 calls / r101 bell / r103 entry HALT 0 MISSING 0.
+# r21v (user 2026-10-04): the supervisor's 82.65 ms knob set (the last line of the list; route doc "r21v"). Its disc needs
+# dc/native/r10{0,1,3}/registry.re4nmr, dc/native/pl08/leon_pl08.re4cp and the registry / pl08 textures in dc/tex.pak;
+# without them those actors keep the source path. Flycast: r100 24.3 -> 25.9 fps, r101 bell steady 27.1 -> 24.8 ms.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -79,6 +82,10 @@ R21=(
   CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 MESH_CLIP_LEAN=1
   TEX_SLOTS=448 MOVIE_WINDOW=1 IO_SERIAL=1 CRASH_SCREEN=1 SS_PACK=1 MOVIE_HEAP_EVICT=1 CLOSED_PASS_KEEP=1
   PS2_PRELOAD_LEAN=1 TEX_PACK=1
+  PS2_WORLD_REGISTRY=1 PS2_OPEN_READ=1 SCENERY_ENCODING=1 PS2_WORLD_FOG_SOURCE=1 ACTOR_APPEARANCE_ALIAS=2
+  ACTOR_GANADO_SOURCE_LIGHT=1 ACTOR_LIGHT_N16=1 NATIVE_MODEL_REGISTRY=1 NATIVE_MODEL_REGISTRY_PACK=1
+  NATIVE_MODEL_REGISTRY_TX=1 NATIVE_MODEL_REGISTRY_PALBOUND=1 ACTOR_PL08=1 ACTOR_PL08_PACK=1 SS_CERT=1
+  MESH_VP_SCHED=1 ACTOR_PROOF_LEAN=1 MESH_STRIP_LEAN=1 ACTOR_MATERIAL_RECORD=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
