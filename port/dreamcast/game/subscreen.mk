@@ -91,9 +91,9 @@ SUBSCREEN_GAME = $(OBJDIR)/src/game/sscrn.o $(OBJDIR)/ui_bridge.o $(OBJDIR)/src/
 $(SUBSCREEN_GAME) $(OBJDIR)/platform/modules.o: $(OBJDIR)/subscreen.h
 $(SUBSCREEN_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/subscreen.h
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/subscreen.h
-# native_ui.cpp: re4dc_ui_reclaim_one() for the backing (compiled only with SUBSCREEN=1).
-$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_motion.o: $(OBJDIR)/subscreen.h
-$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/subscreen.h
+# native_ui: backing reclaim; native_motion: residency; native_static: exclude subscreen models from room replacement.
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_motion.o $(OBJDIR)/platform/native_static.o: $(OBJDIR)/subscreen.h
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_motion.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/subscreen.h
 # motion_bridge.cpp / native_motion.cpp: residency held while open, heap-12 clips dropped at close.
 $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o: $(OBJDIR)/subscreen.h
 $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -include $(OBJDIR)/subscreen.h

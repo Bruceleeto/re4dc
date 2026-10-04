@@ -1,5 +1,38 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-04: inventory room-replacement ownership repair
+
+The approved 16f0da96 play code reproduces the broken inventory in r100 and r104 with the title-c14 pack.
+SS_PACK=0 reproduces it too. Inventory rigid models carry static_geometry; PS2_WORLD_ROOMS=2 therefore
+mistook them for the first room-scene draw and submitted the PS2 world inside SS_UI_ORDER's single TR
+stream. This closed that list and sent later UI parts through CLOSED_PASS_KEEP, corrupting the case,
+items, menu bars and Leon preview. The missing inventory texture was a separate packaging issue.
+
+native_static now uses the existing re4dc_ss_ui_order owner query to exclude swapped subscreen models
+from room replacement. subscreen.mk supplies the existing generated setting to that object. No new
+renderer, gameplay change, experimental optimization, or play-recipe knob is introduced.
+
+Validation: the same assets before/after show the inventory restored in both rooms; each 180-second
+Flycast run opens and closes it, restores the saved area with the matching hash, and returns to gameplay
+with HALT 0 / MISSING 0. The matched source/fix gameplay trace pair passes STRICT for 1,804 r100 frames
+(room offsets 0..1803, anchors 182/182), no gaps or duplicates, ACT_CAP=0 / PACE_MODE=off. This trace
+covers ordinary gameplay, not the swapped inventory memory; the inventory gate is visual plus restore
+checks. Production and traced builds report zero missing stubs.
+
+The new title-invfix pack adds the already recovered cd5691f8-b993e9b1 material (656 bytes); all 3,241
+existing package payloads are byte-identical. The production image uses the current play recipe,
+DBG_WARP=0 / PC_SAMPLER=0 / GAME_PWC_DIAG=1 / PACE_MODE=fast / PACE_DEBUG=1. Normal title/New Game,
+repeated inventory checks with the final pack, and release packaging are being completed separately.
+The first route milestone remains title -> r120 -> r100 -> r101 bell -> r103 -> r106 results/save -> r104.
+Later emblem/key pickups and full chapter-route acceptance are still unproven; this repair does not
+establish 30 fps or physical-console acceptance.
+
+Evidence: private architect-review-20261003/tools/supervisor-20261003/playable-first/; scenarios
+route-play-main-r100-inventory-r1, route-play-main-r104-inventory-r1,
+route-play-main-r104-inventory-unpacked-r1, route-play-invfix-r100-r2, route-play-invfix-r104-r2,
+route-play-inv-control-strict-r1 and route-play-inv-fix-strict-r1. The first repair prototype omitted the
+native_static generated-header dependency and compiled the check out; it is retained as a failed check.
+
 ## 2026-10-03: native vertex coverage in graphics diagnostics
 
 `TA_HASH` now includes the direct store-queue strips emitted by `vp::emit_sq` (PS2 world/mesh fast path)

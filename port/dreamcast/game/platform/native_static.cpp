@@ -2314,9 +2314,17 @@ extern "C" int re4dc_ps2_mesh_preload(unsigned room){
     return ps2_open();
 }
 extern "C" int re4dc_ps2_world_source_draw();   // native_ps2_world.cpp: pass 0 now, PT / TR at the flush
+#if RE4DC_SS_UI_ORDER
+extern "C" int re4dc_ss_ui_order(); // the subscreen owns the swapped model area
+#endif
 extern "C" int re4dc_coarse_source_camera(float view[12],float projection[7],float viewport[6]); // coarse.cpp
 // re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
 extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
+#if RE4DC_SS_UI_ORDER
+    // Inventory rigid models also carry static_geometry. They are not room scenery:
+    // submitting the PS2 world here would close the subscreen's ordered TR list.
+    if(re4dc_ss_ui_order())return;
+#endif
     static unsigned last=~0U,images=0;
     const unsigned frame=re4dc_ui_frame();
     (void)p; // an unbound scenery part carries no camera (world / view are the binding's): the game's
