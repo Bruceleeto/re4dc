@@ -330,6 +330,19 @@ extern "C" unsigned re4dc_actor_binding_revision(cModel* m) {
     }
     if(!free)return 0;*free={m,m->pParts,m->serial,next(),epoch};return free->revision;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+// NATIVE_MODEL_REGISTRY_TX: row r can match an info only when info_current(i,r), whose first clause is the info's role
+// bit r; so a registry appearance's role scans visit just the info's set bits below the row count, in ascending order
+// as the full scans do. Leon and the Ganado cast keep the full scans. =2 runs both and counts different results.
+static unsigned registry_role_next(const re4dc_material::life::Info& i,unsigned r) {
+    const unsigned n=RE4DC_ROLE_COUNT;
+    for(;r<n && r<64u;r=(r|31u)+1u) {
+        const unsigned bits=i.roles[r>>5]>>(r&31u);
+        if(bits){r+=__builtin_ctz(bits);return r<n?r:n;}
+    }
+    return n;
+}
+#endif
 // Returns the unique currently-owned material row, never a pointer-only match.
 // Multiple rows can share geometry but must resolve one exact TPL owner.
 static const re4dc_material::Role* actor_current_role(cModel* m,cModelInfo* info,unsigned app,unsigned role) {
@@ -340,6 +353,26 @@ static const re4dc_material::Role* actor_current_role(cModel* m,cModelInfo* info
     if(!member || n>8)return nullptr;
     auto* i=find_info(info);if(!i)return nullptr;
     const Role* found=nullptr;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    if(app>=nmr::appearance_first) {
+        bool ambiguous=false;
+        for(unsigned r=registry_role_next(*i,0);r<RE4DC_ROLE_COUNT;r=registry_role_next(*i,r+1))
+            if(RE4DC_ROLE(r).appearance==app && RE4DC_ROLE(r).role==role && info_current(*i,r)) {
+                if(found){ambiguous=true;break;}found=&RE4DC_ROLE(r);
+            }
+        if(ambiguous)found=nullptr;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+        const Role* full=nullptr;
+        for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
+            if(RE4DC_ROLE(r).appearance==app && RE4DC_ROLE(r).role==role && info_current(*i,r)) {
+                if(full){full=nullptr;break;}full=&RE4DC_ROLE(r);
+            }
+        ++registry_txc.roles;if(full!=found)++registry_txc.roles_bad;
+        found=full;
+#endif
+        return found;
+    }
+#endif
     for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
         if(RE4DC_ROLE(r).appearance==app && RE4DC_ROLE(r).role==role && info_current(*i,r)) {
             if(found)return nullptr;found=&RE4DC_ROLE(r);
@@ -356,6 +389,21 @@ extern "C" int re4dc_actor_material_owner_proof(cModel* m,cModelInfo* info,unsig
     for(auto* p=m->pModelInfo;p && n<9;p=p->pList,++n)if(p==info)member=true;
     if(!member || n>8)return 0;
     auto* i=find_info(info);if(!i)return 0;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    if(appearance>=nmr::appearance_first) {
+        int found=0;
+        for(unsigned r=registry_role_next(*i,0);r<RE4DC_ROLE_COUNT && !found;r=registry_role_next(*i,r+1))
+            found=RE4DC_ROLE(r).appearance==appearance && RE4DC_ROLE(r).role==role && info_current(*i,r);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+        int full=0;
+        for(unsigned r=0;r<RE4DC_ROLE_COUNT && !full;++r)
+            full=RE4DC_ROLE(r).appearance==appearance && RE4DC_ROLE(r).role==role && info_current(*i,r);
+        ++registry_txc.roles;if(full!=found)++registry_txc.roles_bad;
+        found=full;
+#endif
+        return found;
+    }
+#endif
     for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
         if(RE4DC_ROLE(r).appearance==appearance && RE4DC_ROLE(r).role==role && info_current(*i,r))return 1;
     return 0;
@@ -387,6 +435,25 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
 #endif
         if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+        if(appearance>=nmr::appearance_first) {
+            bool conflict=false;
+            for(unsigned r=registry_role_next(*i,0);r<RE4DC_ROLE_COUNT;r=registry_role_next(*i,r+1))
+                if(RE4DC_ROLE(r).appearance==appearance && info_current(*i,r)) {
+                    if(role!=count && role!=RE4DC_ROLE(r).role){conflict=true;break;}role=RE4DC_ROLE(r).role;
+                }
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+            unsigned full=count;bool full_conflict=false;
+            for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
+                if(RE4DC_ROLE(r).appearance==appearance && info_current(*i,r)) {
+                    if(full!=count && full!=RE4DC_ROLE(r).role){full_conflict=true;break;}full=RE4DC_ROLE(r).role;
+                }
+            ++registry_txc.roles;if(full!=role || full_conflict!=conflict)++registry_txc.roles_bad;
+            role=full;conflict=full_conflict;
+#endif
+            if(conflict){ATD(m,24,appearance,n-1);return 0;}
+        } else
+#endif
         for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
             if(RE4DC_ROLE(r).appearance==appearance && info_current(*i,r)) {if(role!=count && role!=RE4DC_ROLE(r).role){ATD(m,24,appearance,n-1);return 0;}role=RE4DC_ROLE(r).role;}
         const unsigned expected=appearance==256?leon_order[n-1]:n-1;

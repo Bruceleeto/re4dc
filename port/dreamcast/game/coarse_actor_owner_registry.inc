@@ -103,6 +103,39 @@ struct RegistryBinding {
 RegistryBinding registry_bindings[16];
 unsigned registry_replace;
 RegistryBinding* registry_bound;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+// NATIVE_MODEL_REGISTRY_TX (native_model_registry.mk): the plan's binding proof (registry_bind: shape, revision, role
+// rows, skeleton, finite matrices) is reused by the palette build of the SAME transaction instead of running a second
+// time. registry_tx_serial counts re4dc_actor_transaction_draw calls; the plan leaves a token naming that call, the
+// model, its binding slot and the room generation, and the palette build consumes it once. Between the two only native
+// code runs (layout, semantics, the leases, actor_acquire), none of which writes a source field the proof reads (the
+// audit is in native_model_registry.mk). Any other caller, model, slot, generation or call runs the whole proof again.
+unsigned registry_tx_serial;
+struct RegistryTxToken { unsigned serial,generation;const cModel* m;const RegistryBinding* b; };
+RegistryTxToken registry_tx{};
+// Exact whole-array form of coarse_finite: bit 31 of the OR of (exponent field + 0x00800000) is set iff some
+// element's exponent field is all ones (infinite or NaN). Integer loads, no branch per element.
+typedef unsigned __attribute__((may_alias)) RegistryWord;
+inline bool registry_all_finite(const float* f,unsigned n) {
+    const RegistryWord* u=reinterpret_cast<const RegistryWord*>(f);unsigned a=0,b=0,k=0;
+    for(;k+4<=n;k+=4)a|=((u[k]&0x7f800000u)+0x00800000u)|((u[k+1]&0x7f800000u)+0x00800000u),
+        b|=((u[k+2]&0x7f800000u)+0x00800000u)|((u[k+3]&0x7f800000u)+0x00800000u);
+    for(;k<n;++k)a|=(u[k]&0x7f800000u)+0x00800000u;
+    return !((a|b)&0x80000000u);
+}
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+// Compare build: every reused or reduced verdict is computed both ways; the original verdict decides. "NMRTX" lines.
+struct RegistryTxCompare { unsigned bind,reused,bind_bad,skeleton,skeleton_bad,finite,finite_bad,semantics,held,
+    semantics_bad,roles,roles_bad,last; };
+RegistryTxCompare registry_txc{};
+void registry_tx_report(const char* why) {
+    const auto& c=registry_txc;
+    re4dc_log("NMRTX %s f=%u palette_binds=%u reused=%u bind_bad=%u skeleton=%u skeleton_bad=%u finite=%u finite_bad=%u "
+        "semantics=%u held=%u semantics_bad=%u role_scans=%u roles_bad=%u\n",why,unsigned(pG->Frame_cnt),c.bind,c.reused,
+        c.bind_bad,c.skeleton,c.skeleton_bad,c.finite,c.finite_bad,c.semantics,c.held,c.semantics_bad,c.roles,c.roles_bad);
+}
+#endif
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
 unsigned registry_why;
 // Census (cumulative since boot): per descriptor admitted / declined, per reason, the largest rest-inverse deviation
@@ -185,8 +218,23 @@ bool registry_skeleton(cModel* m,RegistryBinding& b,const nmr::Descriptor& desc)
         }
     }
     NMR_WHY(kRwFinite);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    // Every rest inverse element already passed the bind comparison above, which fails a NaN or infinite element
+    // (no -ffinite-math-only: a NaN compares false, |inf - bind| is inf or NaN), so only the current matrices remain.
+    bool finite=true;
+    for(unsigned i=0;i<desc.bones && finite;++i)finite=registry_all_finite(&b.parts[i]->mat[0][0],12);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+    bool full=true;
+    for(unsigned i=0;i<desc.bones;++i)for(unsigned j=0;j<12;++j)
+        if(!coarse_finite((&b.parts[i]->lt_inv_mat[0][0])[j]) || !coarse_finite((&b.parts[i]->mat[0][0])[j]))full=false;
+    ++registry_txc.skeleton;if(finite!=full)++registry_txc.skeleton_bad;
+    finite=full;
+#endif
+    if(!finite)return false;
+#else
     for(unsigned i=0;i<desc.bones;++i)for(unsigned j=0;j<12;++j)
         if(!coarse_finite((&b.parts[i]->lt_inv_mat[0][0])[j]) || !coarse_finite((&b.parts[i]->mat[0][0])[j]))return false;
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
     auto& c=registry_count[&desc-registry.descriptors];
     if(dr>c.bind_rotation)c.bind_rotation=dr;
@@ -236,9 +284,28 @@ bool registry_bind(cModel* m) {
     if(!registry_skeleton(m,*b,registry.descriptors[b->descriptor])){b->owner=nullptr;return false;}
     registry_bound=b;NMR_WHY(kRwNone);return true;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+// The palette build's binding: the plan's proof when its token names this transaction, model, slot and generation.
+bool registry_bind_tx(cModel* m) {
+    const bool reuse=registry_tx.m==m && registry_tx.serial==registry_tx_serial && registry_tx.b==registry_bound &&
+        registry_tx.generation==registry.generation && registry_bound && registry_bound->owner==m;
+    registry_tx.m=nullptr;  // one use
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+    const RegistryBinding* const was=registry_bound;const bool full=registry_bind(m);
+    ++registry_txc.bind;if(reuse){++registry_txc.reused;if(!full || registry_bound!=was)++registry_txc.bind_bad;}
+    return full;
+#else
+    return reuse || registry_bind(m);
+#endif
+}
+#endif
 int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
     const auto* desc=registry_descriptor(p.appearance);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    if(!desc || !registry_bind_tx(m) || registry_bound->descriptor!=p.appearance-nmr::appearance_first ||
+#else
     if(!desc || !registry_bind(m) || registry_bound->descriptor!=p.appearance-nmr::appearance_first ||
+#endif
        p.count!=desc->sections || !registry_skin_init(registry_bound->descriptor))return 0;
     for(unsigned i=0;i<p.count;++i)if(p.info[i]!=registry_bound->infos[i] || !output[i])return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
@@ -273,7 +340,17 @@ int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
         if(p.input[i].palette_count!=c.palette_count)return 0;
         re4dc_coarse_skin_groups(registry_skin+registry_skin_first[g],registry_skin_groups[g],
             &registry_T[0][0],output[i],c.palette_count);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+        bool finite=registry_all_finite(output[i],c.palette_count*12);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+        bool full=true;for(unsigned j=0;j<c.palette_count*12;++j)if(!coarse_finite(output[i][j]))full=false;
+        ++registry_txc.finite;if(finite!=full)++registry_txc.finite_bad;
+        finite=full;
+#endif
+        if(!finite)return 0;
+#else
         for(unsigned j=0;j<c.palette_count*12;++j)if(!coarse_finite(output[i][j]))return 0;
+#endif
     }
     return 1;
 }
@@ -411,7 +488,13 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
     }
     const unsigned d=registry_bound->descriptor;const auto& desc=registry.descriptors[d];
     if(!registry_skin_init(d)){NMR_CENSUS(registry_decline(m,nullptr,kRwSkin));return 0;}
-    Re4dcActorPlan p{};p.count=desc.sections;p.appearance=desc.appearance;p.palettes=registry_palettes;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    // Built in the transaction's plan: no second zeroed plan and no whole-plan copy (a declined plan is not used).
+    Re4dcActorPlan& p=*out;p=Re4dcActorPlan{};
+#else
+    Re4dcActorPlan p{};
+#endif
+    p.count=desc.sections;p.appearance=desc.appearance;p.palettes=registry_palettes;
     for(unsigned i=0;i<desc.sections;++i) {
         const auto& c=registry.chunks[desc.first_chunk+i];
         const re4dc_source::ChunkInput input{{c.positions,c.position_count*8u},{c.normals,c.normal_count*8u},{c.uv,c.uv_bytes},
@@ -433,7 +516,12 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
     p.image=p.materials[0].image;p.crc=p.materials[0].crc;p.fnv=p.materials[0].fnv;
     NMR_CENSUS(++registry_count[d].planned;registry_count[d].pos[0]=m->pos.x;registry_count[d].pos[1]=m->pos.y;
         registry_count[d].pos[2]=m->pos.z);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    registry_tx={registry_tx_serial,registry.generation,m,registry_bound};
+    return 1;
+#else
     *out=p;return 1;
+#endif
 }
 // The certificate's registry branch: every run draws its chunk's own descriptor texture (coarse_actor_material.inc).
 extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
