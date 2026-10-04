@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>]  (D367 generic native models, 2026-10-03)
+"""model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>] [--source-normal-length]
+(D367 generic native models, 2026-10-03)
+
+--source-normal-length (2026-10-04, default off: the output is byte-identical to before): every cast normal keeps
+its direction and takes the length of its SOURCE BIN's normals. GX transforms normals without renormalising and
+lights with n.l, and its normal fraction is fixed by the type (s8: 6 bits, s16: 14 bits), so the source's stored
+normal length is part of its lighting (the stage-1 animal BINs store s8 normals of length ~127/64 = 1.97); unit cast
+normals light the same actor about half as bright. The length is measured from the source BIN (mean of every
+normal, recorded per section in registry-manifest.json). Fail closed: a source BIN whose normal lengths are not
+uniform (max - min > 0.05), has no normals, or whose length does not fit the s16 / 14-bit encoding (>= 1.9999)
+refuses the whole generation; so does a cast normal of zero length.
 
 Generates the private NATIVE_MODEL_REGISTRY bundle (game/native_model_registry.mk) from validated cast packs and
 the original archives. PRIVATE output: never commit it or put it in a patch (it holds converted meshes).
@@ -265,6 +275,14 @@ def bin_facts(arc, le_mirror, name, no):
     nrm = b[word(b, 52):word(b, 52) + nn * (4 if flags & 0x20000000 else 8)]
     if not flags & 0x20000000:
         nrm = swap16(nrm)
+    # The stored normal length (GX's fixed normal fraction: s8 6 bits, s16 14 bits), for --source-normal-length.
+    if flags & 0x20000000:
+        lens = [((nrm[i] ^ 128) - 128) ** 2 + ((nrm[i + 1] ^ 128) - 128) ** 2 + ((nrm[i + 2] ^ 128) - 128) ** 2
+                for i in range(0, nn * 4, 4)]
+        lens = [l ** 0.5 / 64.0 for l in lens]
+    else:
+        lens = [sum(v * v for v in struct.unpack_from('<3h', nrm, i)) ** 0.5 / 16384.0 for i in range(0, nn * 8, 8)]
+    normal_length = [sum(lens) / len(lens), min(lens), max(lens)] if lens else None
     w = b[word(b, 20):word(b, 20) + nw * 8]
     parts = []; at = word(b, 28); maxuv = -1
     for _ in range(half(b, 26)):
@@ -288,7 +306,8 @@ def bin_facts(arc, le_mirror, name, no):
         le_mirror.fmt_bin(s, 0, len(nb), f'{name}/{no}')
     return {'sha256': sha(b), 'header': [flags, b[40], b[25], nv, nn, word(b, 36), nw, ext, half(b, 26), word(b, 60)],
             'positions': digest(pos), 'normals': digest(nrm), 'weights': digest(w), 'uv': digest(uv), 'parts': parts,
-            'normalized': digest(bytes(nb)), 'normalized_sha256': sha(bytes(nb)), 'positions_le_first64': pos[:64]}
+            'normalized': digest(bytes(nb)), 'normalized_sha256': sha(bytes(nb)), 'positions_le_first64': pos[:64],
+            'normal_length': normal_length}
 
 
 def tpl_facts(arc, parse_tpl, name, no):
@@ -383,6 +402,9 @@ def main():
         i = args.index('--package-room'); package_room = int(args[i + 1], 16); del args[i:i + 2]
         if not 0x100 <= package_room <= 0x7ff:
             sys.exit('model_registry: --package-room is the hex room number, e.g. 103')
+    source_normal_length = '--source-normal-length' in args
+    if source_normal_length:
+        args.remove('--source-normal-length')
     if len(args) != 2:
         sys.exit(__doc__)
     spec_path, out = os.path.abspath(args[0]), os.path.abspath(args[1])
@@ -391,7 +413,7 @@ def main():
     tmp = out + '.tmp-%d' % os.getpid()
     os.makedirs(tmp)
     try:
-        report = generate(spec_path, tmp, tree, package_room)
+        report = generate(spec_path, tmp, tree, package_room, source_normal_length)
     except Fail as e:
         shutil.rmtree(tmp)
         sys.exit(f'model_registry: FAIL {e}')
@@ -399,7 +421,34 @@ def main():
     print(json.dumps(report, indent=1))
 
 
-def generate(spec_path, out, tree, package_room=None):
+def source_length_normals(name, c, src):
+    """--source-normal-length: the chunk's s16 / 14-bit normals rescaled to the source BIN's stored normal length
+    (direction kept, palette word untouched). Returns (normals, manifest record)."""
+    if not src:
+        raise Fail(f'{name} chunk {c["source_info"]}: the source BIN has no normals (no source length to keep)')
+    mean, lo, hi = src
+    if hi - lo > 0.05:
+        raise Fail(f'{name} chunk {c["source_info"]}: source normal lengths {lo:.4f}..{hi:.4f} are not uniform '
+                   '(one stored length per BIN is the only supported source mode)')
+    if not 0.0 < mean < 1.9999:
+        raise Fail(f'{name} chunk {c["source_info"]}: source normal length {mean:.4f} does not fit s16 / 14 bits')
+    out = bytearray(c['normals']); cast = []
+    for i in range(c['normal_count']):
+        x, y, z = struct.unpack_from('<3h', out, i * 8)
+        l = (x * x + y * y + z * z) ** 0.5
+        if not l:
+            raise Fail(f'{name} chunk {c["source_info"]}: cast normal {i} has zero length')
+        cast.append(l / 16384.0)
+        k = mean * 16384.0 / l
+        v = [int(round(t * k)) for t in (x, y, z)]
+        if any(abs(t) > 32767 for t in v):
+            raise Fail(f'{name} chunk {c["source_info"]}: rescaled normal {i} overflows s16')
+        struct.pack_into('<3h', out, i * 8, *v)
+    return bytes(out), dict(source_mean=round(mean, 6), source_min=round(lo, 6), source_max=round(hi, 6),
+                            cast_mean_before=round(sum(cast) / len(cast), 6), mode='source BIN mean length')
+
+
+def generate(spec_path, out, tree, package_room=None, source_normal_length=False):
     inputs = Inputs(out)
     spec = inputs.json(spec_path, 'spec.json')
     cast = spec['cast_dir']; level = spec['level']; overlay_rel = spec['revision_overlay'].strip('/')
@@ -518,6 +567,9 @@ def generate(spec_path, out, tree, package_room=None):
             err = preflight_chunk(c, bones)
             if err:
                 raise Fail(f'{name} chunk {c["source_info"]}: preflight {err}')
+            if source_normal_length:
+                c['normals'], sections[c['source_info']]['normal_length'] = source_length_normals(
+                    name, c, bins[(arcname, sections[c['source_info']]['bin'])]['normal_length'])
             c['skin_bytes'] = skin_stream_bytes(c['weights']); skin += c['skin_bytes']
             tp = e['texture_packages'].get(str(c['source_info']))
             if not tp:
@@ -595,6 +647,8 @@ def generate(spec_path, out, tree, package_room=None):
                     revision_overlay=overlay_rel, level=level, lighting=spec.get('lighting'), self_check=selfcheck,
                     capacities=dict(role_rows=f'{nroles0}+{nrows}/{MATERIAL_ROWS}', source_blobs=f'{nblobs0}+{len(blobs)}/{SOURCE_BLOBS}'),
                     inputs={rel: dict(sha256=v[1], source=v[2]) for rel, v in sorted(inputs.files.items())},
+                    **({'normals': 'source BIN normal length (--source-normal-length; per section in descriptors[].sections)'}
+                       if source_normal_length else {}),
                     descriptors=[summary(r, 'runtime') for r in runtime] + [summary(c, 'contract') for c in contracts],
                     textures=[dict(key=f'{t[0]:08x}-{t[1]:08x}', width=t[2], height=t[3], format=t[6], package_sha256=t[5],
                                    runtime=i in used_tex) for i, t in enumerate(textures)])

@@ -7,6 +7,25 @@
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
 extern u8 gxCsScale[];  // trans.cpp: the room's TEV colour scale per group (shaderSetup)
 #endif
+#if RE4DC_ACTOR_PROOF_LEAN
+#if defined(RE4DC_NATIVE_MODEL_REGISTRY_TX) && RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+#error ACTOR_PROOF_LEAN and NATIVE_MODEL_REGISTRY_TX=2 are separate compare builds
+#endif
+// ACTOR_PROOF_LEAN (game/native_model_registry.mk): every lifetime change (adopt, retire, revoke, forget, stream
+// pending, binding refresh) takes life::next(); an unchanged serial with no exhaustion means no lifetime record moved.
+namespace re4dc_material { namespace life { extern unsigned serial; extern bool exhausted; } }  // actor_lifetime.inc
+#if RE4DC_ACTOR_PROOF_LEAN == 2
+// Compare build counters ("APL" lines): uses of each reuse and how often the =0 result differed (every *_bad must be 0).
+struct ActorLeanCount { unsigned semantics,held,semantics_bad,mv,mv_bad,owner,owner_bad,rows,rows_bad,materials,materials_bad,last; };
+ActorLeanCount actor_lean_c;
+void actor_lean_report(const char* why) {
+    const auto& c=actor_lean_c;
+    re4dc_log("APL %s t=%u semantics=%u held=%u semantics_bad=%u mv=%u mv_bad=%u owner=%u owner_bad=%u rows=%u rows_bad=%u "
+              "materials=%u materials_bad=%u\n",why,unsigned(pG->Frame_cnt),c.semantics,c.held,c.semantics_bad,c.mv,c.mv_bad,
+              c.owner,c.owner_bad,c.rows,c.rows_bad,c.materials,c.materials_bad);
+}
+#endif
+#endif
 namespace {
 using re4dc_source::FrameIdentity;
 using re4dc_source::ModelIdentity;
@@ -483,6 +502,10 @@ static int enc_transaction_draw(cModel* m) {
 extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
     ATD(m,0,0,0);
+#if RE4DC_ACTOR_PROOF_LEAN
+    // The lifetime serial right after THIS call's admitting actor_semantics (0: this call admitted nothing).
+    unsigned lean_serial=0;
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX
     ++registry_tx_serial;  // this call (the registry plan's token names it)
     bool tx_semantics_held=false;
@@ -594,6 +617,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
             return 0;
         }
 #endif
+#if RE4DC_ACTOR_PROOF_LEAN
+        lean_serial=re4dc_material::life::exhausted?0u:re4dc_material::life::serial;
+#endif
 #if RE4DC_CROWD
         if(crowd_ganado(m)) {
             crowd_would=crowd_policy(m);
@@ -650,7 +676,32 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     }
     const unsigned pass=m->ot_type==7 && (m->be_flag&0x08000000)?2u:1u;
     if((r->done&pass) || r->released){actor_fail();return -1;}
-#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+#if RE4DC_ACTOR_PROOF_LEAN
+    // ACTOR_PROOF_LEAN (Leon, the Ganado cast and registry plans alike): the pass that acquired the actor in THIS call
+    // keeps the actor_semantics verdict it got before actor_acquire, and the modelviews actor_acquire computed from the
+    // same matrices, when the lifetime serial has not moved since that verdict. Audit (one call, verdict -> here):
+    // crowd_policy (reads m, the cast pregate balls, the fog far; writes crowd statics), actor_acquire (native frame
+    // scratch, texture / workspace / palette-arena / prim-tail leases, the palette build: owner_*_bind / registry_bind
+    // reads and their binding slots, re4dc_actor_binding_revision; re4dc_actor_skin_acquire, actor_source_lighting reads
+    // GX state, preflight), re4dc_actor_transaction_choose (the ledger's presentation choice; membership unchanged). None
+    // runs source code or writes cModel / cParts / cModelInfo / pG / gxCsScale, the plan copy (r->plan=p) or the room
+    // rows; a lifetime record can move only by life::next() (CROWD_READOPT inside a bind, a binding refresh), which
+    // the serial guard turns into the full proof. A later pass (Leon's second OT group) proves everything again.
+    const bool lean_held=lean_serial && !re4dc_material::life::exhausted && re4dc_material::life::serial==lean_serial;
+#if RE4DC_ACTOR_PROOF_LEAN == 2
+    const bool lean_full=actor_semantics(m,r->plan);
+    ++actor_lean_c.semantics;if(lean_held){++actor_lean_c.held;if(!lean_full)++actor_lean_c.semantics_bad;}
+    if(pG->Frame_cnt/600!=actor_lean_c.last){actor_lean_c.last=pG->Frame_cnt/600;actor_lean_report("periodic");}
+    if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) ||
+       m->pParts!=r->parts_owner || !lean_full){actor_release(*r);actor_fail();return -1;}
+#elif RE4DC_NATIVE_MODEL_REGISTRY_TX
+    if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) || m->pParts!=r->parts_owner ||
+       (!lean_held && !tx_semantics_held && !actor_semantics(m,r->plan))){actor_release(*r);actor_fail();return -1;}
+#else
+    if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) ||
+       m->pParts!=r->parts_owner || (!lean_held && !actor_semantics(m,r->plan))){actor_release(*r);actor_fail();return -1;}
+#endif
+#elif RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
     bool tx_semantics=actor_semantics(m,r->plan);
     ++registry_txc.semantics;if(tx_semantics_held){++registry_txc.held;if(!tx_semantics)++registry_txc.semantics_bad;}
     if(pG->Frame_cnt/600!=registry_txc.last){registry_txc.last=pG->Frame_cnt/600;registry_tx_report("periodic");}
@@ -675,8 +726,22 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(order==r->count || r->part[order].info!=info || r->part[order].flags!=info->be_flag) {
             actor_release(*r);actor_fail();return -1;
         }
+#if RE4DC_ACTOR_PROOF_LEAN == 1
+        if(!lean_held) {
+            Mtx pm,mv;PSMTXConcat(m->pParts->mat,info->mat,pm);PSMTXConcat(pG->Cam.v_mat,pm,mv);
+            if(std::memcmp(r->part[order].mv,mv,sizeof(mv))){actor_release(*r);actor_fail();return -1;}
+        }
+#elif RE4DC_ACTOR_PROOF_LEAN == 2
+        {
+            Mtx pm,mv;PSMTXConcat(m->pParts->mat,info->mat,pm);PSMTXConcat(pG->Cam.v_mat,pm,mv);
+            const bool same=!std::memcmp(r->part[order].mv,mv,sizeof(mv));
+            if(lean_held){++actor_lean_c.mv;if(!same)++actor_lean_c.mv_bad;}
+            if(!same){actor_release(*r);actor_fail();return -1;}
+        }
+#else
         Mtx pm,mv;PSMTXConcat(m->pParts->mat,info->mat,pm);PSMTXConcat(pG->Cam.v_mat,pm,mv);
         if(std::memcmp(r->part[order].mv,mv,sizeof(mv))){actor_release(*r);actor_fail();return -1;}
+#endif
         ++order;
     }
     if(order!=r->count){actor_release(*r);actor_fail();return -1;}

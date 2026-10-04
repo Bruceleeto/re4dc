@@ -274,6 +274,25 @@ void build_spans(u32 lo, u32 hi)
         }
     }
 }
+
+#if RE4DC_SS_CERT
+// SS_CERT (actor_swap_park.inc): every byte of [p, p+n) inside the window lies in a span the open saved, none in a
+// skipped free cell (those payloads are not put back at close). Spans are ascending and disjoint.
+int span_saved(const void* p, unsigned n)
+{
+    u32 a = u32(p), b = a + n;
+    if (b < a) return 0;
+    if (a < area_lo) a = area_lo;
+    if (b > area_hi) b = area_hi;
+    for (unsigned i = 0; i < nspan && a < b; ++i) {
+        const u32 s = spans[i].start, e = s + spans[i].bytes;
+        if (e <= a) continue;
+        if (s > a) return 0;
+        a = e;
+    }
+    return a >= b;
+}
+#endif
 }  // namespace
 
 #if RE4DC_SUBSCREEN_OVL
@@ -421,6 +440,10 @@ void re4dc_ss_light_array_high()
 extern "C" void re4dc_logic_trace_swap_open(void*,unsigned,unsigned);
 extern "C" void re4dc_logic_trace_swap_close();
 #endif
+#if RE4DC_SS_CERT
+extern "C" void re4dc_actor_swap_park(const void*, unsigned, int (*)(const void*, unsigned));
+extern "C" void re4dc_actor_swap_unpark(int);
+#endif
 extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
 {
     if (swapped) re4dc_missing("sub screen area swapped twice");
@@ -471,6 +494,10 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
     swapped = true;
     area_lo = lo;
     area_hi = hi;
+#if RE4DC_SS_CERT
+    // The room's bytes are saved and still intact: its certificates leave the live tables until close.
+    re4dc_actor_swap_park(reinterpret_cast<const void*>(lo), kSsAramSize, span_saved);
+#endif
     save_message_state();
     re4dc_motion_hold(1);
     // Room demand pools (the cEm one, for one) whose slot tables live in the window.
@@ -550,6 +577,11 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
     const unsigned motions = re4dc_motion_forget_dead_heaps();
     if (motions) re4dc_log("subscreen backing: %u motion residency slots from the sub screen heap dropped\n", motions);
     re4dc_ui_invalidate_sources();
+#if RE4DC_SS_CERT
+    // Heap 12 is destroyed (SubScreenExitCore) and the room's bytes are back: parked certificates whose bytes hash
+    // as at open are published again; a failed restore publishes none.
+    re4dc_actor_swap_unpark(h == open_hash);
+#endif
     const unsigned long long t1 = re4dc_ssb_us();
     re4dc_log("subscreen backing: close area=%08x restored=%u restore_us=%u hash=%08x %s pool_free=%u\n", u32(wk->pBuf),
               live_bytes, unsigned(t1 - t0), h, h == open_hash ? "ok" : "MISMATCH", re4dc_ssb_pool_free());

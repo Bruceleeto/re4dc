@@ -50,3 +50,24 @@ $(OBJDIR)/dbgwarp_bridge.o: dbgwarp_bridge.cpp $(OBJDIR)/dbgwarp.h
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -include $(OBJDIR)/dbgwarp.h $(if $(filter 1,$(WARP_JUMP)),-DRE4DC_WARP_JUMP=1) -MMD -MP -c $< -o $@
 -include $(OBJDIR)/dbgwarp_bridge.d
 endif
+#   CODEC_READY_FIXTURE=1  test builds only, needs DBG_WARP=1 (deterministic external-ready contract): the codec
+#                call's voice-stream ready poll (src/Sscrn/ss_term.cpp OpeMesMove) is released at the source tick
+#                request + K of /cd/dc/codec_ready.txt ("K <n>"), only if the stream is actually ready there;
+#                otherwise the run halts with a "codec ready: FAIL" ledger line (codec_ready_fixture.cpp). The
+#                host test is tools/d367/codec_ready_gate_test.cpp. Default 0: compiled out, the image is unchanged.
+CODEC_READY_FIXTURE ?= 0
+ifneq ($(filter-out 0 1,$(CODEC_READY_FIXTURE)),)
+$(error CODEC_READY_FIXTURE must be 0 or 1)
+endif
+ifeq ($(CODEC_READY_FIXTURE),1)
+ifneq ($(DBG_WARP),1)
+$(error CODEC_READY_FIXTURE needs DBG_WARP=1)
+endif
+PLATFORM_OBJS += $(OBJDIR)/codec_ready_fixture.o
+$(TARGET): $(OBJDIR)/codec_ready_fixture.o
+$(OBJDIR)/codec_ready_fixture.o: codec_ready_fixture.cpp codec_ready_gate.h
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -MMD -MP -c $< -o $@
+-include $(OBJDIR)/codec_ready_fixture.d
+$(OBJDIR)/mod/Sscrn/src/Sscrn/ss_term.o: GAME_CPPFLAGS += -DRE4DC_CODEC_READY_FIXTURE=1
+endif

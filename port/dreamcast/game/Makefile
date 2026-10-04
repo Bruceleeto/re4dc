@@ -83,7 +83,16 @@ endif
 # em13 (r104's chapter 1-2 Ganados, route lane 2026-10-01) joins the group: alone it carried a
 # second em10.cpp (264,538 B of text = 266 KB of heap 4 in every room); r104 loads em13 only.
 EM10_SHARED ?= 0
-EM10_GROUP = $(filter em12 em15 em13,$(MODULES))
+# EM1F_SHARED=1 (world coverage lane, default 0: no effect; needs WORLD_ROOM_MODULES=1 and EM10_SHARED=1): em1f
+# (module 109, the St4 Ganados) joins the group too: em10.cpp + em10_tmpl.cpp + em1f_set.cpp, as the others, so the
+# image drops its second em10.cpp copy. The St4 rooms that load em1f load no other group member.
+EM1F_SHARED ?= 0
+ifneq ($(EM1F_SHARED),0)
+ifneq ($(EM1F_SHARED)$(WORLD_ROOM_MODULES)$(EM10_SHARED),111)
+$(error EM1F_SHARED must be 0 or 1, and 1 needs WORLD_ROOM_MODULES=1 and EM10_SHARED=1)
+endif
+endif
+EM10_GROUP = $(filter em12 em15 em13 $(if $(filter 1,$(EM1F_SHARED)),em1f),$(MODULES))
 MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out $(EM10_GROUP),$(MODULES)) em10g=$(subst $(eval) ,+,$(strip $(EM10_GROUP))),$(MODULES))
 MODULE_OBJS =
 MODULES_MK = $(OBJDIR)/modules.mk

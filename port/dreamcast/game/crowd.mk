@@ -117,6 +117,23 @@ $(error ACTOR_GANADO_SOURCE_LIGHT acts on the ACTOR_TRANSACTION owner path (ACTO
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_SOURCE_LIGHT=1
 endif
+# SS_CERT=1 (native scene, 2026-10-04; default 0; needs ACTOR_TRANSACTION=1 and SUBSCREEN=1): room archive
+#              certificates survive the sub screen memory swap (actor_swap_park.inc). At open the records of every
+#              archive in the 3 MiB window leave the live tables; frees inside the window while it is swapped (heap 12)
+#              do not touch them; at close they are published again under new serials only when their bytes hash as
+#              at open and nothing retired, replaced or overlapped them meanwhile. Otherwise the source path draws them,
+#              as without the knob (first-visit r101: the cow after the entry inventory).
+SS_CERT ?= 0
+ifeq ($(filter $(SS_CERT),0 1),)
+$(error SS_CERT must be 0 or 1)
+endif
+ifeq ($(SS_CERT),1)
+ifneq ($(ACTOR_TRANSACTION)$(SUBSCREEN),11)
+$(error SS_CERT=1 needs ACTOR_TRANSACTION=1 and SUBSCREEN=1)
+endif
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_SS_CERT=1
+$(OBJDIR)/coarse_actor.o: actor_swap_park.inc
+endif
 CROWD_CULL ?= 0
 CROWD_CENSUS ?= 0
 CROWD_CENSUS_FROM ?= 900

@@ -514,18 +514,18 @@ void gameRoomInit()
     if (pG->Debug_flg[3] & 0x200000) {
         n *= 2;
     }
-    EmMgr.arrayAlloc(n);
+    EmMgr.arrayAlloc(n); RE4DC_TRACE_OWNER_PUBLISH(RE4DC_OWN_PL | RE4DC_OWN_EM);
     ObjMgr.roomInit();
     n = ConsGetRoomValue(1) + SmdGetObjNum();
     if (pG->Debug_flg[3] & 0x200000) {
         n *= 2;
     }
-    ObjMgr.arrayAlloc(n);
+    ObjMgr.arrayAlloc(n); RE4DC_TRACE_OWNER_PUBLISH(RE4DC_OWN_OB);
     EspRoomInit();
-    EspArrayAlloc(ConsGetRoomValue(2));
+    EspArrayAlloc(ConsGetRoomValue(2)); RE4DC_TRACE_OWNER_PUBLISH(RE4DC_OWN_EP);
     RoomTexRoomInit();
     EspgenRoomInit();
-    EspgenArrayAlloc(ConsGetRoomValue(3));
+    EspgenArrayAlloc(ConsGetRoomValue(3)); RE4DC_TRACE_OWNER_PUBLISH(RE4DC_OWN_EG);
     CtrlMgr.roomInit();
     CtrlMgr.arrayAlloc(ConsGetRoomValue(4));
     LightMgr.roomInit((cLit*) (pG->pArc->ofs_2C + (u32) pG->pArc), (cLit*) GetDataExt(pG->pRoom, "LIT", 0),
@@ -1437,7 +1437,7 @@ void gameRoomMemInit()
         MemSetCurrentHeap(4);
     }
 #if defined(RE4DC_GAME) && !defined(__PPC__)
-    re4dc_room_enter();
+    RE4DC_TRACE_OWNER_RELEASE(3); re4dc_room_enter();
 #endif
     memclr_asm(pG->pad_16C, 0x4E00);
     U32Set(pG->Debug_flg[0], 0);
