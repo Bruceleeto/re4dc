@@ -562,7 +562,34 @@ def generate(spec_path, out, tree, package_room=None):
         r['appearance'] = APPEARANCE0 + i
     used_tex = sorted({c['texture'] for r in runtime for c in r['chunks']})
     write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls, blobs, nroles0, nblobs0)
-    package = write_package(out, package_room, spec, runtime, textures, used_tex, bins, tpls, blobs) if package_room is not None else None
+    package = None
+    if package_room is not None:
+        # spec "room_packages" (optional): {"<hex room>": {"descriptors": [names], "evidence": "..."}} names the runtime
+        # descriptors the room's own source spawns (its enemy list / script, by model type); each must be a runtime
+        # descriptor whose cast lists the room. Appearances are renumbered from APPEARANCE0 in runtime order (they are
+        # scoped to one room generation). Without an entry for the room every runtime descriptor is packaged (as before).
+        sel = spec.get('room_packages', {}).get('%x' % package_room)
+        if sel is None:
+            pr, pk_tex, pk_blobs = runtime, used_tex, blobs
+        else:
+            names = sel['descriptors']; known = {r['name'] for r in runtime}; rname = 'r%x%02x' % (package_room >> 8, package_room & 255)
+            for n in names:
+                if n not in known:
+                    raise Fail(f'room package {rname}: {n} is not a runtime descriptor (contract or unknown)')
+            pr = [dict(r, appearance=APPEARANCE0 + i) for i, r in enumerate(x for x in runtime if x['name'] in names)]
+            for r in pr:
+                if rname not in r['rooms']:
+                    raise Fail(f'room package {rname}: the cast of {r["name"]} does not list {rname} ({r["rooms"]})')
+            if len(pr) != len(set(names)):
+                raise Fail(f'room package {rname}: duplicate names in {names}')
+            pk_tex = sorted({c['texture'] for r in pr for c in r['chunks']})
+            pk_blobs = sorted({(r['archive'], s['bin']) for r in pr for s in r['sections']})
+        package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs)
+        package['descriptors'] = [dict(name=r['name'], appearance='0x%x' % r['appearance'], archive=r['archive'],
+                                       source_types=r['source_types'], sections=[dict(bin=s['bin'], tpl=s['tpl']) for s in r['sections']])
+                                  for r in pr]
+        if sel is not None:
+            package['selection_evidence'] = sel.get('evidence')
     manifest = dict(registry=spec['registry'], generator=os.path.relpath(__file__, tree), generator_sha256=sha(open(__file__, 'rb').read()),
                     tree_head=os.popen(f'git -C "{tree}" rev-parse HEAD').read().strip(), cast_dir=cast,
                     revision_overlay=overlay_rel, level=level, lighting=spec.get('lighting'), self_check=selfcheck,
