@@ -79,6 +79,9 @@ extern "C" int re4dc_coarse_ganado_layout();
 #if RE4DC_COARSE_SOURCE_ACTORS
 extern "C" int re4dc_coarse_source_actors_ready();
 extern "C" int re4dc_coarse_source_actor_route(const void*);
+#if RE4DC_ACTOR_EARLY_COARSE
+extern "C" void re4dc_model_packet_abort();
+#endif
 #endif
 namespace {
 constexpr float kNear = 40.0f;         // clip plane, mm in front of the eye
@@ -650,7 +653,9 @@ void draw_model(Out& o, cModel* m, std::uint32_t rgb, float t)
 #if RE4DC_COARSE_GANADO
     crowd_layout=re4dc_coarse_ganado_layout() && m->id>=0x10 && m->id<=0x20;
 #endif
+#if !RE4DC_ACTOR_EARLY_COARSE
     if (!crowd_layout && !actor_visible(m))return;
+#endif
     g_st.actors++;
 #if RE4DC_COARSE_LEON
     if(m==(cModel*)pPL){
@@ -666,9 +671,15 @@ void draw_model(Out& o, cModel* m, std::uint32_t rgb, float t)
         if(o.sq)re4dc_coarse_end(o.n);
         o.total+=o.n;o.n=0;o.sq=nullptr;
         const int handled=re4dc_coarse_ganado(m);
+#if RE4DC_ACTOR_EARLY_COARSE
+        if(!handled){re4dc_model_packet_abort();return;}
+#endif
         o.sq=re4dc_coarse_begin(1);load_rows(g_S);
         if(handled){if(o.sq && !crowd_layout)blob(o,m->pos,330.0f);return;}
     }
+#endif
+#if RE4DC_ACTOR_EARLY_COARSE
+    re4dc_model_packet_abort();return; // no ribbon substitute for an admitted actor
 #endif
     for (cParts* p = m->pList; p; p = p->pList) {
         if (p->motParts.flags & 2) {

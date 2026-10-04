@@ -118,6 +118,19 @@ bool owner_add_source_material(cModel* m,Re4dcActorPlan& p,unsigned role,unsigne
     index=p.material_count++;p.materials[index]=mat;return true;
 }
 }
+#if RE4DC_ACTOR_EARLY_COARSE
+extern "C" int re4dc_ganado_early_ready(cModel* m) {
+    if(!owner_ganado_bind(m) || owner_info_count[owner_current_slot]!=4 || !m->pParts ||
+       !skin_init(bound->appearance))return 0;
+    for(unsigned role=0;role<4;++role) {
+        if(owner_original_chunk(role) || gc::chunks[bound->appearance][role].palette_count>256)return 0;
+        for(unsigned j=0;j<12;++j)if(!coarse_finite((&bound->infos[role]->mat[0][0])[j]))return 0;
+    }
+    Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
+    for(unsigned j=0;j<12;++j)if(!coarse_finite((&inv[0][0])[j]))return 0;
+    return 1;
+}
+#endif
 #if RE4DC_CROWD_FAR
 extern "C" int re4dc_crowd_far(cModel*);  // coarse_actor_transaction.inc
 #endif

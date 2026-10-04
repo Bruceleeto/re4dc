@@ -172,6 +172,9 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
 namespace { bool pl08_pack_owned_live() {return actor_owned_live;} }
 #endif
 #include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy
+#if RE4DC_ACTOR_EARLY_COARSE
+#include "actor_early_coarse.inc"
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "coarse_actor_registry_pack.inc" // the room-owned registry package (loader, publish, retire)
 #endif

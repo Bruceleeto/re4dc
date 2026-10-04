@@ -2602,7 +2602,11 @@ extern "C" void re4dc_ui_begin(){
         re4dc_log("native model DIAGNOSTIC boundary: frame=%u previous_bytes=%u committed_parts=%u invalid=%u resource=%u overflow=%u presented=%u\n",frame,model_used*32,model_parts,model_invalid,model_resource,model_overflow,model_presented);
     nquad=0;model_used=0;++frame;
 #if RE4DC_ACTOR_TRANSACTION
+#if RE4DC_ACTOR_EARLY_COARSE
+    actor_texture_leases.begin_frame(frame); // Trans tickets name this exact next frame
+#else
     actor_texture_leases.retire_frame(); // submitted pins retain normal GPU fencing
+#endif
 #endif
 #if RE4DC_NATIVE_MES
     nglyph=0;
@@ -3422,6 +3426,22 @@ extern "C" int re4dc_actor_texture_acquire(const Re4dcUiImage* image,unsigned cr
     if(t.width!=image->width || t.height!=image->height || t.format>re4dc::texture::kArgb4444)return 0;
     return actor_texture_leases.acquire(unsigned(e-entries),frame,*out)?1:0;
 }
+#if RE4DC_ACTOR_EARLY_COARSE
+extern "C" int re4dc_actor_texture_acquire_next(const Re4dcUiImage* image,unsigned crc,unsigned fnv,Re4dcActorTextureLease* out){
+    if(frame==~0u || !image || !out || out->slot || out->serial || !frame_ready || stream_aborted || direct_open || !actor_texture_leases.available())return 0;
+    const Key key{crc,fnv};Entry* e=load(*image,false,&key);
+    if(!e || !e->valid || !(e->key==key) || !e->package.upload_complete() || e->package.header().texture_count!=1 || !e->package.pvr_texture(0))return 0;
+    const auto& t=e->package.textures()[0];
+    if(t.width!=image->width || t.height!=image->height || t.format>re4dc::texture::kArgb4444)return 0;
+    return actor_texture_leases.acquire(unsigned(e-entries),frame+1,*out)?1:0;
+}
+extern "C" int re4dc_actor_texture_validate_key(const Re4dcActorTextureLease* lease,unsigned crc,unsigned fnv){
+    unsigned index;
+    return lease && frame_ready && !stream_aborted && !direct_open &&
+        actor_texture_leases.resolve(*lease,frame,index) && entries[index].valid &&
+        entries[index].key==Key{crc,fnv} && entries[index].package.upload_complete() && entries[index].package.pvr_texture(0);
+}
+#endif
 extern "C" int re4dc_actor_texture_validate(const Re4dcActorTextureLease* lease){
     unsigned index;
     return lease && frame_ready && !stream_aborted && !direct_open &&

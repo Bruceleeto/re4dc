@@ -3,6 +3,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#if RE4DC_ACTOR_EARLY_COARSE
+#include "actor_early_coarse.h"
+#endif
 #if defined(__sh__)
 // Match cManager.h/cam_extra.h: the recovered target <new> compatibility
 // header omits placement new. Share its guard to avoid a duplicate overload.
@@ -44,6 +47,9 @@ struct FrameEntry {
     std::uint32_t prepared;
 #if RE4DC_ACTOR_TRANSACTION
     std::uint32_t presentation=0;
+#endif
+#if RE4DC_ACTOR_EARLY_COARSE
+    Re4dcActorEarlyTicket coarse_ticket{};
 #endif
 
 };
@@ -138,6 +144,31 @@ public:
         }
         return Membership::Unknown;
     }
+#if RE4DC_ACTOR_EARLY_COARSE
+    bool planned_path(const FrameIdentity& now,const ModelIdentity& model,ModelPath& path)const {
+        if(!valid(now) || (phase_!=Sealed && phase_!=Claimed && phase_!=Ready))return false;
+        for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model){path=entries_[k].path;return true;}
+        return false;
+    }
+    bool attach_coarse_ticket(const FrameIdentity& now,const ModelIdentity& model,const Re4dcActorEarlyTicket& ticket) {
+        if(!valid(now) || phase_!=Building || !ticket.texture.slot || !ticket.texture.serial || !ticket.binding_revision)return false;
+        for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model){
+            auto& e=entries_[k];
+            if(e.path!=ModelPath::Coarse || e.coarse_ticket.texture.slot || e.coarse_ticket.texture.serial)return false;
+            e.coarse_ticket=ticket;return true;
+        }
+        return false;
+    }
+    bool coarse_ticket(const FrameIdentity& now,const ModelIdentity& model,Re4dcActorEarlyTicket& ticket)const {
+        if(!valid(now) || phase_!=Ready)return false;
+        for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model){
+            const auto& e=entries_[k];
+            if(e.path!=ModelPath::Coarse || !e.coarse_ticket.texture.slot || !e.coarse_ticket.texture.serial || !e.coarse_ticket.binding_revision)return false;
+            ticket=e.coarse_ticket;return true;
+        }
+        return false;
+    }
+#endif
     bool ready(const FrameIdentity& now) const { return valid(now) && phase_==Ready; }
     bool failed() const { return phase_==Failed; }
 

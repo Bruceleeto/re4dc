@@ -57,6 +57,16 @@ public:
         for(auto& s:slots_)if(s.serial && s.entry==entry)s.serial=0;
         refs_[entry]=0;
     }
+#if RE4DC_ACTOR_EARLY_COARSE
+    // A Trans ticket names the NEXT native UI frame. Keep only tickets that
+    // name this exact frame; skipped, old and future frames are all revoked.
+    // Forced owner/entry retirement remains unconditional below/above.
+    void begin_frame(unsigned frame){
+        for(auto& s:slots_)if(s.serial && s.frame!=frame){
+            --refs_[s.entry];s.serial=0;
+        }
+    }
+#endif
     void retire_frame(){
         for(auto& s:slots_)s.serial=0;
         for(auto& r:refs_)r=0;

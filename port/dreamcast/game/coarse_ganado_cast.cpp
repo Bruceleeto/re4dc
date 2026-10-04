@@ -33,6 +33,11 @@ extern "C" void GXGetProjectionv(float*);
 extern "C" void GXGetViewportv(float*);
 extern "C" void re4dc_bind_actor_frame();
 extern "C" int re4dc_coarse_leon_texture_ready(const Re4dcUiImage*,unsigned,unsigned);
+#if RE4DC_ACTOR_EARLY_COARSE
+#include "actor_early_coarse.h"
+extern "C" void re4dc_model_packet_abort();
+namespace { bool owner_ganado_bind(cModel*); }
+#endif
 
 namespace {
 namespace gc = ganadocast;
@@ -647,7 +652,11 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
     ++frame_candidates;
     if(mesh_limit>=0 && frame_meshes>=unsigned(mesh_limit))return stress_layout?1:0;
     ++attempts;
+#if RE4DC_ACTOR_EARLY_COARSE
+    const bool ok=owner_ganado_bind(m);
+#else
     const bool ok=bind_source(m);
+#endif
 #if RE4DC_COARSE_GANADO_CAST == 2
     check_attempt(m,ok);
 #endif
@@ -667,6 +676,11 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
         // materials remain unsupported.
         if(((infos[i]->be_flag&2) && i!=3) || infos[i]->flagsDC)return 0;
     }
+#if RE4DC_ACTOR_EARLY_COARSE
+    Re4dcActorTextureLease texture{};
+    if(!re4dc_coarse_source_actor_texture(m,&texture) ||
+       !re4dc_actor_texture_validate_key(&texture,tex.crc,tex.fnv) || !re4dc_actor_texture_commit(&texture))return 0;
+#endif
     if(!re4dc_coarse_leon_texture_ready(&image,tex.crc,tex.fnv)){
         if(++missing_texture<=3)re4dc_log("COARSE_GANADO_CAST texture unavailable\n");return 0;
     }
@@ -838,6 +852,18 @@ extern "C" int re4dc_coarse_ganado(cModel* m) {
         triangles+=c.triangles;mask|=1U<<i;
     }
 #endif
+#if RE4DC_ACTOR_EARLY_COARSE
+    // Submission rejects must be surfaced, never silently called a complete
+    // native image. The surrounding owner invalidates the diagnostic frame.
+    unsigned expected=0;
+    for(unsigned i=0;i<4;++i)if(visible(infos[i])) {
+#if RE4DC_COARSE_PREGATE == 1
+        if((gate_skip>>i)&1U)continue;
+#endif
+        expected|=1u<<i;
+    }
+    if(mask!=expected){re4dc_model_packet_abort();return 0;}
+#endif
     ++drawn;++frame_meshes;frame_triangles+=triangles;
     frame_emitted+=re4dc_actor_stats()->triangles>emitted_before;
 #if RE4DC_COARSE_SKIN_FTRV == 2
@@ -868,6 +894,9 @@ extern "C" void re4dc_coarse_ganado_begin(){
     frame_meshes=frame_emitted=frame_candidates=frame_fallback=frame_triangles=0;
 }
 extern "C" void re4dc_coarse_ganado_end(){
+#if RE4DC_ACTOR_EARLY_COARSE
+    re4dc_actor_early_coarse_note_frame();
+#endif
 #if defined(RE4DC_COARSE_FREEZE_AT) && RE4DC_COARSE_FREEZE_AT
     // Diagnostic (COARSE_FREEZE_AT=N, captures only): stop the CPU inside frame N's actor pass. Frame N-1,
     // already submitted, stays on screen, so every capture after the marker shows exactly that frame.
