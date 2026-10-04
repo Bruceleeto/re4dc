@@ -20,10 +20,10 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 
 ## Status
 
-Updated **2026-10-04**. The current local play build is **r21t**. Its source fixes are on
-`dreamcast-port`; the latest downloadable GitHub prerelease is still
-[r21m (2026-10-02)](https://github.com/lamb2k/re4dc/releases/tag/play-r21m-chapter1-2-20261002).
-The r21t disc images have not been published as a GitHub release.
+Updated **2026-10-04**. The newest public play build is
+**[r21t (inventory fix)](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004)**.
+Downloads are available for Windows, SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256
+checksums. Its source fixes are on `dreamcast-port`. This is a prerelease test build.
 
 Since r21m, the play build includes SH-4 alignment fixes and an on-screen crash report, corrected
 wall texture seams, faster texture loading, reduced reloading after radio calls, the cliff-movie
@@ -82,20 +82,20 @@ estimates do not establish physical-console performance or compatibility.
   chapter-end check, an early r104 world preload failed before the subsequent room-entry load succeeded.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
-- **Physical hardware is untested.** r21m predates the SH-4 alignment fixes included in later local builds.
+- **Physical hardware is untested.** r21m predates the SH-4 alignment fixes included in later builds.
   The current r21t GDEMU package is content-verified, with console acceptance still pending.
 
 ## Playing
 
-The latest downloadable build is [r21m](https://github.com/lamb2k/re4dc/releases/tag/play-r21m-chapter1-2-20261002).
-It does not contain the later fixes listed above; r21t is currently a local test build. Follow each release's
-notes for its packaged rooms and files. No BIOS is included; game data is not committed to this source repository.
+Download **[r21t](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004)** and follow
+the instructions for your system below. The release includes a checksum file and test notes. No BIOS or
+personal VMU saves are included; game data is not committed to this source repository.
 
 - **Windows:** unzip `RE4DC-<build>.zip`, double-click `Play-<build>.cmd`.
 - **Steam Deck / SteamOS:** extract `RE4DC-<build>-SteamOS.tar.gz` and run `play.sh`. It installs
   Flycast from Flathub if needed.
 - **CachyOS / Arch:** extract `RE4DC-<build>-CachyOS.tar.gz`, run `./play.sh`.
-- **Dreamcast with GDEMU (local test images):** copy `disc.gdi`, `track01.bin`, `track02.raw` and
+- **Dreamcast with GDEMU (test image):** copy `disc.gdi`, `track01.bin`, `track02.raw` and
   `track03.bin` into a new numbered folder on the SD card. The current image has not been tested on hardware.
 
 | Action | Dreamcast pad |
@@ -198,7 +198,7 @@ To contribute:
 
 Open an issue with the **Game bug** form ([Issues](https://github.com/lamb2k/re4dc/issues/new/choose)); any
 GitHub account can file one. Check [Known issues](#known-issues) first. Please include:
-- the exact build (e.g. public r21m or local r21t);
+- the exact build (e.g. r21t);
 - where it happened (chapter and room, or what was on screen);
 - what you did and what happened;
 - whether it was Flycast (and on which system) or a real Dreamcast;

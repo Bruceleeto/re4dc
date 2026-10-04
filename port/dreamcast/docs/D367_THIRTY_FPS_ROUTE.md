@@ -1,5 +1,16 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: r21t public play downloads
+
+User-authorized public release:
+[play-r21t-inventory-fix-20261004](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004).
+Windows, SteamOS, CachyOS and GDEMU archives package the already verified r21t images. Every archived
+file is read back and hash-checked; GitHub asset digests and sizes match the local release manifest.
+SHA256SUMS.txt and inline release-note hashes support manual and existing scripted downloads.
+The runtime remains 6819f3a2, ELF b9dc7b75819fb03e; packaging fix 0b9f6a35. No game-code rebuild or new
+performance claim accompanies publication. The continuous chapter playthrough, GDI boot test,
+physical-console acceptance and separate SteamOS/CachyOS runtime checks remain pending.
+
 ## 2026-10-04: inventory room-replacement ownership repair
 
 The approved 16f0da96 play code reproduces the broken inventory in r100 and r104 with the title-c14 pack.
