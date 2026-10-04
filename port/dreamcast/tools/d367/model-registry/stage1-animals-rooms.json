@@ -1,0 +1,91 @@
+{
+ "registry": "stage1-animals",
+ "about": "NATIVE_MODEL_REGISTRY descriptor selection for the stage-1 animals (tools/d367/model_registry.py). Exact revision selection: the cast's 26 September overlay (revision-20260926, v8-tiles), near level. Candidates, not visually approved assets. Source sections from each cast set's source-bindings.json, checked against the archive. Room packages (--package-room): room_packages names the runtime descriptors each room's own source spawns.",
+ "cast_dir": "/mnt/c/Game Dev/Emulators/re4-assets-private/cast-20260925",
+ "revision_overlay": "revision-20260926",
+ "level": "conservative",
+ "archive_audit": "source/archive-audit.json",
+ "lighting": "flat (the approved Ganado Standard look: constant actor light; source specular/lighting response not reproduced)",
+ "descriptors": [
+  {
+   "name": "cow-00",
+   "archive": "em26",
+   "model_id": "0x26",
+   "source_types": [
+    0
+   ],
+   "module": "src/em26/em26.cpp em26_R0_Init: type 0 (default) modelInit(ARC 4, ARC 5)"
+  },
+  {
+   "name": "cow-01",
+   "archive": "em26",
+   "model_id": "0x26",
+   "source_types": [
+    1
+   ],
+   "module": "src/em26/em26.cpp em26_R0_Init: type 1 modelInit(ARC 4, ARC 6)"
+  },
+  {
+   "name": "chicken-00",
+   "archive": "em28",
+   "model_id": "0x28",
+   "source_types": [
+    0
+   ]
+  },
+  {
+   "name": "chicken-01",
+   "archive": "em28",
+   "model_id": "0x28",
+   "source_types": [
+    1
+   ]
+  },
+  {
+   "name": "dog-00",
+   "archive": "em21",
+   "model_id": "0x21",
+   "source_types": [
+    0
+   ]
+  },
+  {
+   "name": "dog-01",
+   "archive": "em21",
+   "model_id": "0x21",
+   "source_types": [
+    1
+   ]
+  },
+  {
+   "name": "crow-folded",
+   "archive": "em23",
+   "model_id": "0x23",
+   "source_types": [],
+   "state": "em23SetWing(...,0): body BIN 5 + wing BIN 6"
+  },
+  {
+   "name": "crow-spread",
+   "archive": "em23",
+   "model_id": "0x23",
+   "source_types": [],
+   "state": "em23SetWing(...,1): body BIN 5 + wing BIN 7"
+  }
+ ],
+ "room_packages": {
+  "100": {
+   "descriptors": [
+    "dog-01"
+   ],
+   "evidence": "St1/r100 enemy list (stage.cpp checkEmListNo, mirrored; native-scene coverage.json r100): em21 type 1 only; em23 crow is a contract entry; dog-00 (type 0) is not spawned in r100"
+  },
+  "101": {
+   "descriptors": [
+    "cow-00",
+    "chicken-00",
+    "chicken-01"
+   ],
+   "evidence": "St1/r101 enemy list (coverage.json r101): em26 type 0, em28 types 0 and 1; cow-01 (type 1) is not spawned in r101"
+  }
+ }
+}

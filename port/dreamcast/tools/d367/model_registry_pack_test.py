@@ -59,6 +59,12 @@ class Pack:
 
 def cases(good):
     def m(fn, fixed=True, geom=False):
+        return (fn, fixed, geom)
+
+    def build(spec):
+        if isinstance(spec, Pack):
+            return spec
+        fn, fixed, geom = spec
         p = Pack(good); r = fn(p)
         if r is not None:
             p = r
@@ -66,7 +72,21 @@ def cases(good):
             p.regeom()
         return p.fix() if fixed else p
     blob_at = Pack(good).sec('blob')['at']
-    C = []
+    have = {k: Pack(good).sec(k)['count'] for k in KINDS}
+    # Records each case touches (a smaller room package lacks some: that case is skipped and reported, not faked).
+    NEED = {'descriptor-sections': dict(ref=3), 'ref-bones': dict(ref=3, geom=2), 'geometry-hash': dict(geom=2),
+            'geometry-overlap': dict(geom=2), 'geometry-duplicate': dict(geom=2), 'weight-bone': dict(geom=2),
+            'weight-nan': dict(geom=3), 'texture-duplicate': dict(tex=2), 'role-duplicate': dict(role=2),
+            'identity-ambiguous': dict(role=2, fmodel=1)}
+    skipped = []
+
+    class Cases(list):
+        def append(self, c):
+            need = NEED.get(c[0], {})
+            if any(have[k] < n for k, n in need.items()):
+                skipped.append(c[0]); return
+            list.append(self, c)
+    C = Cases()
     C.append(('good', 'none', Pack(good)))
     C.append(('truncated', 'header', Pack(good[:-32])))
     C.append(('magic', 'header', m(lambda p: p.put(0, 0x58585858), fixed=False)))
@@ -111,14 +131,21 @@ def cases(good):
                                                                           bytes(p.b[p.rec('role', 0, 32):p.rec('role', 0, 32) + 32])))))
     C.append(('role-range', 'role', m(lambda p: p.put(p.rec('role', 0, 32) + 4, 1))))
     C.append(('role-binding', 'binding', m(lambda p: p.put(p.rec('role', 0, 32) + 8, 99))))
-    def ambiguous(p):  # cow-01's row proves cow-00's TPL and texture facts: two descriptors, one source identity
-        a, b = p.rec('role', 0, 32), p.rec('role', 1, 32)
+    # the first two role rows on the same source BIN model fact (r103: cow-00 / cow-01; r101: chicken-00 / chicken-01)
+    g = Pack(good); fm = [g.u32(g.rec('role', i, 32) + 16) for i in range(have['role'])]
+    pair = next(((i, j) for i in range(len(fm)) for j in range(i + 1, len(fm)) if fm[i] == fm[j]), None)
+
+    def ambiguous(p):  # the second row proves the first row's TPL and texture facts: two descriptors, one source identity
+        a, b = p.rec('role', pair[0], 32), p.rec('role', pair[1], 32)
         for off in (12, 20, 24):
             p.put(b + off, p.u32(a + off))
-    C.append(('identity-ambiguous', 'duplicate', m(ambiguous)))
+    if pair is None:
+        skipped.append('identity-ambiguous')
+    else:
+        C.append(('identity-ambiguous', 'duplicate', m(ambiguous)))
     C.append(('blob-family', 'blob', m(lambda p: p.put(p.rec('sblob', 0, 32) + 4, 1))))
     C.append(('blob-bin', 'binding', m(lambda p: p.put(p.rec('sblob', 0, 32) + 8, 77))))
-    return C
+    return [(n, w, build(x)) for n, w, x in C], skipped
 
 
 def main():
@@ -148,7 +175,10 @@ def main():
     if r.returncode:
         sys.exit('build failed:\n' + r.stderr[-4000:])
     files, want = [], {}
-    for name, why, p in cases(good):
+    built, skipped = cases(good)
+    if skipped:
+        print('skipped (records absent in this package): ' + ' '.join(skipped))
+    for name, why, p in built:
         f = os.path.join(out, name + '.re4nmr'); open(f, 'wb').write(bytes(p.b)); files.append(f); want[f] = (name, why)
     r = subprocess.run([exe, room] + files, capture_output=True, text=True)
     bad, rows = 0, []
