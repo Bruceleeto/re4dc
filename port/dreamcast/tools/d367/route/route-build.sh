@@ -19,7 +19,10 @@ PLAY="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG
 ( cd $T && ASSETS=$A OBJDIR=$O/obj OUT=$O \
     bash port/dreamcast/tools/d367/build-r21.sh $PLAY PACE_MODE=fast DBG_WARP=1 PC_SAMPLER=1 "$@" ) \
   > $O/build.log 2>&1 || { tail -30 $O/build.log; exit 1; }
-[ -s $O/obj/missing.txt ] && { echo "missing symbols:"; cat $O/obj/missing.txt; }
+# game/tools/link.sh writes the unresolved-symbol list to the tree's game/obj/missing.txt, not to OBJDIR (so the
+# old $O/obj/missing.txt check never saw it): keep this build's copy (builds of one tree run one at a time).
+cp $T/port/dreamcast/game/obj/missing.txt $O/missing.txt 2>/dev/null || true
+[ -s $O/missing.txt ] && { echo "missing symbols:"; cat $O/missing.txt; }
 # A tree with game/knobs.mk must leave resolved-knobs.txt (8f34aa63); only an older control tree may lack it.
 if [ -f "$T/port/dreamcast/game/knobs.mk" ]; then
   [ -s $O/resolved-knobs.txt ] || { echo "route-build: $T has game/knobs.mk but wrote no resolved-knobs.txt" >&2; exit 1; }
