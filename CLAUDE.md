@@ -55,9 +55,14 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   likely in the public r21k-r21m too). r21t is a public prerelease (tag play-r21t-inventory-fix-20261004); its GDEMU
   image boots in Flycast (HLE BIOS) to the title and r100 gameplay, GDEMU / console untested. Play discs now run an
   inventory open/close check (checklist "Play build rules").
-- Not landed, local target gates pending: lane/review-fixes-20261004 (docs/lanes/review-fixes.md): TEX_PACK retry
-  spacing, the TA_HASH whole-meshlet hook (16f0da96 left actor whole meshlets unhashed), a native_static #error guard,
-  build-r21.sh failing on dead knobs, route-build.sh failing without resolved-knobs.txt.
+- LANDED (local session, gates in docs/lanes/review-fixes.md "Landing"): lane/review-fixes-20261004.
+  - TEX_PACK retry spacing, plus a follow-up that re-runs the room preload after the pack recovers. The gate found a
+    single read error skipping the whole preload.
+  - The TA_HASH whole-meshlet hook and the native_static #error guard.
+  - build-r21.sh fails on dead knobs; route-build.sh requires resolved-knobs.txt and now really reports missing
+    symbols (link.sh writes the tree's game/obj/missing.txt).
+  - H2 STRICT: `om` differs across builds only while the radio-call sub screen has the parts' memory swapped out
+    (ticks 741..1217).
 - Not landed: experiment/supervisor-20261004 (r101 square 90.08 -> 82.65 ms modeled). Its "inventory not isolated"
   paragraphs predate 6819f3a2 and are wrong; landing needs the 82.65 ms knob set in the repo, described commits for
   038d1c59 and an r104 inventory re-capture on the merged tree.

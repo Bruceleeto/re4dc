@@ -1,5 +1,28 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: lane review-fixes landed (local session)
+
+lane/review-fixes-20261004 is landed on dreamcast-port with two follow-ups. Gates and numbers are in
+docs/lanes/review-fixes.md "Landing" and in the commit messages.
+- **TEX_PACK retry spacing.** Init attempts are now 30 frames apart (3 of them), then one every 300 frames. The
+  first gate run showed that one read error at room entry made the whole room preload skip (~240 picks, against 1
+  with 80912a72's back-to-back retries). Follow-up: the preload runs again once the pack settles (FAULT=1: 147 loads,
+  control 148; FAULT=3: recovers on the 300-frame attempt, no room change). A truncated pack is INVALID, as intended.
+- **TA_HASH.** The hook now covers whole meshlets. A/A over 3,328 frames is identical, and AVK=2 shows 0 mismatches.
+  The MESH_STRIP_LEAN gap applies only if experiment/supervisor-20261004 lands (Phase B).
+- **Tool checks.**
+  - build-r21.sh fails on dead knobs.
+  - route-build.sh requires resolved-knobs.txt.
+  - route-build.sh now actually reports missing symbols: link.sh writes them to the tree's game/obj/missing.txt, so
+    the old OBJDIR check could never fire.
+- **STRICT finding.** In H2, the logic trace's `om` (object parts world matrices) differs between builds on ticks
+  741..1217 only: the radio-call sub screen, while the parts' memory is swapped out for it. Discrete fields and
+  every other tick are identical, and an A/A pair of one build is STRICT. Whole-room STRICT claims on H2 therefore
+  need the sub-screen window excluded, or LOGIC_TRACE_SWAPPED (experiment branch, Phase B).
+- **Not changed.** The ~30-frame wait after a pack read error still leaves untextured UI quads undrawn (539 in the
+  FAULT=1 run). A truncated pack on a packed disc logs "package rejected: open failed" on every lookup (broken media,
+  per the failure policy).
+
 ## 2026-10-04: review of 2026-10-03/04
 
 Review of the dreamcast-port commits b802e337..80912a72 and the unmerged experiment/supervisor-20261004: code reading,

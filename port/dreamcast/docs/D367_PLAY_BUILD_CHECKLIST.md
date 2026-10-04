@@ -7,10 +7,11 @@ Details in the route doc, "2026-10-04: review of 2026-10-03/04". For play discs:
 - r21t GDEMU image: the released zip boots in Flycast (built-in HLE BIOS) from disc.gdi to the VMU prompt, the title
   and r100 gameplay (route doc). GDEMU and a console are still untested.
 - After r21u: experiment/supervisor-20261004's code lands default-off (user 2026-10-04; route doc, review section).
-- The next disc (r21u) waits for lane/review-fixes-20261004 to pass its target gates and land
-  (docs/lanes/review-fixes.md): TEX_PACK retry spacing (changes the play image's error path only), the TA_HASH
+- lane/review-fixes-20261004 is LANDED (gates in docs/lanes/review-fixes.md "Landing"): TEX_PACK retry spacing plus
+  a preload re-run after the pack recovers (both change the play image's error path only), the TA_HASH
   whole-meshlet hook, a native_static `#error` guard, build-r21.sh failing on knobs no makefile reads (five dead ones
-  dropped from the recipe), route-build.sh failing without resolved-knobs.txt.
+  dropped from the recipe), route-build.sh failing without resolved-knobs.txt and printing link.sh's missing symbols
+  (`$O/missing.txt`, copied from the tree's game/obj). r21u is cut from the landed tip (step 6).
 
 ## 2026-10-04: r21t public play downloads
 

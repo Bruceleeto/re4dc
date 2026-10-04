@@ -1,8 +1,9 @@
 # Lane review-fixes (2026-10-04)
 
 Branch `lane/review-fixes-20261004`, from dreamcast-port 80912a72. Written in a cloud session with no SH-4 toolchain,
-no Flycast harness and no private assets: host tests only. **Nothing here is landed.** The local session builds,
-gates and lands it (or sends it back), then cuts the next play disc (r21u) from the landed tip.
+no Flycast harness and no private assets: host tests only. **Landed 2026-10-04 by the local session** (dreamcast-port,
+on a8a39793, with two follow-ups; "Landing" at the end). The local session cut the next play disc (r21u) from the
+landed tip.
 
 Source: the 2026-10-04 review of the previous 24 hours (findings in the route doc, "2026-10-04 review"). The user
 asked for these fixes as one batch so the target gates run once.
@@ -47,3 +48,31 @@ asked for these fixes as one batch so the target gates run once.
 6. The new play-disc rule: inventory open/close in r100 and r104 (route-play-invfix-r100-r2 / -r104-r2 pattern:
    matching restore hash, capture shows the case, items, menu bars and Leon preview).
 7. Land on dreamcast-port with the gate evidence in the commit messages, then cut r21u per the checklist.
+
+## Landing (local session, 2026-10-04)
+
+Gate 4 failed on the branch as written. With TEX_PACK_FAULT=1 the pack reopened 30 frames after the read error, but
+the room-entry preload had run inside that wait (frames 182-184): every lookup returned kError without I/O, so it
+skipped all of its picks (28 + 87 + 123). The room then loaded 51 textures on first sight. The 80912a72 control, with
+back-to-back retries, skipped 1 pick and loaded 148. Fixed on the landing branch: native_ui.cpp re-runs the room
+preload once the pack settles (texpack::settled(): ready, absent or invalid) if a pass met a pack read error while
+init was waiting. With the fix: FAULT=1 re-runs the preload at frame 213 (96 loads) and loads 147 by frame 1200;
+FAULT=3 re-runs it when the 300-frame attempt opens the pack (~frame 543). During the wait itself, UI quads whose
+texture is not resident still go undrawn (539 in the FAULT=1 run), by design.
+
+Second follow-up: route-build.sh tested `$O/obj/missing.txt`, but game/tools/link.sh writes the unresolved-symbol list
+to the tree's game/obj/missing.txt, so the check could never report a missing symbol. It now copies that list to
+`$O/missing.txt` and prints it.
+
+All gates on the landed tree (every number in the commit messages):
+1. Recipe build and knob check: pass.
+2. Identity:
+   - TEX_PACK=0: .text, .data and the overlay are identical (3 __TIME__ bytes).
+   - Play recipe: native_ui.o and texture_package.o only.
+3. TA_HASH=1: 0 missing symbols. The A/A pair is identical over 3,328 frames. AVK=2 shows 0 mismatches.
+4. Faults FAULT=1, FAULT=3 and the truncated pack: pass with the fix.
+5. STRICT: H2 1450..1569 is 120/120. Over the whole room every discrete field is identical. The float field `om`
+   (object parts) differs only on ticks 741..1217, the radio-call sub screen, while the parts' memory is swapped out.
+   The 80912a72 A/A pair is STRICT over the whole room. Route checks: r100 calls, r101 bell and r103 entry all ran
+   with HALT 0, MISSING 0 and no upload failures.
+6. Inventory: r100 and r104, two open/close cycles each, matching restore hashes and correct captures.
