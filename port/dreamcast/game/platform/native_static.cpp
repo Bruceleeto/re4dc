@@ -2314,6 +2314,11 @@ extern "C" int re4dc_ps2_mesh_preload(unsigned room){
     return ps2_open();
 }
 extern "C" int re4dc_ps2_world_source_draw();   // native_ps2_world.cpp: pass 0 now, PT / TR at the flush
+#ifndef RE4DC_SS_UI_ORDER
+// subscreen.mk force-includes subscreen.h into this object; without it the inventory exclusion below would compile
+// out without a word (the first 6819f3a2 prototype did exactly that).
+#error "native_static.cpp needs $(OBJDIR)/subscreen.h (subscreen.mk -include): RE4DC_SS_UI_ORDER is not defined"
+#endif
 #if RE4DC_SS_UI_ORDER
 extern "C" int re4dc_ss_ui_order(); // the subscreen owns the swapped model area
 #endif
