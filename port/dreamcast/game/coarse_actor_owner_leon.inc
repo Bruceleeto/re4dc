@@ -148,6 +148,9 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
     }
     return 3u|(RE4DC_ACTOR_LEON_NATIVE_LOOK?4u:0u); // routing/order/native-look; live material certificate still gates admission
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY
+#include "coarse_actor_owner_registry.inc"
+#endif
 #include "coarse_actor_geometry_once.inc"
 #include "coarse_actor_transaction.inc"
 #include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy

@@ -192,6 +192,23 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     re4dc_source::FrameIdentity frame{};re4dc_source::ModelIdentity owner{};
     if(re4dc_actor_transaction_identity(m,&frame,&owner)!=1) {out.error=Error::FrameOwner;return out;}
     const bool leon=p->appearance==0x100;
+#if RE4DC_NATIVE_MODEL_REGISTRY
+    // NATIVE_MODEL_REGISTRY: a registry appearance names its descriptor's model id, bone count and section count; its
+    // appearance is the exact source BIN + TPL rows every role proves below (no cModel::type table: the TPL row is
+    // the authored appearance). Model-level modifiers are the Ganado rules (TEV group 0, flat native look).
+    const bool registry=re4dc_registry_sections(p->appearance)!=0;
+    if(registry ? !re4dc_registry_model(m,p) :
+       ((leon && (p->count!=8 || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
+        (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type)))) {
+        out.error=Error::UnknownAppearance;return out;
+    }
+    if(m->pTexChg || m->Shader_type || m->CullMode ||
+       (!registry && !source_appearance_type(p->appearance,m->id,m->type)) ||
+       m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+       m->TevScaleGroup!=(leon?1:0) ||
+       !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
+       m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
+#else
     if((leon && (p->count!=8 || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
        (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type))) {
         out.error=Error::UnknownAppearance;return out;
@@ -202,6 +219,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
        m->TevScaleGroup!=(leon?1:0) ||
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
+#endif
     for(unsigned k=0;k<p->count;++k) {
         out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
         if(!row){out.error=Error::MissingRole;return out;}
@@ -210,6 +228,12 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
         }
         out.error=info(p->info[k],*row,out,diagnostic);if(out.error!=Error::None)return out;
     }
+#if RE4DC_NATIVE_MODEL_REGISTRY
+    // Registry runs: one per role in source order, each drawing its chunk's own descriptor texture package.
+    if(registry) {
+        if(!re4dc_registry_runs_match(p)){out.error=Error::Material;return out;}
+    } else
+#endif
     if(!leon) {
         unsigned source_material_seen=1;
         for(unsigned j=0;j<p->run_count;++j) {

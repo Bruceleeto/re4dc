@@ -9,7 +9,12 @@ unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full
 #define CROWD_LIFE(stmt)
 #endif
 namespace re4dc_material { namespace life {
+#if RE4DC_NATIVE_MODEL_REGISTRY
+// Registry descriptors adopt their source infos too: room for them beside a full Ganado crowd.
+constexpr unsigned kArchives=8,kAssets=48,kInfos=192,kModels=40;
+#else
 constexpr unsigned kArchives=8,kAssets=40,kInfos=160,kModels=40;
+#endif
 struct Archive { const void* key;const unsigned char* base;unsigned bytes,revision,family; };
 struct Asset {
     const ModelData* data;const unsigned char* base;unsigned bytes;
@@ -320,7 +325,14 @@ extern "C" int re4dc_actor_material_owner_proof(cModel* m,cModelInfo* info,unsig
 }
 extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInfo** out,unsigned count) {
     using namespace re4dc_material;using namespace life;
+#if RE4DC_NATIVE_MODEL_REGISTRY
+    // A registry appearance has exactly its descriptor's sections, in source info order.
+    const unsigned registry_sections=re4dc_registry_sections(appearance);
+    if(!m || !out || (registry_sections?count!=registry_sections:
+       (appearance==256?count!=8u:(count<4u || count>5u || (appearance==0 && count!=4u)))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
+#else
     if(!m || !out || (appearance==256?count!=8u:(count<4u || count>5u || (appearance==0 && count!=4u))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
+#endif
     unsigned seen=0,n=0;for(unsigned k=0;k<count;++k)out[k]=nullptr;
     static const unsigned char leon_order[8]={0,1,2,3,4,7,5,6};
     for(auto* p=m->pModelInfo;p;p=p->pList) {

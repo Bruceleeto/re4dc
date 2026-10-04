@@ -1209,6 +1209,9 @@ int commonScreenMat(cModel* m)
 // position (and normal) buffers from the prim buffer (unskinned single-part models draw from the
 // original vertices), builds the weight palette from the parts matrices, applies the shape morphs
 // (be_flag bit1) and skins the vertices (paired-single). 0 on an invalid pointer / full buffer.
+#if RE4DC_NATIVE_MODEL_REGISTRY == 2
+extern "C" void re4dc_registry_snapshot(cModel*, const Mtx*);
+#endif
 int commonScreenMatSub(cModel* m, cModelInfo* info)
 {
 #if defined(__sh__)
@@ -1219,6 +1222,16 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
     if (!g_leanWeights)
 #endif
     calcWeightMat(m);
+#if RE4DC_NATIVE_MODEL_REGISTRY == 2
+    {
+        // NATIVE_MODEL_REGISTRY=2 (compare): the palette this frame's source skinning used, for the registry's
+        // render-time palette check (coarse_actor_owner_registry.inc). Registry ids only; no effect on the source.
+#if RE4DC_FRONT_LEAN && defined(__sh__)
+        if (!g_leanWeights)
+#endif
+        re4dc_registry_snapshot(m, pG->mtxPalette);
+    }
+#endif
 #if defined(__sh__)
     re4dc_model_source_span(0,dc_stamp);
 #endif
