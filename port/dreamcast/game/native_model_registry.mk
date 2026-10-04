@@ -50,6 +50,24 @@
 #   =2: compare build: every reused or reduced verdict is also computed the =0 way, the =0 verdict decides, and
 #   "NMRTX" lines (every 600 frames and at room leave) count uses and differences (bind_bad, skeleton_bad, finite_bad,
 #   semantics_bad, roles_bad must be 0).
+# NATIVE_MODEL_REGISTRY_PALBOUND (default 0; needs NATIVE_MODEL_REGISTRY_TX=1; render only): the registry palette
+#              build tests its used bone matrices T (|t| < 2^125, finite) instead of every palette output element when
+#              every weight of the descriptor lies in [0, 1] (checked once per room generation at the skin build):
+#              each output element is a sum of at most 4 products w*t (coarse_skin_sh4.S groups: FTRV of (w0,w1,w2,0)
+#              through used-bone rows; one-bone entries copy), so it is finite. Otherwise the whole output test runs.
+#              The decision can only be stricter. =2: compare build (the output test decides; "NMRPB" lines count
+#              bounded chunks whose outputs are not finite, which must be 0, and stricter declines).
+#              The source's own per-info palettes (trans.cpp MakeWeightPalette + re4dc_skin_defer_lazy) are NOT
+#              reusable here: the pack's weight groups differ from the source BIN's (generic-models/wcmp.py).
+NATIVE_MODEL_REGISTRY_PALBOUND ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_PALBOUND),0 1 2),)
+$(error NATIVE_MODEL_REGISTRY_PALBOUND must be 0, 1 or 2)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_PALBOUND),0)
+ifneq ($(NATIVE_MODEL_REGISTRY_TX),1)
+$(error NATIVE_MODEL_REGISTRY_PALBOUND needs NATIVE_MODEL_REGISTRY_TX=1)
+endif
+endif
 NATIVE_MODEL_REGISTRY ?= 0
 NATIVE_MODEL_REGISTRY_CENSUS ?= 0
 NATIVE_MODEL_REGISTRY_PACK ?= 0
@@ -115,6 +133,9 @@ else
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY=$(NATIVE_MODEL_REGISTRY)   -DRE4DC_NATIVE_MODEL_REGISTRY_CENSUS=$(NATIVE_MODEL_REGISTRY_CENSUS) -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1
 ifneq ($(NATIVE_MODEL_REGISTRY_TX),0)
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_TX=$(NATIVE_MODEL_REGISTRY_TX)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_PALBOUND),0)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_PALBOUND=$(NATIVE_MODEL_REGISTRY_PALBOUND)
 endif
 # The room hooks: re4dc_room_enter opens and re4dc_room_leave retires the room's package (coarse_actor_registry_pack.inc).
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1

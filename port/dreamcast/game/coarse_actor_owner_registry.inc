@@ -123,6 +123,30 @@ inline bool registry_all_finite(const float* f,unsigned n) {
     for(;k<n;++k)a|=(u[k]&0x7f800000u)+0x00800000u;
     return !((a|b)&0x80000000u);
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND
+// NATIVE_MODEL_REGISTRY_PALBOUND (native_model_registry.mk): the palette outputs' finite test is replaced, when it is
+// implied, by a test of the descriptor's used bone matrices T (registry_skin_used bones x 12, about 1/6 of the output
+// elements). Every output element is re4dc_coarse_skin_groups' sum of at most 4 products w*t, t an element of a used
+// bone's T and w the entry's weight or 0 (coarse_group_build; one-bone entries are copies with w = 1). With every
+// such w in [0, 1] (registry_skin_unit, checked once per room generation at the skin build) and every |t| < 2^125
+// (exponent field <= 0xFB, which also excludes inf / NaN), |w*t| <= |t| and the sum stays below 2^127: finite. Not
+// bounded: the whole output test runs as before. So the decision can only be stricter than the output test (a finite
+// T element >= 2^125); =2 counts that and any bounded actor whose outputs are not finite (must be 0).
+unsigned char registry_skin_unit[kRegDescriptors];  // 1: every weight of the descriptor's chunks lies in [0, 1]
+inline bool registry_all_bounded(const float* f,unsigned n) {
+    const RegistryWord* u=reinterpret_cast<const RegistryWord*>(f);unsigned a=0;
+    for(unsigned k=0;k<n;++k)a|=(u[k]&0x7f800000u)+0x02000000u;  // bit 31 iff the exponent field >= 0xFC
+    return !(a&0x80000000u);
+}
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND == 2
+struct RegistryBoundCompare { unsigned chunks,bounded,bad,stricter,last; };
+RegistryBoundCompare registry_pbc{};
+void registry_pb_report(const char* why) {
+    re4dc_log("NMRPB %s f=%u chunks=%u bounded=%u bounded_not_finite=%u stricter=%u\n",why,unsigned(pG->Frame_cnt),
+        registry_pbc.chunks,registry_pbc.bounded,registry_pbc.bad,registry_pbc.stricter);
+}
+#endif
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
 // Compare build: every reused or reduced verdict is computed both ways; the original verdict decides. "NMRTX" lines.
 struct RegistryTxCompare { unsigned bind,reused,bind_bad,skeleton,skeleton_bad,finite,finite_bad,semantics,held,
@@ -188,6 +212,14 @@ bool registry_skin_init(unsigned d) {
     }
     registry_skin_used[d]=0;
     for(unsigned b=0;b<desc.bones;++b)if(used[b])registry_skin_bone[d][registry_skin_used[d]++]=(unsigned char)b;
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND
+    registry_skin_unit[d]=1;
+    for(unsigned i=0;i<desc.sections;++i) {
+        const auto& c=registry.chunks[desc.first_chunk+i];
+        for(unsigned j=0;j<c.palette_count;++j)for(unsigned k=0;k<c.weights[j].count;++k)
+            if(!(c.weights[j].value[k]>=0.0f && c.weights[j].value[k]<=1.0f))registry_skin_unit[d]=0;
+    }
+#endif
     re4dc_log("NMR skin %s bones=%u used=%u stream=%u/%u\n",desc.name,desc.bones,registry_skin_used[d],registry_skin_next,
         registry_skin_cap);
     registry_skin_state[d]=1;return true;
@@ -316,6 +348,10 @@ int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
         registry_jobs[u]={&registry_bound->parts[b]->mat[0][0],desc->bind[b],registry_T[b]};
     }
     re4dc_coarse_skin_bones(invx,registry_jobs,registry_skin_used[d]);
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND
+    bool bounded=registry_skin_unit[d]==1;
+    for(unsigned u=0;u<registry_skin_used[d] && bounded;++u)bounded=registry_all_bounded(registry_T[registry_skin_bone[d][u]],12);
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
     {
         const RegistrySnap* s=nullptr;
@@ -340,7 +376,16 @@ int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
         if(p.input[i].palette_count!=c.palette_count)return 0;
         re4dc_coarse_skin_groups(registry_skin+registry_skin_first[g],registry_skin_groups[g],
             &registry_T[0][0],output[i],c.palette_count);
-#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND == 1
+        if(!bounded && !registry_all_finite(output[i],c.palette_count*12))return 0;
+#elif RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND == 2
+        {
+            const bool finite=registry_all_finite(output[i],c.palette_count*12);  // the =0 verdict decides
+            ++registry_pbc.chunks;if(bounded){++registry_pbc.bounded;if(!finite)++registry_pbc.bad;}else if(finite)++registry_pbc.stricter;
+            if(pG->Frame_cnt/600!=registry_pbc.last){registry_pbc.last=pG->Frame_cnt/600;registry_pb_report("periodic");}
+            if(!finite)return 0;
+        }
+#elif RE4DC_NATIVE_MODEL_REGISTRY_TX
         bool finite=registry_all_finite(output[i],c.palette_count*12);
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
         bool full=true;for(unsigned j=0;j<c.palette_count*12;++j)if(!coarse_finite(output[i][j]))full=false;

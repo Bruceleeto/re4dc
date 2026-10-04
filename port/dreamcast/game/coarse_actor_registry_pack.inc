@@ -74,6 +74,9 @@ extern "C" void re4dc_registry_room_leave() {
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
     registry_tx_report("room-leave");
 #endif
+#if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND == 2
+    registry_pb_report("room-leave");
+#endif
     registry_view_clear();
     re4dc_static_free(pack.cell);
     const unsigned bytes=pack.arena;pack.cell=nullptr;pack.base=nullptr;pack.arena=0;++pack.retires;
