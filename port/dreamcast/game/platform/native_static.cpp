@@ -1157,6 +1157,9 @@ static void vp_sched_compare(const re4dc::vp::Vertex12* in,unsigned count,const 
 #endif
 static volatile unsigned vp_sched_select=1U+RE4DC_MESH_VP_SCHED_SELECT;
 #endif
+#if RE4DC_MESH_STRIP_LEAN==2 && defined(RE4DC_TA_HASH) && RE4DC_TA_HASH
+#error "MESH_STRIP_LEAN=2 runs emit_sq() into RAM for its compare, so TA_HASH would hash that dry run too: use =3"
+#endif
 #if RE4DC_MESH_STRIP_LEAN==2
 // MESH_STRIP_LEAN=2 (diagnostic): meshlets, strips, emitted strips, mismatched runs, counter-formula mismatches,
 // emitted vertices, skipped meshlets; two RAM stand-ins for the store queues (a run emits at most one vertex
@@ -1332,6 +1335,21 @@ struct MeshDraw : Emitter {
             const std::uint8_t* const mark=s;std::uint32_t* q=sq;const std::uint32_t* const qmark=q;
             unsigned culled=0,emitted=0;
             s=re4dc::vp::walk_lean(s,end,outcodes,cache,limit,q,culled,emitted);
+#if defined(RE4DC_TA_HASH) && RE4DC_TA_HASH
+            // TA_HASH (test builds): walk_lean writes the store queues itself, so the run is walked again here
+            // and every emitted strip's words are hashed as emit_sq() hashes them (EOL in the last flags word).
+            // Every strip in [mark, s) was culled or emitted (walk_lean stops before a clip strip).
+            for(const std::uint8_t* h=mark;h<s;){
+                const unsigned n=*h++;const re4dc::vp::StripCodes c=re4dc::vp::codes(outcodes,h,n);
+                if(!(c.all&(re4dc::vp::depth_mask(re4dc::vp::kChecksAll)|re4dc::vp::screen_mask(re4dc::vp::kChecksAll))))
+                    for(unsigned k=0;k<n;++k){
+                        std::uint32_t w[8];__builtin_memcpy(w,cache+h[k],32);
+                        if(k+1==n)w[0]=PVR_CMD_VERTEX_EOL;
+                        ::re4dc_ta_hash(w,32);
+                    }
+                h+=n;
+            }
+#endif
             lean_flush(s,mark,q,qmark,culled,emitted);
             if(s>=end){result=1;return nullptr;}
             const unsigned n=*s++; // a strip for the clipper: meshlet()'s code
