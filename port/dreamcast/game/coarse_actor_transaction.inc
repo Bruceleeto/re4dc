@@ -293,7 +293,7 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     auto& b=r->base;b.model=m;b.position_stride=6;b.normal_stride=6;b.normal_shift=14;b.shift=4;
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
-    if(p.appearance!=0x100) {
+    if(!RE4DC_LEON_LIKE(p.appearance)) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }
