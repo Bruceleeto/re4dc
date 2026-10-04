@@ -1,5 +1,56 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: supervisor code landed default-off (local session)
+
+experiment/supervisor-20261004's code is on dreamcast-port, every feature default-off. None of it is in the play
+recipe; turning any of it on in play builds is a separate decision (user, 2026-10-04). The pushed experiment branch is
+unchanged.
+- **Commits.** 038d1c59's 62-file snapshot is split into described commits (one per feature):
+  - game code: PS2_WORLD_REGISTRY (with world_registry.py and its tests), SCENERY_ENCODING, PS2_OPEN_READ /
+    PS2_OPEN_TRACE, PS2_WORLD_FOG_SOURCE, WORLD_STAGE_MODULES / WORLD_ROOM_MODULES, ACTOR_APPEARANCE_ALIAS,
+    ACTOR_PL08, ACTOR_GANADO_SOURCE_LIGHT for pl08, LOGIC_TRACE_SWAPPED, WARP_JUMP and act_clock;
+  - tools: the PS2 texture CRC rule, em13 in the Ganado contract, room bring-up tables, native_scene_coverage.py;
+  - test-only extras: H2_EXTERNAL_DELAY and LOGIC_TRACE_OBJ_FROM/TO (make plumbing only, no consumer yet).
+
+  The NATIVE_MODEL_REGISTRY family, ACTOR_LIGHT_N16, ACTOR_PL08_PACK, the early-admission checkpoint (lost 6.11 ms,
+  must stay off) and the supervisor docs come over as separate commits. The docs are corrected: the r104 inventory
+  cause was 6819f3a2's bug, the missing spaces are restored, and the 82.65 ms candidate's knob set is in
+  SUPERVISOR_BASELINE_20261004.md. Every commit uses the session's git identity.
+- **Review findings settled.**
+  - MESH_STRIP_LEAN vs TA_HASH: hook added. strips_lean() re-walks each lean run under TA_HASH and hashes every
+    emitted strip as emit_sq() does; =2 with TA_HASH is an `#error`, since its compare would hash a RAM dry run.
+    Gate: =3 SELECT=0 vs SELECT=1 with TA_HASH=1 on H2 (150 s): all 1,283 game frames identical (1,198 with scene
+    content). Only the two wall-timed movie stalls (frames 244 and 660: r100s03 and the next movie, no world
+    meshlets) order their presents differently.
+  - dbgwarp_bridge.cpp: accepted unguarded. It is linked only with DBG_WARP=1 (test builds, never a user disc).
+    `entry <n>`, act_clock (default wall = the old behaviour) and the kill watch (log lines) change no existing
+    fixture. Evidence: r100 calls, r101 bell and r103 entry on the merged tree give the same warp lines as the
+    landing tree, apart from the new kill-watch log lines.
+  - Tool defaults: accepted as documented in their commits. ps2_room_r4im.py writes payload_crc32 over the descriptor
+    + texels, the rule the runtime checks; regenerated .re4tex differ in bytes 36..39 only and on-disc packages are
+    unchanged until regenerated. prepare_enemy_motions.py prepares em13 with the Ganado contract. No image changes.
+  - test_ps2_world_registry.py without pycdlib: the import now follows the base-disc check (24 tests, 0 errors with
+    pycdlib blocked). test_compact_room's r102 assertion matches compact_room's new message.
+    native_scene_coverage.py reads the hand list again (it returned no rooms after the registry patch).
+- **Gates (merged tree).**
+  - Knob-off identity vs the tip: the play recipe's .text, .data and overlay are identical (rodata __TIME__ only),
+    and only dbgslot_bridge.o differs (__TIME__). Warp and trace builds differ only in dbgwarp_bridge.o (+1.5 KB
+    .text) and the shifted overlay. Missing symbols 0 everywhere.
+  - STRICT (play recipe + LOGIC_TRACE, H2, vs the tip's trace build): ticks 1450..1569 120/120 STRICT. Whole r100
+    room, 6,553 ticks: every discrete field identical; `om` differs on 477 ticks, 741..1217 only. That is the
+    radio-call sub screen with the parts' memory swapped out, the same window as the review-fixes landing gate.
+    STRICT before 741 and from 1218. HALT 0, MISSING 0.
+  - Host tests: 72 files / 394 tests (tip 69 / 356). The same 14 files fail on the tip (stale fixtures, host
+    toolchain); none is new. New: texcrc 4, world registry 24, scenery encoding 10 OK. Private-data gates:
+    registry pack r100 27/27, r101 36/36, r103 37/37; pl08 pack 18 variants; SS_CERT; codec gate.
+  - Inventory re-capture: r104 open/close, restore hashes 1fe8aaa5 and 3dd47187 ok, the inventory complete as on the
+    landing tree (likewise r100: 295ba799, 62ca21d7). Chapter end (r106 -> r104): r106s00 1738/1738,
+    VMU syswrite rc=0, r104s00 4856/4856, missed QTE -> s02 25/25, as on r21u.
+  - Route checks on the merged warp build: r100 calls 1465/571/340, r101 bell events released, r103 entry; HALT 0,
+    MISSING 0, source-OT rejected 17/49/0 as before.
+- **Publication note.** Like the base tree's actor_material_records.inc, the new tools and .inc files name private
+  host paths and hashes of private source files, but no asset bytes.
+
 ## 2026-10-04: lane review-fixes landed (local session)
 
 lane/review-fixes-20261004 is landed on dreamcast-port with two follow-ups. Gates and numbers are in
@@ -9,7 +60,7 @@ docs/lanes/review-fixes.md "Landing" and in the commit messages.
   with 80912a72's back-to-back retries). Follow-up: the preload runs again once the pack settles (FAULT=1: 147 loads,
   control 148; FAULT=3: recovers on the 300-frame attempt, no room change). A truncated pack is INVALID, as intended.
 - **TA_HASH.** The hook now covers whole meshlets. A/A over 3,328 frames is identical, and AVK=2 shows 0 mismatches.
-  The MESH_STRIP_LEAN gap applies only if experiment/supervisor-20261004 lands (Phase B).
+  The MESH_STRIP_LEAN gap is closed by the hook added when the supervisor code landed (section above).
 - **Tool checks.**
   - build-r21.sh fails on dead knobs.
   - route-build.sh requires resolved-knobs.txt.
@@ -185,7 +236,8 @@ Correction (review 2026-10-04): the actor fast path is only partly covered. Its 
 to the store queues unhashed, so matching `ta_hash:` lines do not prove matching actor geometry. The hook is on
 lane/review-fixes-20261004 (docs/lanes/review-fixes.md), not landed. Merging experiment/supervisor-20261004 would
 add MESH_STRIP_LEAN paths that also bypass or misattribute the hash (=1/=3 write the store queues in their own
-assembly; =2 hashes a dry-run copy that never reaches the TA).
+assembly; =2 hashes a dry-run copy that never reaches the TA). Settled when it landed: =1/=3 hashed, =2 refuses
+TA_HASH ("supervisor code landed default-off").
 
 Active since 2026-09-23 (Claude, user-directed). This document supersedes the
 paused D366 handover and the "beat D349" sequence as the current plan. Earlier

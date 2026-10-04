@@ -6,7 +6,8 @@ Details in the route doc, "2026-10-04: review of 2026-10-03/04". For play discs:
 - New rule: every play disc opens and closes the inventory in r100 and r104 ("Play build rules", inventory check).
 - r21t GDEMU image: the released zip boots in Flycast (built-in HLE BIOS) from disc.gdi to the VMU prompt, the title
   and r100 gameplay (route doc). GDEMU and a console are still untested.
-- After r21u: experiment/supervisor-20261004's code lands default-off (user 2026-10-04; route doc, review section).
+- experiment/supervisor-20261004's code is LANDED default-off after r21u (route doc "supervisor code landed
+  default-off"). It is not in the play recipe; play discs are unchanged (knob-off identity).
 - lane/review-fixes-20261004 is LANDED (gates in docs/lanes/review-fixes.md "Landing"): TEX_PACK retry spacing plus
   a preload re-run after the pack recovers (both change the play image's error path only), the TA_HASH
   whole-meshlet hook, a native_static `#error` guard, build-r21.sh failing on knobs no makefile reads (five dead ones
