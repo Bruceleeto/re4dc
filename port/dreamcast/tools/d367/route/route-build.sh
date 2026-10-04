@@ -20,7 +20,12 @@ PLAY="LOGIC_TRACE=0 GAME_DECISION_TRACE=0 ACTOR_TRANSACTION_DIAG=0 GAME_PWC_DIAG
     bash port/dreamcast/tools/d367/build-r21.sh $PLAY PACE_MODE=fast DBG_WARP=1 PC_SAMPLER=1 "$@" ) \
   > $O/build.log 2>&1 || { tail -30 $O/build.log; exit 1; }
 [ -s $O/obj/missing.txt ] && { echo "missing symbols:"; cat $O/obj/missing.txt; }
-[ -s $O/resolved-knobs.txt ] || echo "warning: no resolved-knobs.txt (a tree before game/knobs.mk)"
+# A tree with game/knobs.mk must leave resolved-knobs.txt (8f34aa63); only an older control tree may lack it.
+if [ -f "$T/port/dreamcast/game/knobs.mk" ]; then
+  [ -s $O/resolved-knobs.txt ] || { echo "route-build: $T has game/knobs.mk but wrote no resolved-knobs.txt" >&2; exit 1; }
+else
+  [ -s $O/resolved-knobs.txt ] || echo "warning: no resolved-knobs.txt (a tree before game/knobs.mk)"
+fi
 TOOL=/opt/toolchains/dc/sh-elf/bin
 ELF=$O/re4dc-game.elf
 sha256sum $ELF > $O/elf.sha256
