@@ -43,6 +43,10 @@ host tests, a trial merge; no SH-4 build (cloud session).
   and short_file -> INVALID, the TA_HASH whole-meshlet hook, the native_static `#error` guard, build-r21.sh's
   dead-knob check (the five knobs dropped) and route-build.sh's hard failure. Host-tested only: the local session
   runs the target gates, lands it and cuts r21u.
+- **User decisions (2026-10-04):** (1) experiment/supervisor-20261004's code lands default-off once its docs are
+  corrected, its 82.65 ms knob set is recorded and 038d1c59 is split into described commits, after r21u (local
+  session); play-recipe adoption of any of it stays a separate decision. (2) Gameplay-logic cost (G) is parked behind
+  render work until the console calibration (disc c8); the perf plan is re-planned with calibrated numbers then.
 - **30 fps status** (hwsim, uncalibrated; per image): H2 ~49.6 ms work a tick with the adopted knobs; r101 square
   82.65 ms on the unmerged candidate; kite fight 88.4 at its last measurement (2026-09-28). G alone in fights is ~29
   against 24, and no lane owns G since the architect review voided "G closed". Calibration disc c8 still awaits a

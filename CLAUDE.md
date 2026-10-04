@@ -62,8 +62,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   paragraphs predate 6819f3a2 and are wrong; landing needs the 82.65 ms knob set in the repo, described commits for
   038d1c59 and an r104 inventory re-capture on the merged tree.
 - lamb2k/re4dc is public: every push publishes (AGENTS.md).
-- Open user decisions: land the supervisor code default-off or park it; who owns gameplay-logic cost (G), which no
-  lane carries since the architect review voided "G closed".
+- User decisions 2026-10-04: the supervisor branch's code lands default-off, after the cleanup above and after r21u
+  (local session; turning any of it on in play builds stays a separate decision). Gameplay-logic cost (G, ~29 ms in
+  fights against 24) is parked behind render work until the console calibration (disc c8), then re-planned.
 
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**
