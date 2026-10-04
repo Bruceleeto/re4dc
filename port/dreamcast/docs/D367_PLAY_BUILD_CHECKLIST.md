@@ -17,11 +17,24 @@ Details in the route doc, "2026-10-04: review of 2026-10-03/04". For play discs:
 
 ## 2026-10-04: local experimental checkpoint and delivery audit
 
-The combined full-module candidate measured90.0806 ->82.6492ms in the uncapped r101 square (ticks1330:1389,60frames,stride1,tail3; ACT_CAP0/PACEoff; SH-4-model CPU work excluding waits). Seven controlled schema5 source/candidate pairs pass24,279 complete state/decision/effect frames. This is not30fps, natural-transition, visual or physical-console acceptance. r104 inventory is visibly broken in both controls and the introducing change remains unresolved.
+The combined full-module candidate measured 90.0806 -> 82.6492 ms in the uncapped r101 square (ticks 1330:1389, 60
+frames, stride 1, tail 3; ACT_CAP=0 / PACE_MODE=off; SH-4-model CPU work excluding waits). Seven controlled schema-5
+source/candidate pairs pass 24,279 complete state/decision/effect frames. This is not 30 fps, natural-transition,
+visual or physical-console acceptance. The r104 inventory looked broken in both controls. Correction (local session, 2026-10-04): that was 6819f3a2's bug,
+already fixed on dreamcast-port. Since ad0c59d0 (PS2_WORLD_ROOMS=2) the inventory's rigid models were taken for room
+scenery and the PS2 world was submitted inside the sub screen's single TR stream. Both controls predate the fix, so
+source and candidate showed it alike; these experiments did not cause it. The knob set is recorded in
+[SUPERVISOR_BASELINE_20261004.md](SUPERVISOR_BASELINE_20261004.md) ("Knob set of the 82.65 ms candidate").
 
-Source checkpoints4386239f and3739a8e0 are on experiment/supervisor-20261004. The latter preserves a default-off early-admission experiment that lost6.1125ms and must not be enabled. No play recipe change. The isolated ready diagnostic16f0da96 remains in the coordinator checkout.
+Source checkpoints 4386239f and 3739a8e0 are on experiment/supervisor-20261004. The latter preserves a default-off
+early-admission experiment that lost 6.1125 ms and must not be enabled. No play recipe change. The diagnostic
+16f0da96 has since landed on dreamcast-port.
 
-The supervisor did not follow incremental delivery promptly. A rejected publication attempt remained unresolved while local work accumulated. Live GitHub verification shows lamb2k/re4dc is public, contradicting the old private description; the publication question now explicitly states that fact. The remote wasce39455f at audit time. See [delivery audit](SUPERVISOR_DELIVERY_AUDIT_20261004.md) and [combined baseline](SUPERVISOR_BASELINE_20261004.md) for results and preserved failures.
+The supervisor did not follow incremental delivery promptly. A rejected publication attempt remained unresolved while
+local work accumulated. Live GitHub verification shows lamb2k/re4dc is public, contradicting the old private
+description; the publication question now explicitly states that fact. The remote was ce39455f at audit time. See
+[delivery audit](SUPERVISOR_DELIVERY_AUDIT_20261004.md) and [combined baseline](SUPERVISOR_BASELINE_20261004.md) for
+results and preserved failures.
 
 ## 2026-10-04: r21t public play downloads
 

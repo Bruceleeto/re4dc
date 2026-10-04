@@ -1993,11 +1993,11 @@ $(OBJDIR)/platform/quality.o: PLATFORM_CPPFLAGS += -DRE4DC_QUALITY_LOD_PX=$(QUAL
 endif
 
 # Diagnostic-only projection of room bytes while borrowed by the sub screen.
-# Trace-only capacity profiles. Large r104 inventory needs more than8192 raw ranges.
+# Trace-only capacity profiles. Large r104 inventory needs more than 8192 raw ranges.
 # Both comparison arms use the selected profile; never enabled in performance/production images.
 LOGIC_TRACE_SPANS ?= 6144
 ifneq ($(filter-out 6144 16384,$(LOGIC_TRACE_SPANS)),)
-$(error LOGIC_TRACE_SPANS must be6144 or16384)
+$(error LOGIC_TRACE_SPANS must be 6144 or 16384)
 endif
 LOGIC_TRACE_SWAPPED ?= 0
 ifeq ($(LOGIC_TRACE_SWAPPED),1)
