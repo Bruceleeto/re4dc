@@ -4,6 +4,15 @@
 
 Review of the dreamcast-port commits b802e337..80912a72 and the unmerged experiment/supervisor-20261004: code reading,
 host tests, a trial merge; no SH-4 build (cloud session).
+- **r21t GDEMU image boots in Flycast.** The released RE4DC-r21t-GDEMU.zip (sha256 328478cf..., every file matching its
+  SHA256SUMS) booted from disc.gdi in Flycast 2.4 (Linux AppImage, built-in HLE BIOS, software GL under Xvfb; cloud
+  session): the game's VMU system-info prompt at 10 s; after A, the Sofdec, Dolby and resident evil logos and the title
+  (START / LOAD / OPTIONS); after New Game, r100 gameplay with the HUD at ~272 s, Leon walking. No crash screen, no
+  Flycast error, no disc-read error; the log holds only boot notices and the game's KOS banner. disc.gdi (CRLF): three
+  tracks, track03 at LBA 45000 with 458,647 raw 2352-byte Mode 1 sectors, valid sync and LBA headers at both ends
+  (45000..503646), all 1,143 files inside track03. Not established: GDEMU's own TOC handling, a console, audio, speed
+  (software rendering drew r100 at 8-14 fps). To check: a root file LE_MIRROR_REPORT.JSON (1.45 MB, a tool report)
+  ships on the disc.
 - **Inventory:** the corruption fixed by 6819f3a2 came in with ad0c59d0 (PS2_WORLD_ROOMS=2, 2026-09-29), so it was very
   likely in every play disc from r21i to r21s, the public r21k, r21l and r21m included; the route checks count HALT /
   MISSING and never open the inventory. Play discs now run an inventory open/close check (checklist "Play build rules").

@@ -52,8 +52,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
 
 2026-10-04 (inventory fix, r21t, review; route doc "2026-10-04: review of 2026-10-03/04"):
 - 6819f3a2: PS2_WORLD_ROOMS=2 took the inventory's rigid models for room scenery (since ad0c59d0, 2026-09-29; very
-  likely in the public r21k-r21m too). r21t is a public prerelease (tag play-r21t-inventory-fix-20261004). Play discs
-  now run an inventory open/close check (checklist "Play build rules").
+  likely in the public r21k-r21m too). r21t is a public prerelease (tag play-r21t-inventory-fix-20261004); its GDEMU
+  image boots in Flycast (HLE BIOS) to the title and r100 gameplay, GDEMU / console untested. Play discs now run an
+  inventory open/close check (checklist "Play build rules").
 - Not landed, local target gates pending: lane/review-fixes-20261004 (docs/lanes/review-fixes.md): TEX_PACK retry
   spacing, the TA_HASH whole-meshlet hook (16f0da96 left actor whole meshlets unhashed), a native_static #error guard,
   build-r21.sh failing on dead knobs, route-build.sh failing without resolved-knobs.txt.

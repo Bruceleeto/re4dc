@@ -41,8 +41,9 @@ Checked in [Flycast](https://github.com/flyinghead/flycast) for r21t:
   validation uses visual and memory-restore checks.
 
 These are separate checks. **A continuous r21t title-to-chapter-end playthrough remains pending.**
-The r21t GDEMU image has verified file contents and track layout; it has not been boot-tested in
-Flycast or on a physical console. No new FPS improvement was measured for the inventory repair.
+The r21t GDEMU image has verified file contents and track layout, and the released image boots in
+Flycast (built-in BIOS) through the title to r100 gameplay; it has not yet run on a GDEMU or a physical
+console. No new FPS improvement was measured for the inventory repair.
 See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) for source revisions,
 test scope and earlier build history.
 
@@ -83,7 +84,7 @@ estimates do not establish physical-console performance or compatibility.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
 - **Physical hardware is untested.** r21m predates the SH-4 alignment fixes included in later builds.
-  The current r21t GDEMU package is content-verified, with console acceptance still pending.
+  The current r21t GDEMU package is content-verified and boots in Flycast; console acceptance is still pending.
 
 ## Playing
 
