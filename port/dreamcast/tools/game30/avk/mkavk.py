@@ -28,12 +28,16 @@ def load_tpl(path, flags):
         l = raw.split("!")[0].rstrip()
         if not l.strip():
             continue
-        tags = set(re.findall(r"@(tail|skin|u16|pf|p6|p8|n3|n4)\b", l))
-        text = re.sub(r"@(tail|skin|u16|pf|p6|p8|n3|n4)\b", "", l).strip()
+        tags = set(re.findall(r"@(tail|skin|u16|pf|p6|p8|n3|n4|n16|s8|s6|x8)\b", l))
+        text = re.sub(r"@(tail|skin|u16|pf|p6|p8|n3|n4|n16|s8|s6|x8)\b", "", l).strip()
         if ("skin" in tags and "skin" not in flags) or ("u16" in tags and "u16" not in flags) or \
                 ("pf" in tags and "pf" not in flags) or ("p6" in tags and "p6" not in flags) or \
                 ("p8" in tags and "p6" in flags) or ("n3" in tags and "n3" not in flags) or \
-                ("n4" in tags and "n3" in flags):
+                ("n4" in tags and ("n3" in flags or "s6" in flags)):
+            continue
+        # ACTOR_LIGHT_N16: s16 normals (n16), index x 8 (x8) or, rigid, x 6 (s6); s8 lines dropped
+        if ("n16" in tags and "n16" not in flags) or ("s8" in tags and "n16" in flags) or \
+                ("s6" in tags and "s6" not in flags) or ("x8" in tags and ("n16" not in flags or "s6" in flags)):
             continue
         out.append((text, "tail" in tags))
     return out
@@ -330,14 +334,20 @@ def light_kernel(name, flags):
     ins = PUSH + ["mov.l   @(0,r4),r5", "mov.l   @(4,r4),r6", "mov.l   @(8,r4),r13", "mov.l   @(12,r4),r7",
                   "mov.l   @(16,r4),r11", "mov.l   @(36,r4),r10", "mov     #-1,r12", "extu.b  r12,r12",
                   "mov.l   %s,r3" % L("s8f"), "mov.l   @(20,r4),r0"] + XMTRX_LOAD
-    # PRE(0): normal 0 through the s8 -> float table into fv4
+    # PRE(0): normal 0 through the s8 -> float table into fv4 (n16: lds / float)
+    n16 = "n16" in flags
     assert not (skin and "n3" in flags), "stride-3 normals are rigid only (r14 is the scratch)"
-    scale = ["mov     r0,r14", "add     r0,r0", "add     r14,r0"] if "n3" in flags else ["shll2   r0"]
+    assert not (skin and "s6" in flags), "stride-6 normals are rigid only (r14 is the scratch)"
+    scale = ["mov     r0,r14", "add     r0,r0", "add     r14,r0"] if "n3" in flags else \
+        ["mov     r0,r14", "add     r0,r0", "add     r14,r0", "add     r0,r0"] if "s6" in flags else \
+        ["shll2   r0", "add     r0,r0"] if n16 else ["shll2   r0"]
     ins += ["mov.w   @(2,r5),r0", "add     r11,r5"] + scale + ["mov     r13,r1", "add     r0,r1"]
     for f in (4, 5, 6):
-        ins += ["mov.b   @r1+,r0", "shll2   r0", "fmov.s  @(r0,r3),fr%d" % f]
+        ins += ["mov.w   @r1+,r0", "lds     r0,fpul", "float   fpul,fr%d" % f] if n16 else \
+            ["mov.b   @r1+,r0", "shll2   r0", "fmov.s  @(r0,r3),fr%d" % f]
     if skin:
-        ins += ["mov.b   @r1,r0", "mov     r0,r14", "extu.b  r0,r0", "mov.l   @(32,r4),r8", "cmp/hs  r8,r0",
+        ins += ["mov.w   @r1,r0" if n16 else "mov.b   @r1,r0", "mov     r0,r14",
+                "extu.w  r0,r0" if n16 else "extu.b  r0,r0", "mov.l   @(32,r4),r8", "cmp/hs  r8,r0",
                 "bf      1f", "mov     #0,r0", "1:", "mov.l   @(28,r4),r8", "mov.b   @(r0,r8),r8", "tst     r8,r8",
                 "bf      3f", "bra     %s" % L("exit"), "nop", "3:", "shll2   r0", "shll2   r0", "mov     r0,r8",
                 "add     r0,r0", "add     r8,r0", "mov.l   @(24,r4),r8", "add     r8,r0"]
@@ -367,7 +377,8 @@ def light_kernel(name, flags):
     # switch stubs: r2 = the next record's normal palette byte; the entry's directions (w slots
     # untouched: they hold the current colour) when built, else the drain
     for sl, rl, ds in stubs:
-        o += fmt(["%s:" % sl, "mov.l   r8,@-r15", "mov.l   r9,@-r15", "mov     r2,r14", "extu.b  r2,r0",
+        o += fmt(["%s:" % sl, "mov.l   r8,@-r15", "mov.l   r9,@-r15", "mov     r2,r14",
+                  "extu.w  r2,r0" if n16 else "extu.b  r2,r0",
                   "mov.l   @(8,r15),r8", "mov.l   @(32,r8),r9", "cmp/hs  r9,r0", "bf      1f", "mov     #0,r0", "1:",
                   "mov.l   @(28,r8),r9", "mov.b   @(r0,r9),r9", "tst     r9,r9", "bt      2f", "shll2   r0",
                   "shll2   r0", "mov     r0,r9", "add     r0,r0", "add     r9,r0", "mov.l   @(24,r8),r9",
@@ -406,6 +417,10 @@ HEADER = """/* platform/avk_sh4.S -- ACTOR_VTX_KERNEL (game30.mk): the actors30 
  * the next vertex's fipr (whose w slot then holds a colour copy). Skinned: a normal palette index
  * change loads that entry's directions in the same way. Returns the records not processed.
  *
+ * re4dc_avk_light_{skin,rigid}_n16 / light_rigid_n16s6 (ACTOR_LIGHT_N16 only): the same pass for s16
+ * normals (stride 8; rigid also stride 6), each word through lds / float (the portable loop's float());
+ * the skinned palette index is the normal's fourth word.
+ *
  * Records are read one ahead (and prefetched further): up to two records past the last one and the
  * position / uv / normal words they index are read and discarded.
  * ABI: KOS -m4-single -ml, FPSCR.PR = SZ = 0 on entry and exit; saves r8-r14 and fr12-fr15; XMTRX is
@@ -426,10 +441,14 @@ def main():
             o = ["#if RE4DC_AVK_RIGID6"] + o + ["#endif"]
         out += o + [""]
         rep.append((name, c))
-    for name, flags in (("light_skin", {"skin"}), ("light_rigid", set()), ("light_rigid3", {"n3"})):
+    for name, flags in (("light_skin", {"skin"}), ("light_rigid", set()), ("light_rigid3", {"n3"}),
+                        ("light_skin_n16", {"skin", "n16"}), ("light_rigid_n16", {"n16"}),
+                        ("light_rigid_n16s6", {"n16", "s6"})):
         o, c = light_kernel(name, flags)
         if "n3" in flags:  # AVK_RIGID6 only (the stride-3 normals of the stride-6 rigid parts)
             o = ["#if RE4DC_AVK_RIGID6"] + o + ["#endif"]
+        if "n16" in flags:  # ACTOR_LIGHT_N16 only (s16 normals), so the knob-off image is unchanged
+            o = ["#if RE4DC_ACTOR_LIGHT_N16"] + o + ["#endif"]
         out += o + [""]
         rep.append((name, c))
     import struct

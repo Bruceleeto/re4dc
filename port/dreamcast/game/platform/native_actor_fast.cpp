@@ -121,6 +121,15 @@ unsigned re4dc_avk_light_rigid3(const AvkLight*);
 #endif
 unsigned re4dc_avk_light_skin(const AvkLight*);
 unsigned re4dc_avk_light_rigid(const AvkLight*);
+#ifndef RE4DC_ACTOR_LIGHT_N16
+#define RE4DC_ACTOR_LIGHT_N16 0
+#endif
+#if RE4DC_ACTOR_LIGHT_N16
+// ACTOR_LIGHT_N16 (game30.mk): the s16-normal light kernels (mkavk.py @n16).
+unsigned re4dc_avk_light_skin_n16(const AvkLight*);
+unsigned re4dc_avk_light_rigid_n16(const AvkLight*);
+unsigned re4dc_avk_light_rigid_n16s6(const AvkLight*);
+#endif
 void re4dc_log(const char* fmt, ...);
 }
 #else
@@ -2728,9 +2737,115 @@ inline void avk_fold(const u8* oc, unsigned n, unsigned& all, unsigned& any) {
     for (; j < n; ++j) { a &= oc[j]; o |= oc[j]; }
     all &= a & 255U; any |= o & 255U;
 }
+#if RE4DC_ACTOR_LIGHT_N16
+// ACTOR_LIGHT_N16: pass 2 for s16 normals (normal_shift 14: the owner path's parts, skinned stride 8, rigid
+// stride 8 or 6) on the n16 kernels, with the s8 kernels' contract: the same fold (L.dir / skin_dirs, built by
+// skin_light_dirs exactly as the portable loop uses them), colour matrix and alpha; returns the records lit from
+// 0 (0: the portable loop lights the meshlet, as before). The skinned palette index is the normal's 4th word
+// (u16, as the loop reads it); an index past the palette uses entry 0 in both. Per-vertex alpha
+// (e.colors, alpha_state & 256), another stride, more than 32768 normals (the kernels' mov.w index sign-
+// extends) or a skinned Frame without its direction table keep the loop.
+enum N16Why : unsigned { kN16Kernel, kN16Colors, kN16Stride, kN16Count, kN16NoTable, kN16Ref, kN16Reasons };
+#if RE4DC_ACTOR_LIGHT_N16 == 2
+unsigned n16_meshlets[kN16Reasons], n16_vertices[kN16Reasons];
+unsigned n16_kind_vertices[3];  // kernel vertices: skinned stride 8, rigid stride 8, rigid stride 6
+bool n16_ref = false;  // compare build: inside the reference pass (the portable loop) the kernels are skipped
+#endif
+inline unsigned n16_palette(const Frame& f, unsigned ni) {
+    return *reinterpret_cast<const u16*>(f.normals + ni * 8U + 6U);
+}
+// Skinned light directions used by records [i, n) and not built yet (avk_build_dirs, s16 normals).
+void avk_build_dirs_n16(Frame& f, const Lights& L, const Records& r, unsigned i, unsigned n) {
+    alignas(8) float temp[12];
+    int last = -1;
+    for (; i < n; ++i) {
+        const unsigned palette = n16_palette(f, r.ni(i));
+        if (int(palette) == last) continue;
+        last = int(palette);
+        if (!f.dirs_ready[palette < f.palette_entries ? palette : 0U]) skin_light_dirs(f, L, palette, temp);
+    }
+}
+unsigned avk_lights_n16(Part& e, const Lights& L, const Records& r, unsigned n) {
+    Frame& f = e.f;
+    const bool skin = f.mode == kSkin;
+    const unsigned ns = f.normal_stride;
+    const unsigned why =
+#if RE4DC_ACTOR_LIGHT_N16 == 2
+        n16_ref ? unsigned(kN16Ref) :
+#endif
+        e.colors ? unsigned(kN16Colors)
+        : (skin ? ns != 8U : (ns != 8U && ns != 6U)) ? unsigned(kN16Stride)
+        : f.normal_count > 32768U ? unsigned(kN16Count)
+        : (skin && !f.skin_dirs) ? unsigned(kN16NoTable) : unsigned(kN16Kernel);
+#if RE4DC_ACTOR_LIGHT_N16 == 2
+    ++n16_meshlets[why]; n16_vertices[why] += n;
+    if (why == kN16Kernel) n16_kind_vertices[skin ? 0 : ns == 6U ? 2 : 1] += n;
+#endif
+    if (why != kN16Kernel || !n) return 0;
+    AvkLight a;
+    a.nrm = f.normals; a.rs = r.stride * 2U; a.color = L.color; a.alpha = e.alpha;
+    a.dirs = skin ? f.skin_dirs : &L.dir[0][0]; a.ready = f.dirs_ready; a.entries = f.palette_entries;
+    unsigned (*const kernel)(const AvkLight*) = skin ? re4dc_avk_light_skin_n16
+                                              : ns == 6U ? re4dc_avk_light_rigid_n16s6 : re4dc_avk_light_rigid_n16;
+    const u8* rec = reinterpret_cast<const u8*>(r.r);
+    if (skin) {
+        const unsigned palette = n16_palette(f, r.ni(0));
+        if (!f.dirs_ready[palette < f.palette_entries ? palette : 0U]) avk_build_dirs_n16(f, L, r, 0, n);
+    }
+    unsigned i = 0;
+    for (unsigned pass = 0;; ++pass) {
+        a.rec = rec + i * a.rs; a.n = n - i; a.argb = &e.cache.v[i].argb;
+        const unsigned left = kernel(&a);
+        i = n - left;
+        if (!left || !skin || pass) return i;
+        avk_build_dirs_n16(f, L, r, i, n);
+    }
+}
+#if RE4DC_ACTOR_LIGHT_N16 == 2
+// Compare build: after the kernel, the portable loop (the path without the knob) relights records [0, done)
+// into n16_ref_v and every colour word is compared ("LN16" line every 256 checked meshlets, with the decline
+// reasons of every s16-normal meshlet so far).
+void pass_lights(Part& e, const Lights& L, const Records& r, unsigned n);
+alignas(32) pvr_vertex_t n16_ref_v[kMaxVertices];
+unsigned n16_checks, n16_lit, n16_words, n16_max, n16_off1, n16_off2;
+void n16_check(Part& e, const Lights& L, const Records& r, unsigned done) {
+    const Cache saved = e.cache;
+    e.cache.v = n16_ref_v;
+    n16_ref = true;
+    pass_lights(e, L, r, done);
+    n16_ref = false;
+    e.cache = saved;
+    for (unsigned j = 0; j < done; ++j) {
+        const u32 a = e.cache.v[j].argb, b = n16_ref_v[j].argb;
+        ++n16_lit;
+        if (a == b) continue;
+        ++n16_words;
+        unsigned m = 0;
+        for (unsigned s = 0; s < 32; s += 8) {
+            const int d = int((a >> s) & 255U) - int((b >> s) & 255U);
+            m = std::max(m, unsigned(d < 0 ? -d : d));
+        }
+        n16_max = std::max(n16_max, m);
+        if (m == 1) ++n16_off1; else ++n16_off2;
+    }
+    if ((++n16_checks & 255U) == 0)
+        re4dc_log("LN16 checks=%u lit=%u argb_mismatch=%u max_channel=%u off1=%u off2plus=%u | meshlets/verts "
+                  "kernel=%u/%u colors=%u/%u stride=%u/%u count=%u/%u notable=%u/%u | kernel verts skin8=%u rigid8=%u "
+                  "rigid6=%u\n",
+                  n16_checks, n16_lit, n16_words, n16_max, n16_off1, n16_off2, n16_meshlets[kN16Kernel],
+                  n16_vertices[kN16Kernel], n16_meshlets[kN16Colors], n16_vertices[kN16Colors],
+                  n16_meshlets[kN16Stride], n16_vertices[kN16Stride], n16_meshlets[kN16Count], n16_vertices[kN16Count],
+                  n16_meshlets[kN16NoTable], n16_vertices[kN16NoTable], n16_kind_vertices[0], n16_kind_vertices[1],
+                  n16_kind_vertices[2]);
+}
+#endif
+#endif
 unsigned avk_lights(Part& e, const Lights& L, const Records& r, unsigned n) {
     Frame& f = e.f;
     const bool skin = f.mode == kSkin;
+#if RE4DC_ACTOR_LIGHT_N16
+    if (!f.small_normals) return avk_lights_n16(e, L, r, n);
+#endif
 #if RE4DC_AVK_RIGID6
     const bool three = !skin && f.normal_stride == 3;  // AVK_RIGID6: rigid stride-3 normals (kNrm3)
     if (!n || !f.small_normals || e.colors || (f.normal_stride != 4 && !three) || f.normal_count > 32768U ||
@@ -2971,6 +3086,9 @@ void pass_lights(Part& e, const Lights& L, const Records& r, unsigned n) {
         avk_check_lights(e, L, r, n, done);
     }
 #endif
+#if RE4DC_ACTOR_LIGHT_N16 == 2
+    if (!f.small_normals && done) n16_check(e, L, r, done);
+#endif
     if (done == n) return;
 #endif
     LightConst k{};
@@ -2979,7 +3097,11 @@ void pass_lights(Part& e, const Lights& L, const Records& r, unsigned n) {
     const bool small = f.small_normals;
     const unsigned ns = f.normal_stride;
     if (!small || e.colors) {  // s16 normals / per-vertex alpha: portable loop
+#if RE4DC_ACTOR_LIGHT_N16
+        for (unsigned i = small ? 0U : done; i < n; ++i) {  // after the n16 kernel's records (0 when it declined)
+#else
         for (unsigned i = 0; i < n; ++i) {
+#endif
             float nx, ny, nz;
             int pi;
             if (small) {
