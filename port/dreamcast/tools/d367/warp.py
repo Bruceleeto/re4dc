@@ -158,6 +158,43 @@ PRESETS = {
                                     unlock={0: 0x00400000},
                                     door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
                                     notes="at the r104 -> r107 emblem gate, unlocked"),
+    # World coverage lane (St2 / St4 bring-up; needs WORLD_STAGE_MODULES=1). r210 (the minecart / lift room, st2_0)
+    # as r206's door 7 delivers Leon (r206 AEV: dst -8, 0, -874, angle 2.979; stage_route.py --stage 2). A fresh
+    # start (room_id_prev 0xFFF) sets Status_flg[3] 0x04000000, so R210Init brings Ashley along (SubCharInit).
+    "r210-entry": dict(room=0x210, pos=(-8, 0, -874), ang=2.979,
+                       notes="r210 from the r206 door (St2 minecart room, Ashley follows)"),
+    # r210's own door 4 arrival (GC AEV, stage_route.scan) in the main hall, turned to face the balcony and the
+    # chairs (the r210-entry spot faces a near wall).
+    "r210-hall": dict(room=0x210, pos=(-19155, -2000, -7554), ang=-3.097,
+                      notes="r210 main hall at the door 4 arrival, facing the balcony (view fixture)"),
+    # r40c (St4, st4_0) as r40a's door 2 delivers Leon (r40a AEV: dst -2119, 0, 3158, angle 2.919; --stage 4).
+    "r40c-entry": dict(room=0x40c, pos=(-2119, 0, 3158), ang=2.919,
+                       notes="r40c from the r40a door (St4, omake00 list, no enemies)"),
+    # Follow-up 6 (WORLD_ROOM_MODULES=1 also). r219 (St2, st2_2) as r201's door 33 delivers Leon (r201 AEV: dst 35, 0,
+    # 1246, angle 3.069; stage_route.scan stage 2). emleon04 list, no enemy entries.
+    "r219-entry": dict(room=0x219, pos=(35, 0, 1246), ang=3.069,
+                       notes="r219 from the r201 door (St2, st2_2, no enemies)"),
+    # r40a (St4, st4_0 + em1f) as r40c's door 0 delivers Leon (r40c AEV: dst -9910, 4001, 5434, angle -0.008).
+    # omake00 list: 11 em1f entries (enabled later / script load).
+    "r40a-entry": dict(room=0x40a, pos=(-9910, 4001, 5434), ang=-0.008,
+                       notes="r40a from the r40c door (St4, em1f island soldiers)"),
+    # Follow-up 7, St1 (stage_route.scan stage 1, GC AEV door arrivals; default flags, not the chapter's arrival
+    # state). r109 as r108's door 1 delivers Leon: em23 list.
+    "r109-entry": dict(room=0x109, pos=(97246, 2251, 13320), ang=1.0,
+                       notes="r109 from the r108 door (St1, em23)"),
+    # r10c as r10e's door 2 delivers Leon (em12 script load / spawn). Its AICA banks do not fit the frozen arena.
+    "r10c-entry": dict(room=0x10c, pos=(27865, -15316, 43935), ang=2.418,
+                       notes="r10c from the r10e door (St1, em12)"),
+    # r10f as r11d's door 1 delivers Leon (em13 enabled later / entry / script spawn).
+    "r10f-entry": dict(room=0x10f, pos=(-25133, 4000, 16399), ang=1.351,
+                       notes="r10f from the r11d door (St1, em13)"),
+    # r11a as r119's door 1 delivers Leon (em12).
+    "r11a-entry": dict(room=0x11a, pos=(-58032, 7346, 69783), ang=1.362,
+                       notes="r11a from the r119 door (St1, em12)"),
+    # r40b (St4, st4_0 + em1f) as r40a's door 1 delivers Leon (r40a AEV: dst 1749, 0, 4498, angle -1.801); r40b's
+    # only door arrival.
+    "r40b-entry": dict(room=0x40b, pos=(1749, 0, 4498), ang=-1.801,
+                       notes="r40b from the r40a door (St4, em1f)"),
 }
 
 

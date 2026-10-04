@@ -104,6 +104,21 @@ ROOMS = {
     'r107': ['st1/r107.dar', 'em/em12.drs', 'em/em27.drs', 'em/em2a.drs'],
     # r105 (route lane): the ESL lists em15 (enabled later) / em23 / em2a (assets.sh discover r105)
     'r105': ['st1/r105.dar', 'em/em15.drs', 'em/em23.drs', 'em/em2a.drs'],
+    # r210 (St2, world coverage lane): no enemy archive (assets.sh discover r210: lists emleon03/04, no entries)
+    'r210': ['st2/r210.dar'],
+    # r40c (St4, world coverage lane): no enemy archive (discover r40c: omake00.esl, no entries)
+    'r40c': ['st4/r40c.dar'],
+    # r219 (St2, world coverage lane): no enemy archive (discover r219: emleon04.esl, no entries)
+    'r219': ['st2/r219.dar'],
+    # r40a (St4, world coverage lane): the em1f island soldiers (discover r40a: omake00.esl, 11 entries, script load)
+    'r40a': ['st4/r40a.dar', 'em/em1f.drs'],
+    # Follow-up 7 (world coverage lane, St1; assets.sh discover: the rooms' ESL / script enemies)
+    'r109': ['st1/r109.dar', 'em/em23.drs'],
+    'r10c': ['st1/r10c.dar', 'em/em12.drs'],
+    'r10f': ['st1/r10f.dar', 'em/em13.drs'],
+    'r11a': ['st1/r11a.dar', 'em/em12.drs'],
+    # r40b (St4, follow-up 7): em1f (bringup inventory: em1f/em1f, st4_0)
+    'r40b': ['st4/r40b.dar', 'em/em1f.drs'],
 }
 
 
