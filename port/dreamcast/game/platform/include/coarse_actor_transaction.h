@@ -18,13 +18,13 @@ struct Re4dcActorPlannedRun {
 };
 struct Re4dcActorPlan {
     unsigned count=0,appearance=0,palette_bytes=0,workspace_bytes=0;
-    cModelInfo* info[8]{}; // role indexed; source list order is retained separately
-    re4dc_source::ChunkInput input[8]{};
+    cModelInfo* info[kRe4dcActorRoles]{}; // role indexed; source list order is retained separately
+    re4dc_source::ChunkInput input[kRe4dcActorRoles]{};
     Re4dcUiImage image{};
     unsigned crc=0,fnv=0;
     int (*palettes)(cModel*,const Re4dcActorPlan&,float* const*)=nullptr;
     // Palette/skin ownership remains role-indexed. Runs never allocate palettes.
-    unsigned immutable_asset_id[8]{};
+    unsigned immutable_asset_id[kRe4dcActorRoles]{};
     unsigned material_count=0,run_count=0;
     Re4dcActorOwnedMaterial materials[kRe4dcActorMaterials]{};
     Re4dcActorPlannedRun runs[kRe4dcActorRuns]{};
@@ -32,6 +32,9 @@ struct Re4dcActorPlan {
 extern "C" {
 int re4dc_actor_plan_leon(cModel*,Re4dcActorPlan*);
 int re4dc_actor_plan_ganado(cModel*,Re4dcActorPlan*);
+#if RE4DC_ACTOR_PL08
+int re4dc_actor_plan_pl08(cModel*,Re4dcActorPlan*);
+#endif
 // This callback is the explicit, currently unpopulated source certificate
 // boundary. It may only return one after comparing every original info's
 // material and source TPL identity to a reviewed private certificate row.
@@ -50,6 +53,16 @@ int re4dc_actor_transaction_choose(cModel*,unsigned);
 int re4dc_actor_transaction_candidate(cModel*);
 }
 
+// The player owners: pl00 (appearance 0x100, eight infos) and, under ACTOR_PL08=1, the no-jacket pl08 (0x108, nine
+// infos, the same 119-bone skeleton). Both keep the Leon-only semantics: role 3 is the bone-driven face (shape bit),
+// role 7 the second-pass hair, the player's own lighting path. Off: exactly the former 0x100 tests.
+#if RE4DC_ACTOR_PL08
+#define RE4DC_LEON_LIKE(app) ((app)==0x100u || (app)==0x108u)
+#define RE4DC_LEON_FACE_ROLE(p,i) (((p).count==8 || (p).appearance==0x108u) && (i)==3)
+#else
+#define RE4DC_LEON_LIKE(app) ((app)==0x100u)
+#define RE4DC_LEON_FACE_ROLE(p,i) ((p).count==8 && (i)==3)
+#endif
 namespace re4dc_actor {
 inline bool exact_infos(cModelInfo* first,cModelInfo* const* roles,unsigned n) {
     unsigned seen=0,count=0;

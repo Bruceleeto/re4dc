@@ -1,3 +1,15 @@
+// The combined pl08 + registry recipe needs 61 fixed roles plus six room roles, and 30 fixed blobs plus
+// three room blobs. Widen only this combination; all narrower recipes keep their original layout and code.
+#if RE4DC_ACTOR_PL08 && RE4DC_NATIVE_MODEL_REGISTRY
+#define RE4DC_ACTOR_WIDE_IDENTITY 1
+constexpr unsigned kRoleMaskWords=3,kBlobMaskBits=64;
+using BlobMask=std::uint64_t;
+#else
+#define RE4DC_ACTOR_WIDE_IDENTITY 0
+constexpr unsigned kRoleMaskWords=2,kBlobMaskBits=32;
+using BlobMask=unsigned;
+#endif
+constexpr unsigned kRoleMaskBits=kRoleMaskWords*32u;
 // Private real source facts, normalized at adoption only. No mesh arrays.
 static const Texture t_em12_473[] = {
 {1946439074u,2058306121u,256u,256u,14u,{1u,1u,1u,1u,0u,0u,0u,0u},4294967295u,{0u,0u,0u}},
@@ -271,6 +283,9 @@ static const Texture t_extra_485[] = {
 static const Texture t_extra_486[] = {
 {137436048u,3095878342u,128u,128u,14u,{1u,1u,1u,1u,0u,0u,0u,0u},4294967295u,{0u,0u,0u}},
 };
+#if RE4DC_ACTOR_PL08
+#include "actor_material_records_pl08.inc"
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_facts.inc" // private registry bundle (tools/d367/model_registry.py)
 #endif
@@ -327,6 +342,9 @@ static const Role roles[] = {
 {4u,4u,467u,469u,&m_extra_467,t_extra_469,1u},
 {4u,4u,484u,485u,&m_extra_484,t_extra_485,1u},
 {4u,4u,484u,486u,&m_extra_484,t_extra_486,1u},
+#if RE4DC_ACTOR_PL08
+#include "actor_material_records_pl08_roles.inc"
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_roles.inc"
 #endif
@@ -358,6 +376,9 @@ static const SourceBlob source_blobs[] = {
 {&m_extra_456,2u,456u,{5952u,3566550875u,4284573839u}},
 {&m_extra_467,2u,467u,{4256u,3007827131u,2804973797u}},
 {&m_extra_484,2u,484u,{6528u,1573052172u,1172918242u}},
+#if RE4DC_ACTOR_PL08
+#include "actor_material_records_pl08_blobs.inc"
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_blobs.inc"
 #endif
@@ -366,10 +387,10 @@ static const SourceBlob source_blobs[] = {
 // NATIVE_MODEL_REGISTRY_PACK: the room package's identity rows (coarse_actor_registry_pack.inc builds them from the
 // validated package and publishes them for one room generation; actor_lifetime.inc retires them at room leave).
 // They follow the reviewed rows above in one index space: role r >= kBaseRoles is room row r-kBaseRoles, blob
-// t >= kBaseBlobs room blob t-kBaseBlobs. The Info::roles (64) and Asset::templates (32) masks bound them.
+// t >= kBaseBlobs room blob t-kBaseBlobs. The capacity constants above bound both lifetime masks.
 constexpr unsigned kBaseRoles=sizeof(roles)/sizeof(roles[0]),kBaseBlobs=sizeof(source_blobs)/sizeof(source_blobs[0]);
-constexpr unsigned kRoomRoles=64u-kBaseRoles,kRoomBlobs=32u-kBaseBlobs;
-static_assert(kBaseRoles<64u && kBaseBlobs<32u,"room identity rows need free mask bits");
+constexpr unsigned kRoomRoles=kRoleMaskBits-kBaseRoles,kRoomBlobs=kBlobMaskBits-kBaseBlobs;
+static_assert(kBaseRoles<kRoleMaskBits && kBaseBlobs<kBlobMaskBits,"room identity rows need free mask bits");
 struct RoomRows { const Role* roles;const SourceBlob* blobs;unsigned role_count,blob_count,generation; };
 RoomRows room_rows{};
 inline unsigned role_count() {return kBaseRoles+room_rows.role_count;}

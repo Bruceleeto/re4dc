@@ -65,6 +65,28 @@ $(error ACTOR_APPEARANCE_ALIAS acts on the ACTOR_TRANSACTION owner path (ACTOR_T
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_APPEARANCE_ALIAS=2
 endif
+# ACTOR_PL08=1 (native scene coverage, 2026-10-04; default 0): the no-jacket Leon (pl08.drs, NINE source infos) on the
+#              ACTOR_TRANSACTION owner path (coarse_actor_owner_pl08.inc). Plans only when the 0x108 role rows
+#              (actor_material_records_pl08*.inc, generated from the original pl08.drs) prove all nine infos; otherwise the
+#              whole model keeps the source path. Role capacity 8 -> 9 and owner runs 21 -> 22 for every TU (layouts with
+#              0 unchanged). ACTOR_PL08_DIR = private dir with leon_pl08_runtime.h; the disc must carry the pl08 atlas
+#              dc/tex/7/7506e95f-68cf2211.re4tex (else the texture lease declines and the source path draws).
+ACTOR_PL08 ?= 0
+ifeq ($(filter $(ACTOR_PL08),0 1),)
+$(error ACTOR_PL08 must be 0 or 1)
+endif
+ifeq ($(ACTOR_PL08),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_PL08 acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+ifndef ACTOR_PL08_DIR
+$(error ACTOR_PL08=1 needs ACTOR_PL08_DIR (the private dir with leon_pl08_runtime.h))
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_PL08=1
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_PL08=1
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -I$(ACTOR_PL08_DIR)
+$(OBJDIR)/coarse_actor.o: $(ACTOR_PL08_DIR)/leon_pl08_runtime.h coarse_actor_owner_pl08.inc actor_material_records_pl08.inc     actor_material_records_pl08_roles.inc actor_material_records_pl08_blobs.inc
+endif
 ifeq ($(ACTOR_GANADO_SOURCE_LIGHT),1)
 ifneq ($(ACTOR_TRANSACTION),1)
 $(error ACTOR_GANADO_SOURCE_LIGHT acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))

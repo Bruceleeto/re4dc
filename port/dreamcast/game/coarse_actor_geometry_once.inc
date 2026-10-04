@@ -19,7 +19,18 @@ constexpr unsigned kActorImmutableChunks=66;
 #else
 constexpr unsigned kActorImmutableChunks=46;
 #endif
+#if RE4DC_ACTOR_PL08
+// ACTOR_PL08: the three pl08-only chunks (roles 0, 1, 8) follow every fixed ID. Its other roles and the 14 hair runs
+// use pl00's arrays and IDs unchanged (byte-identical source sections; NS/pl08 merge_pack.py proofs).
+constexpr unsigned kActorPl08Asset0=kActorImmutableChunks+1u;
+ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks+3u];
+#define RE4DC_IMMUTABLE_CHUNK_COUNT (kActorImmutableChunks+3u)
+#else
+#define RE4DC_IMMUTABLE_CHUNK_COUNT kActorImmutableChunks
+#endif
+#if !RE4DC_ACTOR_PL08
 ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks];
+#endif
 
 bool actor_same_span(const re4dc_source::ByteSpan& a,
                      const re4dc_source::ByteSpan& b) {
@@ -41,7 +52,7 @@ extern "C" re4dc_source::BlobError re4dc_actor_immutable_chunk_proof(
     re4dc_source::ChunkProof& output) {
     using re4dc_source::BlobError;
     output={};
-    if(!asset_id || asset_id>kActorImmutableChunks)return BlobError::Array;
+    if(!asset_id || asset_id>RE4DC_IMMUTABLE_CHUNK_COUNT)return BlobError::Array;
     auto& entry=actor_immutable_chunks[asset_id-1];
     if(entry.state==0) {
         // There are no callbacks or threads in preflight_chunk. The in-progress

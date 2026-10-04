@@ -18,14 +18,14 @@ constexpr unsigned kArchives=8,kAssets=40,kInfos=160,kModels=40;
 struct Archive { const void* key;const unsigned char* base;unsigned bytes,revision,family; };
 struct Asset {
     const ModelData* data;const unsigned char* base;unsigned bytes;
-    unsigned archive,owner_revision,serial,templates,pending;
+    unsigned archive,owner_revision,serial;BlobMask templates;unsigned pending;
     const void* section[7]; // head,colour,UV,weights,parts,positions,normals
 };
-struct Info { cModelInfo* info;unsigned asset,asset_serial,roles[2],tpl_owner,tpl_revision;const void* tpl;unsigned tpl_bytes; };
+struct Info { cModelInfo* info;unsigned asset,asset_serial,roles[kRoleMaskWords],tpl_owner,tpl_revision;const void* tpl;unsigned tpl_bytes; };
 struct Binding { cModel* model;const void* parts;unsigned serial,revision,epoch; };
-static_assert(sizeof(source_blobs)/sizeof(source_blobs[0])<=32,"asset template mask capacity");
-static_assert(sizeof(roles)/sizeof(roles[0])<=64,"info role mask capacity");
-static_assert(sizeof(void*)!=4 || (sizeof(Archive)==20 && sizeof(Asset)==60 && sizeof(Info)==36 && sizeof(Binding)==20),"reviewed 32-bit metadata size");
+static_assert(sizeof(source_blobs)/sizeof(source_blobs[0])<=kBlobMaskBits,"asset template mask capacity");
+static_assert(sizeof(roles)/sizeof(roles[0])<=kRoleMaskBits,"info role mask capacity");
+static_assert(sizeof(void*)!=4 || (sizeof(Archive)==20 && sizeof(Asset)==60u+sizeof(BlobMask)-sizeof(unsigned) && sizeof(Info)==28u+kRoleMaskWords*4u && sizeof(Binding)==20),"reviewed 32-bit metadata size");
 Archive archives[kArchives]{};Asset assets[kAssets]{};Info infos_live[kInfos]{};Binding bindings[kModels]{};
 unsigned serial=1,epoch=1;bool exhausted=false;
 unsigned next() {if(exhausted || serial==~0u){exhausted=true;return 0;}return ++serial;}
@@ -93,7 +93,7 @@ bool tpl_owned(const Archive& o,const void* p,unsigned bytes,const Role& r) {
 }
 Info* find_info(const void* p) {for(auto& i:infos_live)if(i.info==p)return &i;return nullptr;}
 bool info_current(const Info& i,unsigned role) {
-    if(!i.info || i.asset>=kAssets || i.tpl_owner>=kArchives || role>=64 || !(i.roles[role/32]&(1u<<(role%32))))return false;
+    if(!i.info || i.asset>=kAssets || i.tpl_owner>=kArchives || role>=kRoleMaskBits || !(i.roles[role/32]&(1u<<(role%32))))return false;
     const auto& a=assets[i.asset];const auto& t=archives[i.tpl_owner];
     return current(a) && a.serial==i.asset_serial && t.key && t.revision==i.tpl_revision &&
       span(t.base,t.bytes,i.tpl,i.tpl_bytes) && i.info->pData==a.data && i.info->tpl_addr==i.tpl;
@@ -122,10 +122,10 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
         if(!entry(owner,s.bin,"BIN",b,n) || s.normalized.bytes>n || !digest(b,s.normalized))continue;
         Asset* a=nullptr;
         for(auto& x:assets)if(x.data==reinterpret_cast<const ModelData*>(b)){a=&x;break;}
-        if(a){a->templates|=1u<<t;continue;}
+        if(a){a->templates|=BlobMask(1u)<<t;continue;}
         for(auto& x:assets)if(!x.data){a=&x;break;}if(!a)continue;
         *a={};a->data=reinterpret_cast<const ModelData*>(b);a->base=b;a->bytes=s.normalized.bytes;
-        a->archive=oi;a->owner_revision=owner.revision;a->serial=next();a->templates=1u<<t;
+        a->archive=oi;a->owner_revision=owner.revision;a->serial=next();a->templates=BlobMask(1u)<<t;
         const unsigned fields[7]={0,12,16,20,28,48,52};bool okay=true;
         for(unsigned j=0;j<7;++j) {
             const unsigned off=u32at(b,fields[j]);
@@ -180,16 +180,20 @@ extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
     for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r) {
         const auto& row=RE4DC_ROLE(r);bool match=false;
         for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
-            if((a.templates&(1u<<t)) && RE4DC_BLOB(t).model==row.model)match=true;
+            if((a.templates&(BlobMask(1u)<<t)) && RE4DC_BLOB(t).model==row.model)match=true;
         if(!match)continue;
         for(unsigned k=0;k<kArchives;++k) {
-            const auto& o=archives[k];if(o.family!=(row.appearance==256?1u:2u))continue;
+            const auto& o=archives[k];if(o.family!=(RE4DC_LEON_LIKE(row.appearance)?1u:2u))continue;
             const unsigned char* p=nullptr;unsigned n=0;
             if(!entry(o,row.source_tpl,"TPL",p,n) || p!=info->tpl_addr || !tpl_owned(o,p,n,row))continue;
             // Multiple rows may intentionally share default hand geometry.
             if(found.info && (found.tpl_owner!=k || found.tpl!=p))return;
             found.roles[r/32]|=1u<<(r%32);
+#if RE4DC_ACTOR_WIDE_IDENTITY
+            found={info,ai,a.serial,{found.roles[0],found.roles[1],found.roles[2]},k,o.revision,p,n};
+#else
             found={info,ai,a.serial,{found.roles[0],found.roles[1]},k,o.revision,p,n};
+#endif
         }
     }
     if(!found.info){CROWD_LIFE(++crowd_adopt_fail[2]);return;}
@@ -222,14 +226,14 @@ extern "C" void re4dc_actor_txdiag_info(const cModel* m,const cModelInfo* info,u
     else if(!current(assets[ai])){code=3;detail=ai;}
     else {
         const auto& a=assets[ai];bool row=false,tpl=false,owned=false;const unsigned char* first=nullptr;unsigned owner=kArchives;
-        detail=a.templates;
+        detail=unsigned(a.templates); // diagnostic detail retains the low word; proof uses the whole mask
         for(unsigned r=0;r<RE4DC_ROLE_COUNT && !code;++r) {
             bool match=false;
             for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
-                if((a.templates&(1u<<t)) && RE4DC_BLOB(t).model==RE4DC_ROLE(r).model)match=true;
+                if((a.templates&(BlobMask(1u)<<t)) && RE4DC_BLOB(t).model==RE4DC_ROLE(r).model)match=true;
             if(!match)continue;row=true;
             for(unsigned k=0;k<kArchives;++k) {
-                const auto& o=archives[k];if(o.family!=(RE4DC_ROLE(r).appearance==256?1u:2u))continue;
+                const auto& o=archives[k];if(o.family!=(RE4DC_LEON_LIKE(RE4DC_ROLE(r).appearance)?1u:2u))continue;
                 const unsigned char* p=nullptr;unsigned n=0;
                 if(!entry(o,RE4DC_ROLE(r).source_tpl,"TPL",p,n) || p!=info->tpl_addr)continue;tpl=true;
                 if(!tpl_owned(o,p,n,RE4DC_ROLE(r)))continue;
@@ -282,20 +286,28 @@ void room_rows_publish(const Role* r,unsigned nr,const SourceBlob* b,unsigned nb
 void room_rows_retire(unsigned& infos,unsigned& assets_dropped) {
     infos=assets_dropped=0;
     if(!room_rows.role_count && !room_rows.blob_count){room_rows={};return;}
-    unsigned rmask[2]={0,0},tmask=0;
+    unsigned rmask[kRoleMaskWords]={};BlobMask tmask=0;
     for(unsigned r=kBaseRoles;r<kBaseRoles+room_rows.role_count;++r)rmask[r/32]|=1u<<(r%32);
-    for(unsigned t=kBaseBlobs;t<kBaseBlobs+room_rows.blob_count;++t)tmask|=1u<<t;
+    for(unsigned t=kBaseBlobs;t<kBaseBlobs+room_rows.blob_count;++t)tmask|=BlobMask(1u)<<t;
+#if RE4DC_ACTOR_WIDE_IDENTITY
+    for(auto& i:infos_live)if(i.info) {
+        unsigned hit=0,live=0;
+        for(unsigned w=0;w<kRoleMaskWords;++w){hit|=i.roles[w]&rmask[w];i.roles[w]&=~rmask[w];live|=i.roles[w];}
+        if(hit && !live){i={};++infos;}
+    }
+#else
     for(auto& i:infos_live)if(i.info && ((i.roles[0]&rmask[0]) || (i.roles[1]&rmask[1]))) {
         i.roles[0]&=~rmask[0];i.roles[1]&=~rmask[1];
         if(!i.roles[0] && !i.roles[1]){i={};++infos;}
     }
+#endif
     for(auto& a:assets)if(a.data && (a.templates&tmask)){a.templates&=~tmask;if(!a.templates){a={};++assets_dropped;}}
     room_rows={};changed();
 }
 // Live records naming a room row (0 after a retire).
 unsigned room_rows_users() {
     unsigned n=0;
-    for(const auto& i:infos_live)if(i.info)for(unsigned r=kBaseRoles;r<64u;++r)if(i.roles[r/32]&(1u<<(r%32))){++n;break;}
+    for(const auto& i:infos_live)if(i.info)for(unsigned r=kBaseRoles;r<kRoleMaskBits;++r)if(i.roles[r/32]&(1u<<(r%32))){++n;break;}
     for(const auto& a:assets)if(a.data && (a.templates>>kBaseBlobs))++n;
     return n;
 }
@@ -336,7 +348,7 @@ extern "C" unsigned re4dc_actor_binding_revision(cModel* m) {
 // as the full scans do. Leon and the Ganado cast keep the full scans. =2 runs both and counts different results.
 static unsigned registry_role_next(const re4dc_material::life::Info& i,unsigned r) {
     const unsigned n=RE4DC_ROLE_COUNT;
-    for(;r<n && r<64u;r=(r|31u)+1u) {
+    for(;r<n && r<re4dc_material::kRoleMaskBits;r=(r|31u)+1u) {
         const unsigned bits=i.roles[r>>5]>>(r&31u);
         if(bits){r+=__builtin_ctz(bits);return r<n?r:n;}
     }
@@ -349,8 +361,8 @@ static const re4dc_material::Role* actor_current_role(cModel* m,cModelInfo* info
     using namespace re4dc_material;using namespace life;
     if(!m || exhausted)return nullptr;
     unsigned n=0;bool member=false;
-    for(auto* p=m->pModelInfo;p && n<9;p=p->pList,++n)if(p==info)member=true;
-    if(!member || n>8)return nullptr;
+    for(auto* p=m->pModelInfo;p && n<kRe4dcActorRoles+1;p=p->pList,++n)if(p==info)member=true;
+    if(!member || n>kRe4dcActorRoles)return nullptr;
     auto* i=find_info(info);if(!i)return nullptr;
     const Role* found=nullptr;
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX
@@ -386,8 +398,8 @@ extern "C" int re4dc_actor_material_owner_proof(cModel* m,cModelInfo* info,unsig
     using namespace re4dc_material;using namespace life;
     if(!m || exhausted || revision!=RE4DC_ACTOR_MATERIAL_RECORD_REVISION)return 0;
     unsigned n=0;bool member=false;
-    for(auto* p=m->pModelInfo;p && n<9;p=p->pList,++n)if(p==info)member=true;
-    if(!member || n>8)return 0;
+    for(auto* p=m->pModelInfo;p && n<kRe4dcActorRoles+1;p=p->pList,++n)if(p==info)member=true;
+    if(!member || n>kRe4dcActorRoles)return 0;
     auto* i=find_info(info);if(!i)return 0;
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX
     if(appearance>=nmr::appearance_first) {
@@ -414,11 +426,14 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
     // A registry appearance has exactly its descriptor's sections, in source info order.
     const unsigned registry_sections=re4dc_registry_sections(appearance);
     if(!m || !out || (registry_sections?count!=registry_sections:
-       (appearance==256?count!=8u:(count<4u || count>5u || (appearance==0 && count!=4u)))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
+       (appearance==256?count!=8u:(RE4DC_ACTOR_PL08 && appearance==264)?count!=9u:(count<4u || count>5u || (appearance==0 && count!=4u)))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
 #else
-    if(!m || !out || (appearance==256?count!=8u:(count<4u || count>5u || (appearance==0 && count!=4u))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
+    if(!m || !out || (appearance==256?count!=8u:(RE4DC_ACTOR_PL08 && appearance==264)?count!=9u:(count<4u || count>5u || (appearance==0 && count!=4u))) || exhausted){ATD(m,30,appearance,exhausted);return 0;}
 #endif
     unsigned seen=0,n=0;for(unsigned k=0;k<count;++k)out[k]=nullptr;
+#if RE4DC_ACTOR_PL08
+    static const unsigned char pl08_order[9]={0,1,2,3,4,7,8,5,6};
+#endif
     static const unsigned char leon_order[8]={0,1,2,3,4,7,5,6};
     for(auto* p=m->pModelInfo;p;p=p->pList) {
         if(n++==count){ATD(m,21,appearance,n);return 0;}auto* i=find_info(p);
@@ -456,7 +471,11 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
 #endif
         for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
             if(RE4DC_ROLE(r).appearance==appearance && info_current(*i,r)) {if(role!=count && role!=RE4DC_ROLE(r).role){ATD(m,24,appearance,n-1);return 0;}role=RE4DC_ROLE(r).role;}
+#if RE4DC_ACTOR_PL08
+        const unsigned expected=appearance==256?leon_order[n-1]:appearance==264?pl08_order[n-1]:n-1;
+#else
         const unsigned expected=appearance==256?leon_order[n-1]:n-1;
+#endif
         if(role>=count || role!=expected || (seen&(1u<<role))){ATD(m,23,appearance,(n-1)*256+role);return 0;}out[role]=p;seen|=1u<<role;
     }
     if(n!=count || seen!=((1u<<count)-1)){ATD(m,25,n,seen);return 0;}return 1;

@@ -33,7 +33,7 @@ struct ActorOwnedRecord {
     unsigned crowd_ganado,crowd_would,crowd_emit;  // lane crowd: a Ganado; its policy reason (=2 check); triangles emitted
     unsigned crowd_why;float crowd_depth,crowd_fog;  // =2 check: which cull test (1 fog, 2 off-screen), root depth, fog far
 #endif
-    ActorOwnedPart part[8];
+    ActorOwnedPart part[kRe4dcActorRoles];
     Re4dcActorDrawRun runs[kRe4dcActorRuns];
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     re4dc::render::SourceLighting lit;  // the source's GX lighting for this Ganado (both pass groups)
@@ -66,7 +66,7 @@ bool actor_release(ActorOwnedRecord& r) {
     return okay;
 }
 bool actor_plan_layout(Re4dcActorPlan& p) {
-    if(!p.count || p.count>8)return false;
+    if(!p.count || p.count>kRe4dcActorRoles)return false;
     // Legacy Ganado factories retain their one-atlas representation.
     if(!p.material_count && !p.run_count) {
         p.material_count=1;p.materials[0].image=p.image;p.materials[0].crc=p.crc;p.materials[0].fnv=p.fnv;
@@ -78,7 +78,7 @@ bool actor_plan_layout(Re4dcActorPlan& p) {
     return p.material_count && p.material_count<=kRe4dcActorMaterials && p.run_count && p.run_count<=kRe4dcActorRuns;
 }
 bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
-    if(!m->pParts || !p.count || p.count>8 || !p.palettes ||
+    if(!m->pParts || !p.count || p.count>kRe4dcActorRoles || !p.palettes ||
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
        m->z_mode!=0 || m->CullMode || m->Shader_type || m->AddAmb_r || m->AddAmb_g || m->AddAmb_b ||
        (m->be_flag&(0x4000u|0x00020000u)) ||
@@ -96,14 +96,14 @@ bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
         if(!info || !info->pData || info->invisible_factor!=1.0f || info->blend_mode ||
            info->colorWord!=0xffffffffu || info->flagsDC || info->pAddTpl || info->nAddTex ||
            info->texBlendTbl || info->pTexAnim || info->uvU || info->uvV || info->uvScrollU || info->uvScrollV ||
-           ((info->be_flag&2) && !(p.count==8 && i==3)))return false;
+           ((info->be_flag&2) && !RE4DC_LEON_FACE_ROLE(p,i)))return false;
         re4dc_source::ChunkProof proof{};
         if(re4dc_actor_immutable_chunk_proof(p.immutable_asset_id[i],p.input[i],proof)!=re4dc_source::BlobError::None)return false;
         palette_bytes+=proof.palette_bytes;
         if(proof.skin_table_bytes>workspace_bytes)workspace_bytes=proof.skin_table_bytes;
     }
     if(palette_bytes!=p.palette_bytes || workspace_bytes!=p.workspace_bytes)return false;
-    unsigned triangles[8]{},seen=0,materials=0,previous_role=0;
+    unsigned triangles[kRe4dcActorRoles]{},seen=0,materials=0,previous_role=0;
     for(unsigned j=0;j<p.run_count;++j) {
         const auto& r=p.runs[j];
         if(r.role>=p.count || r.material>=p.material_count || (j && r.role<previous_role))return false;
@@ -131,7 +131,7 @@ extern "C" void re4dc_actor_txdiag_why(const cModel*,const char*,unsigned,unsign
 unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail) {
     *detail=0;
     if(!m->pParts)return 1;
-    if(!p.count || p.count>8 || !p.palettes){*detail=p.count;return 2;}
+    if(!p.count || p.count>kRe4dcActorRoles || !p.palettes){*detail=p.count;return 2;}
     if(m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)return 3;
     if(m->alpha_omit!=255){*detail=m->alpha_omit;return 4;}
     if(m->z_mode!=0 || m->CullMode || m->Shader_type){*detail=(unsigned(m->z_mode)<<16)|(unsigned(m->CullMode)<<8)|unsigned(m->Shader_type);return 5;}
@@ -156,7 +156,7 @@ unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail)
         if(info->pAddTpl || info->nAddTex)return 17;
         if(info->texBlendTbl || info->pTexAnim)return 18;
         if(info->uvU || info->uvV || info->uvScrollU || info->uvScrollV)return 19;
-        if((info->be_flag&2) && !(p.count==8 && i==3))return 20;
+        if((info->be_flag&2) && !RE4DC_LEON_FACE_ROLE(p,i))return 20;
         re4dc_source::ChunkProof proof{};
         if(re4dc_actor_immutable_chunk_proof(p.immutable_asset_id[i],p.input[i],proof)!=re4dc_source::BlobError::None)return 21;
         palette_bytes+=proof.palette_bytes;
@@ -164,7 +164,7 @@ unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail)
     }
     *detail=0;
     if(palette_bytes!=p.palette_bytes || workspace_bytes!=p.workspace_bytes)return 22;
-    unsigned triangles[8]{},seen=0,materials=0,previous_role=0;
+    unsigned triangles[kRe4dcActorRoles]{},seen=0,materials=0,previous_role=0;
     for(unsigned j=0;j<p.run_count;++j) {
         const auto& r=p.runs[j];*detail=j;
         if(r.role>=p.count || r.material>=p.material_count || (j && r.role<previous_role))return 23;
@@ -262,13 +262,13 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     for(unsigned i=0;i<p.material_count;++i)r->textures[i]=textures[i];
     // All roles of this actor share one allocation. Material runs only borrow
     // their role's palette, including all fourteen ordered hair draws.
-    float* palettes[8]{};unsigned at=0;
+    float* palettes[kRe4dcActorRoles]{};unsigned at=0;
     for(unsigned i=0;i<p.count;++i) {
         palettes[i]=reinterpret_cast<float*>(static_cast<unsigned char*>(palette_memory)+at);
         at+=(p.input[i].palette_count*48u+31u)&~31u;
     }
     if(!p.palettes(m,p,palettes)){ATD(m,13,p.appearance,0);return actor_decline(*r,failed);}
-    Re4dcActorSkinBinding bindings[8]{};
+    Re4dcActorSkinBinding bindings[kRe4dcActorRoles]{};
     unsigned order=0;
     for(cModelInfo* info=m->pModelInfo;info;info=info->pList) {
         unsigned i=0;for(;i<p.count && p.info[i]!=info;++i){}
@@ -526,7 +526,11 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         // NATIVE_MODEL_REGISTRY: the generic descriptors plan after Leon and the Ganado cast. NMR_CENSUS: census builds
         // only (NATIVE_MODEL_REGISTRY_CENSUS=1) count every outcome of an actor's first pass in the scene census
         // (coarse_actor_owner_registry.inc); a production / cost build compiles none of it.
+#if RE4DC_ACTOR_PL08
+        const unsigned plan_kind=(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_pl08(m,&p))?1u:re4dc_actor_plan_ganado(m,&p)?2u:re4dc_actor_plan_registry(m,&p)?3u:0u;
+#else
         const unsigned plan_kind=re4dc_actor_plan_leon(m,&p)?1u:re4dc_actor_plan_ganado(m,&p)?2u:re4dc_actor_plan_registry(m,&p)?3u:0u;
+#endif
         if(!plan_kind){
             ATD(m,4,0,0);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
@@ -569,7 +573,11 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         }
 #endif
 #else
+#if RE4DC_ACTOR_PL08
+        if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_pl08(m,&p) || re4dc_actor_plan_ganado(m,&p))){
+#else
         if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){
+#endif
             ATD(m,4,0,0);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
             if(m->id==0 && m->ot_type==7){unsigned d=0;const unsigned why=owner_leon_bind_why(m,&d);
