@@ -328,11 +328,18 @@ void io_cycle_frame(unsigned frames_in_room){
 // StageSet entry (src/game/stage.cpp): the old room is over and every heap
 // is still in place. Idempotent; gameRoomMemInit retires again for the paths
 // that do not pass through StageSet (ending) and for the first room.
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+extern "C" void re4dc_registry_room_enter(unsigned room);   // coarse_actor_registry_pack.inc
+extern "C" void re4dc_registry_room_leave();
+#endif
 extern "C" void re4dc_room_leave(){
     unsigned generation,cells,bytes,stale,refused;
     if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused))return;
     re4dc_motion_retire_all();
     re4dc_effect_retire_room();
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    re4dc_registry_room_leave();                         // the room's model registry package (coarse_actor_registry_pack.inc)
+#endif
     re4dc_ui_retire_room();
     re4dc_room4_close();
     audit(2);
@@ -372,6 +379,9 @@ extern "C" void re4dc_room_enter(){
     re4dc_warp_room_enter();                            // test warp rig: flags at the first entry
 #endif
     re4dc_room4_open();
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    re4dc_registry_room_enter((unsigned(pG->stage_no)<<8)|pG->room_no); // before the room's archives load and adopt
+#endif
     room_frames=0;steady_logged=false;
     audit(0);
 }

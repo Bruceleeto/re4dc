@@ -12,13 +12,35 @@
 // Any failure before the first TA header keeps the whole actor on the source path (counted by reason below).
 // =1 draws admitted actors; =2 (compare) runs the same admission and the palette build into a scratch buffer, then
 // keeps the source path (no native TA submission): "NMR" lines count would-admit and every decline reason.
-#include "native_model_registry.h"
+// NATIVE_MODEL_REGISTRY_PACK=1: nothing above is compiled in. The same descriptors / chunks / textures come from the
+// room's validated package (coarse_actor_registry_pack.inc publishes them into the view below for one room
+// generation; until then and after its retire the view is empty and every actor keeps the source path).
+// Identical chunk geometry is stored once: a chunk names its unique geometry, which keys the skin stream and the
+// immutable chunk ID; texture and source identity stay per descriptor.
 #include "coarse_skin.h"
 #if RE4DC_COARSE_SKIN_FTRV != 1
 #error NATIVE_MODEL_REGISTRY builds its palettes with COARSE_SKIN_FTRV=1
 #endif
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+namespace nmr {
+struct Weight { unsigned char bone[3], count; float value[3]; };
+struct Chunk { unsigned source_info, position_count, normal_count, palette_count, triangles, stream_bytes;
+    const unsigned char *positions, *normals, *uv, *stream; const Weight *weights; unsigned uv_bytes, texture, skin_bytes, geometry; };
+struct Texture { unsigned crc, fnv, width, height; };
+struct Descriptor { char name[16]; unsigned appearance, model_id, bones, sections, first_chunk, skin_bytes;
+    const signed char* parents; const float (*bind)[12]; };
+constexpr unsigned appearance_first=0x200u;
+}
+static_assert(sizeof(nmr::Weight)==16,"package weight records");
+// Explicit capacities of one room package (the generator and the loader refuse more).
+constexpr unsigned kRegDescriptors=16,kRegChunks=32,kRegGeometry=32,kRegTextures=16,kRegBones=48;
+#else
+#include "native_model_registry.h"
 static_assert(nmr::descriptor_count && nmr::descriptor_count<=32 && nmr::chunk_count && nmr::max_bones<=256,"registry bundle shape");
 static_assert(nmr::texture_count<=64,"registry textures");
+constexpr unsigned kRegDescriptors=nmr::descriptor_count,kRegChunks=nmr::chunk_count,kRegGeometry=nmr::chunk_count,
+    kRegTextures=nmr::texture_count,kRegBones=nmr::max_bones;
+#endif
 extern "C" unsigned re4dc_ui_frame();
 // NATIVE_MODEL_REGISTRY_CENSUS (diagnostic, default 0): the decline-reason counters, bind deviation maxima and the
 // scene census below exist only in census builds; a production / cost build has none of their storage or work.
@@ -35,29 +57,48 @@ constexpr unsigned kRegistryAsset0=66u+1u;
 #else
 constexpr unsigned kRegistryAsset0=46u+1u;
 #endif
-constexpr unsigned kRegistryAssetEnd=kRegistryAsset0+nmr::chunk_count;  // one past the last ID
+constexpr unsigned kRegistryAssetEnd=kRegistryAsset0+kRegGeometry;  // one past the last ID (one per unique geometry)
+// The registry as the owner path reads it: the compiled bundle, or the published room package.
+struct RegistryView {
+    const nmr::Descriptor* descriptors;const nmr::Chunk* chunks;const nmr::Texture* textures;
+    unsigned descriptor_count,chunk_count,texture_count,geometry_count,generation;
+};
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+RegistryView registry{};
+inline unsigned registry_geometry(unsigned chunk) {return registry.chunks[chunk].geometry;}
+#else
+const RegistryView registry{nmr::descriptors,nmr::chunks,nmr::textures,nmr::descriptor_count,nmr::chunk_count,
+    nmr::texture_count,nmr::chunk_count,1};
+inline unsigned registry_geometry(unsigned chunk) {return chunk;}
+#endif
 // Decline reasons (the first failing stage of an actor whose model id has a descriptor).
 enum RegistryWhy : unsigned {
     kRwNone,kRwShape,kRwRevision,kRwRoles,kRwSkeleton,kRwFinite,kRwSkin,kRwPlan,kRwLayout,kRwSemantics,
     kRwCertificate,kRwAcquire,kRwCount
 };
-unsigned registry_tokens[nmr::texture_count];
+unsigned registry_tokens[kRegTextures];
 Re4dcUiImage registry_image(unsigned t) {
-    return Re4dcUiImage{&registry_tokens[t],nullptr,nmr::textures[t].width,nmr::textures[t].height,6,0xffffffffU,0};
+    return Re4dcUiImage{&registry_tokens[t],nullptr,registry.textures[t].width,registry.textures[t].height,6,0xffffffffU,0};
 }
-// Per-descriptor FTRV palette groups, built once from the generated weights (coarse_skin.h).
+// FTRV palette groups (coarse_skin.h), one stream per unique geometry; per descriptor its used bones.
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+unsigned char* registry_skin;unsigned registry_skin_cap;  // the package cell's skin arena (header skin_bytes)
+#else
 alignas(32) unsigned char registry_skin[(nmr::skin_stream_bytes+31u)&~31u];
-unsigned registry_skin_first[nmr::chunk_count],registry_skin_groups[nmr::chunk_count];
-unsigned char registry_skin_bone[nmr::descriptor_count][nmr::max_bones];
-unsigned registry_skin_used[nmr::descriptor_count],registry_skin_state[nmr::descriptor_count],registry_skin_next;
-alignas(32) float registry_T[nmr::max_bones][12];
-CoarseBoneJob registry_jobs[nmr::max_bones];
+constexpr unsigned registry_skin_cap=sizeof(registry_skin);
+#endif
+unsigned registry_skin_first[kRegGeometry],registry_skin_groups[kRegGeometry];
+unsigned char registry_skin_built[kRegGeometry];
+unsigned char registry_skin_bone[kRegDescriptors][kRegBones];
+unsigned registry_skin_used[kRegDescriptors],registry_skin_state[kRegDescriptors],registry_skin_next;
+alignas(32) float registry_T[kRegBones][12];
+CoarseBoneJob registry_jobs[kRegBones];
 // Model ids with at least one descriptor: an O(1) reject for every other actor.
 unsigned registry_id_mask[8];
 bool registry_mask_ready;
 struct RegistryBinding {
     cModel* owner;cParts* list;const void* root;unsigned serial,revision,descriptor,count;
-    cModelInfo* infos[8];cParts* parts[nmr::max_bones];
+    cModelInfo* infos[8];cParts* parts[kRegBones];
 };
 RegistryBinding registry_bindings[16];
 unsigned registry_replace;
@@ -67,7 +108,7 @@ unsigned registry_why;
 // Census (cumulative since boot): per descriptor admitted / declined, per reason, the largest rest-inverse deviation
 // from the descriptor's bind accepted (rotation, translation), the last planned actor's position, and the scene table.
 struct RegistryCount { unsigned planned,admitted,would,declined,why[kRwCount];float bind_rotation,bind_translation,pos[3]; };
-RegistryCount registry_count[nmr::descriptor_count];
+RegistryCount registry_count[kRegDescriptors];
 unsigned registry_unbound_why[kRwCount];  // declines before a descriptor was chosen (shape / roles / skeleton)
 #endif
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
@@ -75,40 +116,47 @@ alignas(32) float registry_scratch[256*12];
 // Compare mode: the source palette of this game frame (trans.cpp commonScreenMatSub, right after calcWeightMat) per
 // registry actor, checked against inv(root) x part.mat x descriptor bind recomputed at the owner draw: equal when
 // the native palettes see the same pose and bind the source skinned with.
-struct RegistrySnap { const cModel* m;unsigned serial,frame,bones;float T[nmr::max_bones][12]; };
+struct RegistrySnap { const cModel* m;unsigned serial,frame,bones;float T[kRegBones][12]; };
 RegistrySnap registry_snaps[16];
 unsigned registry_snap_next,registry_cmp_models,registry_cmp_bad,registry_cmp_nosnap;
 float registry_cmp_max;
 #endif
 inline bool registry_id(unsigned id) {
     if(!registry_mask_ready) {
-        for(const auto& d:nmr::descriptors)registry_id_mask[(d.model_id&255u)>>5]|=1u<<(d.model_id&31u);
+        for(unsigned d=0;d<registry.descriptor_count;++d) {
+            const unsigned id=registry.descriptors[d].model_id;registry_id_mask[(id&255u)>>5]|=1u<<(id&31u);
+        }
         registry_mask_ready=true;
     }
     return id<256 && (registry_id_mask[id>>5]>>(id&31u)&1u);
 }
 inline const nmr::Descriptor* registry_descriptor(unsigned appearance) {
-    if(appearance<nmr::appearance_first || appearance-nmr::appearance_first>=nmr::descriptor_count)return nullptr;
-    return &nmr::descriptors[appearance-nmr::appearance_first];
+    if(appearance<nmr::appearance_first || appearance-nmr::appearance_first>=registry.descriptor_count)return nullptr;
+    return &registry.descriptors[appearance-nmr::appearance_first];
 }
 bool registry_skin_init(unsigned d) {
     if(registry_skin_state[d])return registry_skin_state[d]==1;
-    const auto& desc=nmr::descriptors[d];
-    unsigned bytes=registry_skin_next;unsigned char used[nmr::max_bones]={};
+    const auto& desc=registry.descriptors[d];
+    unsigned char used[kRegBones]={};
+    if(desc.bones>kRegBones){registry_skin_state[d]=2;return false;}
     for(unsigned i=0;i<desc.sections;++i) {
-        const auto& c=nmr::chunks[desc.first_chunk+i];
-        for(unsigned j=0;j<c.palette_count;++j)for(unsigned k=0;k<c.weights[j].count;++k)
+        const unsigned ci=desc.first_chunk+i,g=registry_geometry(ci);
+        const auto& c=registry.chunks[ci];
+        for(unsigned j=0;j<c.palette_count;++j)for(unsigned k=0;k<c.weights[j].count;++k) {
             if(c.weights[j].bone[k]>=desc.bones){registry_skin_state[d]=2;return false;}
-        registry_skin_first[desc.first_chunk+i]=bytes;
-        const unsigned b=coarse_group_build(c.weights,c.palette_count,registry_skin+bytes,sizeof(registry_skin)-bytes,
-            &registry_skin_groups[desc.first_chunk+i],used);
+            used[c.weights[j].bone[k]]=1;  // the bones coarse_group_build marks
+        }
+        if(registry_skin_built[g])continue;  // a geometry shared with an earlier descriptor: its stream exists
+        registry_skin_first[g]=registry_skin_next;
+        const unsigned b=coarse_group_build(c.weights,c.palette_count,registry_skin+registry_skin_next,registry_skin_cap-registry_skin_next,
+            &registry_skin_groups[g],used);
         if(!b || b!=c.skin_bytes){registry_skin_state[d]=2;re4dc_log("NMR %s skin palette does not fit\n",desc.name);return false;}
-        bytes+=b;
+        registry_skin_next+=b;registry_skin_built[g]=1;
     }
-    registry_skin_next=bytes;registry_skin_used[d]=0;
+    registry_skin_used[d]=0;
     for(unsigned b=0;b<desc.bones;++b)if(used[b])registry_skin_bone[d][registry_skin_used[d]++]=(unsigned char)b;
     re4dc_log("NMR skin %s bones=%u used=%u stream=%u/%u\n",desc.name,desc.bones,registry_skin_used[d],registry_skin_next,
-        unsigned(sizeof(registry_skin)));
+        registry_skin_cap);
     registry_skin_state[d]=1;return true;
 }
 // The skeleton proof, run on EVERY bind (a cache hit included, so no skeleton / inverse-bind change depends on which
@@ -140,7 +188,7 @@ bool registry_skeleton(cModel* m,RegistryBinding& b,const nmr::Descriptor& desc)
     for(unsigned i=0;i<desc.bones;++i)for(unsigned j=0;j<12;++j)
         if(!coarse_finite((&b.parts[i]->lt_inv_mat[0][0])[j]) || !coarse_finite((&b.parts[i]->mat[0][0])[j]))return false;
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
-    auto& c=registry_count[&desc-nmr::descriptors];
+    auto& c=registry_count[&desc-registry.descriptors];
     if(dr>c.bind_rotation)c.bind_rotation=dr;
     if(dt>c.bind_translation)c.bind_translation=dt;
 #endif
@@ -151,7 +199,7 @@ bool registry_skeleton(cModel* m,RegistryBinding& b,const nmr::Descriptor& desc)
 // the info pointers and the skeleton proof run again on every call.
 bool registry_bind(cModel* m) {
     registry_bound=nullptr;NMR_WHY(kRwShape);
-    if(!m || !registry_id(m->id) || !m->pList || !m->pParts || (m->be_flag&0x4000) || m->nParts>nmr::max_bones)return false;
+    if(!m || !registry_id(m->id) || !m->pList || !m->pParts || (m->be_flag&0x4000) || m->nParts>kRegBones)return false;
     unsigned count=0;
     for(auto* i=m->pModelInfo;i;i=i->pList)if(++count>8)return false;
     if(!count)return false;
@@ -164,28 +212,28 @@ bool registry_bind(cModel* m) {
     NMR_WHY(kRwRoles);
     if(b) {
         // Current source pointers/owner revisions are checked even on a binding hit.
-        if(!re4dc_actor_role_bindings(m,nmr::descriptors[b->descriptor].appearance,infos,count))return false;
+        if(!re4dc_actor_role_bindings(m,registry.descriptors[b->descriptor].appearance,infos,count))return false;
         for(unsigned i=0;i<count;++i)if(infos[i]!=b->infos[i])return false;
     } else {
-        unsigned found=nmr::descriptor_count;
-        for(unsigned d=0;d<nmr::descriptor_count;++d) {
-            const auto& desc=nmr::descriptors[d];
+        unsigned found=registry.descriptor_count;
+        for(unsigned d=0;d<registry.descriptor_count;++d) {
+            const auto& desc=registry.descriptors[d];
             if(desc.model_id!=m->id || desc.sections!=count || desc.bones!=m->nParts)continue;
             if(!re4dc_actor_role_bindings(m,desc.appearance,infos,count))continue;
             // Two descriptors proving the same infos would be ambiguous: the generator refuses equal source
             // identities, and role rows bind an info to one TPL owner; refuse here too.
-            if(found!=nmr::descriptor_count)return false;
+            if(found!=registry.descriptor_count)return false;
             found=d;
         }
-        if(found==nmr::descriptor_count)return false;
-        const auto& desc=nmr::descriptors[found];
+        if(found==registry.descriptor_count)return false;
+        const auto& desc=registry.descriptors[found];
         if(!re4dc_actor_role_bindings(m,desc.appearance,infos,count))return false;
         b=&registry_bindings[registry_replace++%16];*b={};
         b->owner=m;b->serial=m->serial;b->list=m->pList;b->root=m->pParts;b->revision=revision;b->descriptor=found;b->count=count;
         for(unsigned i=0;i<count;++i)b->infos[i]=infos[i];
     }
     NMR_WHY(kRwSkeleton);
-    if(!registry_skeleton(m,*b,nmr::descriptors[b->descriptor])){b->owner=nullptr;return false;}
+    if(!registry_skeleton(m,*b,registry.descriptors[b->descriptor])){b->owner=nullptr;return false;}
     registry_bound=b;NMR_WHY(kRwNone);return true;
 }
 int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
@@ -220,18 +268,58 @@ int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
     }
 #endif
     for(unsigned i=0;i<p.count;++i) {
-        const auto& c=nmr::chunks[desc->first_chunk+i];
+        const unsigned g=registry_geometry(desc->first_chunk+i);
+        const auto& c=registry.chunks[desc->first_chunk+i];
         if(p.input[i].palette_count!=c.palette_count)return 0;
-        re4dc_coarse_skin_groups(registry_skin+registry_skin_first[desc->first_chunk+i],registry_skin_groups[desc->first_chunk+i],
+        re4dc_coarse_skin_groups(registry_skin+registry_skin_first[g],registry_skin_groups[g],
             &registry_T[0][0],output[i],c.palette_count);
         for(unsigned j=0;j<c.palette_count*12;++j)if(!coarse_finite(output[i][j]))return 0;
     }
     return 1;
 }
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
-void registry_decline(const Re4dcActorPlan* p,unsigned why) {
+// Per actor (census): the first native admission of each model address and its last admitted frame; the source's
+// model retire (actor_lifetime.inc re4dc_actor_model_retire, also on destruction) of a tracked address is logged with
+// them, so a killed / removed animal can be followed from native draws to the source's removal.
+struct RegistryTracked { const cModel* m;unsigned appearance,first,last,frames,declines,why; };
+RegistryTracked registry_tracked[32];
+unsigned registry_tracked_n,registry_tracked_full;
+void registry_note_admit(const cModel* m,unsigned appearance) {
+    const unsigned frame=unsigned(pG->Frame_cnt);
+    for(unsigned k=0;k<registry_tracked_n;++k)if(registry_tracked[k].m==m && registry_tracked[k].appearance==appearance) {
+        auto& t=registry_tracked[k];if(t.last!=frame){t.last=frame;++t.frames;}
+        if(t.why){re4dc_log("NMRM readmit t=%u m=%08x appearance=%03x\n",frame,unsigned(uintptr_t(m)),appearance);t.why=0;}
+        return;
+    }
+    if(registry_tracked_n==32){++registry_tracked_full;return;}
+    registry_tracked[registry_tracked_n++]={m,appearance,frame,frame,1,0,0};
+    re4dc_log("NMRM admit t=%u room=%04x m=%08x id=%02x desc=%s pos=%d,%d,%d gen=%u\n",frame,unsigned(G_ROOM_ID),unsigned(uintptr_t(m)),
+        unsigned(m->id),registry.descriptors[appearance-nmr::appearance_first].name,int(m->pos.x),int(m->pos.y),int(m->pos.z),
+        registry.generation);
+}
+void registry_note_retire(const cModel* m,const char* how) {
+    for(unsigned k=0;k<registry_tracked_n;++k)if(registry_tracked[k].m==m) {
+        const auto t=registry_tracked[k];registry_tracked[k]=registry_tracked[--registry_tracked_n];
+        re4dc_log("NMRM %s t=%u m=%08x appearance=%03x admitted_first=%u last=%u frames=%u declines=%u\n",how,unsigned(pG->Frame_cnt),
+            unsigned(uintptr_t(m)),t.appearance,t.first,t.last,t.frames,t.declines);
+        return;
+    }
+}
+const char* const kRwName[kRwCount]={"none","shape","revision","roles","skeleton","finite","skin","plan","layout","semantics",
+    "certificate","acquire"};
+void registry_decline(const cModel* m,const Re4dcActorPlan* p,unsigned why) {
+    // A tracked (once natively admitted) actor: every change of its decline reason is logged with its frame.
+    for(unsigned k=0;k<registry_tracked_n;++k)if(registry_tracked[k].m==m) {
+        auto& t=registry_tracked[k];++t.declines;
+        if(t.why!=why+1) {
+            t.why=why+1;
+            re4dc_log("NMRM decline t=%u m=%08x appearance=%03x why=%s (whole source path) last_admitted=%u\n",unsigned(pG->Frame_cnt),
+                unsigned(uintptr_t(m)),t.appearance,kRwName[why<kRwCount?why:0],t.last);
+        }
+        break;
+    }
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
-    if(desc) {auto& c=registry_count[desc-nmr::descriptors];++c.declined;++c.why[why<kRwCount?why:0];}
+    if(desc) {auto& c=registry_count[desc-registry.descriptors];++c.declined;++c.why[why<kRwCount?why:0];}
     else ++registry_unbound_why[why<kRwCount?why:0];
 }
 // Scene census: every model whose first OT pass reaches the transaction, by (id, ot_type, parts, infos) and outcome.
@@ -242,10 +330,10 @@ SceneRow scene_rows[48];
 unsigned scene_count,scene_overflow,scene_last_frame;
 unsigned short scene_room;
 void scene_report(unsigned frame) {
-    for(unsigned d=0;d<nmr::descriptor_count;++d) {
+    for(unsigned d=0;d<registry.descriptor_count;++d) {
         const auto& c=registry_count[d];if(!c.planned && !c.declined)continue;
         re4dc_log("NMRD f=%u %s planned=%u admitted=%u would=%u declined=%u roles=%u skeleton=%u layout=%u semantics=%u certificate=%u acquire=%u skin=%u bind_rot_e6=%d bind_mm_e4=%d pos=%d,%d,%d\n",
-            frame,nmr::descriptors[d].name,c.planned,c.admitted,c.would,c.declined,c.why[kRwRoles],c.why[kRwSkeleton],c.why[kRwLayout],
+            frame,registry.descriptors[d].name,c.planned,c.admitted,c.would,c.declined,c.why[kRwRoles],c.why[kRwSkeleton],c.why[kRwLayout],
             c.why[kRwSemantics],c.why[kRwCertificate],c.why[kRwAcquire],c.why[kRwSkin],int(c.bind_rotation*1e6f),int(c.bind_translation*1e4f),
             int(c.pos[0]),int(c.pos[1]),int(c.pos[2]));
     }
@@ -253,6 +341,12 @@ void scene_report(unsigned frame) {
     re4dc_log("NMRC f=%u palette_check models=%u over_0.5=%u no_snapshot=%u max_abs_e4=%d\n",frame,registry_cmp_models,
         registry_cmp_bad,registry_cmp_nosnap,int(registry_cmp_max*1e4f));
 #endif
+    for(unsigned k=0;k<registry_tracked_n;++k) {
+        const auto& t=registry_tracked[k];
+        re4dc_log("NMRM live f=%u t=%u m=%08x appearance=%03x admitted_first=%u last=%u frames=%u declines=%u\n",frame,
+            unsigned(pG->Frame_cnt),unsigned(uintptr_t(t.m)),t.appearance,t.first,t.last,t.frames,t.declines);
+    }
+    if(registry_tracked_full)re4dc_log("NMRM f=%u untracked=%u\n",frame,registry_tracked_full);
     re4dc_log("NMRU f=%u shape=%u revision=%u roles=%u skeleton=%u finite=%u\n",frame,registry_unbound_why[kRwShape],
         registry_unbound_why[kRwRevision],registry_unbound_why[kRwRoles],registry_unbound_why[kRwSkeleton],registry_unbound_why[kRwFinite]);
     for(unsigned k=0;k<scene_count;++k) {
@@ -290,7 +384,7 @@ void scene_note(cModel* m,unsigned plan,unsigned cls) {
 }
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
 extern "C" void re4dc_registry_snapshot(cModel* m,const Mtx* palette) {
-    if(!m || !registry_id(m->id) || !m->nParts || m->nParts>nmr::max_bones)return;
+    if(!m || !registry_id(m->id) || !m->nParts || m->nParts>kRegBones)return;
     auto& s=registry_snaps[registry_snap_next++%16];
     s.m=m;s.serial=unsigned(m->serial);s.frame=unsigned(pG->Frame_cnt);s.bones=m->nParts;
     for(unsigned b=0;b<s.bones;++b)for(unsigned k=0;k<12;++k)s.T[b][k]=(&palette[b][0][0])[k];
@@ -312,26 +406,26 @@ extern "C" void re4dc_registry_snapshot(cModel* m,const Mtx* palette) {
 #endif
 extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
     if(!out || !registry_bind(m)) {
-        NMR_CENSUS(if(m && registry_id(m->id))registry_decline(nullptr,registry_why));
+        NMR_CENSUS(if(m && registry_id(m->id))registry_decline(m,nullptr,registry_why));
         return 0;
     }
-    const unsigned d=registry_bound->descriptor;const auto& desc=nmr::descriptors[d];
-    if(!registry_skin_init(d)){NMR_CENSUS(registry_decline(nullptr,kRwSkin));return 0;}
+    const unsigned d=registry_bound->descriptor;const auto& desc=registry.descriptors[d];
+    if(!registry_skin_init(d)){NMR_CENSUS(registry_decline(m,nullptr,kRwSkin));return 0;}
     Re4dcActorPlan p{};p.count=desc.sections;p.appearance=desc.appearance;p.palettes=registry_palettes;
     for(unsigned i=0;i<desc.sections;++i) {
-        auto& c=nmr::chunks[desc.first_chunk+i];
+        const auto& c=registry.chunks[desc.first_chunk+i];
         const re4dc_source::ChunkInput input{{c.positions,c.position_count*8u},{c.normals,c.normal_count*8u},{c.uv,c.uv_bytes},
             {c.stream,c.stream_bytes},{reinterpret_cast<const unsigned char*>(c.weights),c.palette_count*16u},
             c.position_count,c.normal_count,c.palette_count,c.triangles,desc.bones};
         re4dc_actor::plan_chunk(p,i,registry_bound->infos[i],c,input);
-        p.immutable_asset_id[i]=kRegistryAsset0+desc.first_chunk+i;
+        p.immutable_asset_id[i]=kRegistryAsset0+registry_geometry(desc.first_chunk+i);
         // Materials: each chunk's own texture package, shared when chunks name the same package.
         unsigned mat=0;
         while(mat<p.material_count && p.materials[mat].image.pixels!=&registry_tokens[c.texture])++mat;
         if(mat==p.material_count) {
-            if(p.material_count==kRe4dcActorMaterials){NMR_CENSUS(registry_decline(&p,kRwPlan));return 0;}
+            if(p.material_count==kRe4dcActorMaterials){NMR_CENSUS(registry_decline(m,&p,kRwPlan));return 0;}
             auto& m0=p.materials[p.material_count++];m0.image=registry_image(c.texture);
-            m0.crc=nmr::textures[c.texture].crc;m0.fnv=nmr::textures[c.texture].fnv;
+            m0.crc=registry.textures[c.texture].crc;m0.fnv=registry.textures[c.texture].fnv;
         }
         auto& run=p.runs[p.run_count++];run.role=i;run.material=mat;run.immutable_asset_id=p.immutable_asset_id[i];
         run.triangles=c.triangles;run.uv=input.uv;run.stream=input.stream;
@@ -347,12 +441,13 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
     if(!desc || p->count!=desc->sections || p->run_count!=desc->sections || !p->material_count || p->material_count>kRe4dcActorMaterials)return 0;
     unsigned seen=0;
     for(unsigned j=0;j<p->run_count;++j) {
-        const auto& r=p->runs[j];const auto& c=nmr::chunks[desc->first_chunk+j];
-        if(r.role!=j || r.material>=p->material_count || r.immutable_asset_id!=kRegistryAsset0+desc->first_chunk+j ||
+        const auto& r=p->runs[j];const auto& c=registry.chunks[desc->first_chunk+j];
+        if(r.role!=j || r.material>=p->material_count || r.immutable_asset_id!=kRegistryAsset0+registry_geometry(desc->first_chunk+j) ||
            r.triangles!=c.triangles || r.stream.data!=c.stream || r.uv.data!=c.uv)return 0;
         const auto& m=p->materials[r.material];
-        if(m.image.pixels!=&registry_tokens[c.texture] || m.crc!=nmr::textures[c.texture].crc || m.fnv!=nmr::textures[c.texture].fnv ||
-           m.image.width!=nmr::textures[c.texture].width || m.image.height!=nmr::textures[c.texture].height || m.image.format!=6 ||
+        const auto& t=registry.textures[c.texture];
+        if(m.image.pixels!=&registry_tokens[c.texture] || m.crc!=t.crc || m.fnv!=t.fnv ||
+           m.image.width!=t.width || m.image.height!=t.height || m.image.format!=6 ||
            m.image.palette || m.image.palette_bytes || m.mask.pixels || m.material_flags || m.blend || m.depth_mode ||
            m.mask_ref!=256 || m.wrap_s || m.wrap_t)return 0;
         seen|=1u<<r.material;
@@ -369,7 +464,8 @@ extern "C" int re4dc_registry_model(const cModel* m,const Re4dcActorPlan* p) {
 // share an id: r103 has a 4-part id 0x21 model besides the 32-bone dog); admission is the proofs above.
 extern "C" int re4dc_registry_candidate(const cModel* m) {
     if(!registry_id(m->id))return 0;
-    for(const auto& d:nmr::descriptors)if(d.model_id==m->id && d.bones==m->nParts)return 1;
+    for(unsigned d=0;d<registry.descriptor_count;++d)
+        if(registry.descriptors[d].model_id==m->id && registry.descriptors[d].bones==m->nParts)return 1;
     return 0;
 }
 extern "C" unsigned re4dc_registry_sections(unsigned appearance) {
@@ -377,9 +473,9 @@ extern "C" unsigned re4dc_registry_sections(unsigned appearance) {
 }
 extern "C" int re4dc_registry_texture_key(const Re4dcUiImage* i,unsigned* c,unsigned* f) {
     if(!i || i->format!=6 || i->palette_bytes)return 0;
-    for(unsigned t=0;t<nmr::texture_count;++t) {
-        if(i->pixels!=&registry_tokens[t] || i->width!=nmr::textures[t].width || i->height!=nmr::textures[t].height)continue;
-        *c=nmr::textures[t].crc;*f=nmr::textures[t].fnv;return 1;
+    for(unsigned t=0;t<registry.texture_count;++t) {
+        if(i->pixels!=&registry_tokens[t] || i->width!=registry.textures[t].width || i->height!=registry.textures[t].height)continue;
+        *c=registry.textures[t].crc;*f=registry.textures[t].fnv;return 1;
     }
     return 0;
 }

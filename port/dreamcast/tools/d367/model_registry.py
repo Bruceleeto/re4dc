@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""model_registry.py <spec.json> <out dir> [--tree <checkout>]  (D367 generic native models, 2026-10-03)
+"""model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>]  (D367 generic native models, 2026-10-03)
 
 Generates the private NATIVE_MODEL_REGISTRY bundle (game/native_model_registry.mk) from validated cast packs and
 the original archives. PRIVATE output: never commit it or put it in a patch (it holds converted meshes).
@@ -28,7 +28,9 @@ pass) are NOT emitted for runtime; they are listed as contract entries in regist
 
 Outputs: native_model_registry.h (namespace nmr), native_model_registry_facts.inc / _roles.inc / _blobs.inc
 (source identity rows for coarse_actor_material.inc), tex/<crc>-<fnv>.re4tex, registry-manifest.json (descriptor
-<-> rooms, runtime / contract status, hashes, exact revision selections), SHA256SUMS.
+<-> rooms, runtime / contract status, hashes, exact revision selections), SHA256SUMS. With --package-room also
+package/r<room>/registry.re4nmr (NATIVE_MODEL_REGISTRY_PACK=1: the room-owned package, staged as
+dc/native/r<room>/registry.re4nmr; layout in write_package; identical chunk geometry stored once).
 """
 import hashlib, json, os, re, shutil, struct, sys, zlib
 
@@ -376,6 +378,11 @@ def main():
     tree = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..'))
     if '--tree' in args:
         i = args.index('--tree'); tree = os.path.abspath(args[i + 1]); del args[i:i + 2]
+    package_room = None
+    if '--package-room' in args:
+        i = args.index('--package-room'); package_room = int(args[i + 1], 16); del args[i:i + 2]
+        if not 0x100 <= package_room <= 0x7ff:
+            sys.exit('model_registry: --package-room is the hex room number, e.g. 103')
     if len(args) != 2:
         sys.exit(__doc__)
     spec_path, out = os.path.abspath(args[0]), os.path.abspath(args[1])
@@ -384,7 +391,7 @@ def main():
     tmp = out + '.tmp-%d' % os.getpid()
     os.makedirs(tmp)
     try:
-        report = generate(spec_path, tmp, tree)
+        report = generate(spec_path, tmp, tree, package_room)
     except Fail as e:
         shutil.rmtree(tmp)
         sys.exit(f'model_registry: FAIL {e}')
@@ -392,7 +399,7 @@ def main():
     print(json.dumps(report, indent=1))
 
 
-def generate(spec_path, out, tree):
+def generate(spec_path, out, tree, package_room=None):
     inputs = Inputs(out)
     spec = inputs.json(spec_path, 'spec.json')
     cast = spec['cast_dir']; level = spec['level']; overlay_rel = spec['revision_overlay'].strip('/')
@@ -555,6 +562,7 @@ def generate(spec_path, out, tree):
         r['appearance'] = APPEARANCE0 + i
     used_tex = sorted({c['texture'] for r in runtime for c in r['chunks']})
     write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls, blobs, nroles0, nblobs0)
+    package = write_package(out, package_room, spec, runtime, textures, used_tex, bins, tpls, blobs) if package_room is not None else None
     manifest = dict(registry=spec['registry'], generator=os.path.relpath(__file__, tree), generator_sha256=sha(open(__file__, 'rb').read()),
                     tree_head=os.popen(f'git -C "{tree}" rev-parse HEAD').read().strip(), cast_dir=cast,
                     revision_overlay=overlay_rel, level=level, lighting=spec.get('lighting'), self_check=selfcheck,
@@ -563,6 +571,8 @@ def generate(spec_path, out, tree):
                     descriptors=[summary(r, 'runtime') for r in runtime] + [summary(c, 'contract') for c in contracts],
                     textures=[dict(key=f'{t[0]:08x}-{t[1]:08x}', width=t[2], height=t[3], format=t[6], package_sha256=t[5],
                                    runtime=i in used_tex) for i, t in enumerate(textures)])
+    if package:
+        manifest['room_package'] = package
     json.dump(manifest, open(os.path.join(out, 'registry-manifest.json'), 'w'), indent=1)
     sums = []
     for root, _, files in os.walk(out):
@@ -571,7 +581,8 @@ def generate(spec_path, out, tree):
             sums.append(f'{sha(open(p, "rb").read())}  {os.path.relpath(p, out)}')
     open(os.path.join(out, 'SHA256SUMS'), 'w').write('\n'.join(sorted(sums, key=lambda s: s[66:])) + '\n')
     return dict(runtime=[(r['name'], hex(r['appearance']), r['bones'], [c['triangles'] for c in r['chunks']]) for r in runtime],
-                contracts=[(c['name'], c['contract']) for c in contracts], textures=len(used_tex), self_check=selfcheck)
+                contracts=[(c['name'], c['contract']) for c in contracts], textures=len(used_tex), self_check=selfcheck,
+                package={k: package[k] for k in ('disc_path', 'bytes', 'arena', 'geometry')} if package else None)
 
 
 def summary(r, status):
@@ -686,6 +697,130 @@ def write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls,
     for t in used_tex:
         crc, fnv, w, h, pkg = textures[t][:5]
         shutil.copy2(pkg, os.path.join(out, 'tex', f'{crc:08x}-{fnv:08x}.re4tex'))
+
+
+# ---------------------------------------------------------------- room package (NATIVE_MODEL_REGISTRY_PACK=1)
+# package/r<room>/registry.re4nmr: the same runtime descriptors, chunks, textures and source identity rows as the
+# compiled outputs above, as one versioned little-endian file with no pointers (coarse_actor_registry_pack.inc
+# validates every field below before it publishes anything). Identical chunk geometry (positions, normals, UV, stream,
+# weights, counts and bone count, compared as exact bytes) is stored once and referenced by every descriptor section
+# that uses it; textures and source identity rows stay per descriptor.
+PACK_MAGIC = b'RE4NMR1\0'
+PACK_VERSION = 1
+PACK_HEADER = 64
+PACK_SECTIONS = ('desc', 'ref', 'geom', 'blob', 'tex', 'parents', 'bind', 'fmodel', 'fpart', 'ftex', 'role', 'sblob')
+PACK_RECORD = dict(desc=48, ref=16, geom=64, blob=1, tex=16, parents=1, bind=48, fmodel=96, fpart=32, ftex=68, role=32, sblob=32)
+PACK_MAX_BYTES = 192 * 1024  # coarse_actor_registry_pack_check.inc kPackMaxBytes (package + skin arena)
+# coarse_actor_owner_registry.inc kReg* and coarse_actor_registry_pack_check.inc kPack* capacities; role rows and
+# source blobs are bounded by the lifetime masks (MATERIAL_ROWS / SOURCE_BLOBS minus the reviewed rows, checked above).
+PACK_BONES = 48
+PACK_CAPACITY = dict(desc=16, ref=32, geom=32, tex=16, fmodel=8, fpart=32, ftex=16)
+
+
+def align32(n):
+    return (n + 31) & ~31
+
+
+def pack_crc_fnv(b):
+    d = digest(b)
+    return d[1], d[2]
+
+
+def weights_bytes(rows):
+    return b''.join(struct.pack('<3BB3f', bs[0], bs[1], bs[2], n, *v) for bs, n, v in rows)
+
+
+def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blobs):
+    tex_index = {t: i for i, t in enumerate(used_tex)}
+    geoms, gkey, refs, desc, parents, bind = [], {}, [], [], bytearray(), []
+    blob = bytearray()
+
+    def put(b):
+        nonlocal blob
+        at = len(blob); blob += b; blob += bytes(align32(len(blob)) - len(blob)); return at
+    for r in runtime:
+        first_ref, parents_at, bind_first = len(refs), len(parents), len(bind)
+        for c in r['chunks']:
+            w = weights_bytes(c['weights'])
+            key = (r['bones'], c['position_count'], c['normal_count'], c['palette_count'], c['triangles'], c['skin_bytes'],
+                   bytes(c['positions']), bytes(c['normals']), bytes(c['uv']), bytes(c['stream']), w)
+            if key not in gkey:
+                gkey[key] = len(geoms)
+                at = [put(c['positions']), put(c['normals']), put(c['uv']), put(c['stream']), put(w)]
+                crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + bytes(c['uv']) + bytes(c['stream']) + w)
+                geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], c['triangles'],
+                                          len(c['stream']), len(c['uv']), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
+                                  bytes=len(c['positions']) + len(c['normals']) + len(c['uv']) + len(c['stream']) + len(w),
+                                  users=[]))
+            g = gkey[key]; geoms[g]['users'].append(f'{r["name"]}/{c["source_info"]}')
+            refs.append((g, tex_index[c['texture']], c['source_info'], 0))
+        parents += bytes(p & 0xff for p in r['parents']); bind += r['bind']
+        name = r['name'].encode()
+        if len(name) > 15:
+            raise Fail(f'{r["name"]}: descriptor name longer than 15 bytes')
+        desc.append(name.ljust(16, b'\0') + struct.pack('<8I', r['appearance'], r['model_id'], r['bones'], len(r['sections']),
+                                                         first_ref, parents_at, bind_first, 0))
+    # source identity facts, in first-use order
+    fmodel, fpart, ftex, fm_index, ft_index, roles = [], [], [], {}, {}, []
+    for r in runtime:
+        for s in r['sections']:
+            mk, tk = (r['archive'], s['bin']), (r['archive'], s['tpl'])
+            if mk not in fm_index:
+                m = bins[mk]; fm_index[mk] = len(fmodel)
+                fmodel.append(struct.pack('<24I', *m['header'], *m['positions'], *m['normals'], *m['weights'], *m['uv'],
+                                          len(fpart), len(m['parts'])))
+                if len(m['parts']) != m['header'][8]:
+                    raise Fail(f'{mk}: {len(m["parts"])} part rows, header displist_num {m["header"][8]}')
+                for material, size, poly, crc, fnv in m['parts']:
+                    fpart.append(bytes.fromhex(material).ljust(16, b'\0') + struct.pack('<4I', size, poly, crc, fnv))
+            if tk not in ft_index:
+                ft_index[tk] = (len(ftex), len(tpls[tk]['textures']))
+                for x in tpls[tk]['textures']:
+                    pal = x['palette'] or [0xffffffff, 0, 0, 0]
+                    ftex.append(struct.pack('<17I', *x['key'], *x['whf'], *x['sampler'], *pal))
+            roles.append(struct.pack('<8I', r['appearance'], s['role'], s['bin'], s['tpl'], fm_index[mk], *ft_index[tk], 0))
+    sblob = [struct.pack('<8I', fm_index[(a, b)], 2, b, *bins[(a, b)]['normalized'], 0, 0) for a, b in blobs]
+    tex = [struct.pack('<4I', *textures[t][:4]) for t in used_tex]
+    geom = [struct.pack('<16I', *g['counts'], *g['at'], g['crc'], g['fnv'], 0) for g in geoms]
+    body = dict(desc=b''.join(desc), ref=b''.join(struct.pack('<4I', *x) for x in refs), geom=b''.join(geom), blob=bytes(blob),
+                tex=b''.join(tex), parents=bytes(parents), bind=b''.join(struct.pack('<12f', *row) for row in bind),
+                fmodel=b''.join(fmodel), fpart=b''.join(fpart), ftex=b''.join(ftex), role=b''.join(roles), sblob=b''.join(sblob))
+    counts = dict(desc=len(desc), ref=len(refs), geom=len(geoms), blob=len(blob), tex=len(tex), parents=len(parents),
+                  bind=len(bind), fmodel=len(fmodel), fpart=len(fpart), ftex=len(ftex), role=len(roles), sblob=len(sblob))
+    for k, cap in PACK_CAPACITY.items():
+        if counts[k] > cap:
+            raise Fail(f'package {k}: {counts[k]} records > the loader capacity {cap} (coarse_actor_registry_pack_check.inc)')
+    if max(r['bones'] for r in runtime) > PACK_BONES:
+        raise Fail(f'package: {max(r["bones"] for r in runtime)} bones > the loader capacity {PACK_BONES}')
+    at = align32(PACK_HEADER + 16 * len(PACK_SECTIONS)); table, payload = [], bytearray()
+    for i, k in enumerate(PACK_SECTIONS):
+        if len(body[k]) != counts[k] * PACK_RECORD[k]:
+            raise Fail(f'package section {k}: {len(body[k])} B for {counts[k]} records')
+        table.append(struct.pack('<4I', i + 1, at, len(body[k]), counts[k]))
+        payload += body[k] + bytes(align32(len(body[k])) - len(body[k])); at += align32(len(body[k]))
+    skin = sum(g['counts'][6] for g in geoms)
+    after = b''.join(table); after += bytes(align32(PACK_HEADER + len(after)) - PACK_HEADER - len(after))
+    rest = after + bytes(payload)
+    total = PACK_HEADER + len(rest)
+    if align32(total) + skin > PACK_MAX_BYTES:
+        raise Fail(f'package {total} B + skin {skin} B > {PACK_MAX_BYTES} (runtime arena capacity)')
+    pcrc, pfnv = pack_crc_fnv(rest)
+    head = bytearray(PACK_MAGIC + struct.pack('<14I', PACK_VERSION, PACK_HEADER, total, len(PACK_SECTIONS), PACK_HEADER, skin, room,
+                                                pcrc, pfnv, 0, APPEARANCE0, max(r['bones'] for r in runtime), 0, 0))
+    struct.pack_into('<I', head, 44, zlib.crc32(bytes(head)) & 0xffffffff)
+    data = bytes(head) + rest
+    d = os.path.join(out, 'package', 'r%x%02x' % (room >> 8, room & 255))
+    os.makedirs(d)
+    open(os.path.join(d, 'registry.re4nmr'), 'wb').write(data)
+    chunk_bytes = sum(len(c['positions']) + len(c['normals']) + len(c['uv']) + len(c['stream']) + len(weights_bytes(c['weights']))
+                      for r in runtime for c in r['chunks'])
+    return dict(path=os.path.relpath(os.path.join(d, 'registry.re4nmr'), out), disc_path='dc/native/r%x%02x/registry.re4nmr' % (room >> 8, room & 255),
+                room='%04x' % room, version=PACK_VERSION, bytes=total, sha256=sha(data), skin_arena=skin,
+                arena=align32(total) + skin, capacity=PACK_MAX_BYTES, counts=counts,
+                sections=[dict(kind=k, offset=struct.unpack_from('<4I', t)[1], bytes=struct.unpack_from('<4I', t)[2]) for k, t in zip(PACK_SECTIONS, table)],
+                geometry=dict(chunk_refs=len(refs), unique=len(geoms), chunk_bytes=chunk_bytes,
+                              unique_bytes=sum(g['bytes'] for g in geoms), saved_bytes=chunk_bytes - sum(g['bytes'] for g in geoms),
+                              shared=[g['users'] for g in geoms if len(g['users']) > 1]))
 
 
 if __name__ == '__main__':

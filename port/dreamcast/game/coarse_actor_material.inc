@@ -66,7 +66,11 @@ bool digest(const void* p,const Digest& want) {
     return ~crc==want.crc && fnv==want.fnv;
 }
 const Role* find(unsigned appearance,unsigned role) {
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    for(unsigned k=0;k<RE4DC_ROLE_COUNT;++k)if(RE4DC_ROLE(k).appearance==appearance && RE4DC_ROLE(k).role==role)return &RE4DC_ROLE(k);
+#else
     for(const auto& r:roles)if(r.appearance==appearance && r.role==role)return &r;
+#endif
     return nullptr;
 }
 // Exact certified descriptors have a single base level. Source
