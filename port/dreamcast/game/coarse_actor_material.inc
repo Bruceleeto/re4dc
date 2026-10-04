@@ -294,7 +294,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     Result out{Error::None,0,0,Diffuse|SourceLighting|AtlasSampler,0};
     if(!m || !p || !readable(m,sizeof(*m))) {out.error=Error::BadRange;return out;}
     re4dc_source::FrameIdentity frame{};re4dc_source::ModelIdentity owner{};
-    if(re4dc_actor_transaction_identity(m,&frame,&owner)!=1) {out.error=Error::FrameOwner;return out;}
+    if(re4dc_actor_transaction_identity(m,&frame,&owner)!=1
+#if RE4DC_ACTOR_EARLY_COARSE
+       && !re4dc_actor_early_proof_active(m)
+#endif
+    ) {out.error=Error::FrameOwner;return out;}
     const bool leon=RE4DC_LEON_LIKE(p->appearance);
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // NATIVE_MODEL_REGISTRY: a registry appearance names its descriptor's model id, bone count and section count; its

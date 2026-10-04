@@ -172,3 +172,23 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
 endif
 endif
+
+# ACTOR_EARLY_COARSE=1: labelled four-role Ganado coarse path, selected before
+# source preparation only through the existing complete source/material proof.
+# A next-frame texture ticket lives in the existing source frame ledger. Other
+# actors keep the original complete source/owner route. No default/play adoption.
+ACTOR_EARLY_COARSE ?= 0
+ACTOR_EARLY_COARSE_DIAG ?= 0
+ifeq ($(filter $(ACTOR_EARLY_COARSE),0 1),)
+$(error ACTOR_EARLY_COARSE must be 0 or 1)
+endif
+ifeq ($(filter $(ACTOR_EARLY_COARSE_DIAG),0 1),)
+$(error ACTOR_EARLY_COARSE_DIAG must be 0 or 1)
+endif
+ifeq ($(ACTOR_EARLY_COARSE),1)
+ifneq ($(ACTOR_TRANSACTION)$(COARSE_SOURCE_ACTORS)$(COARSE_GANADO_CAST)$(COARSE_SKIN_FTRV)$(COARSE_ONE_SUBMIT),11111)
+$(error ACTOR_EARLY_COARSE needs the existing transaction owner, source ledger, cast, FTRV and grouped submit)
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
+endif

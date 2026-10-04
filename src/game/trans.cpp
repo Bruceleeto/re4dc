@@ -611,6 +611,19 @@ ModelIdentity sourceActorModel(cModel* m) {
     const unsigned manager=m==(cModel*)pPL?0u:m==(cModel*)pSUB?1u:2u;
     return {reinterpret_cast<std::uintptr_t>(m),unsigned(m->serial),manager};
 }
+#if RE4DC_ACTOR_EARLY_COARSE
+// This synchronous certificate scope grants only material inspection. It does
+// not grant original-callback ownership or let transaction_draw choose a path.
+cModel* sourceActorProofModel;
+FrameIdentity sourceActorProofFrame{};
+ModelIdentity sourceActorProofIdentity{};
+struct SourceActorProofScope {
+    SourceActorProofScope(cModel* m,const FrameIdentity& now) {
+        sourceActorProofModel=m;sourceActorProofFrame=now;sourceActorProofIdentity=sourceActorModel(m);
+    }
+    ~SourceActorProofScope(){sourceActorProofModel=nullptr;}
+};
+#endif
 ModelPath sourceActorPath(cModel* m) {
 #if RE4DC_ACTOR_TRANSACTION
     // Every model receives its original source callback once. Native ownership
@@ -646,9 +659,22 @@ int sourceActorPlan() {
     if(!sourceActorLedger.begin(storage,bytes,count,now)){sourceActorFailure(6);return 0;}
     for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
         cModel* m=(cModel*)u;
+#if RE4DC_ACTOR_EARLY_COARSE
+        Re4dcActorEarlyTicket ticket{};ModelPath path=ModelPath::Source;
+        {
+            SourceActorProofScope proof(m,now);
+            if(m!=(cModel*)pPL && m!=(cModel*)pSUB && re4dc_actor_early_coarse_admit(m,&ticket))path=ModelPath::Coarse;
+        }
+        if(!sourceActorLedger.append(now,sourceActorModel(m),path,0) ||
+           (path==ModelPath::Coarse && !sourceActorLedger.attach_coarse_ticket(now,sourceActorModel(m),ticket))) {
+            re4dc_actor_texture_release(&ticket.texture);
+            re4dc_actor_texture_retire_all();sourceActorFailure(7);sourceActorLedger.retire();return -1;
+        }
+#else
         if(!sourceActorLedger.append(now,sourceActorModel(m),sourceActorPath(m),0)) {
             sourceActorFailure(7);sourceActorLedger.retire();return -1;
         }
+#endif
     }
     if(!sourceActorLedger.seal(now)){sourceActorFailure(8);sourceActorLedger.retire();return -1;}
     sourceActorPrimBase=unsigned(pG->prim_cnt);sourceActorPrimBytes=unsigned(pG->nPrim);
@@ -665,7 +691,13 @@ bool sourceActorPrepare() {
         if(!sourceActorRam(u) || count++>=EmMgr.nArray || count>re4dc_source::FrameLedger::MaxEntries){sourceActorFailure(11);return false;}
         cUnit* current=u;u=u->pNext; // preserve original cached-next traversal
         cModel* m=(cModel*)current;
+#if RE4DC_ACTOR_EARLY_COARSE
+        ModelPath path{};
+        if(!sourceActorLedger.planned_path(now,sourceActorModel(m),path)){sourceActorFailure(21);return false;}
+        if(path==ModelPath::Coarse)continue;
+#else
         if(sourceActorPath(m)==ModelPath::Coarse)continue;
+#endif
         re4dc_source::PreparationTicket ticket{};
         const ModelIdentity model=sourceActorModel(m);
         if(!sourceActorLedger.claim(now,ticket) || !(ticket.model==model)){sourceActorFailure(12);return false;}
@@ -685,13 +717,34 @@ extern "C" int re4dc_coarse_source_actors_ready() {
         if(!sourceActorRam(u) || count++>=EmMgr.nArray || count>re4dc_source::FrameLedger::MaxEntries){sourceActorFailure(16);return 0;}
         cModel* m=(cModel*)u;
         const auto membership=sourceActorLedger.membership(now,sourceActorModel(m));
+#if RE4DC_ACTOR_EARLY_COARSE
+        if(membership==Membership::Coarse) {
+            Re4dcActorEarlyTicket ticket{};SourceActorProofScope proof(m,now);
+            if(!sourceActorLedger.coarse_ticket(now,sourceActorModel(m),ticket) ||
+               !re4dc_actor_early_coarse_validate(m,&ticket)){sourceActorFailure(22);return 0;}
+        } else if(membership!=Membership::SourceHandled){sourceActorFailure(17);return 0;}
+#else
         const auto want=sourceActorPath(m)==ModelPath::Coarse?Membership::Coarse:Membership::SourceHandled;
         if(membership!=want){sourceActorFailure(17);return 0;}
+#endif
         player_seen|=m==(cModel*)pPL;partner_seen|=m==(cModel*)pSUB;
     }
     if(count!=sourceActorCount || !player_seen || !partner_seen){sourceActorFailure(18);return 0;}
     return 1;
 }
+#if RE4DC_ACTOR_EARLY_COARSE
+extern "C" int re4dc_actor_early_proof_active(cModel* m) {
+    FrameIdentity now{};
+    return m && m==sourceActorProofModel && sourceActorRam(m) && sourceActorIdentity(now) &&
+        now==sourceActorProofFrame && sourceActorModel(m)==sourceActorProofIdentity;
+}
+extern "C" int re4dc_coarse_source_actor_texture(cModel* m,Re4dcActorTextureLease* out) {
+    FrameIdentity now{};Re4dcActorEarlyTicket ticket{};
+    if(!out || !m || !sourceActorActive || !sourceActorRam(m) || !sourceActorIdentity(now) ||
+       !sourceActorLedger.coarse_ticket(now,sourceActorModel(m),ticket))return 0;
+    *out=ticket.texture;return 1;
+}
+#endif
 // 0=coarse,1=source callback handled,2=invalid diagnostic (never ribbon fallback).
 extern "C" int re4dc_coarse_source_actor_route(const void* object) {
     FrameIdentity now{};cModel* m=(cModel*)object;
