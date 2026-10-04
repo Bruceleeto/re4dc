@@ -161,10 +161,16 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
 #include "coarse_actor_owner_registry.inc"
 #endif
 #include "coarse_actor_geometry_once.inc"
+#if RE4DC_ACTOR_PL08_PACK
+#include "coarse_actor_pl08_pack.inc" // ACTOR_PL08_PACK: the pl08-only chunks from a costume-resident heap-4 cell
+#endif
 #if RE4DC_ACTOR_PL08
 #include "coarse_actor_owner_pl08.inc"
 #endif
 #include "coarse_actor_transaction.inc"
+#if RE4DC_ACTOR_PL08_PACK
+namespace { bool pl08_pack_owned_live() {return actor_owned_live;} }
+#endif
 #include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "coarse_actor_registry_pack.inc" // the room-owned registry package (loader, publish, retire)

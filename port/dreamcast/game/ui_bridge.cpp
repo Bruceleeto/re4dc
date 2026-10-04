@@ -332,6 +332,10 @@ void io_cycle_frame(unsigned frames_in_room){
 extern "C" void re4dc_registry_room_enter(unsigned room);   // coarse_actor_registry_pack.inc
 extern "C" void re4dc_registry_room_leave();
 #endif
+#if RE4DC_ACTOR_PL08_PACK
+extern "C" void re4dc_pl08_pack_room_enter();               // coarse_actor_pl08_pack.inc
+extern "C" void re4dc_pl08_pack_room_leave();
+#endif
 extern "C" void re4dc_room_leave(){
     unsigned generation,cells,bytes,stale,refused;
     if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused))return;
@@ -339,6 +343,9 @@ extern "C" void re4dc_room_leave(){
     re4dc_effect_retire_room();
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
     re4dc_registry_room_leave();                         // the room's model registry package (coarse_actor_registry_pack.inc)
+#endif
+#if RE4DC_ACTOR_PL08_PACK
+    re4dc_pl08_pack_room_leave();                        // the pl08 costume package cell (coarse_actor_pl08_pack.inc)
 #endif
     re4dc_ui_retire_room();
     re4dc_room4_close();
@@ -381,6 +388,9 @@ extern "C" void re4dc_room_enter(){
     re4dc_room4_open();
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
     re4dc_registry_room_enter((unsigned(pG->stage_no)<<8)|pG->room_no); // before the room's archives load and adopt
+#endif
+#if RE4DC_ACTOR_PL08_PACK
+    re4dc_pl08_pack_room_enter();                        // reload the pl08 costume package if pl08 is bound
 #endif
     room_frames=0;steady_logged=false;
     audit(0);

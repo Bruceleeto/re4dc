@@ -857,6 +857,9 @@ void ReadPlayerData(int type, int costume)
     if (!re4dc_ui_bind_player(data, total)) {
         re4dc_missing("invalid prepared player texture identities");
     }
+#if RE4DC_ACTOR_PL08_PACK
+    re4dc_pl08_pack_player((unsigned) file); // the pl08 costume package follows the bound archive (render only)
+#endif
 #endif
 }
 

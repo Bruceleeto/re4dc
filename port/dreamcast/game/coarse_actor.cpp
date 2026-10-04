@@ -5,7 +5,7 @@
 #include "model.h"
 #include "native_actor.hpp"
 #include "leon4k_runtime.h" // private generated asset, outside the repository
-#if RE4DC_ACTOR_PL08
+#if RE4DC_ACTOR_PL08 && !RE4DC_ACTOR_PL08_PACK
 #include "leon_pl08_runtime.h" // ACTOR_PL08: pl08's own chunks (private, ACTOR_PL08_DIR)
 #endif
 #include <cstring>

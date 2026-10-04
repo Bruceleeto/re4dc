@@ -71,21 +71,45 @@ endif
 #              whole model keeps the source path. Role capacity 8 -> 9 and owner runs 21 -> 22 for every TU (layouts with
 #              0 unchanged). ACTOR_PL08_DIR = private dir with leon_pl08_runtime.h; the disc must carry the pl08 atlas
 #              dc/tex/7/7506e95f-68cf2211.re4tex (else the texture lease declines and the source path draws).
+# ACTOR_PL08_PACK=1 (2026-10-04; default 0; needs ACTOR_PL08=1 and NATIVE_STATIC=1): the three pl08-only immutable chunks
+#              (roles 0 / 1 / 8, 33,916 B) are not compiled in. They are read from dc/native/pl08/leon_pl08.re4cp
+#              (tools/d367/pl08_pack.py from the frozen leon_pl08_runtime.h) into one heap-4 room cell only while the
+#              bound player archive is pl08 (ReadPlayerData file 0x5A), validated against actor_pl08_pack_identity.inc
+#              (every field and array hash) and preflighted before anything publishes; retired at room leave, unpublished
+#              by a bind away from pl08 (coarse_actor_pl08_pack.inc, actor_pl08_pack_check.inc). Missing or refused:
+#              pl08 keeps the whole source path. ACTOR_PL08_DIR is not used.
+ACTOR_PL08_PACK ?= 0
 ACTOR_PL08 ?= 0
 ifeq ($(filter $(ACTOR_PL08),0 1),)
 $(error ACTOR_PL08 must be 0 or 1)
+endif
+ifeq ($(filter $(ACTOR_PL08_PACK),0 1),)
+$(error ACTOR_PL08_PACK must be 0 or 1)
+endif
+ifeq ($(ACTOR_PL08)$(ACTOR_PL08_PACK),01)
+$(error ACTOR_PL08_PACK=1 needs ACTOR_PL08=1)
 endif
 ifeq ($(ACTOR_PL08),1)
 ifneq ($(ACTOR_TRANSACTION),1)
 $(error ACTOR_PL08 acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
 endif
+ifeq ($(ACTOR_PL08_PACK),0)
 ifndef ACTOR_PL08_DIR
 $(error ACTOR_PL08=1 needs ACTOR_PL08_DIR (the private dir with leon_pl08_runtime.h))
 endif
+endif
 GAME_CPPFLAGS += -DRE4DC_ACTOR_PL08=1
 PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_PL08=1
+ifeq ($(ACTOR_PL08_PACK),0)
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -I$(ACTOR_PL08_DIR)
 $(OBJDIR)/coarse_actor.o: $(ACTOR_PL08_DIR)/leon_pl08_runtime.h coarse_actor_owner_pl08.inc actor_material_records_pl08.inc     actor_material_records_pl08_roles.inc actor_material_records_pl08_blobs.inc
+else
+ifneq ($(NATIVE_STATIC),1)
+$(error ACTOR_PL08_PACK=1 loads into the native static room storage (NATIVE_STATIC=1))
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_PL08_PACK=1
+$(OBJDIR)/coarse_actor.o: coarse_actor_owner_pl08.inc coarse_actor_pl08_pack.inc actor_pl08_pack_check.inc actor_pl08_pack_identity.inc     actor_material_records_pl08.inc actor_material_records_pl08_roles.inc actor_material_records_pl08_blobs.inc
+endif
 endif
 ifeq ($(ACTOR_GANADO_SOURCE_LIGHT),1)
 ifneq ($(ACTOR_TRANSACTION),1)
