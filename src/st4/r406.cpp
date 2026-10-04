@@ -73,7 +73,11 @@ static void r406_checkEmSet1();
 static void r406_checkEmSet2();
 static void r406_checkEmSet3();
 static void r406_checkEmSet4();
+#if defined(RE4DC_GAME)
+static void setTexRender(); // st4_0 is one partial link on the port and r405 defines its own: file-local
+#else
 void setTexRender();
+#endif
 
 // Room init (the mine, Assignment Ada): the water render target; Ada's (pl_type 2) or Leon's room
 // motions; water hit effects; the enemy waves — wave 1 on the item (Room_flg bit 0), waves 2/3 on

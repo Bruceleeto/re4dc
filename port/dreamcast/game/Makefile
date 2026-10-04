@@ -48,6 +48,33 @@ OBJDIR = obj
 # global symbols are its renamed entry points (obj/modules.mk), and
 # platform/modules.cpp maps the REL header ids to them for OSLink.
 MODULES = st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27
+# WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
+# r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests
+# (platform/modules.cpp MODULE(75, st2_0) / MODULE(96, st4_0)). Their porting-trap lint is clean (assets.sh discover
+# --fix: four slot-math scans) and pl11 (module 47, the partner Ashley R210Init spawns; its value-init trap fixed);
+# enemy modules those rooms need (em11, em1f, ...) are not linked.
+WORLD_STAGE_MODULES ?= 0
+ifneq ($(WORLD_STAGE_MODULES),0)
+ifneq ($(WORLD_STAGE_MODULES),1)
+$(error WORLD_STAGE_MODULES must be 0 or 1)
+endif
+MODULES += st2_0 st4_0 pl11
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_WORLD_STAGE_MODULES=1
+$(OBJDIR)/src/game/EtcModel.o: GAME_CPPFLAGS += -DRE4DC_WORLD_STAGE_MODULES=1
+endif
+# WORLD_ROOM_MODULES=1 (world coverage lane, default 0: no effect; needs WORLD_STAGE_MODULES=1): also link st2_2
+# (module 83: r211..r219, lint clean) and em1f (module 109: the St4 Ganados of r406/r40a/r40b/r40d/r410; its one
+# value-init trap fixed by assets.sh --fix) so one more St2 (r219) and St4 (r40a) room can be entered with their
+# source script and enemies. A separate knob: WORLD_STAGE_MODULES=1 images stay as they were.
+WORLD_ROOM_MODULES ?= 0
+ifneq ($(WORLD_ROOM_MODULES),0)
+ifneq ($(WORLD_ROOM_MODULES)$(WORLD_STAGE_MODULES),11)
+$(error WORLD_ROOM_MODULES must be 0 or 1, and 1 needs WORLD_STAGE_MODULES=1)
+endif
+MODULES += st2_2 em1f
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_WORLD_ROOM_MODULES=1
+$(OBJDIR)/src/game/quake.o: GAME_CPPFLAGS += -DRE4DC_WORLD_ROOM_MODULES=1
+endif
 # EM10_SHARED=1 (default 0): the Ganado RELs em12 (r100/r103) and em15 (r101) are both
 # em10.cpp + their own <em>_set.cpp; link them as one object (gen_modules.py group em10g) so the
 # image holds one em10.cpp (-254 KB of image = +254 KB of heap 4). Both keep their REL ids and
@@ -575,7 +602,7 @@ ENEMY_DEMAND ?= 0
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f,$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif

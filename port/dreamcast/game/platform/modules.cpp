@@ -30,6 +30,16 @@ void (*re4dc_module_dtors[])(void) = {0};
 #define MODULE(name) void name##_prolog(void); void name##_epilog(void); \
     extern char re4dc_mod_##name##_data[], re4dc_mod_##name##_data_end[], re4dc_mod_##name##_bss[], \
         re4dc_mod_##name##_bss_end[], re4dc_mod_##name##_pristine[];
+// WORLD_STAGE_MODULES=1 rows first: tools/assetpipe/wiring.py wire() appends after the default list's last row.
+#if defined(RE4DC_WORLD_STAGE_MODULES) && RE4DC_WORLD_STAGE_MODULES
+MODULE(st2_0)
+MODULE(st4_0)
+MODULE(pl11)
+#endif
+#if defined(RE4DC_WORLD_ROOM_MODULES) && RE4DC_WORLD_ROOM_MODULES
+MODULE(st2_2)
+MODULE(em1f)
+#endif
 MODULE(st1_0)
 MODULE(st1_1)
 MODULE(st1_2)
@@ -72,6 +82,15 @@ struct Re4dcModule {
 static Re4dcModule g_modules[] = {
 #else
 static const Re4dcModule g_modules[] = {
+#endif
+#if defined(RE4DC_WORLD_STAGE_MODULES) && RE4DC_WORLD_STAGE_MODULES
+    MODULE(75, st2_0), // WORLD_STAGE_MODULES: r200..r203, r207, r208, r210, r222
+    MODULE(96, st4_0), // WORLD_STAGE_MODULES: the St4 rooms
+    MODULE(47, pl11),  // WORLD_STAGE_MODULES: the partner Ashley (cSubAshley; r210 spawns her at entry)
+#endif
+#if defined(RE4DC_WORLD_ROOM_MODULES) && RE4DC_WORLD_ROOM_MODULES
+    MODULE(83, st2_2), // WORLD_ROOM_MODULES: r211..r219
+    MODULE(109, em1f), // WORLD_ROOM_MODULES: the St4 Ganados (r406, r40a, r40b, r40d, r410)
 #endif
     MODULE(74, st1_0),
     MODULE(73, st1_1),

@@ -254,7 +254,11 @@ static void r222_TreasureBoxOpened(int id)
 // end of the file. The wait body reads the word through the asm-labelled alias (a distinct
 // SYMBOL_REF: gcse cannot share the `high` r10 of the arms with it, the target reloads `lis r11`).
 asm(".section \".rodata\"\n\t.align 2\nr222_k212:\n\t.long 0x4007b8a5\n\t.section \".text\"");
+#if defined(RE4DC_GAME)
+extern const f32 r222_k212 asm("r222_k212"); // sh-elf prefixes C names with '_': bind the label above by name
+#else
 extern const f32 r222_k212;
+#endif
 extern const f32 r222_k212_v asm("r222_k212");
 
 // A revealed box's lid (parts ang.x) swings to 2.12 rad in 0.05 steps with its SE, or snaps there when opened == 1.

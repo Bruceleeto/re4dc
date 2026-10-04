@@ -32,7 +32,8 @@ static R210Work* r210_work;
 
 // Collision flag bits set through a raw (non-struct) store at the info's address: the following
 // `pPL` load stays below it (pl_npc.cpp AtariOnRaw).
-static inline void AtariOnRaw(cAtariInfo* at, u16 b) { *(u16*) ((u8*) at + 0x1a) |= b; }
+// GAME_ATCHK_CACHE: the raw store passes the AtFlag16 wrapper, so the info is noted (bit 0x200 may flip; as r226).
+static inline void AtariOnRaw(cAtariInfo* at, u16 b) { *(u16*) ((u8*) at + 0x1a) |= b; RE4DC_ATARI_TOUCH(at); }
 
 // pl_npc.cpp: MotionMove is called with a second argument by the partner code.
 u16 MotionMoveF(cModel* m, int flag) asm("MotionMove");
@@ -149,8 +150,14 @@ void R210Init()
         }
     }
     if (pSUB) {
+#if defined(RE4DC_ATCHK_CACHE) && RE4DC_ATCHK_CACHE
+        // m_flag is an AtFlag16 (no u16& binding): the same two stores through its operators
+        pSUB->atari.m_flag &= 0xEFFF;
+        pSUB->atari.m_flag |= 0x2000;
+#else
         U16And(pSUB->atari.m_flag, 0xEFFF);
         BitOn16(pSUB->atari.m_flag, 0x2000);
+#endif
     }
     SceAtDataSet_exec(5, SCE_LEVEL10, 0, (TaskFunc) r222_dai_go, 0, 1);
     SceAtDataSet_exec(6, SCE_LEVEL10, 0, (TaskFunc) r222_dai_ret, 0, 1);

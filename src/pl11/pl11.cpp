@@ -19,7 +19,12 @@
 // runs the cSubChar init and clears Status_flg[1] bit17.
 static void Pl11Init(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Value-initialisation would zero the fields cEmMgr::construct set (e6f65cc).
+    cSubAshley* sub = new (em) cSubAshley;
+#else
     cSubAshley* sub = new (em) cSubAshley();
+#endif
 
     sub->modelSet();
     sub->init();

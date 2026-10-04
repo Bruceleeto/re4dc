@@ -76,6 +76,11 @@ static void QuakeKill(u8 id)
         }
     }
 }
+#if defined(RE4DC_WORLD_ROOM_MODULES) && RE4DC_WORLD_ROOM_MODULES
+// WORLD_ROOM_MODULES (Makefile): st2_2's r212 imports QuakeKill(u8) by name (a global on the GameCube).
+extern "C" void re4dc_QuakeKill(u8 id) asm("__Z9QuakeKillh");
+extern "C" void re4dc_QuakeKill(u8 id) { QuakeKill(id); }
+#endif
 
 // Per frame: counts the delays / times down, frees finished entries, and sets Quake.active /
 // power / axis from the strongest running entry (axes of weaker ones are or-ed in only when they

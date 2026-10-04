@@ -2650,6 +2650,11 @@ static int setRoomEtcBreakDisp(int no, int on, int flag)
     }
     return 0;
 }
+#if defined(RE4DC_WORLD_STAGE_MODULES) && RE4DC_WORLD_STAGE_MODULES
+// WORLD_STAGE_MODULES (Makefile): st2_0's r200 calls this by its C name (a global on the GameCube).
+extern "C" int re4dc_setRoomEtcBreakDisp(int no, int on, int flag) asm("_setRoomEtcBreakDisp");
+extern "C" int re4dc_setRoomEtcBreakDisp(int no, int on, int flag) { return setRoomEtcBreakDisp(no, on, flag); }
+#endif
 
 // The torch (light-bearing etc) in slot `id`.
 int getRoomEtcOnLight(u32 id, cModel** out, int flag)

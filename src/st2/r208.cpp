@@ -613,7 +613,13 @@ extern "C" cEm* getMostFarEm(f32 range)
     u32 i;
 
     for (i = 0; i < EmMgr.nArray; i++) {
+#if !defined(__PPC__)
+        // Unbacked sparse enemy slots read as absent (as em21's scans).
+        cEm* em = (cEm*) EmMgr.workAt(i);
+        if (!em) continue;
+#else
         cEm* em = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         Vec d;
         f32 len;
 

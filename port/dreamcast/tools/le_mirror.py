@@ -2417,6 +2417,10 @@ def static_module_ids():
     bindings = [(i, n) for i, n in re.findall(r'^    MODULE\((\d+), (\w+)\),(?:\s*//.*)?$', registry, re.M)
                 if n != 'Sscrn']
     makefile = (root / 'port/dreamcast/game/Makefile').read_text()
+    # Knob-conditional modules (`MODULES += ...` under WORLD_STAGE_MODULES=1, with #if-guarded registry rows) are
+    # not part of the default image's static set this mirror compacts against.
+    conditional = {n for line in re.findall(r'^MODULES \+= (.*)$', makefile, re.M) for n in line.split()}
+    bindings = [(i, n) for i, n in bindings if n not in conditional]
     selected = re.search(r'^MODULES = (.*)$', makefile, re.M)
     if not bindings or selected is None or set(selected[1].split()) != {n for _, n in bindings}:
         raise ValueError('static module registry and Makefile disagree')
