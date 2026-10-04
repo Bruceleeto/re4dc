@@ -1,6 +1,6 @@
 #!/bin/bash
 # D367 W10: GDEMU image (GDI) from the same inputs as mkdisc-hardlink.sh.
-#   [SECTOR=2352|2048] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] \
+#   [SECTOR=2352|2048] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] [INPUT_CHARSET=..] \
 #     mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]
 #
 # Standard three-track GD-ROM layout, the one GDEMU and Flycast expect:
@@ -37,6 +37,8 @@ SECTOR=${SECTOR:-2352}
 PERIPHERALS=${PERIPHERALS:-0799810}
 PRODUCT=${PRODUCT:-T0000}
 TITLE=${TITLE:-RE4DC}
+# UTF-8 extracted trees can opt in; retain the legacy source-mirror default.
+INPUT_CHARSET=${INPUT_CHARSET:-iso8859-1}
 HD_LBA=45000
 T1_SECTORS=606   # track02 then starts at 756 after its 150-sector pregap
 T2_SECTORS=302   # 4 s minimum audio track
@@ -89,7 +91,7 @@ fi
 # to OUTDIR because it is the big file. Rock Ridge and Joliet carry the real
 # lower-case long names, as on the CD-R image.
 genisoimage -quiet -C 0,$HD_LBA -G "$WORK/IP.BIN" -r -J -l \
-  -input-charset iso8859-1 -V RE4DCROOM -o "$OUTDIR/track03.iso" "$WORK/cdroot"
+  -input-charset "$INPUT_CHARSET" -V RE4DCROOM -o "$OUTDIR/track03.iso" "$WORK/cdroot"
 # Per-file absolute LBAs (isoinfo -N: the image starts at LBA 45000).
 if command -v isoinfo >/dev/null; then
   isoinfo -N $HD_LBA -R -l -i "$OUTDIR/track03.iso" > "$OUTDIR/track03-files.txt" 2>/dev/null || true
@@ -97,7 +99,7 @@ fi
 
 # track01: placeholder ISO in the low-density area, padded to T1_SECTORS.
 printf 'RE4DC GD-ROM image. The game is in the high-density area (track 3).\r\n' > "$WORK/t1root/README.TXT"
-genisoimage -quiet -G "$WORK/IP.BIN" -V RE4DCLD -input-charset iso8859-1 \
+genisoimage -quiet -G "$WORK/IP.BIN" -V RE4DCLD -input-charset "$INPUT_CHARSET" \
   -o "$WORK/track01.iso" "$WORK/t1root"
 t1=$(( $(stat -c %s "$WORK/track01.iso") / 2048 ))
 [ "$t1" -le "$T1_SECTORS" ] || { echo "mkgdi: track01 is $t1 sectors" >&2; exit 1; }

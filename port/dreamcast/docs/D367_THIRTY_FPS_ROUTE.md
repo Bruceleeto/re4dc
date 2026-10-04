@@ -21,8 +21,26 @@ checks. Production and traced builds report zero missing stubs.
 
 The new title-invfix pack adds the already recovered cd5691f8-b993e9b1 material (656 bytes); all 3,241
 existing package payloads are byte-identical. The production image uses the current play recipe,
-DBG_WARP=0 / PC_SAMPLER=0 / GAME_PWC_DIAG=1 / PACE_MODE=fast / PACE_DEBUG=1. Normal title/New Game,
-repeated inventory checks with the final pack, and release packaging are being completed separately.
+DBG_WARP=0 / PC_SAMPLER=0 / GAME_PWC_DIAG=1 / PACE_MODE=fast / PACE_DEBUG=1. The final pack passes two inventory open/close cycles in each room with matching restore hashes,
+zero missing packages and zero upload failures. The production title/New Game run completes the three
+opening movies (1971/1971, 2360/2360 and 1175/1175 pictures) and reaches r100 gameplay.
+
+The existing chapter-end fixture starts in r106: its ending movie plays 1738/1738, the chapter 1-1
+results and Save prompt appear, VMU save and syswrite return 0, and r104 is entered. Its s00 movie
+finishes and the expected missed-QTE branch reaches Continue. These checks are separate endpoints,
+not a continuous manual title-to-chapter-end playthrough or QTE-success qualification.
+
+r21t is installed locally: C:/RE4DC-Play-Discs/r21t-title/disc.cue and r21t-gdemu/disc.gdi; launcher
+D:/RE4DC-Play/Play-r21t-Inventory-Fix.cmd. Runtime source is 6819f3a2; production ELF SHA-256 begins
+b9dc7b75819fb03e. CUE disc SHA-256 is 226db5f2b4cadc91ee350b325c6a15db17b1cac463b740d853a44894d324bddf.
+The CUE has 458649 logical sectors. The newly authored GDI has 458647 raw 2352-byte data sectors at
+LBA 45000; all 1143 file payloads match, with the expected unscrambled boot-program difference.
+
+GDI packaging now accepts INPUT_CHARSET (legacy iso8859-1 default unchanged). The UTF-8 tree extracted
+from the tested CUE is packaged with INPUT_CHARSET=utf-8, preserving one legacy text filename that
+the first draft re-encoded. Both drafts remain private; only the fully verified UTF-8 image is delivered.
+The packager change does not change the compiled game. Final evidence: delivery-report-r21t.json and
+r21t-gdemu-utf8-verification.json in the private playable-first directory.
 The first route milestone remains title -> r120 -> r100 -> r101 bell -> r103 -> r106 results/save -> r104.
 Later emblem/key pickups and full chapter-route acceptance are still unproven; this repair does not
 establish 30 fps or physical-console acceptance.
