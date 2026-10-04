@@ -29,12 +29,24 @@ DBGWARP_LATE_PLATFORM = $(OBJDIR)/platform/quality.o $(OBJDIR)/platform/native_a
 $(DBGWARP_LATE_GAME) $(DBGWARP_LATE_PLATFORM): $(OBJDIR)/dbgwarp.h
 $(DBGWARP_LATE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
 $(DBGWARP_LATE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/dbgwarp.h
+#   WARP_JUMP=1  test builds only, needs DBG_WARP=1 (diagnostic): `jump <room frame> <from> <to> x y z ang` lines change
+#                room through the source's SceAtExecRoomJump (room lifetime proofs between rooms with no wired door).
+#                Default 0: the directive compiles out and the DBG_WARP image is unchanged.
+WARP_JUMP ?= 0
+ifneq ($(filter-out 0 1,$(WARP_JUMP)),)
+$(error WARP_JUMP must be 0 or 1)
+endif
+ifeq ($(WARP_JUMP),1)
+ifneq ($(DBG_WARP),1)
+$(error WARP_JUMP needs DBG_WARP=1)
+endif
+endif
 ifeq ($(DBG_WARP),1)
 PLATFORM_OBJS += $(OBJDIR)/dbgwarp_bridge.o
 # Included after the link rule: name the object as its prerequisite here.
 $(TARGET): $(OBJDIR)/dbgwarp_bridge.o
 $(OBJDIR)/dbgwarp_bridge.o: dbgwarp_bridge.cpp $(OBJDIR)/dbgwarp.h
 	@mkdir -p $(dir $@)
-	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -include $(OBJDIR)/dbgwarp.h -MMD -MP -c $< -o $@
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -include $(OBJDIR)/dbgwarp.h $(if $(filter 1,$(WARP_JUMP)),-DRE4DC_WARP_JUMP=1) -MMD -MP -c $< -o $@
 -include $(OBJDIR)/dbgwarp_bridge.d
 endif

@@ -100,6 +100,12 @@ struct Warp {
     unsigned n_go;
     bool act_source_clock;  // opt-in fixture holds count source pad ticks, not wall-time stalls
     u8 parse_entry, max_entry;  // `entry <n>`: the room entry later act / goto lines belong to (1 = first room)
+#if RE4DC_WARP_JUMP
+    struct Jump { u32 frame; u16 from, to; f32 pos[3]; f32 ang; bool done; } jump[8];
+    unsigned n_jump;
+    bool jump_wait;  // a jump fired: the next one waits for the room entry it asked for
+    unsigned jump_fired, jump_frame, jump_retries;  // the fired entry, its room frame, re-issues so far
+#endif
     // runtime
     u32 room_frames, first_room_gen, rooms;
     u32 pad_frames;  // PADRead calls in the current room: the action clock
@@ -221,6 +227,16 @@ void load()
             g.has_ang = n >= 6;
             g.ang = g.has_ang ? (f32) strtod(tok[5], nullptr) : 0.0f;
             g.done = false;
+#if RE4DC_WARP_JUMP
+        } else if (!strcmp(k, "jump") && n >= 8 && wp.n_jump < 8) {
+            Warp::Jump& j = wp.jump[wp.n_jump++];
+            j.frame = num(tok[1]);
+            j.from = (u16) num(tok[2]);
+            j.to = (u16) num(tok[3]);
+            for (int i = 0; i < 3; ++i) j.pos[i] = (f32) strtod(tok[4 + i], nullptr);
+            j.ang = (f32) strtod(tok[7], nullptr);
+            j.done = false;
+#endif
         } else if (!strcmp(k, "dump")) {
             wp.dump = true;
         } else if (!strcmp(k, "late") && n >= 2) {
@@ -347,6 +363,54 @@ void goto_poll()
         stamp(what);
     }
 }
+#if RE4DC_WARP_JUMP
+// `jump` (WARP_JUMP=1, diagnostic room change; not a source door/event route): in room `from`, at or after its
+// room frame and outside events, the first pending entry changes room to `to` at the position through the
+// source's own scenario room change (SceAtExecRoomJump: a door area made up and fired). Each entry fires once,
+// so a list alternating two rooms leaves and re-enters each of them; after one fires, the next waits for the room
+// entry it asked for (two pending entries from the same room fired on consecutive frames before, the second
+// overriding the first's destination), re-issuing the fired one every 30 room frames (at most 4 times) if the room
+// change was not taken. `from` == `to` re-enters the room.
+void jump_poll()
+{
+    for (unsigned i = 0; i < wp.n_jump; ++i) {
+        Warp::Jump& j = wp.jump[i];
+        if (j.done) continue;
+        if (wp.jump_wait) {
+            // the room change was not taken (seen in r219 at room frame 600): re-issue the same entry every 30 room
+            // frames, at most 4 times, until the room entry it asked for happens
+            Warp::Jump& f = wp.jump[wp.jump_fired];
+            if (wp.jump_retries >= 4 || wp.room_frames < wp.jump_frame + 30 || !pPL ||
+                (pG->Status_flg[1] & 0x10000000)) return;
+            ++wp.jump_retries;
+            wp.jump_frame = wp.room_frames;
+            Vec fp = {f.pos[0], f.pos[1], f.pos[2]};
+            Vec fr = {0.0f, f.ang, 0.0f};
+            char again[64];
+            snprintf(again, sizeof(again), "jump %u retry %u at room frame %u", wp.jump_fired, wp.jump_retries,
+                     (unsigned) wp.room_frames);
+            stamp(again);
+            SceAtExecRoomJump(f.to, &fp, &fr, 0);
+            return;
+        }
+        if (pG->room_id != j.from) continue;
+        if (wp.room_frames < j.frame || !pPL || (pG->Status_flg[1] & 0x10000000)) return;
+        j.done = true;
+        wp.jump_wait = true;
+        wp.jump_fired = i;
+        wp.jump_frame = wp.room_frames;
+        wp.jump_retries = 0;
+        Vec p = {j.pos[0], j.pos[1], j.pos[2]};
+        Vec r = {0.0f, j.ang, 0.0f};
+        char what[64];
+        snprintf(what, sizeof(what), "jump %u %03x -> %03x at room frame %u", i, (unsigned) j.from, (unsigned) j.to,
+                 (unsigned) wp.room_frames);
+        stamp(what);
+        SceAtExecRoomJump(j.to, &p, &r, 0);
+        return;
+    }
+}
+#endif
 }  // namespace
 
 extern "C" {
@@ -393,6 +457,9 @@ void re4dc_warp_room_enter(void)
     if (!wp.active) return;
     ++wp.rooms;
     wp.room_frames = 0;
+#if RE4DC_WARP_JUMP
+    wp.jump_wait = false;
+#endif
     wp.pad_frames = 0;
     if (wp.max_entry > 1) {
         // A held action never carries over into the next room's clock.
@@ -430,6 +497,9 @@ void re4dc_warp_poll(void)
     if (!wp.active) return;
     ++wp.room_frames;
     kill_poll();
+#if RE4DC_WARP_JUMP
+    jump_poll();
+#endif
     if (wp.rooms != 1) {
         if (wp.rooms > wp.max_entry) return;
         // A scripted later room (`entry`): its moves, its placement and periodic positions.
