@@ -27,6 +27,16 @@
 # CROWD_FREEZE_AT=N (look sheets only): the CPU stops in game frame N's first owner draw; frame N-1 stays on screen.
 #              CROWD_FREEZE_HOLD=S: resume after S seconds (0 = never); CROWD_FREEZE_AT2=M: hold again at frame M.
 #
+# ACTOR_APPEARANCE_ALIAS=1 (native scene coverage, 2026-10-03; default 0): the owner path also admits the Ganado
+#              (module, model type) pairs listed in actor_appearance_aliases.inc, which tools/native_appearance_alias.py
+#              generates only for types whose EmXXSet loads byte-identical source entries (every model slot mot[0..20]
+#              and every reachable role BIN/TPL) to an already certified appearance: em12 types 0/3/4 = the em15
+#              type 0/3/4 casts (r100, r103). Every role/owner/material/semantics proof still runs per draw; gore,
+#              unknown hands, fades and other states still fall back to the source path. Render only.
+#              Every enabled row is rendered with the owner path's Ganado lighting (see ACTOR_GANADO_SOURCE_LIGHT).
+#              =2 (native scene coverage extension, 2026-10-03): the same check, reading actor_appearance_aliases_ext.inc
+#              (the same generator, --knob 2: em12 0/3/4, em13 0/1/3/4, em16 3/4, em17 0/1/3, em10 0/3/4; em16 11 and
+#              em10 1 are held out because their sack accessory differs from the certified type's).
 # ACTOR_GANADO_SOURCE_LIGHT=1 (native look fidelity, 2026-10-03; default 0; look change vs today's play build, the
 #              user's call): every Ganado drawn by the owner path (appearances 0..4, Leon excluded) is lit with the
 #              source's own GX lighting (LightSetModel's lights / channel / ambient / material, nrm = part.mv^-T,
@@ -35,9 +45,25 @@
 #              falls back to the source path (ATD 26). Specular is still omitted, as in the flat look. Render only.
 #              (Hunk copied from the sup-native-scene worker's helper; with NATIVE_MODEL_REGISTRY it also lights
 #              the registry descriptors: every non-Leon plan.)
+ACTOR_APPEARANCE_ALIAS ?= 0
 ACTOR_GANADO_SOURCE_LIGHT ?= 0
+ifeq ($(filter $(ACTOR_APPEARANCE_ALIAS),0 1 2),)
+$(error ACTOR_APPEARANCE_ALIAS must be 0, 1 or 2)
+endif
 ifeq ($(filter $(ACTOR_GANADO_SOURCE_LIGHT),0 1),)
 $(error ACTOR_GANADO_SOURCE_LIGHT must be 0 or 1)
+endif
+ifeq ($(ACTOR_APPEARANCE_ALIAS),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_APPEARANCE_ALIAS acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_APPEARANCE_ALIAS=1
+endif
+ifeq ($(ACTOR_APPEARANCE_ALIAS),2)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_APPEARANCE_ALIAS acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_APPEARANCE_ALIAS=2
 endif
 ifeq ($(ACTOR_GANADO_SOURCE_LIGHT),1)
 ifneq ($(ACTOR_TRANSACTION),1)

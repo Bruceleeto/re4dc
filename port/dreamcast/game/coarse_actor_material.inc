@@ -86,7 +86,23 @@ inline bool base_level_sampler(const unsigned* s) {
 inline bool source_appearance_type(unsigned appearance,unsigned id,unsigned type) {
     if(appearance==0x100)return id==0 && type==0;
     static const unsigned char types[5]={1,0,3,4,11};
+#if RE4DC_ACTOR_APPEARANCE_ALIAS
+    if(appearance<5 && id==(appearance==0?0x12u:0x15u) && type==types[appearance])return true;
+    // ACTOR_APPEARANCE_ALIAS (crowd.mk): other Ganado modules' types whose EmXXSet loads byte-identical source
+    // entries for every model slot and reachable role BIN/TPL of the appearance (generated and proved from the
+    // original archives by tools/native_appearance_alias.py). The role/owner/material proofs below still run.
+    static const unsigned char alias[][3]={
+#if RE4DC_ACTOR_APPEARANCE_ALIAS == 2
+#include "actor_appearance_aliases_ext.inc"
+#else
+#include "actor_appearance_aliases.inc"
+#endif
+    };
+    for(const auto& r:alias)if(r[0]==appearance && r[1]==id && r[2]==type)return true;
+    return false;
+#else
     return appearance<5 && id==(appearance==0?0x12u:0x15u) && type==types[appearance];
+#endif
 }
 inline bool room_colour_scale(unsigned scale,bool flat_native_look) {
     // The approved native look uses its existing constant lighting. Room
