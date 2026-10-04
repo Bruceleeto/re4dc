@@ -55,8 +55,8 @@
 #              every weight of the descriptor lies in [0, 1] (checked once per room generation at the skin build):
 #              each output element is a sum of at most 4 products w*t (coarse_skin_sh4.S groups: FTRV of (w0,w1,w2,0)
 #              through used-bone rows; one-bone entries copy), so it is finite. Otherwise the whole output test runs.
-#              The decision can only be stricter. =2: compare build (the output test decides; "NMRPB" lines count
-#              bounded chunks whose outputs are not finite, which must be 0, and stricter declines).
+#              The verdict equals the output test's. =2: compare build (the output test decides; "NMRPB" lines count
+#              bounded chunks whose outputs are not finite, which must be 0, and bound misses that ran the test).
 #              The source's own per-info palettes (trans.cpp MakeWeightPalette + re4dc_skin_defer_lazy) are NOT
 #              reusable here: the pack's weight groups differ from the source BIN's (generic-models/wcmp.py).
 NATIVE_MODEL_REGISTRY_PALBOUND ?= 0

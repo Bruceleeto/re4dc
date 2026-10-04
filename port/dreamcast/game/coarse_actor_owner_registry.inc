@@ -130,8 +130,8 @@ inline bool registry_all_finite(const float* f,unsigned n) {
 // bone's T and w the entry's weight or 0 (coarse_group_build; one-bone entries are copies with w = 1). With every
 // such w in [0, 1] (registry_skin_unit, checked once per room generation at the skin build) and every |t| < 2^125
 // (exponent field <= 0xFB, which also excludes inf / NaN), |w*t| <= |t| and the sum stays below 2^127: finite. Not
-// bounded: the whole output test runs as before. So the decision can only be stricter than the output test (a finite
-// T element >= 2^125); =2 counts that and any bounded actor whose outputs are not finite (must be 0).
+// bounded: the whole output test runs as before. So the verdict equals the output test's; =2 counts bounded chunks
+// whose outputs are not finite (must be 0) and "stricter": bound failed, the output test ran (not a rejection).
 unsigned char registry_skin_unit[kRegDescriptors];  // 1: every weight of the descriptor's chunks lies in [0, 1]
 inline bool registry_all_bounded(const float* f,unsigned n) {
     const RegistryWord* u=reinterpret_cast<const RegistryWord*>(f);unsigned a=0;
