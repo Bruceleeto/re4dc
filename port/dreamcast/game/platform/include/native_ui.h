@@ -50,6 +50,9 @@ int re4dc_ui_bind_player(void*,unsigned);
 int re4dc_ui_bind_weapon(void*,unsigned);
 void re4dc_ui_unbind_player();
 void re4dc_ui_unbind_weapon();
+#if defined(RE4DC_ACTOR_PL08_PACK) && RE4DC_ACTOR_PL08_PACK
+void re4dc_pl08_pack_player(unsigned file);  // coarse_actor_pl08_pack.inc: after every player archive bind
+#endif
 int re4dc_ui_bind_enemy(void*,unsigned);
 void re4dc_ui_unbind_enemy(void*);
 void* re4dc_ui_stage_alloc(unsigned bytes);

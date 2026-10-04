@@ -5,8 +5,14 @@
 // failure leaves the whole model on the source path. Roles 2..7 and the 14 hair runs use pl00's byte-identical arrays
 // and their immutable IDs; roles 0, 1 and 8 (pl08 BIN4, BIN10, BIN16) are leon_pl08_runtime.h's own chunks.
 namespace {
+#if RE4DC_ACTOR_PL08_PACK
+// ACTOR_PL08_PACK: roles 0, 1, 8 are the published package descriptors (coarse_actor_pl08_pack.inc).
+const leon4k::Chunk* const pl08_chunk[9]={&pl08_pack_chunks[0],&pl08_pack_chunks[1],&leon4k::chunks[2],&leon4k::chunks[3],
+    &leon4k::chunks[4],&leon4k::chunks[5],&leon4k::chunks[6],&leon4k::chunks[7],&pl08_pack_chunks[2]};
+#else
 const leon4k::Chunk* const pl08_chunk[9]={&leon_pl08::chunks[0],&leon_pl08::chunks[1],&leon4k::chunks[2],&leon4k::chunks[3],
     &leon4k::chunks[4],&leon4k::chunks[5],&leon4k::chunks[6],&leon4k::chunks[7],&leon_pl08::chunks[2]};
+#endif
 cModelInfo* pl08_infos[9];
 cParts* pl08_parts[119];
 cModel* pl08_owner;
@@ -35,6 +41,9 @@ bool owner_pl08_bind(cModel* m) {
     return true;
 }
 int owner_pl08_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
+#if RE4DC_ACTOR_PL08_PACK
+    if(!pl08_pack.published)return 0;
+#endif
     if(!owner_pl08_bind(m) || !skin_build(1,pl08_chunk,9))return 0;
     for(unsigned i=0;i<9;++i)if(p.info[i]!=pl08_infos[i] || !output[i])return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
@@ -55,9 +64,16 @@ extern "C" int re4dc_actor_plan_pl08(cModel* m,Re4dcActorPlan* out) {
 #if defined(RE4DC_DBG_WARP) && RE4DC_DBG_WARP
     if(RE4DC_WARP_LATE(RE4DC_LATE_LEON_SOURCE))return 0; // test-only old-path arm (warp_late.h 0x10), as the pl00 owner
 #endif
+#if RE4DC_ACTOR_PL08_PACK
+    if(!pl08_pack.published)return 0;  // no costume package published: the whole model keeps the source path
+#endif
     if(!m || !out || m->id || m->ot_type!=7 || !owner_pl08_bind(m))return 0;
     Re4dcActorPlan p{};p.count=9;p.appearance=0x108;p.image=pl08_image;p.crc=pl08_crc;p.fnv=pl08_fnv;p.palettes=owner_pl08_palettes;
+#if RE4DC_ACTOR_PL08_PACK
+#define RE4DC_PL08_OWN(role,prefix,k) re4dc_actor::plan_chunk(p,role,pl08_infos[role],pl08_pack_chunks[k],pl08_pack_input(k))
+#else
 #define RE4DC_PL08_OWN(role,prefix,k) re4dc_actor::plan_chunk(p,role,pl08_infos[role],leon_pl08::chunks[k],RE4DC_OWNER_INPUT(leon_pl08,prefix,leon_pl08::chunks[k],119))
+#endif
 #define RE4DC_PL08_SHARED(role,prefix) re4dc_actor::plan_chunk(p,role,pl08_infos[role],leon4k::chunks[role],RE4DC_OWNER_INPUT(leon4k,prefix,leon4k::chunks[role],119))
     RE4DC_PL08_OWN(0,r0,0);RE4DC_PL08_OWN(1,r1,1);RE4DC_PL08_SHARED(2,i2);RE4DC_PL08_SHARED(3,i3);RE4DC_PL08_SHARED(4,i4);
     RE4DC_PL08_SHARED(5,i5);RE4DC_PL08_SHARED(6,i6);RE4DC_PL08_SHARED(7,i7);RE4DC_PL08_OWN(8,r8,2);

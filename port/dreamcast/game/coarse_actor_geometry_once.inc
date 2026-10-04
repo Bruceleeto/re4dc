@@ -68,6 +68,17 @@ extern "C" re4dc_source::BlobError re4dc_actor_immutable_chunk_proof(
     if(entry.error==BlobError::None)output=entry.proof;
     return entry.error;
 }
+#if RE4DC_ACTOR_PL08_PACK
+namespace {
+// ACTOR_PL08_PACK: the three pl08 IDs belong to one published costume package (coarse_actor_pl08_pack.inc). Every
+// publish, unpublish and retire resets them, so a reload (also at the same address) is qualified again.
+unsigned actor_immutable_reset_pl08() {
+    unsigned n=0;
+    for(unsigned id=kActorPl08Asset0;id<kActorPl08Asset0+3u;++id){auto& e=actor_immutable_chunks[id-1];n+=e.state!=0;e={};}
+    return n;
+}
+}
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
 namespace {
 // NATIVE_MODEL_REGISTRY_PACK: the registry IDs belong to one published room package (its unique geometries). Only its
