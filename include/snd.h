@@ -330,4 +330,20 @@ void SndSeAbsFadeOutAll_sec(int sec);
 void SndSeAbsFadeOutAll_5msec(s16 time);
 void SndSeqFadeOutAll_sec(u8 type, int sec);
 
+// D367 CODEC_READY_FIXTURE (port/dreamcast/game/dbgwarp.mk, test builds only): defined for ss_term.o alone, it
+// routes the codec's voice-stream request/ready poll/stop through codec_ready_fixture.cpp. Otherwise each macro
+// is the plain source expression.
+#if defined(RE4DC_CODEC_READY_FIXTURE) && RE4DC_CODEC_READY_FIXTURE
+extern "C" unsigned re4dc_codec_ready_request(int mdt, unsigned id);
+extern "C" int re4dc_codec_ready_poll(unsigned id, int actual);
+extern "C" void re4dc_codec_ready_cancel(unsigned id);
+#define RE4DC_CODEC_REQUEST(mdt, id) re4dc_codec_ready_request((mdt), (id))
+#define RE4DC_CODEC_READY(id, actual) re4dc_codec_ready_poll((id), (actual))
+#define RE4DC_CODEC_CANCEL(id) re4dc_codec_ready_cancel(id)
+#else
+#define RE4DC_CODEC_REQUEST(mdt, id) (id)
+#define RE4DC_CODEC_READY(id, actual) (actual)
+#define RE4DC_CODEC_CANCEL(id) ((void) 0)
+#endif
+
 #endif

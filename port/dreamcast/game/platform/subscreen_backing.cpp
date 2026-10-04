@@ -30,6 +30,9 @@
 
 #include "re4dc_platform.h"
 #include "native_io.h"
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+#include "../trace_spare.hpp"
+#endif
 
 #ifndef RE4DC_TA_VERTBUF_KB
 #define RE4DC_TA_VERTBUF_KB 1024
@@ -304,18 +307,22 @@ void re4dc_ssb_get(void* dst, unsigned bytes)
 }
 
 #if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
-// Trace-only storage in spare capacity of the already-owned backing store.
-// Never allocate game RAM, grow the store, reclaim a texture or move the restore cursor on reads.
-static unsigned trace_begin,trace_end;
+// Trace-only storage in spare capacity of the already-owned backing store: the captured raw bytes grow up
+// from the saved window's end and the trace's span index (8-byte entries) grows down from the store's end,
+// each refused before it would reach the other (trace_spare.hpp). Never allocate game RAM, grow the store,
+// reclaim a texture, write below the saved window's end or move the restore cursor on reads.
+static TraceSpare trace_spare;
 int re4dc_ssb_trace_begin(unsigned saved_end) {
-    if(!store.open || (saved_end&3) || saved_end>store.bytes)return 0;
-    trace_begin=trace_end=saved_end;store.cursor=saved_end;return 1;
+    if(!store.open || !trace_spare.start(saved_end,store.bytes))return 0;
+    store.cursor=saved_end;return 1;
 }
 int re4dc_ssb_trace_append(const void* src,unsigned bytes,unsigned* offset) {
     if(!store.open || bytes>~0u-3)return 0;
     const unsigned padded=(bytes+3)&~3u;
-    if(store.cursor!=trace_end || store.cursor>store.bytes || padded>store.bytes-store.cursor)return 0;
-    *offset=store.cursor;
+    if(store.cursor!=trace_spare.end || store.cursor>store.bytes || !trace_spare.data(padded,offset)) {
+        re4dc_log("LTSBACKFAIL begin=%u end=%u cursor=%u capacity=%u requested=%u padded=%u index_low=%u index_top=%u\n",trace_spare.begin,trace_spare.end,store.cursor,store.bytes,bytes,padded,trace_spare.low,trace_spare.top);
+        return 0;
+    }
     const unsigned char* input=static_cast<const unsigned char*>(src);
     unsigned left=bytes;
     while(left) {
@@ -325,10 +332,11 @@ int re4dc_ssb_trace_append(const void* src,unsigned bytes,unsigned* offset) {
         re4dc_ssb_put(staging,(n+3)&~3u);
         input+=n;left-=n;
     }
-    trace_end=store.cursor;return 1;
+    if(store.cursor!=trace_spare.end)re4dc_missing("logic trace: backing append position");
+    return 1;
 }
 int re4dc_ssb_trace_read(void* dst,unsigned offset,unsigned bytes) {
-    if(!store.open || offset<trace_begin || offset>trace_end || bytes>trace_end-offset)return 0;
+    if(!store.open || !trace_spare.data_span(offset,bytes))return 0;
     unsigned char* output=static_cast<unsigned char*>(dst);
     while(bytes) {
         unsigned run;
@@ -339,6 +347,37 @@ int re4dc_ssb_trace_read(void* dst,unsigned offset,unsigned bytes) {
         output+=n;offset+=n;bytes-=n;
     }
     return 1;
+}
+// Span index entries: two words each, read and written in place; the cursor never moves.
+static void trace_entry_io(unsigned at,unsigned* words,bool write) {
+    for(unsigned k=0;k<2;++k) {
+        unsigned run;
+        volatile unsigned* w=word_at(at+4*k,&run);
+        if(write)*w=words[k];else words[k]=*w;
+    }
+}
+int re4dc_ssb_trace_index_push(const void* entry) {
+    unsigned at;
+    if(!store.open || !trace_spare.push(&at)) {
+        re4dc_log("LTSBACKFAIL index begin=%u end=%u capacity=%u index_low=%u index_top=%u entries=%u\n",trace_spare.begin,trace_spare.end,store.bytes,trace_spare.low,trace_spare.top,trace_spare.entries());
+        return 0;
+    }
+    unsigned words[2];memcpy(words,entry,8);
+    trace_entry_io(at,words,true);return 1;
+}
+int re4dc_ssb_trace_index_read(unsigned i,void* entry) {
+    unsigned at,words[2];
+    if(!store.open || !trace_spare.entry(i,&at))return 0;
+    trace_entry_io(at,words,false);memcpy(entry,words,8);return 1;
+}
+int re4dc_ssb_trace_index_write(unsigned i,const void* entry) {
+    unsigned at,words[2];
+    if(!store.open || !trace_spare.entry(i,&at))return 0;
+    memcpy(words,entry,8);trace_entry_io(at,words,true);return 1;
+}
+// layout[0..4]: saved window end, raw bytes end, index low, index top (store end rounded down to 8), capacity.
+void re4dc_ssb_trace_layout(unsigned* layout) {
+    layout[0]=trace_spare.begin;layout[1]=trace_spare.end;layout[2]=trace_spare.low;layout[3]=trace_spare.top;layout[4]=store.bytes;
 }
 #endif
 
@@ -475,6 +514,9 @@ void re4dc_ssb_close()
     free_blocks();
     if (store.claimed) re4dc_ui_vram_unclaim();
     store = Store{};
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+    trace_spare = TraceSpare{};  // the trace's raw bytes and index end with the store
+#endif
 #if RE4DC_SUBSCREEN && RE4DC_TA_DOUBLEBUF
     re4dc_ui_ta_double_bank_later();  // bank 1 was read back: the TA may use it from the next scene
 #endif

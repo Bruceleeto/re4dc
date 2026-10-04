@@ -99,8 +99,15 @@ bool info_current(const Info& i,unsigned role) {
       span(t.base,t.bytes,i.tpl,i.tpl_bytes) && i.info->pData==a.data && i.info->tpl_addr==i.tpl;
 }
 } }
+#if RE4DC_SS_CERT
+#include "actor_swap_park.inc"
+#define SS_PARK(stmt) re4dc_material::life::stmt
+#else
+#define SS_PARK(stmt) ((void)0)
+#endif
 extern "C" void re4dc_actor_archive_retire(const void* key) {
     using namespace re4dc_material::life;
+    SS_PARK(park_drop_key(key));
     if(!key)return;for(unsigned k=0;k<kArchives;++k)if(archives[k].key==key)revoke(k);
 }
 extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned bytes,unsigned family) {
@@ -111,6 +118,7 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
     // A retired owner cannot enter this branch even at the same address.
     for(const auto& o:archives)if(o.key==key && o.base==base && o.bytes==bytes && o.family==family)return;
     re4dc_actor_archive_retire(key);
+    SS_PARK(park_drop_overlap(base,bytes));
     // Overlapping adoption revokes the old owner before any positive proof.
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && overlap(base,bytes,archives[k].base,archives[k].bytes))revoke(k);
     if(exhausted || !key || !readable(base,bytes) || bytes<16 || family<1 || family>3)return;
@@ -141,6 +149,7 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
 }
 extern "C" void re4dc_actor_archive_retire_transient() {
     using namespace re4dc_material::life;
+    SS_PARK(park_drop_family(2));
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && archives[k].family==2)revoke(k);
 }
 #if RE4DC_ACTOR_TRANSACTION_DIAG
@@ -148,6 +157,7 @@ void atd_drop(const char*,const re4dc_material::life::Info&,const void*,unsigned
 #endif
 extern "C" void re4dc_actor_info_retire(const void* p) {
     using namespace re4dc_material::life;
+    SS_PARK(park_info_retire(p));
     if(auto* i=find_info(p)){
 #if RE4DC_ACTOR_TRANSACTION_DIAG
         atd_drop("info_retire",*i,static_cast<const cModelInfo*>(p)->pData,0,__builtin_return_address(0));
@@ -264,6 +274,7 @@ void atd_drop(const char* how,const re4dc_material::life::Info& rec,const void* 
 #endif
 extern "C" void re4dc_actor_forget_range(const void* p,unsigned bytes) {
     using namespace re4dc_material::life;if(!p || !bytes)return;
+    SS_PARK(park_forget(p,bytes));
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && overlap(p,bytes,archives[k].base,archives[k].bytes))revoke(k);
     bool hit=false;for(auto& i:infos_live)if(i.info && overlap(p,bytes,i.info,sizeof(cModelInfo))){ATD_DROP("forget_range",i,p,bytes);i={};hit=true;}
     for(auto& b:bindings)if(b.model && (overlap(p,bytes,b.model,sizeof(cModel)) || span(p,bytes,b.parts,1))){b={};hit=true;}
@@ -271,6 +282,7 @@ extern "C" void re4dc_actor_forget_range(const void* p,unsigned bytes) {
 }
 extern "C" void re4dc_actor_forget_all() {
     using namespace re4dc_material::life;
+    SS_PARK(park_drop_all());
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key)revoke(k);
     for(auto& i:infos_live)i={};for(auto& b:bindings)b={};changed();
 }
@@ -318,6 +330,7 @@ unsigned live_family(unsigned family) {
 #endif
 extern "C" void re4dc_actor_data_move(const void* p) {
     using namespace re4dc_material::life;
+    SS_PARK(park_forget(p,1));
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && span(archives[k].base,archives[k].bytes,p,1))revoke(k);
 }
 extern "C" void re4dc_actor_model_retire(cModel* m) {

@@ -223,7 +223,7 @@ void StageSet()
     }
     if (reload == 1) {
         RoomData.stopRelData();
-        MemReplaceHeap(1, 2);
+        MemReplaceHeap(1, 2); RE4DC_TRACE_OWNER_RELEASE(1);
         MemSetCurrentHeap(2);
         cMes.stageInit();
         if (pG->stage_no == 1) {
@@ -237,7 +237,7 @@ void StageSet()
     if (relink == 1 || reload == 1) {
         RoomData.stopRelData();
         RoomData.m_RelNo = 0;
-        MemReplaceHeap(2, 3);
+        MemReplaceHeap(2, 3); RE4DC_TRACE_OWNER_RELEASE(2);
         MemSetCurrentHeap(3);
         RoomData.linkRelData(G_ROOM_ID);
     }

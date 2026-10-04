@@ -546,14 +546,14 @@ int SsTermMain::OpeMesMove()
     if (ope.seqCnt == 0 && ope.str == 0) {
         if (ope.mdtNo != 0) {
             SndStrStopBlock(SubScreenWk.sndId);
-            ope.str = SndStrReq(1, ope.mdtNo, 1, 0, 0, 0.0f);
+            ope.str = RE4DC_CODEC_REQUEST(ope.mdtNo, SndStrReq(1, ope.mdtNo, 1, 0, 0, 0.0f));
             ope.flags |= 0x08000000;
             return 0;
         }
     }
     if (ope.str != 0 && (ope.flags & 0x08000000)) {
         IdUnit* u;
-        if (SndStrStatusCk(ope.str, 2) == 0) {
+        if (RE4DC_CODEC_READY(ope.str, SndStrStatusCk(ope.str, 2)) == 0) {
             return 0;
         }
         SndStrReq(ope.str, 2, 0, 0);
@@ -660,7 +660,7 @@ void SsTermMain::OpeMesClear()
 void SsTermMain::OpeSndStrStop()
 {
     if (ope.str) {
-        SndStrReq(ope.str, 8, 0, 0);
+        RE4DC_CODEC_CANCEL(ope.str); SndStrReq(ope.str, 8, 0, 0);
         ope.str = 0;
     }
 }

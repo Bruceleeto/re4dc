@@ -83,4 +83,25 @@ void* MemAlloc(u32 size, int flag);
 void MemFree(void* p);
 extern "C" void MemCheckUsedHeap();  // C linkage in the DOL (debug.cpp calls `bl MemCheckUsedHeap`)
 
+// LOGIC_TRACE_OWNERSHIP=1 (game30.mk; diagnostic trace builds only): the source room lifetime sites tell the
+// logic trace (logic_trace.cpp, schema 5) when the memory holding the room's actor / effect lists is handed
+// back to a heap (StageSet reload / REL relink, gameRoomMemInit) and when gameRoomInit has reset each list
+// head for the new room. The calls sit on the source lines they follow, so line numbers do not move.
+// Off (default): no code.
+#define RE4DC_OWN_PL 1u   // pPL (EmMgr work array)
+#define RE4DC_OWN_EM 2u   // EmMgr.pAlive
+#define RE4DC_OWN_OB 4u   // ObjMgr.pAlive
+#define RE4DC_OWN_EP 8u   // g_pEspSys, pEspBuf
+#define RE4DC_OWN_EG 16u  // EspgenArray
+#define RE4DC_OWN_ALL 31u
+#if defined(RE4DC_LOGIC_TRACE_OWNERSHIP) && RE4DC_LOGIC_TRACE_OWNERSHIP
+extern "C" void re4dc_trace_owner_release(unsigned site);
+extern "C" void re4dc_trace_owner_publish(unsigned domains);
+#define RE4DC_TRACE_OWNER_RELEASE(site) re4dc_trace_owner_release(site)
+#define RE4DC_TRACE_OWNER_PUBLISH(domains) re4dc_trace_owner_publish(domains)
+#else
+#define RE4DC_TRACE_OWNER_RELEASE(site) ((void) 0)
+#define RE4DC_TRACE_OWNER_PUBLISH(domains) ((void) 0)
+#endif
+
 #endif

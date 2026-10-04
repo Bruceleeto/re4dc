@@ -41,11 +41,28 @@ extern u32 nEspgen;
 #ifndef RE4DC_LOGIC_TRACE_SWAPPED
 #define RE4DC_LOGIC_TRACE_SWAPPED 0
 #endif
+// LOGIC_TRACE_OWNERSHIP=1 (schema 5): the room lists (player, enemies, objects, effects, effect generators) are
+// read only while the current room owns them. main_mem.h RE4DC_TRACE_OWNER_RELEASE marks all of them released
+// where the source hands their memory back to a heap (StageSet heap reload / REL relink, gameRoomMemInit), and
+// RE4DC_TRACE_OWNER_PUBLISH marks each one owned again right after gameRoomInit resets its head. A released
+// domain is logged as "-" with the owner mask "ow=" instead of hashing freed memory; the globals, camera and
+// decision hashes are recorded every tick. Off: the records are exactly as before.
+#ifndef RE4DC_LOGIC_TRACE_OWNERSHIP
+#define RE4DC_LOGIC_TRACE_OWNERSHIP 0
+#endif
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+#include "main_mem.h"
+#include <stdio.h>
+#endif
 #if RE4DC_LOGIC_TRACE_SWAPPED
 #include "trace_region_view.hpp"
 extern "C" int re4dc_ssb_trace_begin(unsigned);
 extern "C" int re4dc_ssb_trace_append(const void*,unsigned,unsigned*);
 extern "C" int re4dc_ssb_trace_read(void*,unsigned,unsigned);
+extern "C" int re4dc_ssb_trace_index_push(const void*);
+extern "C" int re4dc_ssb_trace_index_read(unsigned,void*);
+extern "C" int re4dc_ssb_trace_index_write(unsigned,const void*);
+extern "C" void re4dc_ssb_trace_layout(unsigned*);
 #endif
 
 #ifndef RE4DC_LOGIC_TRACE_DELAY_US
@@ -76,14 +93,28 @@ unsigned re4dc_dt_snd;
 namespace {
 #if RE4DC_LOGIC_TRACE_SWAPPED
 // Only the exact raw ranges consumed by the trace are retained. No game data is changed.
+// The span index is kept in the same backing store's spare capacity, not in game RAM (trace_spare.hpp).
 struct TraceVramBacking {
+    static constexpr bool kIndexInBacking=true;
     bool append(const void* p,unsigned n,unsigned* offset) { return re4dc_ssb_trace_append(p,n,offset)!=0; }
     bool read(void* dst,unsigned offset,unsigned n) const { return re4dc_ssb_trace_read(dst,offset,n)!=0; }
+    bool index_push(const void* e) { return re4dc_ssb_trace_index_push(e)!=0; }
+    bool index_read(unsigned i,void* e) const { return re4dc_ssb_trace_index_read(i,e)!=0; }
+    bool index_write(unsigned i,const void* e) { return re4dc_ssb_trace_index_write(i,e)!=0; }
 };
-TraceRegionView<4096,TraceVramBacking> g_trace_region;
+// Span capacity: 6144 default, 16384 for the large-room diagnostic (8 B each, in the backing store;
+// game RAM keeps one 4-byte fence per 32 spans).
+#ifndef RE4DC_LOGIC_TRACE_SPANS
+#define RE4DC_LOGIC_TRACE_SPANS 6144
+#endif
+TraceRegionView<RE4DC_LOGIC_TRACE_SPANS,TraceVramBacking> g_trace_region;
 void trace_copy(void* dst,const void* src,unsigned bytes) {
-    if (!g_trace_region.capture(src,bytes) || !g_trace_region.copy(dst,src,bytes))
+    const bool captured=g_trace_region.capture(src,bytes);
+    const bool copied=captured && g_trace_region.copy(dst,src,bytes);
+    if (!copied) {
+        re4dc_log("LTSFAIL src=%08x bytes=%u spans=%u used=%u capturing=%u active=%u captured=%u lo=%08x hi=%08x\n",unsigned(src),bytes,g_trace_region.count,g_trace_region.used,unsigned(g_trace_region.capturing),unsigned(g_trace_region.active),unsigned(captured),unsigned(g_trace_region.lo),unsigned(g_trace_region.hi));
         re4dc_missing("logic trace: uncaptured or overflowing borrowed-memory read");
+    }
 }
 template<class T> T trace_value(const T* src) {
     T value; trace_copy(&value,src,sizeof(value)); return value;
@@ -185,7 +216,34 @@ unsigned g_digRoom = ~0u, g_digTicks;
 bool g_digStarted;
 Fnv g_dig;
 unsigned g_latchRoom, g_latchTicks, g_latchDigest;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+// Owned domains (RE4DC_OWN_*), release events so far, the room the player list was last published for, and
+// the release generation the running room digest belongs to. Boot: every head is null, so all are owned.
+unsigned g_own = RE4DC_OWN_ALL, g_ownGen, g_ownPubRoom = ~0u, g_digGen;
+unsigned cur_room() { return pG ? (unsigned(pG->stage_no) << 8) | pG->room_no : 0xFFFFu; }
+#endif
 }  // namespace
+
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+// Source room lifetime sites (main_mem.h). "n" is the last logged sample: the change applies from sample n+1.
+// A publish of a domain that is already owned is an invalid sequence; it is logged ("again"), not hidden.
+extern "C" void re4dc_trace_owner_release(unsigned site)
+{
+    const unsigned was = g_own;
+    g_own = 0;
+    ++g_ownGen;
+    re4dc_log("LO release n=%u t=%u site=%u g=%u was=%02x rm=%04x\n", samples, pG ? (unsigned) pG->Frame_cnt : 0,
+              site, g_ownGen, was, cur_room());
+}
+extern "C" void re4dc_trace_owner_publish(unsigned domains)
+{
+    const unsigned again = g_own & domains;
+    g_own |= domains & RE4DC_OWN_ALL;
+    if (domains & RE4DC_OWN_PL) g_ownPubRoom = cur_room();
+    re4dc_log("LO publish n=%u t=%u d=%02x own=%02x g=%u again=%02x rm=%04x\n", samples,
+              pG ? (unsigned) pG->Frame_cnt : 0, domains, g_own, g_ownGen, again, cur_room());
+}
+#endif
 
 #if RE4DC_LOGIC_TRACE_SWAPPED
 // Called after backing save but before the owner swap, and after complete restoration, respectively.
@@ -194,19 +252,36 @@ extern "C" void re4dc_logic_trace_swap_open(void* base,unsigned bytes,unsigned s
     if(!re4dc_ssb_trace_begin(saved_end))re4dc_missing("logic trace: backing store not ready");
     if (!g_trace_region.begin(base,bytes)) re4dc_missing("logic trace: nested memory borrow");
     Fnv d,c,p;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    // Capture what the tick will read: owned lists only, plus the fixture feed's three position words.
+    if(pPL && (g_own&RE4DC_OWN_PL)) model_state(d,c,p,pPL);
+    else if(pPL && !g_trace_region.capture(&pPL->pos,sizeof(pPL->pos)))
+        re4dc_missing("logic trace: fixture position capture");
+    unsigned n=0;
+    cUnit* u=(g_own&RE4DC_OWN_EM)?(cUnit*)EmMgr.pAlive:0;
+#else
     if(pPL) model_state(d,c,p,pPL);
     unsigned n=0;
     cUnit* u=(cUnit*)EmMgr.pAlive;
+#endif
     for(;u && n<1024;u=trace_value(&u->pNext),++n) {
         cEm* e=(cEm*)u; model_state(d,c,p,e);d.add(e->hp);
     }
     if(u)re4dc_missing("logic trace: enemy capture walk limit");
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    n=0;u=(g_own&RE4DC_OWN_OB)?(cUnit*)ObjMgr.pAlive:0;
+#else
     n=0;u=(cUnit*)ObjMgr.pAlive;
+#endif
     for(;u && n<1024;u=trace_value(&u->pNext),++n) model_state(d,c,p,(cModel*)u);
     if(u)re4dc_missing("logic trace: object capture walk limit");
     if(!g_trace_region.seal())re4dc_missing("logic trace: memory borrow seal");
     re4dc_log("LTS open t=%u lo=%08x size=%u spans=%u bytes=%u\n",
         pG?(unsigned)pG->Frame_cnt:0,unsigned(base),bytes,g_trace_region.count,g_trace_region.used);
+    unsigned layout[5];
+    re4dc_ssb_trace_layout(layout);
+    re4dc_log("LTSMETA saved_end=%u data_end=%u index_low=%u index_top=%u capacity=%u index_bytes=%u spare_left=%u\n",
+        layout[0],layout[1],layout[2],layout[3],layout[4],layout[3]-layout[2],layout[2]-layout[1]);
 }
 extern "C" void re4dc_logic_trace_swap_close() {
     const bool restored=g_trace_region.restored();
@@ -282,8 +357,12 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
 #if defined(RE4DC_H2_EXTERNAL_DELAY) && RE4DC_H2_EXTERNAL_DELAY
     h2_probe_delay();
 #endif
-#if RE4DC_LOGIC_TRACE_SWAPPED
-    if (!samples) re4dc_log("LTV version=3 model_memory=borrow-vram\n");
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    if (!samples)
+        re4dc_log("LTV version=5 model_memory=%s owners=pl,em,ob,ep,eg\n",
+                  RE4DC_LOGIC_TRACE_SWAPPED ? "borrow-vram-all" : "direct");
+#elif RE4DC_LOGIC_TRACE_SWAPPED
+    if (!samples) re4dc_log("LTV version=4 model_memory=borrow-vram-all\n");
 #endif
     ++samples;
     Fnv st, rf, sc, cam, ps, pf, pm, es, ef, em, os, of, om;
@@ -308,19 +387,32 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     sc.add(pG->Item_find_flg);
     cam.words(&pG->Cam.param, 32);
     unsigned p[3] = {0, 0, 0}, a[3] = {0, 0, 0}, mf = 0, ms = 0;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    const unsigned own = g_own;
+    if (pPL && (own & RE4DC_OWN_PL)) {
+#else
     if (pPL) {
+#endif
         model_state(ps, pf, pm, pPL);
-        p[0] = bits(pPL->pos.x); p[1] = bits(pPL->pos.y); p[2] = bits(pPL->pos.z);
-        a[0] = bits(pPL->ang.x); a[1] = bits(pPL->ang.y); a[2] = bits(pPL->ang.z);
-        mf = bits(pPL->Motion.Mot_frame); ms = pPL->Motion.Mot_state;
+        p[0] = bits(trace_value(&pPL->pos.x)); p[1] = bits(trace_value(&pPL->pos.y)); p[2] = bits(trace_value(&pPL->pos.z));
+        a[0] = bits(trace_value(&pPL->ang.x)); a[1] = bits(trace_value(&pPL->ang.y)); a[2] = bits(trace_value(&pPL->ang.z));
+        mf = bits(trace_value(&pPL->Motion.Mot_frame)); ms = trace_value(&pPL->Motion.Mot_state);
     }
     unsigned ne = 0, no = 0;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    for (cUnit* u = (own & RE4DC_OWN_EM) ? (cUnit*) EmMgr.pAlive : 0; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
+#else
     for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
+#endif
         cEm* e = (cEm*) u;
         model_state(es, ef, em, e);
         es.add(e->hp);
     }
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    for (cUnit* u = (own & RE4DC_OWN_OB) ? (cUnit*) ObjMgr.pAlive : 0; u && no < 1024; u = trace_value(&u->pNext), ++no)
+#else
     for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = trace_value(&u->pNext), ++no)
+#endif
         model_state(os, of, om, (cModel*) u);
     const unsigned rng = re4dc_rnd_state();
     const unsigned room = (unsigned(pG->stage_no) << 8) | pG->room_no;
@@ -328,28 +420,64 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     // gameplay route start at the room's first tick with the player placed, the same anchor
     // logic_trace_diff.py --align room uses, so inputs land on the same room tick in A and B
     // even when loading took a different number of frames. Platform-side only.
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    // The feed keeps its exact pre-schema-5 value. While the player list is released this still reads the
+    // three position words at the stale pPL address (mapped main RAM, read only), exactly as before, so the
+    // fixture clock cannot move; those words are not recorded as player state.
+    unsigned placed = p[0] | p[1] | p[2];
+    if (pPL && !(own & RE4DC_OWN_PL))
+        placed = bits(trace_value(&pPL->pos.x)) | bits(trace_value(&pPL->pos.y)) | bits(trace_value(&pPL->pos.z));
+    re4dc_fixture_state("room", (int) room, placed ? 1 : 0);
+#else
     re4dc_fixture_state("room", (int) room, (p[0] | p[1] | p[2]) ? 1 : 0);
+#endif
     // Two lines per sample: re4dc_log formats into a 256-byte buffer and one line would be ~300
     // characters (the enemy/object/camera fields would be cut off). logic_trace_diff.py joins the
     // LT and LU halves of a sample by (t, n) and drops a sample whose other half is missing.
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    // A released domain prints "-" for each of its fields; "ow=<owned mask>/<release generation>" ends LT.
+    char pl[160], el[64], ol[64];
+    if (own & RE4DC_OWN_PL)
+        snprintf(pl, sizeof(pl), "p=%08x,%08x,%08x a=%08x,%08x,%08x m=%08x/%x ps=%08x pf=%08x pm=%08x", p[0], p[1],
+                 p[2], a[0], a[1], a[2], mf, ms, ps.h, pf.h, pm.h);
+    else
+        strcpy(pl, "p=- a=- m=- ps=- pf=- pm=-");
+    if (own & RE4DC_OWN_EM) snprintf(el, sizeof(el), "e=%u es=%08x ef=%08x em=%08x", ne, es.h, ef.h, em.h);
+    else strcpy(el, "e=- es=- ef=- em=-");
+    if (own & RE4DC_OWN_OB) snprintf(ol, sizeof(ol), "o=%u os=%08x of=%08x om=%08x", no, os.h, of.h, om.h);
+    else strcpy(ol, "o=- os=- of=- om=-");
+    re4dc_log("LT t=%u n=%u r=%04x sy=%08x sp=%08x st=%08x rf=%08x sc=%08x rm=%04x %s ow=%02x/%u\n",
+              (unsigned) pG->Frame_cnt, samples, rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h,
+              rf.h, sc.h, room, pl, own, g_ownGen);
+    re4dc_log("LU t=%u n=%u %s %s c=%08x\n", (unsigned) pG->Frame_cnt, samples, el, ol, cam.h);
+#else
     re4dc_log("LT t=%u n=%u r=%04x sy=%08x sp=%08x st=%08x rf=%08x sc=%08x rm=%04x p=%08x,%08x,%08x "
               "a=%08x,%08x,%08x m=%08x/%x ps=%08x pf=%08x pm=%08x\n",
               (unsigned) pG->Frame_cnt, samples, rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h,
               rf.h, sc.h, room, p[0], p[1], p[2], a[0], a[1], a[2], mf, ms, ps.h, pf.h, pm.h);
     re4dc_log("LU t=%u n=%u e=%u es=%08x ef=%08x em=%08x o=%u os=%08x of=%08x om=%08x c=%08x\n",
               (unsigned) pG->Frame_cnt, samples, ne, es.h, ef.h, em.h, no, os.h, of.h, om.h, cam.h);
+#endif
 #if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
     // Effect schema 2: ep contains discrete state, epf contains float bits.
     // Typed field access fixes GCC's cEsp vptr layout (m_Be_flg is at 0x10).
     Fnv ep, epf, eg;
     unsigned nep = 0, neg = 0;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    if ((own & RE4DC_OWN_EP) && g_pEspSys && g_pEspSys->pEspBuf) {
+#else
     if (g_pEspSys && g_pEspSys->pEspBuf) {
+#endif
         for (u32 i = 0; i < g_pEspSys->nEsp; i++) {
             const cEsp* e = reinterpret_cast<const cEsp*>(g_pEspSys->pEspBuf + i * 0x150);
             if (re4dc_trace_effect(ep, epf, i, *e)) ++nep;
         }
     }
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    for (u32 i = 0; (own & RE4DC_OWN_EG) && EspgenArray && i < nEspgen; i++) {
+#else
     for (u32 i = 0; EspgenArray && i < nEspgen; i++) {
+#endif
         const unsigned char* b = (const unsigned char*) &EspgenArray[i];
         if (!(b[0x0C] & 1)) {
             continue;
@@ -359,14 +487,29 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
         eg.words(b + 0x0C, 8);
         neg++;
     }
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    char epl[40], egl[24];
+    if (own & RE4DC_OWN_EP) snprintf(epl, sizeof(epl), "ep=%08x/%u epf=%08x", ep.h, nep, epf.h);
+    else strcpy(epl, "ep=- epf=-");
+    if (own & RE4DC_OWN_EG) snprintf(egl, sizeof(egl), "eg=%08x/%u", eg.h, neg);
+    else strcpy(egl, "eg=-");
+    re4dc_log("LX t=%u n=%u ec=%08x/%u sl=%08x/%u sa=%08x/%u dm=%08x/%u lq=%08x/%u lp=%08x sq=%08x/%u %s %s ev=2\n",
+              (unsigned) pG->Frame_cnt, samples, g_dt[0].h, g_dtn[0], g_dt[1].h, g_dtn[1], g_dt[2].h, g_dtn[2],
+              g_dt[3].h, g_dtn[3], g_dt[4].h, g_dtn[4], g_dt[5].h, g_dt[6].h, g_dtn[6], epl, egl);
+#else
     re4dc_log("LX t=%u n=%u ec=%08x/%u sl=%08x/%u sa=%08x/%u dm=%08x/%u lq=%08x/%u lp=%08x sq=%08x/%u "
               "ep=%08x/%u eg=%08x/%u epf=%08x ev=2\n",
               (unsigned) pG->Frame_cnt, samples, g_dt[0].h, g_dtn[0], g_dt[1].h, g_dtn[1], g_dt[2].h, g_dtn[2],
               g_dt[3].h, g_dtn[3], g_dt[4].h, g_dtn[4], g_dt[5].h, g_dt[6].h, g_dtn[6], ep.h, nep, eg.h, neg, epf.h);
+#endif
     for (int k = 0; k < 8; ++k) {
         g_dt[k] = Fnv();
         g_dtn[k] = 0;
     }
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    if ((samples & 3) == 0 && !(own & RE4DC_OWN_EM)) re4dc_log("LP t=%u k=- unowned\n", (unsigned) pG->Frame_cnt);
+    else
+#endif
     if ((samples & 3) == 0) {
         unsigned k = 0;
         for (cUnit* u = (cUnit*) EmMgr.pAlive; u && k < 40; u = trace_value(&u->pNext)) {
@@ -375,10 +518,10 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
             unsigned m = 0;
             for (; u && m < 3; ++m) {
                 const cEm* f = (const cEm*) u;
-                q[m][0] = f->id;
-                q[m][1] = bits(f->pos.x);
-                q[m][2] = bits(f->pos.y);
-                q[m][3] = bits(f->pos.z);
+                q[m][0] = trace_value(&f->id);
+                q[m][1] = bits(trace_value(&f->pos.x));
+                q[m][2] = bits(trace_value(&f->pos.y));
+                q[m][3] = bits(trace_value(&f->pos.z));
                 if (m < 2) u = trace_value(&u->pNext);
             }
             (void) e;
@@ -392,18 +535,37 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     }
 #endif
 
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+    // A digest belongs to one room and one release generation. Its anchor is the first tick whose player list
+    // was published for this room and holds a placed player: never the previous room's player, whose
+    // position is still readable after the door changed the room number.
+    if (room != g_digRoom || g_ownGen != g_digGen) {
+        g_digRoom = room; g_digGen = g_ownGen; g_digTicks = 0; g_digStarted = false; g_dig = Fnv();
+    }
+    if (!g_digStarted && (own & RE4DC_OWN_PL) && g_ownPubRoom == room && (p[0] | p[1] | p[2])) g_digStarted = true;
+#else
     if (room != g_digRoom) {
         g_digRoom = room; g_digTicks = 0; g_digStarted = false; g_dig = Fnv();
     }
     if (!g_digStarted && (p[0] | p[1] | p[2])) g_digStarted = true;
+#endif
     if (g_digStarted) {
         const unsigned v[] = {rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h, rf.h, sc.h, room,
                               p[0], p[1], p[2], a[0], a[1], a[2], mf, ms, ps.h, pf.h, pm.h, ne, es.h, ef.h, em.h,
-                              no, os.h, of.h, om.h, cam.h};
+                              no, os.h, of.h, om.h, cam.h
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+                              , own | (g_ownGen << 8)
+#endif
+                              };
         for (unsigned w : v) g_dig.word(w);
         if (++g_digTicks % kDigestEvery == 0) {
             g_latchRoom = room; g_latchTicks = g_digTicks; g_latchDigest = g_dig.h;
+#if RE4DC_LOGIC_TRACE_OWNERSHIP
+            re4dc_log("LD t=%u rm=%04x k=%u d=%08x g=%u\n", (unsigned) pG->Frame_cnt, room, g_digTicks, g_dig.h,
+                      g_ownGen);
+#else
             re4dc_log("LD t=%u rm=%04x k=%u d=%08x\n", (unsigned) pG->Frame_cnt, room, g_digTicks, g_dig.h);
+#endif
         }
     }
 }

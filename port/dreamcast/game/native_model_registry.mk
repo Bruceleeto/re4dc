@@ -141,3 +141,48 @@ endif
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1
 endif
 endif
+
+# ACTOR_PROOF_LEAN (default 0; needs ACTOR_TRANSACTION=1; render only; independent of the registry knobs): one actor
+# transaction proves each thing once, for Leon, the Ganado cast and registry plans alike. The decisions are the =0
+# decisions:
+#   - the pass that acquired the actor in the SAME re4dc_actor_transaction_draw call keeps its pre-acquire
+#     actor_semantics verdict and the modelviews actor_acquire computed, while the lifetime serial (life::next: adopt,
+#     retire, revoke, forget, stream pending, binding refresh) has not moved since that verdict; a later pass (Leon's
+#     second OT group) and any lifetime change run the whole proof (coarse_actor_transaction.inc has the audit);
+#   - the material certificate looks up each role's current row once per evaluation: the owner proof is implied by the
+#     unique current row, and the Ganado run loop and source material reuse it (coarse_actor_material.inc).
+#   Role rows are held per plan info slot (sizeof Re4dcActorPlan::info), not a fixed role count.
+#   =2: compare build: the =0 proofs also run and decide; "APL" lines (every 600 frames) count every reuse and how often
+#   the =0 result differed (semantics_bad, mv_bad, owner_bad, rows_bad, materials_bad must be 0). Not with
+#   NATIVE_MODEL_REGISTRY_TX=2 (a separate compare build).
+ACTOR_PROOF_LEAN ?= 0
+ifeq ($(filter $(ACTOR_PROOF_LEAN),0 1 2),)
+$(error ACTOR_PROOF_LEAN must be 0, 1 or 2)
+endif
+ifneq ($(ACTOR_PROOF_LEAN),0)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_PROOF_LEAN acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_PROOF_LEAN=$(ACTOR_PROOF_LEAN)
+endif
+
+# ACTOR_MATERIAL_RECORD (default 0; private prototype; needs ACTOR_PROOF_LEAN=1; render only): the material
+# certificate keeps, per model (16 records, 44 bytes each), what is fixed while the lifetime epoch is unchanged: each
+# role's lifetime record slot and unique current row and info()'s archive verdict (TPL descriptors / headers / R4xREF
+# / CLUT and ModelPart header bytes inside the owner archives) with its required bits. Every adopt / retire / revoke /
+# forget / room rows publish or retire / swap park or unpark moves the epoch (life::changed); a hit also needs each
+# plan info in the model's list and info_current() true for its row now. Everything else (model and info modifiers,
+# ModelData header, shapes, gxCsScale, frame owner, registry model / runs, source materials, plan materials,
+# capability) is evaluated every time. coarse_actor_material.inc has the audit. The decisions are the =0 decisions.
+#   =2: compare build: the whole certificate also runs and decides; "AMR" lines (every 600 frames) count evaluations,
+#   hits, stores and hits whose result differed (bad must be 0).
+ACTOR_MATERIAL_RECORD ?= 0
+ifeq ($(filter $(ACTOR_MATERIAL_RECORD),0 1 2),)
+$(error ACTOR_MATERIAL_RECORD must be 0, 1 or 2)
+endif
+ifneq ($(ACTOR_MATERIAL_RECORD),0)
+ifneq ($(ACTOR_PROOF_LEAN),1)
+$(error ACTOR_MATERIAL_RECORD extends the ACTOR_PROOF_LEAN=1 certificate (ACTOR_PROOF_LEAN=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_MATERIAL_RECORD=$(ACTOR_MATERIAL_RECORD)
+endif

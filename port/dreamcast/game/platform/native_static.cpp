@@ -104,8 +104,24 @@ extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h k
 #define RE4DC_MESH_CLIP_LEAN 0 // 1: clipper frustum pre-cull + one clip_vertex per corner (exact in pixels)
 #endif
 static constexpr unsigned kClipOnce=16; // MESH_CLIP_LEAN: longer clipped strips take the per-triangle path
+#ifndef RE4DC_MESH_VP_SCHED
+#define RE4DC_MESH_VP_SCHED 0 // 1: software-pipelined kChecksAll transform (exact); 2: both, compare; 3: layout control (diagnostics)
+#endif
 #if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH
 #include "../../room/mesh_fastpath.hpp"
+#if RE4DC_MESH_VP_SCHED
+#include "../../room/mesh_fastpath_sched.hpp"
+#endif
+#endif
+#ifndef RE4DC_MESH_STRIP_LEAN
+#define RE4DC_MESH_STRIP_LEAN 0 // 1: lean meshlet strip walk (exact); 2: both, compare; 3: layout control (diagnostics)
+#endif
+#if RE4DC_MESH_STRIP_LEAN && !(RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH && RE4DC_MESH_DIRECT && RE4DC_MESH_DEPTH_CULL && defined(__sh__))
+#undef RE4DC_MESH_STRIP_LEAN
+#define RE4DC_MESH_STRIP_LEAN 0 // the lean walk covers the direct, depth-culling SH4 path only; others keep the original
+#endif
+#if RE4DC_MESH_STRIP_LEAN
+#include "../../room/mesh_strip_lean.hpp"
 #endif
 // R4IM v2 levels of detail (convert_room_bins.py --lod). Per visible cluster
 // the coarsest level whose error projects to at most RE4DC_MESH_LOD_PX pixels
@@ -1107,6 +1123,57 @@ void light_part(MeshView& v,const re4dc::room::MeshRecord& mesh,re4dc::room::Mes
     ++stats.parts_lit;
 }
 
+#if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH && RE4DC_MESH_VP_SCHED==2
+// MESH_VP_SCHED=2 (diagnostic): the reference transform<kChecksAll> fills the drawn cache; the pipelined
+// kernel transforms the same meshlet into a scratch cache, and its x,y,z,u,v,argb words and the outcodes'
+// defined bits (0x3f) are compared with the reference's. Counts are logged with the frame stats.
+static pvr_vertex_t vp_sched_cache[re4dc::vp::kCacheEntries] __attribute__((aligned(32)));
+static std::uint8_t vp_sched_codes[re4dc::vp::kCacheEntries];
+static unsigned vp_sched_stats[4]; // meshlets, vertices, mismatched vertices, mismatched words/codes
+static void vp_sched_compare(const re4dc::vp::Vertex12* in,unsigned count,const pvr_vertex_t* cache,
+                             const std::uint8_t* codes,const re4dc::vp::Constants& k){
+    re4dc::vp::transform_sched<re4dc::vp::kChecksAll>(in,count,vp_sched_cache,vp_sched_codes,k);
+    ++vp_sched_stats[0];vp_sched_stats[1]+=count;
+    for(unsigned i=0;i<count;++i){
+        const auto* a=reinterpret_cast<const std::uint32_t*>(cache+i);
+        const auto* b=reinterpret_cast<const std::uint32_t*>(vp_sched_cache+i);
+        unsigned bad=0;
+        for(unsigned w=1;w<7;++w)bad+=a[w]!=b[w];
+        bad+=((codes[i]^vp_sched_codes[i])&0x3fU)!=0;
+        if(!bad)continue;
+        if(++vp_sched_stats[2]<=8)re4dc_log("VPSCHED mismatch vertex=%u/%u ref=%08x %08x %08x %08x %08x %08x %02x new=%08x %08x %08x %08x %08x %08x %02x\n",
+            i,count,unsigned(a[1]),unsigned(a[2]),unsigned(a[3]),unsigned(a[4]),unsigned(a[5]),unsigned(a[6]),unsigned(codes[i]),
+            unsigned(b[1]),unsigned(b[2]),unsigned(b[3]),unsigned(b[4]),unsigned(b[5]),unsigned(b[6]),unsigned(vp_sched_codes[i]));
+        vp_sched_stats[3]+=bad;
+    }
+}
+#endif
+#if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH && RE4DC_MESH_VP_SCHED==3
+// MESH_VP_SCHED=3 (layout control, diagnostic): both kernels are linked and this .data word picks one
+// (1 = reference, 2 = pipelined; never 0, so it stays in .data), so the two arms' images differ in this word
+// only and their TA hashes compare frame by frame without the static-layout confounder.
+#ifndef RE4DC_MESH_VP_SCHED_SELECT
+#define RE4DC_MESH_VP_SCHED_SELECT 0
+#endif
+static volatile unsigned vp_sched_select=1U+RE4DC_MESH_VP_SCHED_SELECT;
+#endif
+#if RE4DC_MESH_STRIP_LEAN==2
+// MESH_STRIP_LEAN=2 (diagnostic): meshlets, strips, emitted strips, mismatched runs, counter-formula mismatches,
+// emitted vertices, skipped meshlets; two RAM stand-ins for the store queues (a run emits at most one vertex
+// per strip byte).
+constexpr unsigned kStripLeanVertices=512;
+static unsigned strip_lean_stats[7];
+static std::uint32_t strip_lean_buf[2][kStripLeanVertices*8] __attribute__((aligned(32)));
+#endif
+#if RE4DC_MESH_STRIP_LEAN==3
+// MESH_STRIP_LEAN=3 (layout control, diagnostic): both walks are linked and this .data word picks one
+// (1 = original, 2 = lean; never 0, so it stays in .data); MESH_STRIP_LEAN_SELECT=0|1.
+#ifndef RE4DC_MESH_STRIP_LEAN_SELECT
+#define RE4DC_MESH_STRIP_LEAN_SELECT 0
+#endif
+static volatile unsigned strip_lean_select=1U+RE4DC_MESH_STRIP_LEAN_SELECT;
+#endif
+
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
     const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
@@ -1188,10 +1255,32 @@ struct MeshDraw : Emitter {
 #endif
         if(checks==vp::kChecksNone)vp::transform<vp::kChecksNone>(in,l.vertex_count,cache,outcodes,k);
         else if(checks==vp::kChecksScreen)vp::transform<vp::kChecksScreen>(in,l.vertex_count,cache,outcodes,k);
+#if RE4DC_MESH_VP_SCHED==1
+        else vp::transform_sched<vp::kChecksAll>(in,l.vertex_count,cache,outcodes,k);
+#elif RE4DC_MESH_VP_SCHED==3
+        else if(vp_sched_select==2U)vp::transform_sched<vp::kChecksAll>(in,l.vertex_count,cache,outcodes,k);
         else vp::transform<vp::kChecksAll>(in,l.vertex_count,cache,outcodes,k);
+#else
+        else vp::transform<vp::kChecksAll>(in,l.vertex_count,cache,outcodes,k);
+#endif
+#if RE4DC_MESH_VP_SCHED==2
+        if(checks==vp::kChecksAll)vp_sched_compare(in,l.vertex_count,cache,outcodes,k);
+#endif
         const unsigned screen=vp::screen_mask(checks),depth=vp::depth_mask(checks);
+#if RE4DC_MESH_STRIP_LEAN==2
+        if(checks==vp::kChecksAll && sq)strip_lean_compare(l);
+#endif
         const std::uint8_t* s=package.strip_begin(l);
         const std::uint8_t* const end=s+l.strip_bytes;
+#if RE4DC_MESH_STRIP_LEAN==1 || RE4DC_MESH_STRIP_LEAN==3
+        // The lean walk takes kChecksAll meshlets on the store-queue sink (n > limit is one of its clip
+        // stops, as below); other meshlets keep this original walk.
+        if(checks==vp::kChecksAll && sq
+#if RE4DC_MESH_STRIP_LEAN==3
+           && strip_lean_select==2U
+#endif
+          ){int result=1;s=strips_lean(s,end,base,batch,result);if(!s)return result;}
+#endif
         while(s<end){
             const unsigned n=*s++;
             input+=n-2;
@@ -1222,6 +1311,81 @@ struct MeshDraw : Emitter {
         }
         return 1;
     }
+#if RE4DC_MESH_STRIP_LEAN==1 || RE4DC_MESH_STRIP_LEAN==3
+    // MESH_STRIP_LEAN: meshlet()'s strip walk for kChecksAll meshlets on the store-queue sink. walk_lean()
+    // (room/mesh_strip_lean.hpp) takes the strips up to the next one that needs the clipper with the same
+    // StripCodes words, decisions, order and TA bursts as the original loop, keeping the per-strip counter
+    // updates in registers. Between clip strips every strip is culled or emitted, so for the strips in
+    // [mark, s):  sum n = (s - mark) - strips,  slots = (q - qmark) / 32 B,  output = slots - 2 * emitted,
+    // input = sum n - 2 * strips, stats.vertices = sum n. lean_flush() writes these back before the
+    // clipper (which reads and updates the members) and at the end; the clip strip itself runs the
+    // original code. Returns nullptr when the meshlet is done (result: meshlet()'s value).
+    void lean_flush(const std::uint8_t* s,const std::uint8_t* mark,std::uint32_t* q,const std::uint32_t* qmark,
+                    unsigned culled,unsigned emitted){
+        const unsigned strips=culled+emitted,sum=unsigned(s-mark)-strips,v=unsigned(q-qmark)/8U;
+        input+=sum-2U*strips;stats.vertices+=sum;stats.strips_culled+=culled;stats.strips+=emitted;
+        slots+=v;output+=v-2U*emitted;sq=q;
+    }
+    const std::uint8_t* strips_lean(const std::uint8_t* s,const std::uint8_t* end,const re4dc::room::CompactVertex12* base,
+                                    const re4dc::room::CompactBatch& batch,int& result){
+        for(;;){
+            const std::uint8_t* const mark=s;std::uint32_t* q=sq;const std::uint32_t* const qmark=q;
+            unsigned culled=0,emitted=0;
+            s=re4dc::vp::walk_lean(s,end,outcodes,cache,limit,q,culled,emitted);
+            lean_flush(s,mark,q,qmark,culled,emitted);
+            if(s>=end){result=1;return nullptr;}
+            const unsigned n=*s++; // a strip for the clipper: meshlet()'s code
+            input+=n-2;
+            if(n<=limit)stats.vertices+=n;
+            result=clip_strip(base,batch,s,n);
+            if(result<=0)return nullptr;
+            s+=n;
+        }
+    }
+#endif
+#if RE4DC_MESH_STRIP_LEAN==2
+    // MESH_STRIP_LEAN=2 (diagnostic): before the original walk draws the meshlet, each run of strips up to
+    // a clip strip is walked twice into RAM (in place of the store queues): the reference is meshlet()'s
+    // loop body (codes(), the decisions, emit_sq()), the candidate is walk_lean(). Compared: stop strip,
+    // culled / emitted counts, every written word, and the lean_flush() counter formulas against the
+    // reference's per-strip sums. Meshlets with more strip bytes than the buffers hold are counted as
+    // skipped.
+    void strip_lean_compare(const re4dc::room::Meshlet& l){
+        namespace vp=re4dc::vp;
+        constexpr unsigned screen=vp::screen_mask(vp::kChecksAll),depth=vp::depth_mask(vp::kChecksAll);
+        const std::uint8_t* s=package.strip_begin(l);
+        const std::uint8_t* const end=s+l.strip_bytes;
+        ++strip_lean_stats[0];
+        if(l.strip_bytes>kStripLeanVertices){++strip_lean_stats[6];return;}
+        while(s<end){
+            const std::uint8_t* sa=s;std::uint32_t* qa=strip_lean_buf[0];unsigned ca=0,ea=0;
+            unsigned ref[4]={}; // input, vertices, slots, output
+            while(sa<end){
+                const unsigned n=*sa;const vp::StripCodes c=vp::codes(outcodes,sa+1,n);
+                ++strip_lean_stats[1];
+                if(c.all&depth){ref[0]+=n-2;ref[1]+=n;++ca;sa+=1+n;continue;}
+                if((c.any&depth) || n>limit)break;
+                ref[0]+=n-2;ref[1]+=n;
+                if(c.all&screen){++ca;sa+=1+n;continue;}
+                qa=vp::emit_sq(qa,cache,sa+1,n);ref[2]+=n;ref[3]+=n-2;++ea;strip_lean_stats[5]+=n;sa+=1+n;
+            }
+            std::uint32_t* qb=strip_lean_buf[1];unsigned cb=0,eb=0;
+            const std::uint8_t* const sb=vp::walk_lean(s,end,outcodes,cache,limit,qb,cb,eb);
+            strip_lean_stats[2]+=ea;
+            const unsigned strips=cb+eb,sum=unsigned(sb-s)-strips,v=unsigned(qb-strip_lean_buf[1])/8U;
+            const unsigned lean[4]={sum-2U*strips,sum,v,v-2U*eb};
+            bool bad=sa!=sb || ca!=cb || ea!=eb || qa-strip_lean_buf[0]!=qb-strip_lean_buf[1] ||
+                     __builtin_memcmp(strip_lean_buf[0],strip_lean_buf[1],4U*unsigned(qa-strip_lean_buf[0]))!=0;
+            for(unsigned i=0;i<4;++i)if(lean[i]!=ref[i]){bad=true;++strip_lean_stats[4];}
+            if(bad && ++strip_lean_stats[3]<=8)
+                re4dc_log("STRIPLEAN mismatch stop=%d/%d culled=%u/%u emitted=%u/%u words=%d/%d sums=%u,%u,%u,%u/%u,%u,%u,%u\n",
+                    int(sa-s),int(sb-s),ca,cb,ea,eb,int(qa-strip_lean_buf[0]),int(qb-strip_lean_buf[1]),
+                    ref[0],ref[1],ref[2],ref[3],lean[0],lean[1],lean[2],lean[3]);
+            if(sa>=end)break;
+            s=sa+1+*sa; // past the clip strip: the original code path in both walks
+        }
+    }
+#endif
 #endif
     // One meshlet: 1 drawn or culled, 0 fallback allowed, -1 frame aborted.
     int draw(const re4dc::room::Meshlet& l){
@@ -1652,6 +1816,15 @@ void log_stats(unsigned frame){
         re4dc_log("native static: frame=%u vertices=%u batches=%u binds=%u misses=%u conflicts=%u unowned=%u unbound=%u lit=%u\n",
             frame,stats.vertices,stats.batches,stats.binds,stats.bind_misses,stats.bind_conflicts,stats.unowned_binds,
             stats.locate_misses,stats.parts_lit);
+#if RE4DC_MESH_STRIP_LEAN==2
+        re4dc_log("STRIPLEAN frame=%u meshlets=%u skipped=%u strips=%u emitted=%u vertices=%u mismatch=%u counters=%u\n",frame,
+            strip_lean_stats[0],strip_lean_stats[6],strip_lean_stats[1],strip_lean_stats[2],strip_lean_stats[5],
+            strip_lean_stats[3],strip_lean_stats[4]);
+#endif
+#if RE4DC_NATIVE_MESH && RE4DC_MESH_FASTPATH && RE4DC_MESH_VP_SCHED==2
+        re4dc_log("VPSCHED frame=%u meshlets=%u vertices=%u mismatch=%u words=%u\n",frame,
+            vp_sched_stats[0],vp_sched_stats[1],vp_sched_stats[2],vp_sched_stats[3]);
+#endif
 #if RE4DC_MESH_LOD || RE4DC_NATIVE_FOG
         re4dc_log("native static: frame=%u clusters=%u/%u lod=%u/%u/%u/%u px=%u\n",frame,stats.clusters_visible,
             stats.clusters_visible+stats.clusters_culled,stats.lod_draws[0],stats.lod_draws[1],stats.lod_draws[2],

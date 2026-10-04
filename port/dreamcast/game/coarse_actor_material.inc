@@ -140,8 +140,80 @@ Error texture(const void* descriptor,const Texture& e) {
 }
 } // re4dc_material
 #include "actor_lifetime.inc"
+#if RE4DC_ACTOR_PROOF_LEAN
+// ACTOR_PROOF_LEAN: re4dc_actor_source_material's body for a row the caller already resolved in this evaluation.
+static int lean_source_material(cModel*,cModelInfo*,unsigned,unsigned,const re4dc_material::Role*,Re4dcActorOwnedMaterial*);
+#endif
+#if RE4DC_ACTOR_MATERIAL_RECORD
+#if RE4DC_ACTOR_PROOF_LEAN != 1
+#error ACTOR_MATERIAL_RECORD extends the ACTOR_PROOF_LEAN=1 certificate (a separate compare build from ACTOR_PROOF_LEAN=2)
+#endif
+// ACTOR_MATERIAL_RECORD (native_model_registry.mk): a certificate's lifetime-epoch facts, kept per model between
+// evaluations. A record holds only what is fixed while life::epoch is unchanged and life is not exhausted: each
+// role's lifetime record slot (find_info) and unique current row, and the archive verdict of info() (the role
+// TPL's descriptors / headers / R4xREF / CLUT bytes and the ModelPart header bytes, all inside the record's owner
+// archives) with the required bits it adds. Every life::changed() (adopt, retire, revoke, forget, room rows publish /
+// retire, swap park / unpark) moves the epoch; a stream conversion (pending) and every cModel / cModelInfo / ModelData
+// header / modifier / gxCsScale / plan / run value stay live. A hit is taken only when the epoch, appearance and
+// count match, every plan info is in the model's info list (actor_current_role's walk) and each role's record slot
+// still names that info with info_current() true for its row, which is then exactly actor_current_role's result;
+// anything else evaluates the whole certificate and stores it again on success.
+namespace re4dc_material { namespace record {
+constexpr unsigned kRoles=sizeof(Re4dcActorPlan::info)/sizeof(Re4dcActorPlan::info[0]),kRecords=16;
+static_assert(life::kInfos<=256,"record slot is a byte");
+struct Record {
+    cModel* m;unsigned epoch,appearance;unsigned char count,need,slot[kRoles];unsigned short row[kRoles];
+};
+Record records[kRecords];unsigned replace;
+const Record* hit(cModel* m,const Re4dcActorPlan* p) {
+    using namespace life;
+    // compare()'s own precondition first, before any lookup or dereference: a failure takes no record and
+    // compare_core returns BadRange exactly as the whole certificate does.
+    if(!m || !p || !readable(m,sizeof(*m)))return nullptr;
+    if(exhausted)return nullptr;
+    const Record* r=nullptr;for(const auto& x:records)if(x.m==m){r=&x;break;}
+    if(!r || r->epoch!=epoch || r->appearance!=p->appearance || r->count!=p->count || p->count>kRoles)return nullptr;
+    unsigned n=0,seen=0;
+    for(auto* q=m->pModelInfo;q && n<kRe4dcActorRoles+1;q=q->pList,++n)
+        for(unsigned k=0;k<p->count;++k)if(q==p->info[k])seen|=1u<<k;
+    if(n>kRe4dcActorRoles || seen!=(1u<<p->count)-1u)return nullptr;
+    for(unsigned k=0;k<p->count;++k) {
+        const auto& i=infos_live[r->slot[k]];
+        if(i.info!=p->info[k] || !info_current(i,r->row[k]))return nullptr;
+    }
+    return r;
+}
+void store(cModel* m,const Re4dcActorPlan* p,const Result& res,const Role* const* rows) {
+    using namespace life;
+    if(exhausted || !m || p->count>kRoles)return;
+    Record x{};x.m=m;x.epoch=epoch;x.appearance=p->appearance;x.count=(unsigned char)p->count;
+    x.need=(unsigned char)(res.required&(Mask|SourcePass|Bump|Specular));
+    for(unsigned k=0;k<p->count;++k) {
+        const Info* i=find_info(p->info[k]);if(!i || !rows[k])return;
+        unsigned r=0;while(r<RE4DC_ROLE_COUNT && &RE4DC_ROLE(r)!=rows[k])++r;
+        if(r>=RE4DC_ROLE_COUNT || r>0xffffu)return;
+        x.slot[k]=(unsigned char)(i-infos_live);x.row[k]=(unsigned short)r;
+    }
+    Record* at=nullptr;
+    for(auto& y:records)if(y.m==m){at=&y;break;}
+    if(!at)for(auto& y:records)if(!y.m || y.epoch!=epoch){at=&y;break;}
+    if(!at)at=&records[replace++%kRecords];
+    *at=x;
+}
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+// Compare build counters ("AMR" lines every 600 frames): evaluations, record hits (whose result is compared with the
+// whole certificate, which decides), stores, and hits whose result differed (bad must be 0).
+struct Count { unsigned calls,hits,stores,bad,last; } c;
+#endif
+} }
+#endif
 namespace re4dc_material {
+#if RE4DC_ACTOR_MATERIAL_RECORD
+// archive=false: a record hit; the archive verdict (TPL and ModelPart header bytes, checked last) is the record's.
+Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic,bool archive) {
+#else
 Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
+#endif
     if(!readable(i,sizeof(*i)) || !readable(i->pData,sizeof(ModelData)))return Error::BadRange;
     const auto& e=*row.model;const auto& d=*i->pData;
     unsigned h[10]={d.flags,d.shift,d.nParts,d.nVtx,d.nNrm,d.nTex,
@@ -173,6 +245,9 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
         }
         out.required|=Morph;
     }
+#if RE4DC_ACTOR_MATERIAL_RECORD
+    if(!archive){++out.identity_roles;return Error::None;}
+#endif
     const void* tp=i->tpl_addr;
     if(!readable(tp,12) || u32at(tp,4)!=row.texture_count)return Error::Texture;
     const void* td=ptrat(tp,8);
@@ -210,7 +285,12 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     }
     ++out.identity_roles;return Error::None;
 }
+#if RE4DC_ACTOR_MATERIAL_RECORD
+// rec: a record hit (its rows and archive verdict); rows_out: the rows this evaluation used (for a store).
+Result compare_core(cModel* m,const Re4dcActorPlan* p,bool diagnostic,const record::Record* rec,const Role** rows_out) {
+#else
 Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
+#endif
     Result out{Error::None,0,0,Diffuse|SourceLighting|AtlasSampler,0};
     if(!m || !p || !readable(m,sizeof(*m))) {out.error=Error::BadRange;return out;}
     re4dc_source::FrameIdentity frame{};re4dc_source::ModelIdentity owner{};
@@ -244,6 +324,43 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
 #endif
+#if RE4DC_ACTOR_PROOF_LEAN
+    // ACTOR_PROOF_LEAN: each role's current row is looked up once in this evaluation (nothing between the lookups
+    // writes the lifetime records, the rows or the plan: info / texture / source material only read). A non-null
+    // actor_current_role implies re4dc_actor_material_owner_proof (same membership, find_info and scan, which stops
+    // at the first match where the row lookup needs exactly one), so that second scan is not repeated; the run loop
+    // and the source material reuse the row. =2: the =0 lookups also run, decide, and are counted.
+    constexpr unsigned kLeanRoles=sizeof(Re4dcActorPlan::info)/sizeof(Re4dcActorPlan::info[0]);
+    const Role* rows[kLeanRoles]{};
+    if(p->count>kLeanRoles){out.error=Error::BadRange;return out;}
+    for(unsigned k=0;k<p->count;++k) {
+#if RE4DC_ACTOR_MATERIAL_RECORD
+        out.role=k;const auto* row=diagnostic?find(p->appearance,k):rec?&RE4DC_ROLE(rec->row[k]):
+                                   actor_current_role(m,p->info[k],p->appearance,k);
+#else
+        out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
+#endif
+        if(!row){out.error=Error::MissingRole;return out;}
+#if RE4DC_ACTOR_PROOF_LEAN == 2
+        if(!diagnostic) {
+            ++actor_lean_c.owner;
+            if(!re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,k,RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
+                ++actor_lean_c.owner_bad;out.error=Error::MissingOwnerProof;return out;
+            }
+        }
+#endif
+        rows[k]=row;
+#if RE4DC_ACTOR_MATERIAL_RECORD
+        if(rows_out)rows_out[k]=row;
+        out.error=info(p->info[k],*row,out,diagnostic,!rec);if(out.error!=Error::None)return out;
+#else
+        out.error=info(p->info[k],*row,out,diagnostic);if(out.error!=Error::None)return out;
+#endif
+    }
+#if RE4DC_ACTOR_MATERIAL_RECORD
+    if(rec)out.required|=rec->need;
+#endif
+#else
     for(unsigned k=0;k<p->count;++k) {
         out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
         if(!row){out.error=Error::MissingRole;return out;}
@@ -252,6 +369,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
         }
         out.error=info(p->info[k],*row,out,diagnostic);if(out.error!=Error::None)return out;
     }
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // Registry runs: one per role in source order, each drawing its chunk's own descriptor texture package.
     if(registry) {
@@ -263,13 +381,41 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
         for(unsigned j=0;j<p->run_count;++j) {
             const auto& run=p->runs[j];const unsigned role=run.role;
             if(role>=p->count || run.material>=p->material_count){out.error=Error::Material;return out;}
+#if RE4DC_ACTOR_PROOF_LEAN
+            const auto* row=diagnostic?actor_current_role(m,p->info[role],p->appearance,role):rows[role];
+#if RE4DC_ACTOR_PROOF_LEAN == 2
+            if(!diagnostic) {
+                const auto* full=actor_current_role(m,p->info[role],p->appearance,role);
+                ++actor_lean_c.rows;if(full!=row)++actor_lean_c.rows_bad;row=full;
+            }
+#endif
+#else
             const auto* row=actor_current_role(m,p->info[role],p->appearance,role);
+#endif
             if(!row){out.error=Error::MissingOwnerProof;return out;}
             const bool original=(role==2 && row->source_bin==451) ||
                 (role==3 && row->source_bin==456) || role==4;
             if(!original) {if(run.material!=0){out.error=Error::Material;return out;}continue;}
             Re4dcActorOwnedMaterial want{};
+#if RE4DC_ACTOR_PROOF_LEAN == 1
+            if(!(diagnostic?re4dc_actor_source_material(m,p->info[role],p->appearance,role,&want):
+                 lean_source_material(m,p->info[role],p->appearance,role,row,&want))) {out.error=Error::Material;return out;}
+#elif RE4DC_ACTOR_PROOF_LEAN == 2
+            const int got=re4dc_actor_source_material(m,p->info[role],p->appearance,role,&want);
+            if(!diagnostic) {
+                Re4dcActorOwnedMaterial lean{};
+                const int lean_got=lean_source_material(m,p->info[role],p->appearance,role,row,&lean);
+                ++actor_lean_c.materials;
+                if(lean_got!=got || (got && (lean.image.pixels!=want.image.pixels || lean.image.palette!=want.image.palette ||
+                   lean.image.width!=want.image.width || lean.image.height!=want.image.height ||
+                   lean.image.format!=want.image.format || lean.image.palette_bytes!=want.image.palette_bytes ||
+                   lean.crc!=want.crc || lean.fnv!=want.fnv || lean.wrap_s!=want.wrap_s || lean.wrap_t!=want.wrap_t)))
+                    ++actor_lean_c.materials_bad;
+            }
+            if(!got) {out.error=Error::Material;return out;}
+#else
             if(!re4dc_actor_source_material(m,p->info[role],p->appearance,role,&want)) {out.error=Error::Material;return out;}
+#endif
             const auto& have=p->materials[run.material];
             if(have.image.pixels!=want.image.pixels || have.crc!=want.crc || have.fnv!=want.fnv ||
                have.image.width!=want.image.width || have.image.height!=want.image.height ||
@@ -301,11 +447,50 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     if(out.required&~implemented)out.error=Error::Capability;
     return out;
 }
+#if RE4DC_ACTOR_MATERIAL_RECORD
+Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
+    if(diagnostic)return compare_core(m,p,true,nullptr,nullptr);
+    const Role* rows[record::kRoles]{};
+    const auto* rec=record::hit(m,p);
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+    // The whole certificate decides; a hit's result is computed beside it and compared. The decline position
+    // (role / part) is compared only for a decline: on success part is the last ModelPart index a whole evaluation
+    // visited, which a hit does not walk.
+    auto& c=record::c;++c.calls;
+    const Result full=compare_core(m,p,false,nullptr,rows);
+    if(rec) {
+        ++c.hits;const Result held=compare_core(m,p,false,rec,nullptr);
+        if(held.error!=full.error || held.required!=full.required || held.identity_roles!=full.identity_roles ||
+           held.role!=full.role || (full.error!=Error::None && held.part!=full.part)) {
+            if(c.bad++<8)re4dc_log("AMR bad t=%u app=%u error=%u/%u role=%u/%u part=%u/%u need=%x/%x matched=%u/%u\n",
+                unsigned(pG->Frame_cnt),p->appearance,unsigned(full.error),unsigned(held.error),full.role,held.role,
+                full.part,held.part,full.required,held.required,full.identity_roles,held.identity_roles);
+        }
+    } else if(full.error==Error::None){record::store(m,p,full,rows);++c.stores;}
+    if(pG->Frame_cnt/600!=c.last){c.last=pG->Frame_cnt/600;
+        re4dc_log("AMR periodic t=%u calls=%u hits=%u stores=%u bad=%u epoch=%u\n",unsigned(pG->Frame_cnt),c.calls,c.hits,
+                  c.stores,c.bad,life::epoch);}
+    return full;
+#else
+    const Result out=compare_core(m,p,false,rec,rec?nullptr:rows);
+    if(!rec && out.error==Error::None)record::store(m,p,out,rows);
+    return out;
+#endif
+}
+#endif
 }
 extern "C" int re4dc_actor_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,Re4dcActorOwnedMaterial* out) {
     using namespace re4dc_material;
     if(!out || app<1 || app>4 || role<2 || role>4)return 0;
     const auto* row=actor_current_role(m,info,app,role);if(!row)return 0;
+#if RE4DC_ACTOR_PROOF_LEAN
+    return lean_source_material(m,info,app,role,row,out);
+}
+static int lean_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,const re4dc_material::Role* row,
+                                Re4dcActorOwnedMaterial* out) {
+    using namespace re4dc_material;(void)m;
+    if(!out || app<1 || app>4 || role<2 || role>4 || !row)return 0;
+#endif
     const bool hand=(role==2 && row->source_bin==451) || (role==3 && row->source_bin==456);
     if(!hand && !(role==4 && (row->source_bin==467 || row->source_bin==484)))return 0;
     const unsigned slot=hand?2u:0u;
