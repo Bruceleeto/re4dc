@@ -22,6 +22,10 @@ docs/lanes/review-fixes.md "Landing" and in the commit messages.
 - **Not changed.** The ~30-frame wait after a pack read error still leaves untextured UI quads undrawn (539 in the
   FAULT=1 run). A truncated pack on a packed disc logs "package rejected: open failed" on every lookup (broken media,
   per the failure policy).
+- **Play disc r21u** (checklist step 6), cut from b730bf1a: C:/RE4DC-Play-Discs/r21u-title (disc.bin sha 709bb5a4) and
+  r21u-gdemu (disc.gdi 1bac5c9d), launcher Play-r21u-Review-Fixes.cmd. The GDI itself boots in Flycast to the VMU
+  prompt. New Game plays both intros to r100 and s40; the chapter end saves to the VMU and enters r104. The r100 and
+  r104 inventory restore hashes match the landing gate. HALT 0, MISSING 0 throughout. Not released.
 
 ## 2026-10-04: review of 2026-10-03/04
 

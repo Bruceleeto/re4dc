@@ -63,6 +63,8 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
     symbols (link.sh writes the tree's game/obj/missing.txt).
   - H2 STRICT: `om` differs across builds only while the radio-call sub screen has the parts' memory swapped out
     (ticks 741..1217).
+- Play disc r21u (b730bf1a; checklist step 6): C:/RE4DC-Play-Discs/r21u-title + r21u-gdemu, launcher
+  D:/RE4DC-Play/Play-r21u-Review-Fixes.cmd; GDI boot, New Game, chapter end, inventory r100/r104 all pass. Not released.
 - Not landed: experiment/supervisor-20261004 (r101 square 90.08 -> 82.65 ms modeled). Its "inventory not isolated"
   paragraphs predate 6819f3a2 and are wrong; landing needs the 82.65 ms knob set in the repo, described commits for
   038d1c59 and an r104 inventory re-capture on the merged tree.
