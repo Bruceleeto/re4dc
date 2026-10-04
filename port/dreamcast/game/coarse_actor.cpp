@@ -124,9 +124,15 @@ extern "C" int re4dc_coarse_actor_source(const void* info,Re4dcActorSource* out)
     }
     return 0;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY
+extern "C" int re4dc_registry_texture_key(const Re4dcUiImage*,unsigned*,unsigned*);  // coarse_actor_owner_registry.inc
+#endif
 extern "C" int re4dc_coarse_actor_texture_key(const Re4dcUiImage* i,unsigned* c,unsigned* f) {
 #if RE4DC_ACTOR_TRANSACTION
     if(re4dc_actor_hair_texture_key(i,c,f))return 1;
+#endif
+#if RE4DC_NATIVE_MODEL_REGISTRY
+    if(re4dc_registry_texture_key(i,c,f))return 1;
 #endif
 #if RE4DC_COARSE_GANADO
     if(re4dc_coarse_ganado_texture_key(i,c,f))return 1;

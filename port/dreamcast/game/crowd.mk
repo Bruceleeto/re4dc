@@ -26,6 +26,25 @@
 #              those drawn) draw the near tier; the rest draw the far tier. Either knob sets RE4DC_CROWD_FAR.
 # CROWD_FREEZE_AT=N (look sheets only): the CPU stops in game frame N's first owner draw; frame N-1 stays on screen.
 #              CROWD_FREEZE_HOLD=S: resume after S seconds (0 = never); CROWD_FREEZE_AT2=M: hold again at frame M.
+#
+# ACTOR_GANADO_SOURCE_LIGHT=1 (native look fidelity, 2026-10-03; default 0; look change vs today's play build, the
+#              user's call): every Ganado drawn by the owner path (appearances 0..4, Leon excluded) is lit with the
+#              source's own GX lighting (LightSetModel's lights / channel / ambient / material, nrm = part.mv^-T,
+#              TEV scale gxCsScale) through the existing lit kernel instead of the approved flat constant colour.
+#              A Ganado whose roles disagree on matrix or material colour, or that uses vertex colour sources,
+#              falls back to the source path (ATD 26). Specular is still omitted, as in the flat look. Render only.
+#              (Hunk copied from the sup-native-scene worker's helper; with NATIVE_MODEL_REGISTRY it also lights
+#              the registry descriptors: every non-Leon plan.)
+ACTOR_GANADO_SOURCE_LIGHT ?= 0
+ifeq ($(filter $(ACTOR_GANADO_SOURCE_LIGHT),0 1),)
+$(error ACTOR_GANADO_SOURCE_LIGHT must be 0 or 1)
+endif
+ifeq ($(ACTOR_GANADO_SOURCE_LIGHT),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_GANADO_SOURCE_LIGHT acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_SOURCE_LIGHT=1
+endif
 CROWD_CULL ?= 0
 CROWD_CENSUS ?= 0
 CROWD_CENSUS_FROM ?= 900

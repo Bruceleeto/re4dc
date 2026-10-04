@@ -271,6 +271,9 @@ static const Texture t_extra_485[] = {
 static const Texture t_extra_486[] = {
 {137436048u,3095878342u,128u,128u,14u,{1u,1u,1u,1u,0u,0u,0u,0u},4294967295u,{0u,0u,0u}},
 };
+#if RE4DC_NATIVE_MODEL_REGISTRY
+#include "native_model_registry_facts.inc" // private registry bundle (tools/d367/model_registry.py)
+#endif
 static const Role roles[] = {
 {0u,0u,472u,473u,&m_em12_472,t_em12_473,3u},
 {0u,1u,474u,473u,&m_em12_474,t_em12_473,3u},
@@ -324,6 +327,9 @@ static const Role roles[] = {
 {4u,4u,467u,469u,&m_extra_467,t_extra_469,1u},
 {4u,4u,484u,485u,&m_extra_484,t_extra_485,1u},
 {4u,4u,484u,486u,&m_extra_484,t_extra_486,1u},
+#if RE4DC_NATIVE_MODEL_REGISTRY
+#include "native_model_registry_roles.inc"
+#endif
 };
 static const SourceBlob source_blobs[] = {
 {&m_em12_472,2u,472u,{34336u,2997423784u,3272199119u}},
@@ -352,4 +358,7 @@ static const SourceBlob source_blobs[] = {
 {&m_extra_456,2u,456u,{5952u,3566550875u,4284573839u}},
 {&m_extra_467,2u,467u,{4256u,3007827131u,2804973797u}},
 {&m_extra_484,2u,484u,{6528u,1573052172u,1172918242u}},
+#if RE4DC_NATIVE_MODEL_REGISTRY
+#include "native_model_registry_blobs.inc"
+#endif
 };

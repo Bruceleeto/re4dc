@@ -4,6 +4,9 @@
 #include "actor_palette_arena.h"
 #include "actor_transaction_diag.h"
 #include "actor_transaction_diag_impl.inc"
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+extern u8 gxCsScale[];  // trans.cpp: the room's TEV colour scale per group (shaderSetup)
+#endif
 namespace {
 using re4dc_source::FrameIdentity;
 using re4dc_source::ModelIdentity;
@@ -32,10 +35,16 @@ struct ActorOwnedRecord {
 #endif
     ActorOwnedPart part[8];
     Re4dcActorDrawRun runs[kRe4dcActorRuns];
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+    re4dc::render::SourceLighting lit;  // the source's GX lighting for this Ganado (both pass groups)
+#endif
 };
 ActorOwnedRecord* actor_owned_head;
 FrameIdentity actor_owned_frame{};
 bool actor_owned_live;
+#if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+bool actor_certificate_reached;
+#endif
 re4dc_actor::PaletteArena actor_palette_arena;
 constexpr unsigned kActorPaletteCap=64*1024;
 constexpr unsigned kActorOwnerReserve=16*1024;
@@ -109,6 +118,9 @@ bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
     }
     if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return false;
     for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles)return false;
+#if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+    actor_certificate_reached=true;  // the registry census: a decline from here on is the material certificate's
+#endif
     // Geometry signatures do not prove unchanged materials, costumes or TPLs.
     return re4dc_actor_material_certificate(m,&p)!=0;
 }
@@ -175,6 +187,36 @@ ActorOwnedRecord* actor_decline(ActorOwnedRecord& r,bool& failed) {
     if(!released || !re4dc_actor_stream_state(&state))failed=true;
     return nullptr;
 }
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+// ACTOR_GANADO_SOURCE_LIGHT (default 0): a Ganado's owned draw is lit as the source lights it instead of the
+// constant (flat) record. ModelTrans ran LightSetModel(m) just before commonModelTrans reached this owner, so the
+// GX state already holds this model's selected light objects, channel control, ambient and material colour
+// (re4dc_gx_model_lighting). commonModelTrans then loads per info nrm = (view * root * info)^-T (= part.mv^-T) and
+// shaderSetup multiplies the rasterised colour by the TEV scale of gxCsScale[TevScaleGroup]; both are applied here.
+// Returns the first failing clause (0 = lit record ready): 1 per-vertex colour source, 2 diffuse function other
+// than clamp, 3 an info's material colour differs from the captured one (commonModelTrans would switch it per
+// info), 4 role matrices differ (one record lights every role), 5 singular matrix, 6 TEV scale group/value.
+// Any nonzero result declines the whole actor to the source path.
+unsigned actor_source_lighting(cModel* m,ActorOwnedRecord& r) {
+    auto& L=r.lit;re4dc_gx_model_lighting(&L);
+    if(L.ambient_vertex || L.material_vertex)return 1;
+    if(L.enable && L.diffuse!=2)return 2;
+    const u8* base=static_cast<const u8*>(m->pModelInfo->color);
+    for(unsigned i=0;i<r.count;++i) {
+        const cModelInfo* info=r.part[i].info;
+        const u8* c=(info->be_flag&0x20)?static_cast<const u8*>(info->color):base;
+        if(std::memcmp(c,L.material,4))return 3;
+        if(std::memcmp(r.part[i].mv,r.part[0].mv,sizeof(r.part[0].mv)))return 4;
+    }
+    Mtx mv,inv,nrm;std::memcpy(mv,r.part[0].mv,sizeof(mv));
+    if(!PSMTXInverse(mv,inv))return 5;
+    PSMTXTranspose(inv,nrm);std::memcpy(L.normal_matrix,nrm,sizeof(L.normal_matrix));
+    if(m->TevScaleGroup>1 || gxCsScale[m->TevScaleGroup]>2)return 6;
+    static const float scales[3]={1,2,4};
+    L.tev_scale=scales[gxCsScale[m->TevScaleGroup]];
+    return 0;
+}
+#endif
 ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     const FrameIdentity& frame,const ModelIdentity& model,bool& failed) {
     failed=false;
@@ -250,6 +292,12 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     if(!re4dc_actor_skin_acquire(frame.frame,bindings,order,&r->skin)){ATD(m,14,order,0);return actor_decline(*r,failed);}
     auto& b=r->base;b.model=m;b.position_stride=6;b.normal_stride=6;b.normal_shift=14;b.shift=4;
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+    if(p.appearance!=0x100) {
+        if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
+        b.lighting=&r->lit;
+    }
+#endif
     GXGetProjectionv(b.projection);GXGetViewportv(b.viewport);
     r->passes=m->ot_type==7?3u:1u;
     // The whole actor, BOTH pass groups, qualifies before its first TA header.
@@ -470,6 +518,53 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!re4dc_actor_transaction_choose(m,1)){actor_fail();return -1;}
         if(m->ot_type==7 && (m->be_flag&0x08000000)){ATD(m,3,0,0);return 0;}
         Re4dcActorPlan p{};
+#if RE4DC_NATIVE_MODEL_REGISTRY
+        // NATIVE_MODEL_REGISTRY: the generic descriptors plan after Leon and the Ganado cast. NMR_CENSUS: census builds
+        // only (NATIVE_MODEL_REGISTRY_CENSUS=1) count every outcome of an actor's first pass in the scene census
+        // (coarse_actor_owner_registry.inc); a production / cost build compiles none of it.
+        const unsigned plan_kind=re4dc_actor_plan_leon(m,&p)?1u:re4dc_actor_plan_ganado(m,&p)?2u:re4dc_actor_plan_registry(m,&p)?3u:0u;
+        if(!plan_kind){
+            ATD(m,4,0,0);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+            if(m->id==0 && m->ot_type==7){unsigned d=0;const unsigned why=owner_leon_bind_why(m,&d);
+                re4dc_actor_txdiag_why(m,"leon_bind",why?why:99,d);}  // 99: bound, the plan's own checks declined
+#endif
+            // The plan the actor's class has (Leon, the Ganado cast, a registry descriptor) declined, or none exists.
+            NMR_CENSUS(const unsigned expected=m->id==0?1u:(m->id>=0x10 && m->id<=0x20)?2u:registry_id(m->id)?3u:0u;
+                scene_note(m,expected,expected==3?kScRegistryDeclined:expected?kScDeclined:kScAbsent));
+            return 0;
+        }
+        if(!actor_plan_layout(p)){
+            ATD(m,5,p.count,p.run_count);
+            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,kRwLayout);
+                scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
+            return 0;
+        }
+        NMR_CENSUS(actor_certificate_reached=false);
+        if(!actor_semantics(m,p)){
+            ATD(m,6,p.appearance,p.count);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+#endif
+            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,actor_certificate_reached?kRwCertificate:kRwSemantics);
+                scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
+            return 0;
+        }
+#if RE4DC_NATIVE_MODEL_REGISTRY == 2
+#if !RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+#error NATIVE_MODEL_REGISTRY=2 reports through the census (NATIVE_MODEL_REGISTRY_CENSUS=1)
+#endif
+        // Compare mode: the admitted registry actor's palettes are built into a scratch buffer (finite check) and the
+        // actor keeps the source path: no lease, no native TA submission.
+        if(plan_kind==3) {
+            float* scratch[8];for(auto& s:scratch)s=registry_scratch;
+            const bool ok=p.palettes(m,p,scratch)!=0;
+            auto& c=registry_count[p.appearance-nmr::appearance_first];
+            if(ok)++c.would;else{++c.declined;++c.why[kRwSkin];}
+            scene_note(m,3,ok?kScWould:kScRegistryDeclined);return 0;
+        }
+#endif
+#else
         if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){
             ATD(m,4,0,0);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
@@ -486,6 +581,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
             return 0;
         }
+#endif
 #if RE4DC_CROWD
         if(crowd_ganado(m)) {
             crowd_would=crowd_policy(m);
@@ -503,6 +599,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
                 else {
                     if(!re4dc_actor_transaction_choose(m,2)){actor_fail();return -1;}
                     crowd_skip[crowd_skips++]=model;
+#if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+                    scene_note(m,plan_kind,kScCrowd);
+#endif
                     return 1;
                 }
             }
@@ -510,9 +609,22 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
         bool failed=false;r=actor_acquire(m,p,frame,model,failed);
         if(failed){actor_fail();return -1;}
+#if RE4DC_NATIVE_MODEL_REGISTRY
+        if(!r){
+            ATD(m,31,p.appearance,0);
+            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,kRwAcquire);
+                scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
+            return 0;
+        }
+#else
         if(!r){ATD(m,31,p.appearance,0);return 0;}
+#endif
         if(!re4dc_actor_transaction_choose(m,2)){actor_release(*r);actor_fail();return -1;}
         ATD(m,16,p.appearance,p.run_count);
+#if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+        if(plan_kind==3)++registry_count[p.appearance-nmr::appearance_first].admitted;
+        scene_note(m,plan_kind,kScNative);
+#endif
 #if RE4DC_CROWD
         r->crowd_ganado=crowd_ganado(m);r->crowd_would=crowd_would;r->crowd_emit=0;
         r->crowd_why=crowd_would==1?crowd_why:0;r->crowd_depth=crowd_depth;r->crowd_fog=crowd_fog;

@@ -941,5 +941,7 @@ include demo_candidate.mk
 include post30.mk
 # D367 lane crowd (CROWD_CULL, CROWD_CENSUS, CROWD_DRAW_MAX / _M; default off: no effect).
 include crowd.mk
+# D367 generic native models (NATIVE_MODEL_REGISTRY; default off: no effect).
+include native_model_registry.mk
 # Resolved knobs for tools/d367/build-r21.sh (re4dc-knobs; builds nothing).
 include knobs.mk
