@@ -6,6 +6,9 @@
 ! Entry state: fv4 = normal(k), fr7 = 0; r5 = record k+1; r6 = n - k; r7 = &entry[k-1].argb.
 ! @n4 / @n3: normal index x 4 (stride 4) or x 3 (rigid stride 3 through r14, the skin palette register;
 ! n3 is never skinned).
+! @n16 (ACTOR_LIGHT_N16): s16 normals: index x 8 (@x8 after @n4's x 4) or x 6 (@s6, rigid only, through
+! r14), the three words through lds / float (exact, as the portable loop's float()), palette word in r2;
+! @s8 lines are the s8 table loads the n16 variants drop.
 @tail cmp/gt r12,r4
 @tail subc r0,r0
 @tail or r0,r4
@@ -45,21 +48,36 @@ fmov fr6,fr3
 mov.w @(2,r5),r0
 add r11,r5
 @n4 shll2 r0
+@x8 add r0,r0
 @n3 mov r0,r14
 @n3 add r0,r0
 @n3 add r14,r0
+@s6 mov r0,r14
+@s6 add r0,r0
+@s6 add r14,r0
+@s6 add r0,r0
 mov r13,r1
 add r0,r1
-mov.b @r1+,r0
-shll2 r0
-fmov.s @(r0,r3),fr4
-mov.b @r1+,r0
-shll2 r0
-fmov.s @(r0,r3),fr5
-mov.b @r1+,r0
-shll2 r0
-fmov.s @(r0,r3),fr6
-@skin mov.b @r1,r2
+@s8 mov.b @r1+,r0
+@s8 shll2 r0
+@s8 fmov.s @(r0,r3),fr4
+@s8 mov.b @r1+,r0
+@s8 shll2 r0
+@s8 fmov.s @(r0,r3),fr5
+@s8 mov.b @r1+,r0
+@s8 shll2 r0
+@s8 fmov.s @(r0,r3),fr6
+@n16 mov.w @r1+,r0
+@n16 mov.w @r1+,r3
+@n16 lds r0,fpul
+@n16 float fpul,fr4
+@n16 mov.w @r1+,r0
+@n16 lds r3,fpul
+@n16 float fpul,fr5
+@n16 lds r0,fpul
+@n16 float fpul,fr6
+@skin @s8 mov.b @r1,r2
+@skin @n16 mov.w @r1,r2
 ftrc fr11,fpul
 sts fpul,r4
 ftrc fr15,fpul

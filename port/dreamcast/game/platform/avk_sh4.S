@@ -23,6 +23,10 @@
  * the next vertex's fipr (whose w slot then holds a colour copy). Skinned: a normal palette index
  * change loads that entry's directions in the same way. Returns the records not processed.
  *
+ * re4dc_avk_light_{skin,rigid}_n16 / light_rigid_n16s6 (ACTOR_LIGHT_N16 only): the same pass for s16
+ * normals (stride 8; rigid also stride 6), each word through lds / float (the portable loop's float());
+ * the skinned palette index is the normal's fourth word.
+ *
  * Records are read one ahead (and prefetched further): up to two records past the last one and the
  * position / uv / normal words they index are read and discarded.
  * ABI: KOS -m4-single -ml, FPSCR.PR = SZ = 0 on entry and exit; saves r8-r14 and fr12-fr15; XMTRX is
@@ -4257,6 +4261,1131 @@ _re4dc_avk_light_rigid3:
         rts
         nop
         .size   _re4dc_avk_light_rigid3, .-_re4dc_avk_light_rigid3
+#endif
+
+#if RE4DC_ACTOR_LIGHT_N16
+/* light_skin_n16: scheduled loop 34.50 model cycles per vertex (sim.py) */
+        .align  5
+        .global _re4dc_avk_light_skin_n16
+        .type   _re4dc_avk_light_skin_n16, @function
+_re4dc_avk_light_skin_n16:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        fmov.s  fr12,@-r15
+        fmov.s  fr13,@-r15
+        fmov.s  fr14,@-r15
+        fmov.s  fr15,@-r15
+        mov.l   r4,@-r15
+        mov.l   @(0,r4),r5
+        mov.l   @(4,r4),r6
+        mov.l   @(8,r4),r13
+        mov.l   @(12,r4),r7
+        mov.l   @(16,r4),r11
+        mov.l   @(36,r4),r10
+        mov     #-1,r12
+        extu.b  r12,r12
+        mov.l   .Llight_skin_n16_s8f,r3
+        mov.l   @(20,r4),r0
+        fschg
+        fmov    @r0+,xd0
+        fmov    @r0+,xd2
+        fmov    @r0+,xd4
+        fmov    @r0+,xd6
+        fmov    @r0+,xd8
+        fmov    @r0+,xd10
+        fmov    @r0+,xd12
+        fmov    @r0+,xd14
+        fschg
+        mov.w   @(2,r5),r0
+        add     r11,r5
+        shll2   r0
+        add     r0,r0
+        mov     r13,r1
+        add     r0,r1
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr4
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr5
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr6
+        mov.w   @r1,r0
+        mov     r0,r14
+        extu.w  r0,r0
+        mov.l   @(32,r4),r8
+        cmp/hs  r8,r0
+        bf      1f
+        mov     #0,r0
+1:
+        mov.l   @(28,r4),r8
+        mov.b   @(r0,r8),r8
+        tst     r8,r8
+        bf      3f
+        bra     .Llight_skin_n16_exit
+        nop
+3:
+        shll2   r0
+        shll2   r0
+        mov     r0,r8
+        add     r0,r0
+        add     r8,r0
+        mov.l   @(24,r4),r8
+        add     r8,r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        fmov.s  @r0+,fr11
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        fmov.s  @r0+,fr15
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0+,fr2
+        fmov.s  @r0+,fr3
+        fldi0   fr7
+        bra     .Llight_skin_n16_rA
+        nop
+        .align  2
+.Llight_skin_n16_s8f:
+        .long   .Lavk_s8f+512
+        .align  5
+.Llight_skin_n16_hA:
+        fipr fv4,fv0
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv8
+        or r0,r4
+        mov.w @(2,r5),r0
+        cmp/gt r12,r8
+        fmov fr3,fr6
+        subc r1,r1
+        fmov fr15,fr5
+        shll2 r0
+        fabs fr6
+        add r0,r0
+        fmov fr11,fr4
+        fadd fr3,fr6
+        fabs fr4
+        or r1,r8
+        fabs fr5
+        fadd fr11,fr4
+        fadd fr15,fr5
+        fldi1 fr7
+        mov r13,r1
+        extu.b r8,r8
+        add r0,r1
+        cmp/gt r12,r9
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        subc r2,r2
+        lds r0,fpul
+        shll8 r8
+        mov.w @r1+,r0
+        extu.b r4,r4
+        shll16 r4
+        or r2,r9
+        mov.w @r1,r2
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        extu.b r9,r9
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        or r8,r4
+        fmov fr6,fr3
+        float fpul,fr6
+        or r9,r4
+        ftrc fr11,fpul
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_skin_n16_tend1
+        add r11,r5
+        cmp/eq r14,r2
+        add #32,r7
+        sts fpul,r8
+        ftrc fr3,fpul
+        bf      .Llight_skin_n16_tswitch2
+.Llight_skin_n16_back4:
+        sts fpul,r9
+        fipr fv4,fv0
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv8
+        or r0,r4
+        mov.w @(2,r5),r0
+        cmp/gt r12,r8
+        fmov fr3,fr6
+        subc r1,r1
+        fmov fr15,fr5
+        shll2 r0
+        fabs fr6
+        add r0,r0
+        fmov fr11,fr4
+        fadd fr3,fr6
+        fabs fr4
+        or r1,r8
+        fabs fr5
+        fadd fr11,fr4
+        fadd fr15,fr5
+        fldi1 fr7
+        mov r13,r1
+        extu.b r8,r8
+        add r0,r1
+        cmp/gt r12,r9
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        subc r2,r2
+        lds r0,fpul
+        shll8 r8
+        mov.w @r1+,r0
+        extu.b r4,r4
+        shll16 r4
+        or r2,r9
+        mov.w @r1,r2
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        extu.b r9,r9
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        or r8,r4
+        fmov fr6,fr3
+        float fpul,fr6
+        or r9,r4
+        ftrc fr11,fpul
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_skin_n16_tend5
+        add r11,r5
+        cmp/eq r14,r2
+        add #32,r7
+        sts fpul,r8
+        ftrc fr3,fpul
+        bf      .Llight_skin_n16_tswitch6
+.Llight_skin_n16_back8:
+        bra     .Llight_skin_n16_hA
+        sts fpul,r9
+.Llight_skin_n16_tend1:
+        bra     .Llight_skin_n16_de
+        nop
+.Llight_skin_n16_tswitch2:
+        bra     .Llight_skin_n16_sw3
+        nop
+.Llight_skin_n16_tend5:
+        bra     .Llight_skin_n16_de
+        nop
+.Llight_skin_n16_tswitch6:
+        bra     .Llight_skin_n16_sw7
+        nop
+.Llight_skin_n16_rA:
+        fipr fv4,fv0
+        fipr fv4,fv12
+        fipr fv4,fv8
+        mov.w @(2,r5),r0
+        fmov fr3,fr6
+        fmov fr15,fr5
+        shll2 r0
+        fabs fr6
+        add r0,r0
+        fmov fr11,fr4
+        fadd fr3,fr6
+        fabs fr4
+        fabs fr5
+        fadd fr11,fr4
+        fadd fr15,fr5
+        fldi1 fr7
+        mov r13,r1
+        add r0,r1
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        lds r0,fpul
+        mov.w @r1+,r0
+        mov.w @r1,r2
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        fmov fr6,fr3
+        float fpul,fr6
+        ftrc fr11,fpul
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_skin_n16_tend9
+        add r11,r5
+        cmp/eq r14,r2
+        sts fpul,r8
+        ftrc fr3,fpul
+        bf      .Llight_skin_n16_tswitch10
+.Llight_skin_n16_back12:
+        sts fpul,r9
+        bra     .Llight_skin_n16_hA
+        nop
+.Llight_skin_n16_tend9:
+        bra     .Llight_skin_n16_deR
+        nop
+.Llight_skin_n16_tswitch10:
+        bra     .Llight_skin_n16_sw11
+        nop
+.Llight_skin_n16_de:
+        add r11,r5
+        cmp/eq r14,r2
+        add #32,r7
+        sts fpul,r8
+        ftrc fr3,fpul
+.Llight_skin_n16_ds:
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        or r0,r4
+        cmp/gt r12,r8
+        subc r1,r1
+        or r1,r8
+        extu.b r8,r8
+        cmp/gt r12,r9
+        subc r2,r2
+        shll8 r8
+        extu.b r4,r4
+        shll16 r4
+        or r2,r9
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_skin_n16_exit
+        nop
+.Llight_skin_n16_deR:
+        add r11,r5
+        cmp/eq r14,r2
+        sts fpul,r8
+        ftrc fr3,fpul
+.Llight_skin_n16_dsR:
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        or r0,r4
+        cmp/gt r12,r8
+        subc r1,r1
+        or r1,r8
+        extu.b r8,r8
+        cmp/gt r12,r9
+        subc r2,r2
+        shll8 r8
+        extu.b r4,r4
+        shll16 r4
+        or r2,r9
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_skin_n16_exit
+        nop
+.Llight_skin_n16_sw3:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov     r2,r14
+        extu.w  r2,r0
+        mov.l   @(8,r15),r8
+        mov.l   @(32,r8),r9
+        cmp/hs  r9,r0
+        bf      1f
+        mov     #0,r0
+1:
+        mov.l   @(28,r8),r9
+        mov.b   @(r0,r9),r9
+        tst     r9,r9
+        bt      2f
+        shll2   r0
+        shll2   r0
+        mov     r0,r9
+        add     r0,r0
+        add     r9,r0
+        mov.l   @(24,r8),r9
+        add     r9,r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        add     #4,r0
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        add     #4,r0
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0,fr2
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_back4
+        mov.l   @r15+,r8
+2:
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_ds
+        mov.l   @r15+,r8
+.Llight_skin_n16_sw7:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov     r2,r14
+        extu.w  r2,r0
+        mov.l   @(8,r15),r8
+        mov.l   @(32,r8),r9
+        cmp/hs  r9,r0
+        bf      1f
+        mov     #0,r0
+1:
+        mov.l   @(28,r8),r9
+        mov.b   @(r0,r9),r9
+        tst     r9,r9
+        bt      2f
+        shll2   r0
+        shll2   r0
+        mov     r0,r9
+        add     r0,r0
+        add     r9,r0
+        mov.l   @(24,r8),r9
+        add     r9,r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        add     #4,r0
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        add     #4,r0
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0,fr2
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_back8
+        mov.l   @r15+,r8
+2:
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_ds
+        mov.l   @r15+,r8
+.Llight_skin_n16_sw11:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov     r2,r14
+        extu.w  r2,r0
+        mov.l   @(8,r15),r8
+        mov.l   @(32,r8),r9
+        cmp/hs  r9,r0
+        bf      1f
+        mov     #0,r0
+1:
+        mov.l   @(28,r8),r9
+        mov.b   @(r0,r9),r9
+        tst     r9,r9
+        bt      2f
+        shll2   r0
+        shll2   r0
+        mov     r0,r9
+        add     r0,r0
+        add     r9,r0
+        mov.l   @(24,r8),r9
+        add     r9,r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        add     #4,r0
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        add     #4,r0
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0,fr2
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_back12
+        mov.l   @r15+,r8
+2:
+        mov.l   @r15+,r9
+        bra     .Llight_skin_n16_dsR
+        mov.l   @r15+,r8
+.Llight_skin_n16_exit:
+        mov.l   @r15+,r4
+        mov     r6,r0
+        fmov.s  @r15+,fr15
+        fmov.s  @r15+,fr14
+        fmov.s  @r15+,fr13
+        fmov.s  @r15+,fr12
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        mov.l   @r15+,r8
+        rts
+        nop
+        .size   _re4dc_avk_light_skin_n16, .-_re4dc_avk_light_skin_n16
+#endif
+
+#if RE4DC_ACTOR_LIGHT_N16
+/* light_rigid_n16: scheduled loop 34.50 model cycles per vertex (sim.py) */
+        .align  5
+        .global _re4dc_avk_light_rigid_n16
+        .type   _re4dc_avk_light_rigid_n16, @function
+_re4dc_avk_light_rigid_n16:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        fmov.s  fr12,@-r15
+        fmov.s  fr13,@-r15
+        fmov.s  fr14,@-r15
+        fmov.s  fr15,@-r15
+        mov.l   r4,@-r15
+        mov.l   @(0,r4),r5
+        mov.l   @(4,r4),r6
+        mov.l   @(8,r4),r13
+        mov.l   @(12,r4),r7
+        mov.l   @(16,r4),r11
+        mov.l   @(36,r4),r10
+        mov     #-1,r12
+        extu.b  r12,r12
+        mov.l   .Llight_rigid_n16_s8f,r3
+        mov.l   @(20,r4),r0
+        fschg
+        fmov    @r0+,xd0
+        fmov    @r0+,xd2
+        fmov    @r0+,xd4
+        fmov    @r0+,xd6
+        fmov    @r0+,xd8
+        fmov    @r0+,xd10
+        fmov    @r0+,xd12
+        fmov    @r0+,xd14
+        fschg
+        mov.w   @(2,r5),r0
+        add     r11,r5
+        shll2   r0
+        add     r0,r0
+        mov     r13,r1
+        add     r0,r1
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr4
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr5
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr6
+        mov.l   @(24,r4),r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        fmov.s  @r0+,fr11
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        fmov.s  @r0+,fr15
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0+,fr2
+        fmov.s  @r0+,fr3
+        fldi0   fr7
+        bra     .Llight_rigid_n16_rA
+        nop
+        .align  2
+.Llight_rigid_n16_s8f:
+        .long   .Lavk_s8f+512
+        .align  5
+.Llight_rigid_n16_hA:
+        fipr fv4,fv0
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv8
+        cmp/gt r12,r8
+        or r0,r4
+        mov.w @(2,r5),r0
+        fmov fr3,fr6
+        subc r1,r1
+        fmov fr15,fr5
+        or r1,r8
+        fabs fr5
+        shll2 r0
+        fmov fr11,fr4
+        fadd fr15,fr5
+        fabs fr6
+        add r0,r0
+        fabs fr4
+        fadd fr3,fr6
+        fadd fr11,fr4
+        fldi1 fr7
+        mov r13,r1
+        extu.b r8,r8
+        add r0,r1
+        cmp/gt r12,r9
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        shll8 r8
+        lds r0,fpul
+        subc r2,r2
+        mov.w @r1+,r0
+        extu.b r4,r4
+        or r2,r9
+        shll16 r4
+        fmov fr4,fr11
+        float fpul,fr4
+        fmov fr5,fr15
+        extu.b r9,r9
+        lds r3,fpul
+        or r8,r4
+        float fpul,fr5
+        lds r0,fpul
+        fmov fr6,fr3
+        float fpul,fr6
+        or r9,r4
+        ftrc fr11,fpul
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16_tend1
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        fipr fv4,fv0
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv8
+        cmp/gt r12,r8
+        or r0,r4
+        mov.w @(2,r5),r0
+        fmov fr3,fr6
+        subc r1,r1
+        fmov fr15,fr5
+        or r1,r8
+        fabs fr5
+        shll2 r0
+        fmov fr11,fr4
+        fadd fr15,fr5
+        fabs fr6
+        add r0,r0
+        fabs fr4
+        fadd fr3,fr6
+        fadd fr11,fr4
+        fldi1 fr7
+        mov r13,r1
+        extu.b r8,r8
+        add r0,r1
+        cmp/gt r12,r9
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        shll8 r8
+        lds r0,fpul
+        subc r2,r2
+        mov.w @r1+,r0
+        extu.b r4,r4
+        or r2,r9
+        shll16 r4
+        fmov fr4,fr11
+        float fpul,fr4
+        fmov fr5,fr15
+        extu.b r9,r9
+        lds r3,fpul
+        or r8,r4
+        float fpul,fr5
+        lds r0,fpul
+        fmov fr6,fr3
+        float fpul,fr6
+        or r9,r4
+        ftrc fr11,fpul
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16_tend2
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        bra     .Llight_rigid_n16_hA
+        sts fpul,r9
+.Llight_rigid_n16_tend1:
+        bra     .Llight_rigid_n16_de
+        nop
+.Llight_rigid_n16_tend2:
+        bra     .Llight_rigid_n16_de
+        nop
+.Llight_rigid_n16_rA:
+        fipr fv4,fv0
+        fipr fv4,fv12
+        fipr fv4,fv8
+        mov.w @(2,r5),r0
+        fmov fr3,fr6
+        fmov fr15,fr5
+        fabs fr5
+        shll2 r0
+        fmov fr11,fr4
+        fadd fr15,fr5
+        fabs fr6
+        add r0,r0
+        fabs fr4
+        fadd fr3,fr6
+        fadd fr11,fr4
+        fldi1 fr7
+        mov r13,r1
+        add r0,r1
+        ftrv xmtrx,fv4
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        lds r0,fpul
+        mov.w @r1+,r0
+        fmov fr4,fr11
+        float fpul,fr4
+        fmov fr5,fr15
+        lds r3,fpul
+        float fpul,fr5
+        lds r0,fpul
+        fmov fr6,fr3
+        float fpul,fr6
+        ftrc fr11,fpul
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16_tend3
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        bra     .Llight_rigid_n16_hA
+        nop
+.Llight_rigid_n16_tend3:
+        bra     .Llight_rigid_n16_deR
+        nop
+.Llight_rigid_n16_de:
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        cmp/gt r12,r8
+        or r0,r4
+        subc r1,r1
+        or r1,r8
+        extu.b r8,r8
+        cmp/gt r12,r9
+        shll8 r8
+        subc r2,r2
+        extu.b r4,r4
+        or r2,r9
+        shll16 r4
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_rigid_n16_exit
+        nop
+.Llight_rigid_n16_deR:
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        cmp/gt r12,r8
+        or r0,r4
+        subc r1,r1
+        or r1,r8
+        extu.b r8,r8
+        cmp/gt r12,r9
+        shll8 r8
+        subc r2,r2
+        extu.b r4,r4
+        or r2,r9
+        shll16 r4
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_rigid_n16_exit
+        nop
+.Llight_rigid_n16_exit:
+        mov.l   @r15+,r4
+        mov     r6,r0
+        fmov.s  @r15+,fr15
+        fmov.s  @r15+,fr14
+        fmov.s  @r15+,fr13
+        fmov.s  @r15+,fr12
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        mov.l   @r15+,r8
+        rts
+        nop
+        .size   _re4dc_avk_light_rigid_n16, .-_re4dc_avk_light_rigid_n16
+#endif
+
+#if RE4DC_ACTOR_LIGHT_N16
+/* light_rigid_n16s6: scheduled loop 35.00 model cycles per vertex (sim.py) */
+        .align  5
+        .global _re4dc_avk_light_rigid_n16s6
+        .type   _re4dc_avk_light_rigid_n16s6, @function
+_re4dc_avk_light_rigid_n16s6:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        fmov.s  fr12,@-r15
+        fmov.s  fr13,@-r15
+        fmov.s  fr14,@-r15
+        fmov.s  fr15,@-r15
+        mov.l   r4,@-r15
+        mov.l   @(0,r4),r5
+        mov.l   @(4,r4),r6
+        mov.l   @(8,r4),r13
+        mov.l   @(12,r4),r7
+        mov.l   @(16,r4),r11
+        mov.l   @(36,r4),r10
+        mov     #-1,r12
+        extu.b  r12,r12
+        mov.l   .Llight_rigid_n16s6_s8f,r3
+        mov.l   @(20,r4),r0
+        fschg
+        fmov    @r0+,xd0
+        fmov    @r0+,xd2
+        fmov    @r0+,xd4
+        fmov    @r0+,xd6
+        fmov    @r0+,xd8
+        fmov    @r0+,xd10
+        fmov    @r0+,xd12
+        fmov    @r0+,xd14
+        fschg
+        mov.w   @(2,r5),r0
+        add     r11,r5
+        mov     r0,r14
+        add     r0,r0
+        add     r14,r0
+        add     r0,r0
+        mov     r13,r1
+        add     r0,r1
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr4
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr5
+        mov.w   @r1+,r0
+        lds     r0,fpul
+        float   fpul,fr6
+        mov.l   @(24,r4),r0
+        fmov.s  @r0+,fr8
+        fmov.s  @r0+,fr9
+        fmov.s  @r0+,fr10
+        fmov.s  @r0+,fr11
+        fmov.s  @r0+,fr12
+        fmov.s  @r0+,fr13
+        fmov.s  @r0+,fr14
+        fmov.s  @r0+,fr15
+        fmov.s  @r0+,fr0
+        fmov.s  @r0+,fr1
+        fmov.s  @r0+,fr2
+        fmov.s  @r0+,fr3
+        fldi0   fr7
+        bra     .Llight_rigid_n16s6_rA
+        nop
+        .align  2
+.Llight_rigid_n16s6_s8f:
+        .long   .Lavk_s8f+512
+        .align  5
+.Llight_rigid_n16s6_hA:
+        fipr fv4,fv8
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv0
+        or r0,r4
+        mov.w @(2,r5),r0
+        cmp/gt r12,r8
+        fmov fr11,fr4
+        subc r1,r1
+        fmov fr15,fr5
+        mov r0,r14
+        fabs fr4
+        add r0,r0
+        fabs fr5
+        fadd fr11,fr4
+        fmov fr3,fr6
+        fadd fr15,fr5
+        fabs fr6
+        add r14,r0
+        fadd fr3,fr6
+        add r0,r0
+        fldi1 fr7
+        or r1,r8
+        mov r13,r1
+        extu.b r4,r4
+        ftrv xmtrx,fv4
+        add r0,r1
+        mov.w @r1+,r0
+        cmp/gt r12,r9
+        mov.w @r1+,r3
+        extu.b r8,r8
+        lds r0,fpul
+        shll8 r8
+        mov.w @r1+,r0
+        subc r2,r2
+        shll16 r4
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        or r2,r9
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        extu.b r9,r9
+        fmov fr6,fr3
+        float fpul,fr6
+        or r8,r4
+        ftrc fr11,fpul
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16s6_tend1
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        fipr fv4,fv8
+        cmp/gt r12,r4
+        fipr fv4,fv12
+        subc r0,r0
+        fipr fv4,fv0
+        or r0,r4
+        mov.w @(2,r5),r0
+        cmp/gt r12,r8
+        fmov fr11,fr4
+        subc r1,r1
+        fmov fr15,fr5
+        mov r0,r14
+        fabs fr4
+        add r0,r0
+        fabs fr5
+        fadd fr11,fr4
+        fmov fr3,fr6
+        fadd fr15,fr5
+        fabs fr6
+        add r14,r0
+        fadd fr3,fr6
+        add r0,r0
+        fldi1 fr7
+        or r1,r8
+        mov r13,r1
+        extu.b r4,r4
+        ftrv xmtrx,fv4
+        add r0,r1
+        mov.w @r1+,r0
+        cmp/gt r12,r9
+        mov.w @r1+,r3
+        extu.b r8,r8
+        lds r0,fpul
+        shll8 r8
+        mov.w @r1+,r0
+        subc r2,r2
+        shll16 r4
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        or r2,r9
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        extu.b r9,r9
+        fmov fr6,fr3
+        float fpul,fr6
+        or r8,r4
+        ftrc fr11,fpul
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16s6_tend2
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        bra     .Llight_rigid_n16s6_hA
+        sts fpul,r9
+.Llight_rigid_n16s6_tend1:
+        bra     .Llight_rigid_n16s6_de
+        nop
+.Llight_rigid_n16s6_tend2:
+        bra     .Llight_rigid_n16s6_de
+        nop
+.Llight_rigid_n16s6_rA:
+        fipr fv4,fv8
+        fipr fv4,fv12
+        fipr fv4,fv0
+        mov.w @(2,r5),r0
+        fmov fr11,fr4
+        fmov fr15,fr5
+        mov r0,r14
+        fabs fr4
+        add r0,r0
+        fabs fr5
+        fadd fr11,fr4
+        fmov fr3,fr6
+        fadd fr15,fr5
+        fabs fr6
+        add r14,r0
+        fadd fr3,fr6
+        add r0,r0
+        fldi1 fr7
+        mov r13,r1
+        ftrv xmtrx,fv4
+        add r0,r1
+        mov.w @r1+,r0
+        mov.w @r1+,r3
+        lds r0,fpul
+        mov.w @r1+,r0
+        fmov fr4,fr11
+        float fpul,fr4
+        lds r3,fpul
+        fmov fr5,fr15
+        float fpul,fr5
+        lds r0,fpul
+        fmov fr6,fr3
+        float fpul,fr6
+        ftrc fr11,fpul
+        dt r6
+        sts fpul,r4
+        ftrc fr15,fpul
+        bt      .Llight_rigid_n16s6_tend3
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        bra     .Llight_rigid_n16s6_hA
+        nop
+.Llight_rigid_n16s6_tend3:
+        bra     .Llight_rigid_n16s6_deR
+        nop
+.Llight_rigid_n16s6_de:
+        add #32,r7
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        or r0,r4
+        cmp/gt r12,r8
+        subc r1,r1
+        or r1,r8
+        extu.b r4,r4
+        cmp/gt r12,r9
+        extu.b r8,r8
+        shll8 r8
+        subc r2,r2
+        shll16 r4
+        or r2,r9
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_rigid_n16s6_exit
+        nop
+.Llight_rigid_n16s6_deR:
+        add r11,r5
+        sts fpul,r8
+        ftrc fr3,fpul
+        sts fpul,r9
+        cmp/gt r12,r4
+        subc r0,r0
+        or r0,r4
+        cmp/gt r12,r8
+        subc r1,r1
+        or r1,r8
+        extu.b r4,r4
+        cmp/gt r12,r9
+        extu.b r8,r8
+        shll8 r8
+        subc r2,r2
+        shll16 r4
+        or r2,r9
+        extu.b r9,r9
+        or r8,r4
+        or r9,r4
+        or r10,r4
+        mov.l r4,@r7
+        add #32,r7
+        bra     .Llight_rigid_n16s6_exit
+        nop
+.Llight_rigid_n16s6_exit:
+        mov.l   @r15+,r4
+        mov     r6,r0
+        fmov.s  @r15+,fr15
+        fmov.s  @r15+,fr14
+        fmov.s  @r15+,fr13
+        fmov.s  @r15+,fr12
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        mov.l   @r15+,r8
+        rts
+        nop
+        .size   _re4dc_avk_light_rigid_n16s6, .-_re4dc_avk_light_rigid_n16s6
 #endif
 
 /* s8 -> float for the light kernels' normal bytes: entry i = (float)(i - 128), indexed with the

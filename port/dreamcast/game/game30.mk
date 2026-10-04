@@ -1349,6 +1349,21 @@ endif
 AVK_SFLAGS += -DRE4DC_AVK_RIGID6=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_AVK_RIGID6=1
 endif
+# ACTOR_LIGHT_N16=1 (needs ACTOR_VTX_KERNEL; render only): pass_lights' fast directional fold for s16 normals
+#              (the owner path's parts: stride 8 skinned / rigid, stride 6 rigid) on pipelined kernels
+#              (mkavk.py @n16: re4dc_avk_light_{skin,rigid}_n16, light_rigid_n16s6) instead of the portable
+#              per-vertex loop (one skin_light_dirs call per vertex). Same lights, fold, directions and colour
+#              matrix; the dot products by fipr (the s8 kernels' operation) where the loop used fmac.
+#              Per-vertex alpha (alpha_state & 256) keeps the loop. =2: compare build, the loop relights every
+#              kernel vertex and the colours are compared ("LN16" log lines, with the fallback reasons).
+ACTOR_LIGHT_N16 ?= 0
+ifneq ($(ACTOR_LIGHT_N16),0)
+ifeq ($(ACTOR_VTX_KERNEL),0)
+$(error ACTOR_LIGHT_N16 needs ACTOR_VTX_KERNEL)
+endif
+AVK_SFLAGS += -DRE4DC_ACTOR_LIGHT_N16=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_N16=$(ACTOR_LIGHT_N16)
+endif
 
 GAME_FP_CONTRACT ?= fast
 GAME_O2 ?= 0
