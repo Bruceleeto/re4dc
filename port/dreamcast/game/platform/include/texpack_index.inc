@@ -10,25 +10,33 @@
 // {crc, fnv, offset, size} (128 per sector), then the packages at 2048-byte boundaries, byte for byte the .re4tex
 // files. RAM: the first key of each index sector; a lookup reads one sector.
 //
-// Failure policy (architect review 2026-10-03, P1/P2):
+// Failure policy (architect review 2026-10-03, P1/P2; retry spacing: review 2026-10-04):
 // - Pack absent (fs_open fails): per-file loads, as before. A key not in a ready pack (texlow, a missing file)
 //   also takes the per-file path.
 // - A read error (header, index or a lookup's sector) is transient: find() returns kError, the caller loads
-//   nothing this time and does not remember the key as missing. Init is retried kRetryNow times, then once per
-//   room load (room_loaded()). Nothing is published until a complete init.
-// - An invalid pack (header fields, count, extents, key order, index CRC) is terminal: one loud log line, then
-//   per-file loads (a packed-only disc will miss its packed textures; that disc is broken media).
+//   nothing this time and does not remember the key as missing. Init attempts are spaced in UI frames (find()'s
+//   `now`), so a burst of lookups in one frame (a room preload) spends one attempt, not all of them: kRetryNow
+//   attempts kRetryFrames apart, then one every kRetrySlowFrames (this also covers the first room after boot,
+//   which no room leave re-arms). A room load (room_loaded()) allows the next attempt at once and restarts the
+//   fast spacing. Between attempts find() returns kError without I/O. Nothing is published until a complete init.
+//   A lookup's index sector that failed to read is re-read at most once per kRetryFrames (one log line each).
+// - An invalid pack (header fields, count, extents, key order, index CRC, a file shorter than its header) is
+//   terminal: one loud log line, then per-file loads (a packed-only disc will miss its packed textures; that disc
+//   is broken media).
 namespace texpack {
 constexpr const char* kPath="/cd/dc/tex.pak";
 constexpr unsigned kMaxSectors=64;               // 8,192 entries (texpack.py enforces the same cap)
 constexpr unsigned kMaxCount=kMaxSectors*128;
-constexpr unsigned kRetryNow=3;                  // attempts after a read error before waiting for a room load
+constexpr unsigned kRetryNow=3;                  // fast init attempts after a read error (per room load)
+constexpr unsigned kRetryFrames=30;              // UI frames between fast attempts / re-reads of a failed sector
+constexpr unsigned kRetrySlowFrames=300;         // UI frames between later attempts, until the next room load
 enum State { kUntried, kReady, kAbsent, kInvalid, kRetry };
 enum Result { kNotInPack, kFound, kError };      // kNotInPack: per-file path (no usable pack, or key not in it)
 mutex_t lock=MUTEX_INITIALIZER;
 State state=kUntried;
 unsigned count=0,data_offset=0,sectors=0,cached=~0U,hits=0,misses=0,errors=0;
-unsigned attempts=0,room_gen=0,attempt_gen=0;
+unsigned attempts=0,streak=0,room_gen=0,attempt_gen=0,retry_at=0;  // retry_at: UI frame of the next init attempt
+unsigned bad_sector=~0U,bad_until=0;             // the index sector whose last lookup read failed, re-read from bad_until
 unsigned long long pack_bytes=0;
 Key first[kMaxSectors];
 alignas(32) unsigned char sector[2048];    // read by re4dc::texture::read_file_range: its own handle per read
@@ -52,23 +60,29 @@ bool invalid(const char* why,unsigned a,unsigned b){
     re4dc_log("tex pack: %s INVALID: %s (0x%x, 0x%x); the pack is not used, per-file loads\n",kPath,why,a,b);
     state=kInvalid;cached=~0U;return false;
 }
-bool read_failed(const char* what,unsigned offset){
-    ++attempts;++errors;attempt_gen=room_gen;state=kRetry;cached=~0U;
-    re4dc_log("tex pack: %s read error (%s at %u), attempt %u; %s\n",kPath,what,offset,attempts,
-              attempts<kRetryNow?"retrying":"retrying at the next room load");
+bool read_failed(const char* what,unsigned offset,unsigned now){
+    if(attempt_gen!=room_gen)streak=0;           // a room load since the last failure: fast spacing again
+    ++attempts;++streak;++errors;attempt_gen=room_gen;state=kRetry;cached=~0U;
+    const unsigned wait=streak<kRetryNow?kRetryFrames:kRetrySlowFrames;
+    retry_at=now+wait;
+    if(streak<=kRetryNow || !(streak%16U))       // the slow cadence logs every 16th failure
+        re4dc_log("tex pack: %s read error (%s at %u), attempt %u; next attempt in %u frames or at the next room load\n",
+                  kPath,what,offset,attempts,wait);
     return false;
 }
 // Complete init or nothing: header and every index sector validated, index CRC checked, then published.
-bool open_locked(){
+bool open_locked(unsigned now){
     if(state==kReady)return true;
     if(state==kAbsent || state==kInvalid)return false;
-    if(state==kRetry && attempts>=kRetryNow && attempt_gen==room_gen)return false;
+    // after a read error: wait for retry_at (frame arithmetic wraps), unless a room load came since the failure
+    if(state==kRetry && attempt_gen==room_gen && int(now-retry_at)<0)return false;
     unsigned long long total=0;
     const re4dc::texture::RangeRead h=read_sector(0,&total);
     if(h==re4dc::texture::RangeRead::absent){
         re4dc_log("tex pack: %s not on the disc, per-file loads\n",kPath);state=kAbsent;return false;
     }
-    if(h!=re4dc::texture::RangeRead::ok)return read_failed("header",0);
+    if(h==re4dc::texture::RangeRead::short_file)return invalid("file shorter than its header",unsigned(total),2048);
+    if(h!=re4dc::texture::RangeRead::ok)return read_failed("header",0,now);
     if(std::memcmp(sector,"RE4PAK1\0",8) || word(sector+8)!=1)return invalid("magic/version",word(sector+8),0);
     const unsigned n=word(sector+12),index_at=word(sector+16),data_at=word(sector+20),crc=word(sector+24);
     if(n<1 || n>kMaxCount)return invalid("count",n,kMaxCount);           // before any multiplication
@@ -79,7 +93,9 @@ bool open_locked(){
     Key keys[kMaxSectors];
     Key prev{};unsigned crc_run=0xffffffffU;
     for(unsigned s=0;s<nsec;++s){
-        if(read_sector(2048U*(s+1))!=re4dc::texture::RangeRead::ok)return read_failed("index",2048U*(s+1));
+        const re4dc::texture::RangeRead ir=read_sector(2048U*(s+1));
+        if(ir==re4dc::texture::RangeRead::short_file)return invalid("index past the end of the file",2048U*(s+1),unsigned(total));
+        if(ir!=re4dc::texture::RangeRead::ok)return read_failed("index",2048U*(s+1),now);
         crc_run=crc_update(crc_run,sector,2048);
         const unsigned m=std::min(128U,n-128U*s);
         for(unsigned i=0;i<m;++i){
@@ -99,25 +115,29 @@ bool open_locked(){
               attempts?" (after read errors)":"");
     return true;
 }
-// A room load re-arms one init attempt after kRetryNow failed ones (native_ui.cpp re4dc_ui_retire_room).
-void room_loaded(){mutex_lock(&lock);++room_gen;mutex_unlock(&lock);}
+// A room load (native_ui.cpp re4dc_ui_retire_room) allows the next init attempt at once and restarts the fast
+// spacing; it also lets a failed lookup sector be re-read at once.
+void room_loaded(){mutex_lock(&lock);++room_gen;bad_sector=~0U;mutex_unlock(&lock);}
 // The key's package in the pack: kFound with its offset and size; kNotInPack for the per-file path; kError for a
-// read error (load nothing now, do not remember the key as missing).
-Result find(const Key& key,unsigned& offset,unsigned& size){
+// read error (load nothing now, do not remember the key as missing). now: the caller's UI frame (retry spacing).
+Result find(const Key& key,unsigned& offset,unsigned& size,unsigned now){
     mutex_lock(&lock);
     Result r=kNotInPack;
-    if(open_locked()){
+    if(open_locked(now)){
         unsigned s=0;
         while(s+1<sectors && !less(key,first[s+1]))++s;
         if(!less(key,first[s])){
             if(cached!=s){
-                cached=~0U;
-                if(read_sector(2048U*(s+1))!=re4dc::texture::RangeRead::ok || word(sector)!=first[s].crc ||
-                   word(sector+4)!=first[s].fnv){
-                    ++errors;r=kError;
-                    re4dc_log("tex pack: %s index sector %u read error (lookup %08x-%08x); retried at the next use\n",
-                              kPath,s,key.crc,key.fnv);
-                } else cached=s;
+                if(s==bad_sector && int(now-bad_until)<0)r=kError;   // failed lately: no re-read before bad_until
+                else{
+                    cached=~0U;
+                    if(read_sector(2048U*(s+1))!=re4dc::texture::RangeRead::ok || word(sector)!=first[s].crc ||
+                       word(sector+4)!=first[s].fnv){
+                        ++errors;r=kError;bad_sector=s;bad_until=now+kRetryFrames;
+                        re4dc_log("tex pack: %s index sector %u read error (lookup %08x-%08x); re-read in %u frames\n",
+                                  kPath,s,key.crc,key.fnv,kRetryFrames);
+                    } else {cached=s;if(s==bad_sector)bad_sector=~0U;}
+                }
             }
             if(cached==s){
                 unsigned lo=0,hi=std::min(128U,count-128U*s);

@@ -1285,12 +1285,12 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     unsigned pack_offset=0,pack_size=0;
 #if RE4DC_QUALITY_ASSETS
     // texlow/ keys (Standard index additions) are never in tex/, so never in the pack: skip the lookup.
-    const texpack::Result pack=re4dc_std_texlow(key.crc,key.fnv)?texpack::kNotInPack:texpack::find(key,pack_offset,pack_size);
+    const texpack::Result pack=re4dc_std_texlow(key.crc,key.fnv)?texpack::kNotInPack:texpack::find(key,pack_offset,pack_size,frame);
 #else
-    const texpack::Result pack=texpack::find(key,pack_offset,pack_size);
+    const texpack::Result pack=texpack::find(key,pack_offset,pack_size,frame);
 #endif
     // A pack read error is transient: no eviction, no per-file probe, and the key is not remembered as missing
-    // (on a packed disc its loose file is gone); a later use retries (texpack_index.inc bounds the retries).
+    // (on a packed disc its loose file is gone); a later use retries (texpack_index.inc spaces the retries in UI frames).
     if(pack==texpack::kError){RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;}
     const bool in_pack=pack==texpack::kFound;
     if(slot->valid && !in_pack){
@@ -2210,7 +2210,7 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
 extern "C" void re4dc_ui_retire_room(){
     re4dc_actor_archive_retire_transient();
 #if RE4DC_TEX_PACK
-    texpack::room_loaded();   // re-arms one pack init attempt after read errors
+    texpack::room_loaded();   // after read errors: the next pack init attempt runs at once (texpack_index.inc)
 #endif
 #if RE4DC_MODEL_SLAB_LATCH
     model_slab_failed=false;
