@@ -812,6 +812,9 @@ struct MeshView {
     const std::uint32_t* lut=nullptr; // ARGB1555 -> 8888 halves, same allocation
     re4dc::room::CompactVertex12* gather=nullptr; // v3: one meshlet's gathered corners, same allocation
     unsigned room=0; bool attempted=false;
+#if RE4DC_SCENERY_ENCODING
+    const std::uint32_t* vertex_colors=nullptr; // kColorOctVertex: each vertex's CLR0 (ARGB8888), read in place of the palette
+#endif
 };
 MeshView mesh_views[kMeshViews];
 #if RE4DC_TREE_IMPOSTOR
@@ -839,6 +842,9 @@ void retire(MeshView& v){
     v.package.close();
     if(v.storage){re4dc_static_free(v.storage);stats.package_bytes-=v.bytes;--stats.owners_open;}
     v.storage=nullptr;v.bytes=0;v.entries=nullptr;v.capacity=0;v.lut=nullptr;v.gather=nullptr;v.attempted=false;v.room=0;
+#if RE4DC_SCENERY_ENCODING
+    v.vertex_colors=nullptr;
+#endif
 }
 
 bool open(MeshView& v,unsigned index,unsigned room){
@@ -888,7 +894,11 @@ bool open(MeshView& v,unsigned index,unsigned room){
     fs_close(file);
     stats.heap_after=re4dc_static_heap_free();
     if(!storage){re4dc_log("native mesh: %s not loaded (size=%u heap=%d)\n",path,size,stats.heap_before);return false;}
+#if RE4DC_SCENERY_ENCODING
+    if(!re4dc::room::adopt_by_encoding(v.package,storage,size,RE4DC_MESH_LOD!=0,&v.vertex_colors)){
+#else
     if(!v.package.adopt(storage,size,RE4DC_MESH_LOD!=0)){
+#endif
         re4dc_log("native mesh: %s rejected: %s\n",path,v.package.error());
         re4dc_static_free(storage);++stats.open_failures;
 #if RE4DC_QUALITY_ASSETS
@@ -898,6 +908,14 @@ bool open(MeshView& v,unsigned index,unsigned room){
         return false;
     }
     v.storage=storage;v.bytes=package_bytes+table+kLutBytes+gather;
+#if RE4DC_SCENERY_ENCODING
+    {
+        std::uint32_t encoding;std::memcpy(&encoding,storage+offsetof(re4dc::room::MeshHeader,reserved),4);
+        re4dc_log("native mesh: %s color encoding %u (%s)\n",path,unsigned(encoding),
+            encoding==re4dc::room::kColorArgb1555?"prelit ARGB1555, parts marked lit":
+            v.vertex_colors?"oct + vertex colours, lit at first draw":"oct, lit at first draw");
+    }
+#endif
 #if RE4DC_QUALITY_ASSETS
     // Per-mesh records apply only to the package they were built against.
     if(std_room.active && std_room.room==room){
@@ -1052,7 +1070,11 @@ void light_part(MeshView& v,const re4dc::room::MeshRecord& mesh,re4dc::room::Mes
         const std::uint32_t first=pool?lo:lets[i].first_vertex,count=pool?hi-lo:lets[i].vertex_count;
         for(unsigned k=0;k<count;++k){
             auto& corner=vertices[first+k];
+#if RE4DC_SCENERY_ENCODING
+            const std::uint32_t argb=v.vertex_colors?v.vertex_colors[first+k]:palette[corner.color>>12];
+#else
             const std::uint32_t argb=palette[corner.color>>12];
+#endif
             const std::uint8_t color[4]={std::uint8_t(argb>>16),std::uint8_t(argb>>8),std::uint8_t(argb),std::uint8_t(argb>>24)};
             float rgb[3]={1.0f,1.0f,1.0f};
             if(p.lighting){
@@ -2168,12 +2190,44 @@ bool ps2_open(){
     const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
     const unsigned mbytes=(msize+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
     const int before=re4dc_static_heap_free();
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN opened mesh=%d/%u sidecar=%d/%u heap=%d\n",int(fm),msize,int(fp),psize,before);
+#endif
     auto* s=msize && psize>=sizeof(Ps2Head)?static_cast<unsigned char*>(re4dc_static_alloc(total)):nullptr;
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN alloc %p bytes=%u align32=%u\n",static_cast<void*>(s),total,unsigned(reinterpret_cast<std::uintptr_t>(s)&31U));
+    bool ok=s!=nullptr;
+#if RE4DC_PS2_OPEN_READ
+    const auto read_all=[](file_t f,unsigned char* d,unsigned n){return read_package(f,d,n,0)?ssize_t(n):ssize_t(-1);};
+#else
+    const auto read_all=[](file_t f,unsigned char* d,unsigned n){return fs_read(f,d,n);};
+#endif
+    if(ok){
+        re4dc_log("PS2OPEN read mesh dst=%p bytes=%u tail=%u\n",static_cast<void*>(s),msize,msize&31U);
+        const ssize_t got=read_all(fm,s,msize);ok=got==ssize_t(msize);
+        re4dc_log("PS2OPEN read mesh got=%d\n",int(got));
+    }
+    if(ok){
+        re4dc_log("PS2OPEN read sidecar dst=%p bytes=%u tail=%u\n",static_cast<void*>(s+mbytes),psize,psize&31U);
+        const ssize_t got=read_all(fp,s+mbytes,psize);ok=got==ssize_t(psize);
+        re4dc_log("PS2OPEN read sidecar got=%d\n",int(got));
+    }
+#elif RE4DC_PS2_OPEN_READ
+#if !RE4DC_IO_ALIGNED
+#error "PS2_OPEN_READ needs IO_ALIGNED=1 (read_package)"
+#endif
+    // PS2_OPEN_READ: both files through the IO_ALIGNED whole-file reader (s and s+mbytes are 32-byte aligned).
+    bool ok=s && read_package(fm,s,msize,0) && read_package(fp,s+mbytes,psize,0);
+#else
     bool ok=s && fs_read(fm,s,msize)==ssize_t(msize) && fs_read(fp,s+mbytes,psize)==ssize_t(psize);
+#endif
     if(fm!=FILEHND_INVALID)fs_close(fm);
     if(fp!=FILEHND_INVALID)fs_close(fp);
     const char* why=ok?nullptr:s?"read":"missing or no heap";
     if(ok && !ps2w.package.adopt(s,msize,true,true)){why=ps2w.package.error();ok=false;}
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN adopt ok=%d why=%s\n",int(ok),why?why:"-");
+#endif
     Ps2Head h{};
     if(ok){
         std::memcpy(&h,s+mbytes,sizeof(h));
@@ -2195,6 +2249,9 @@ bool ps2_open(){
         }
         if(!ok)why="sidecar records";
     }
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN sidecar ok=%d why=%s\n",int(ok),why?why:"-");
+#endif
     if(!ok){
         ps2w.package.close();if(s)re4dc_static_free(s);ps2w.parts=nullptr;ps2w.placements=nullptr;
         re4dc_log("PS2MESH open failed: %s mesh=%u sidecar=%u heap=%d\n",why?why:"?",msize,psize,before);
@@ -2303,9 +2360,22 @@ namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
 // The rooms that have a PS2 world package (tools/ps2_room_r4im.py, dc/native/r%03x/ps2-world.*): the one list
 // native_ps2_world.cpp (re4dc_ps2_world_covers) and the =2 preload share. r106: the route lane (stage 1-1 end);
 // r104 / r105 / r107 (chapter 1-2, route lane): their GC scenery is released like r106's.
+#if RE4DC_PS2_WORLD_REGISTRY
+// PS2_WORLD_REGISTRY=1 (game30.mk): the list is generated from the validated package manifest
+// (tools/d367/ps2world/world_registry.py -> include/ps2_world_rooms.inc): one bit per room, stage = room >> 8.
+// A listed room whose package is absent falls back to its own scenery (re4dc_ps2_mesh_failed): drawn only if oct-encoded, or prelit with SCENERY_ENCODING=1.
+namespace { const std::uint32_t kPs2WorldRoomBits[6][8]={
+#include "include/ps2_world_rooms.inc"
+}; }
+extern "C" int re4dc_ps2_world_room(unsigned room){
+    const unsigned stage=room>>8,index=room&255U;
+    return stage<6 && ((kPs2WorldRoomBits[stage][index>>5]>>(index&31U))&1U);
+}
+#else
 extern "C" int re4dc_ps2_world_room(unsigned room){
     return room==0x100 || room==0x101 || room==0x103 || room==0x104 || room==0x105 || room==0x106 || room==0x107;
 }
+#endif
 #if RE4DC_PS2_WORLD_ROOMS >= 2
 // bind_mesh (room entry, file I/O allowed): open this room's PS2 world before its scenery package would open.
 extern "C" int re4dc_ps2_mesh_preload(unsigned room){

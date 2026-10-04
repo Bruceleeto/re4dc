@@ -417,6 +417,10 @@ void re4dc_ss_light_array_high()
 }
 #endif
 
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+extern "C" void re4dc_logic_trace_swap_open(void*,unsigned,unsigned);
+extern "C" void re4dc_logic_trace_swap_close();
+#endif
 extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
 {
     if (swapped) re4dc_missing("sub screen area swapped twice");
@@ -460,6 +464,10 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
         }
     }
     open_hash = h;
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+    // SS_PACK has restored its temporary scratch bytes. The source region is still intact here.
+    re4dc_logic_trace_swap_open(wk->pBuf,kSsAramSize,packed?packed_bytes:live_bytes);
+#endif
     swapped = true;
     area_lo = lo;
     area_hi = hi;
@@ -531,6 +539,9 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
         re4dc_ssb_get(reinterpret_cast<void*>(spans[i].start), spans[i].bytes);
         h = hash_words(reinterpret_cast<const void*>(spans[i].start), spans[i].bytes, h);
     }
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+    re4dc_logic_trace_swap_close();
+#endif
     re4dc_ssb_close();
     swapped = false;
     re4dc_parts_thaw();

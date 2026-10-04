@@ -428,6 +428,28 @@ ROOM_CONTRACTS={
     'r107':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
     # r105 (route lane): r107's 27-slot layout.
     'r105':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    # r210 (St2, world coverage lane): 36 slots, SMD#4, EFF#7, ITM#9, model TPL#31 (after BIN#30); FCV#27-29/#32-35
+    # (the lift motions) and every other slot stay byte-identical.
+    'r210':dict(slots=36,smd=4,effs=(7,),itm=9,model_slots=(31,)),
+    # r40c (St4, world coverage lane): r107's 27-slot layout.
+    'r40c':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    # r219 (St2, world coverage lane, st2_2): r210's layout in 35 slots: SMD#4, EFF#7, ITM#9, model TPL#31 (after
+    # BIN#30); FCV#27-29/#32-34 stay byte-identical (slot tags of the GC disc 1 St2/r219.das).
+    'r219':dict(slots=35,smd=4,effs=(7,),itm=9,model_slots=(31,)),
+    # r40a (St4, world coverage lane, st4_0 + em1f): r40c's owner layout in 30 slots; FCV#27-29 byte-identical.
+    # Its header ends flush with the first payload (256 B), as r104's: header_grow=32 makes room for the NTR slot.
+    'r40a':dict(slots=30,smd=4,effs=(7,),itm=9,model_slots=(),header_grow=32),
+    # Follow-up 7 (world coverage lane, St1; slot tags of the GC disc 1 St1/<room>.das, assets.sh discover):
+    # r109: 30 slots, r107's owner layout + SAT#27-29; header ends flush with the first payload (256 B): header_grow 32.
+    'r109':dict(slots=30,smd=4,effs=(7,),itm=9,model_slots=(),header_grow=32),
+    # r10c: 35 slots, SMD#4, EFF#7, ITM#9, model TPL#28 (after BIN#27); FCV#29-34 byte-identical.
+    'r10c':dict(slots=35,smd=4,effs=(7,),itm=9,model_slots=(28,)),
+    # r10f: 48 slots, models TPL#28 (BIN#27) and TPL#32 (BIN#31; BIN#30 alone); FCV#29/#33-46, EMI#47 byte-identical.
+    'r10f':dict(slots=48,smd=4,effs=(7,),itm=9,model_slots=(28,32)),
+    # r11a: r107's 27-slot layout.
+    'r11a':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    # r40b (St4, st4_0 + em1f; follow-up 7): r40c's 27-slot layout (header ends at 232 of 256: no growth).
+    'r40b':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
 }
 
 def compact_room(source_file, textures, destination, compact_effects=False, compact_palettes=False, compact_uvs=False, compact_mips=False):
@@ -440,13 +462,14 @@ def compact_room(source_file, textures, destination, compact_effects=False, comp
     name=source_file.name.lower()
     room=name[:-4] if name.endswith('.das') else ''
     if room not in ROOM_CONTRACTS:
-        raise ValueError('only the reviewed r100/r101/r103/r104/r105/r106/r107 consumer contracts are supported')
+        raise ValueError('only the reviewed consumer contracts are supported: '+' '.join(sorted(ROOM_CONTRACTS)))
     if room!='r100' and (compact_effects or compact_palettes or compact_uvs):
         raise ValueError('effect/palette/UV compaction is reviewed for r100 only')
     contract=ROOM_CONTRACTS[room]
     if destination.exists():
         raise FileExistsError(destination)
-    rel='st1/%s.das'%room;arc='st1/%s.arc'%room
+    stage='st'+room[1]   # the room's stage directory (st1 / st2 / st4)
+    rel='%s/%s.das'%(stage,room);arc='%s/%s.arc'%(stage,room)
     source=source_file.read_bytes();references=[];palettes=[];sequences=[];models=[]
     previous_tpl,previous_offsets,previous_seq=mirror.TPL_OBSERVER,mirror.OFFSET_OBSERVER,mirror.SEQUENCE_OBSERVER
     previous_model=mirror.MODEL_OBSERVER

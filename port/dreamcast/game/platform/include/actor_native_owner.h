@@ -18,13 +18,19 @@ struct Re4dcActorSkinBackup {
     const float* palette;
     unsigned entries,materialized;
 };
+#ifndef RE4DC_ACTOR_PL08
+#define RE4DC_ACTOR_PL08 0
+#endif
+// Role-indexed infos per owner plan. ACTOR_PL08=1 (crowd.mk): the nine-info no-jacket Leon (pl08) is the widest
+// plan; every other appearance keeps its exact count. Its one extra (role 8) run follows the 21 Leon runs.
+constexpr unsigned kRe4dcActorRoles=RE4DC_ACTOR_PL08?9u:8u;
 struct Re4dcActorSkinLease {
     unsigned serial=0,frame=0,count=0;
-    Re4dcActorSkinBackup old[8]{};
+    Re4dcActorSkinBackup old[kRe4dcActorRoles]{};
 };
 // Material identity is independent of the source info / its one skin palette.
 // All textures are leased together before the actor can emit its first header.
-constexpr unsigned kRe4dcActorMaterials=3,kRe4dcActorRuns=21;
+constexpr unsigned kRe4dcActorMaterials=3,kRe4dcActorRuns=RE4DC_ACTOR_PL08?22u:21u;
 struct Re4dcActorOwnedMaterial {
     Re4dcUiImage image{},mask{};
     unsigned crc=0,fnv=0,material_flags=0,blend=0,depth_mode=0;

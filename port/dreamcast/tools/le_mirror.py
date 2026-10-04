@@ -255,6 +255,13 @@ def fmt_mdt(sw, off, size, ctx):
     for b in sorted(set(block_ofs)):
         end = bounds[bounds.index(b) + 1]
         blk = off + b
+        if end - b < 8:
+            # An empty table (St2 r210 / r222: every language's block at the last word, the 0xCDCDCDCD fill):
+            # no MesTblBlock header, no messages. The fill reads the same in either byte order.
+            if end - b == 4 and sw.data[blk:blk + 4] == b"\xcd\xcd\xcd\xcd":
+                sw.u32(blk)
+                continue
+            raise ValueError("%s: MDT block at %#x has %d bytes" % (sw.label, b, end - b))
         sw.u32(blk)
         count = sw.u32(blk + 4)
         offs = sw.u32s(blk + 8, count)
@@ -1860,6 +1867,12 @@ def fmt_smx(sw, off, size, ctx):
             # r120.cpp never installs a scroll callback or reads object work;
             # obj02::moveNormal is empty. Preserve opaque unused authoring bytes.
             pass
+        elif kind == 0 and ctx.startswith('st1/r10c.arc#') and sw.data[p] in (0x04, 0x0C):
+            # r10c (world coverage lane): objects 0x04 (the gate group: ang / be_flag only) and 0x0C (the drain
+            # lever: SwitchExec turns pParts->ang) are never read through cObj::work; the room reads work only
+            # on the wheel objects 6 / 8 / 0xA / 0x33 (R10cRotWork), and the only SetCallBack in the source is
+            # r318's. Preserve these opaque type-0 authoring bytes unswapped, as r120's.
+            pass
         elif any(sw.data[work:work + 116]):
             # Type zero's normal mover ignores work, but room callbacks may
             # consume it. Do not guess its scalar layout from nonzero bytes.
@@ -2417,6 +2430,10 @@ def static_module_ids():
     bindings = [(i, n) for i, n in re.findall(r'^    MODULE\((\d+), (\w+)\),(?:\s*//.*)?$', registry, re.M)
                 if n != 'Sscrn']
     makefile = (root / 'port/dreamcast/game/Makefile').read_text()
+    # Knob-conditional modules (`MODULES += ...` under WORLD_STAGE_MODULES=1, with #if-guarded registry rows) are
+    # not part of the default image's static set this mirror compacts against.
+    conditional = {n for line in re.findall(r'^MODULES \+= (.*)$', makefile, re.M) for n in line.split()}
+    bindings = [(i, n) for i, n in bindings if n not in conditional]
     selected = re.search(r'^MODULES = (.*)$', makefile, re.M)
     if not bindings or selected is None or set(selected[1].split()) != {n for _, n in bindings}:
         raise ValueError('static module registry and Makefile disagree')

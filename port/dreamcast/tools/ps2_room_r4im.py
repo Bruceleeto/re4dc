@@ -219,12 +219,23 @@ def fnv(raw):
     return n
 
 
-def emit(folder, label, w, h, fmt, payload_type, payload):
+def re4dctx_bytes(label, w, h, fmt, payload_type, payload):
+    """(file bytes, key) of a one-descriptor RE4DCTX package. The key (file name) is CRC32-FNV1a of the texels, the
+    identity the R4PW parts bind; the header's payload_crc32 is CRC32 of every byte after the 48-byte header, the
+    runtime's rule (texture_package.cpp validate / open_streamed, convert_tpl.py, stage.sh). Packages written before
+    2026-10-03 21:10 carry CRC32 of the texels alone in that field (legacy: they load only where the runtime skips the
+    CRC, TEX_RESIDENT=1 without TEX_PAYLOAD_CRC); their texels and keys are the same."""
     crc = zlib.crc32(payload) & 0xffffffff
-    h2 = fnv(payload)
-    key = f'{crc:08x}-{h2:08x}'
-    data = struct.pack('<8s10I', b'RE4DCTX\0', 2, 48, 96, 1, 48, 144, len(payload), crc, 1, 0)
-    data += struct.pack('<64s8I', label.encode()[:63], w, h, fmt, 144, len(payload), 0, payload_type, 0) + payload
+    key = f'{crc:08x}-{fnv(payload):08x}'
+    desc = struct.pack('<64s8I', label.encode()[:63], w, h, fmt, 144, len(payload), 0, payload_type, 0)
+    body = desc + payload
+    head = struct.pack('<8s10I', b'RE4DCTX\0', 2, 48, 96, 1, 48, 144, len(payload), zlib.crc32(body) & 0xffffffff, 1, 0)
+    return head + body, key
+
+
+def emit(folder, label, w, h, fmt, payload_type, payload):
+    data, key = re4dctx_bytes(label, w, h, fmt, payload_type, payload)
+    crc, h2 = (int(x, 16) for x in key.split('-'))
     p = folder / (key + '.re4tex')
     p.write_bytes(data)
     pixels, meta = codec.decode(p)
@@ -505,7 +516,8 @@ def main():
                   re4mesh_sha256=hashlib.sha256(blob).hexdigest(), r4pw_bytes=len(side),
                   r4pw_sha256=hashlib.sha256(side).hexdigest(), textures=len(textures),
                   texture_vram_bytes=sum(t['vram_bytes'] for t in textures.values()),
-                  texture_rows=textures, summary=summary)
+                  texture_rows=textures, summary=summary,
+                  texture_crc_rule='header')   # payload_crc32 over every byte after the header (re4dctx_bytes)
     (a.out / 'ps2-world.json').write_text(json.dumps(report, indent=1, default=str))
     print(json.dumps({k: report[k] for k in ('room', 'groups', 'meshes', 'placements', 'source_triangles',
                                              'triangles_by_pass', 'stats', 'level0_triangles', 're4mesh_bytes',

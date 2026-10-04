@@ -55,7 +55,11 @@ void st4_initAdaGame();   // st4.cpp
 int GetEmIdFromListI(u32 no) asm("GetEmIdFromList");
 
 static void snd_tbl_set();
+#if defined(RE4DC_GAME)
+static void setTexRender(); // st4_0 is one partial link on the port and r406 defines its own: file-local
+#else
 void setTexRender();
+#endif
 static void R405ExecEventS00();
 extern "C" void Evt_R405S00_Func(Event* e);
 static void em_set();

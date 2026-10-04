@@ -15,8 +15,8 @@ void owned_skin_clear() {
 void owned_skin_invalidate_frames(); // definition after the Frame cache
 
 extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
-    if(!out || out->serial || out->count || !in || !n || n>8 || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)return 0;
-    unsigned index[8],high=skin_count;
+    if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)return 0;
+    unsigned index[kRe4dcActorRoles],high=skin_count;
     for(unsigned k=0;k<n;++k){
         const auto& b=in[k];
         if(!b.info || !b.palette || !b.entries || b.entries>256 || !b.source.positions || !b.source.normals ||
@@ -46,7 +46,7 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
     owned_skin_invalidate_frames();return 1;
 }
 extern "C" int re4dc_actor_skin_validate(const Re4dcActorSkinLease* lease) {
-    if(!lease || !lease->serial || !lease->count || lease->count>8 || lease->frame!=skin_frame)return 0;
+    if(!lease || !lease->serial || !lease->count || lease->count>kRe4dcActorRoles || lease->frame!=skin_frame)return 0;
     for(unsigned k=0;k<lease->count;++k){
         const unsigned i=lease->old[k].index;
         if(i>=skin_count || owned_skins[i].serial!=lease->serial || !skins[i].info || skins[i].info!=owned_skins[i].info || skins[i].positions ||

@@ -5,6 +5,9 @@
 #include "model.h"
 #include "native_actor.hpp"
 #include "leon4k_runtime.h" // private generated asset, outside the repository
+#if RE4DC_ACTOR_PL08
+#include "leon_pl08_runtime.h" // ACTOR_PL08: pl08's own chunks (private, ACTOR_PL08_DIR)
+#endif
 #include <cstring>
 #if RE4DC_COARSE_SKIN_FTRV
 #include "coarse_skin.h"
@@ -28,6 +31,13 @@ namespace {
 unsigned texture_token;
 const Re4dcUiImage image{&texture_token,nullptr,512,512,6,0xffffffffU,0};
 constexpr unsigned crc=0xec255e66U, fnv=0x76812316U;
+#if RE4DC_ACTOR_PL08
+// The pl08 atlas: the production atlas with only pl00-only tiles replaced (key 7506e95f-68cf2211, NS/pl08/tex). Only
+// a proved pl08 plan leases it, so the texture cache uploads it only where pl08 draws.
+unsigned pl08_texture_token;
+const Re4dcUiImage pl08_image{&pl08_texture_token,nullptr,512,512,6,0xffffffffU,0};
+constexpr unsigned pl08_crc=0x7506e95fU, pl08_fnv=0x68cf2211U;
+#endif
 cParts* parts[119];
 cModelInfo* infos[8];
 const ModelData* qualified[8];
@@ -45,6 +55,37 @@ alignas(32) unsigned char skin_stream[kSkinStream];
 alignas(32) float bone_T[119][12];
 CoarseBoneJob skin_jobs[119];
 unsigned char skin_bone[119];
+#if RE4DC_ACTOR_PL08
+// ACTOR_PL08: one stream, keyed by costume (0 pl00 = leon4k::chunks, 1 pl08 = pl08's role chunks). A costume change
+// rebuilds it before use, so no palette program of the other costume can be read.
+unsigned skin_first[9], skin_groups[9], skin_used, skin_state, skin_costume;
+#if RE4DC_COARSE_SKIN_FTRV == 2
+CoarseSkinCheck skin_chk;
+#endif
+bool skin_build(unsigned costume, const leon4k::Chunk* const* role, unsigned count) {
+    if (skin_state && skin_costume == costume) return skin_state == 1;
+    skin_state = 0; skin_costume = costume;
+    unsigned n = 0, bytes = 0; unsigned char used[119] = {};
+    for (unsigned i = 0; i < count; ++i) {
+        const auto& c = *role[i];
+        for (unsigned j = 0; j < c.palette_count; ++j)
+            for (unsigned k = 0; k < c.weights[j].count; ++k)
+                if (c.weights[j].bone[k] >= 119) { skin_state = 2; return false; }
+        skin_first[i] = bytes;
+        const unsigned b = coarse_group_build(c.weights, c.palette_count, skin_stream + bytes, kSkinStream - bytes, &skin_groups[i], used);
+        if (!b) { skin_state = 2; re4dc_log("COARSE_LEON skin palette does not fit costume=%u\n", costume); return false; }
+        bytes += b; n += c.palette_count;
+    }
+    skin_used = 0;
+    for (unsigned b = 0; b < 119; ++b) if (used[b]) skin_bone[skin_used++] = (unsigned char)b;
+    re4dc_log("COARSE_LEON skin ftrv=%d costume=%u entries=%u bones=%u stream=%u\n", RE4DC_COARSE_SKIN_FTRV, costume, n, skin_used, bytes);
+    skin_state = 1;
+    return true;
+}
+const leon4k::Chunk* const leon_role_chunks[8] = {&leon4k::chunks[0], &leon4k::chunks[1], &leon4k::chunks[2], &leon4k::chunks[3],
+    &leon4k::chunks[4], &leon4k::chunks[5], &leon4k::chunks[6], &leon4k::chunks[7]};
+bool skin_init() { return skin_build(0, leon_role_chunks, 8); }
+#else
 unsigned skin_first[8], skin_groups[8], skin_used, skin_state;  // first: byte offset; state: 0 not built, 1 ready, 2 does not fit
 #if RE4DC_COARSE_SKIN_FTRV == 2
 CoarseSkinCheck skin_chk;
@@ -68,6 +109,7 @@ bool skin_init() {
     skin_state = 1;
     return true;
 }
+#endif
 #endif
 
 unsigned fingerprint(const void* data) {
@@ -136,6 +178,9 @@ extern "C" int re4dc_coarse_actor_texture_key(const Re4dcUiImage* i,unsigned* c,
 #endif
 #if RE4DC_COARSE_GANADO
     if(re4dc_coarse_ganado_texture_key(i,c,f))return 1;
+#endif
+#if RE4DC_ACTOR_PL08
+    if(i->pixels==pl08_image.pixels && i->width==512 && i->height==512 && i->format==6 && !i->palette_bytes){*c=pl08_crc;*f=pl08_fnv;return 1;}
 #endif
     if(i->pixels!=image.pixels || i->width!=512 || i->height!=512 || i->format!=6 || i->palette_bytes)return 0;
     *c=crc;*f=fnv;return 1;

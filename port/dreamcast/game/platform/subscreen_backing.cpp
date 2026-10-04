@@ -303,6 +303,45 @@ void re4dc_ssb_get(void* dst, unsigned bytes)
     }
 }
 
+#if defined(RE4DC_LOGIC_TRACE_SWAPPED) && RE4DC_LOGIC_TRACE_SWAPPED
+// Trace-only storage in spare capacity of the already-owned backing store.
+// Never allocate game RAM, grow the store, reclaim a texture or move the restore cursor on reads.
+static unsigned trace_begin,trace_end;
+int re4dc_ssb_trace_begin(unsigned saved_end) {
+    if(!store.open || (saved_end&3) || saved_end>store.bytes)return 0;
+    trace_begin=trace_end=saved_end;store.cursor=saved_end;return 1;
+}
+int re4dc_ssb_trace_append(const void* src,unsigned bytes,unsigned* offset) {
+    if(!store.open || bytes>~0u-3)return 0;
+    const unsigned padded=(bytes+3)&~3u;
+    if(store.cursor!=trace_end || store.cursor>store.bytes || padded>store.bytes-store.cursor)return 0;
+    *offset=store.cursor;
+    const unsigned char* input=static_cast<const unsigned char*>(src);
+    unsigned left=bytes;
+    while(left) {
+        unsigned staging[8]{};
+        const unsigned n=left<sizeof(staging)?left:sizeof(staging);
+        memcpy(staging,input,n);
+        re4dc_ssb_put(staging,(n+3)&~3u);
+        input+=n;left-=n;
+    }
+    trace_end=store.cursor;return 1;
+}
+int re4dc_ssb_trace_read(void* dst,unsigned offset,unsigned bytes) {
+    if(!store.open || offset<trace_begin || offset>trace_end || bytes>trace_end-offset)return 0;
+    unsigned char* output=static_cast<unsigned char*>(dst);
+    while(bytes) {
+        unsigned run;
+        const unsigned word=*word_at(offset&~3u,&run);
+        const unsigned skip=offset&3u;
+        const unsigned n=bytes<4-skip?bytes:4-skip;
+        memcpy(output,reinterpret_cast<const unsigned char*>(&word)+skip,n);
+        output+=n;offset+=n;bytes-=n;
+    }
+    return 1;
+}
+#endif
+
 #if RE4DC_SS_PACK
 // Appends [src, src + n) as one LZ4 block (greedy, 4096-entry hash table of 16-bit positions, offsets
 // up to 64 KiB back into the same range): a word holding the block length, then the block padded to a

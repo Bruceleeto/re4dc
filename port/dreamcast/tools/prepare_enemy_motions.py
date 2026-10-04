@@ -20,7 +20,10 @@ STRIDE=20
 MAX_CLIP=32768
 # Ganado modules link the shared em10.cpp (config/G4BE08/modules.py): same EFF slot0
 # family, FCV/SEQ transport and source motion evaluators as em12 (frontier W1).
-GANADO=('em12.drs','em15.drs')
+# em13 (r104's chapter 1-2 Ganados; native scene lane 2026-10-03): the same three units as em12/em15
+# (config/G4BE08/modules.py: em13/em10.cpp, em10_tmpl.cpp, em13_set.cpp), so the same consumers. Its GC
+# archive's 4,367,968 B body did not fit r104's heap 4 (DVD: Memory allocate failed, EmSetFromList2 Id=13).
+GANADO=('em12.drs','em15.drs','em13.drs')
 SMALL=('em26.drs','em28.drs','em21.drs')
 # Small enemies whose motions also leave the body: em21 (r100 trap dog) plays every clip through
 # MotionSetCore/MotionMove (src/em21/em21.cpp; ARC() otherwise only feeds modelInit), the leased
@@ -38,7 +41,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
     source,destination=map(Path,(source,destination))
     name=source.name.lower();file='em/'+name
     if name not in GANADO+SMALL+MOTION_SMALL+LEON+('wep02.drs',) or (name not in GANADO+MOTION_SMALL and not keep_motion_resident):
-        raise ValueError('supported contracts: Ganado (em12/em15) and em21/em23/em2a motion; em26/em28/em21/pl00/pl08/wep02 textures')
+        raise ValueError('supported contracts: Ganado (em12/em15/em13) and em21/em23/em2a motion; em26/em28/em21/pl00/pl08/wep02 textures')
     if textures is not None and name not in GANADO+SMALL+LEON+('wep02.drs',):raise ValueError('textures not audited for '+name)
     if compact_effects and name not in GANADO+SMALL:raise ValueError('only enemy EFF slot0 effect consumers qualified')
     if keep_motion_resident and textures is None and not compact_effects:raise ValueError('no selected compaction')

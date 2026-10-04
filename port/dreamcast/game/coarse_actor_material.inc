@@ -85,8 +85,28 @@ inline bool base_level_sampler(const unsigned* s) {
 // per-role immutable owner and complete material checks still run below.
 inline bool source_appearance_type(unsigned appearance,unsigned id,unsigned type) {
     if(appearance==0x100)return id==0 && type==0;
+#if RE4DC_ACTOR_PL08
+    // pl08 is the same player cModel (id 0, type 0); its costume is proved by the 0x108 role rows, not by type.
+    if(appearance==0x108)return id==0 && type==0;
+#endif
     static const unsigned char types[5]={1,0,3,4,11};
+#if RE4DC_ACTOR_APPEARANCE_ALIAS
+    if(appearance<5 && id==(appearance==0?0x12u:0x15u) && type==types[appearance])return true;
+    // ACTOR_APPEARANCE_ALIAS (crowd.mk): other Ganado modules' types whose EmXXSet loads byte-identical source
+    // entries for every model slot and reachable role BIN/TPL of the appearance (generated and proved from the
+    // original archives by tools/native_appearance_alias.py). The role/owner/material proofs below still run.
+    static const unsigned char alias[][3]={
+#if RE4DC_ACTOR_APPEARANCE_ALIAS == 2
+#include "actor_appearance_aliases_ext.inc"
+#else
+#include "actor_appearance_aliases.inc"
+#endif
+    };
+    for(const auto& r:alias)if(r[0]==appearance && r[1]==id && r[2]==type)return true;
+    return false;
+#else
     return appearance<5 && id==(appearance==0?0x12u:0x15u) && type==types[appearance];
+#endif
 }
 inline bool room_colour_scale(unsigned scale,bool flat_native_look) {
     // The approved native look uses its existing constant lighting. Room
@@ -134,8 +154,8 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     // These are exact infos including their hidden state and second-pass bit.
     // Source visibility bit8 can vary; all other unproved bits decline.
     unsigned expected=1;
-    if(row.appearance==0x100 && row.role==3)expected|=2;
-    if(row.appearance==0x100 && row.role==7)expected|=0x40;
+    if(RE4DC_LEON_LIKE(row.appearance) && row.role==3)expected|=2;
+    if(RE4DC_LEON_LIKE(row.appearance) && row.role==7)expected|=0x40;
     if((i->be_flag&~8u)!=expected)return Error::PassGroup;
     if(i->invisible_factor!=1.0f || i->blend_mode || i->colorWord!=0xffffffffu ||
        i->color2[0] || i->color2[1] || i->color2[2] || i->color2[3] ||
@@ -145,7 +165,7 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
         // shape.cpp writes the prepared destination buffer, not vtxOrig.
         // Native-look explicitly retains the reviewed bone-driven Leon face.
         // Source callback/ShapeMove still runs; this does not emulate morphs.
-        const bool face=RE4DC_ACTOR_LEON_NATIVE_LOOK && row.appearance==256 && row.role==3;
+        const bool face=RE4DC_ACTOR_LEON_NATIVE_LOOK && RE4DC_LEON_LIKE(row.appearance) && row.role==3;
         if(i->pShape && !readable(i->pShape,4))return Error::BadRange;
         for(const auto& shape:i->shape) {
             if(!coarse_finite(shape.rate) || (shape.data && !readable(shape.data,4)))return Error::BadRange;
@@ -195,14 +215,14 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     if(!m || !p || !readable(m,sizeof(*m))) {out.error=Error::BadRange;return out;}
     re4dc_source::FrameIdentity frame{};re4dc_source::ModelIdentity owner{};
     if(re4dc_actor_transaction_identity(m,&frame,&owner)!=1) {out.error=Error::FrameOwner;return out;}
-    const bool leon=p->appearance==0x100;
+    const bool leon=RE4DC_LEON_LIKE(p->appearance);
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // NATIVE_MODEL_REGISTRY: a registry appearance names its descriptor's model id, bone count and section count; its
     // appearance is the exact source BIN + TPL rows every role proves below (no cModel::type table: the TPL row is
     // the authored appearance). Model-level modifiers are the Ganado rules (TEV group 0, flat native look).
     const bool registry=re4dc_registry_sections(p->appearance)!=0;
     if(registry ? !re4dc_registry_model(m,p) :
-       ((leon && (p->count!=8 || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
+       ((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
         (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type)))) {
         out.error=Error::UnknownAppearance;return out;
     }
@@ -213,7 +233,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
 #else
-    if((leon && (p->count!=8 || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
+    if((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
        (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type))) {
         out.error=Error::UnknownAppearance;return out;
     }

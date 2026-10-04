@@ -71,15 +71,34 @@ class Tables:
 
 
 def esl_list_numbers(room):
-    """stage.cpp checkEmListNo, stage 1 (Leon's main game): [(list, condition)]."""
+    """stage.cpp checkEmListNo for Leon's main game (System_flg bits 31 / 30, Assignment Ada and the Mercenaries,
+    clear; stage 4 has no main-game list and uses its own omake lists): [(list, condition)]."""
     stage = room >> 8
-    if stage != 1:
-        raise SystemExit("discover: stage %d list rules not mirrored yet (stage.cpp checkEmListNo)" % stage)
-    if room == 0x120:
-        return [(0, "always")]
-    if room == 0x10E:
-        return [(1, "System_flg & 0x2000"), (None, "else: keeps the current list")]
-    return [(1 if room > 0x10B else 0, "always")]
+    if stage == 1:
+        if room == 0x120:
+            return [(0, "always")]
+        if room == 0x10E:
+            return [(1, "System_flg & 0x2000"), (None, "else: keeps the current list")]
+        return [(1 if room > 0x10B else 0, "always")]
+    if stage == 2:
+        if room in (0x22B, 0x22C, 0x22D):
+            return [(None, "always: keeps the current list")]
+        if room == 0x200:
+            return [(1, "!(Scenario_flg[0] & 0x800000)"), (2, "else")]
+        if room > 0x219:
+            return [(4 if room == 0x222 else 5, "always")]
+        if room > 0x210:
+            return [(4, "always")]
+        # emListVillage: rooms 200..204 / 207 / 208 use list 2 until the church bell (Scenario_flg[0] 0x40000)
+        late = [(4, "Scenario_flg[0] & 0x10000000")]
+        if room in (0x200, 0x201, 0x202, 0x203, 0x204, 0x207, 0x208):
+            return late + [(2, "else, !(Scenario_flg[0] & 0x40000)"), (3, "else")]
+        return late + [(3, "else")]
+    if stage == 4:
+        if room > 0x404:
+            return [(8, "always")]
+        return [(10 if room in (0x403, 0x404) else 9, "always")]
+    raise SystemExit("discover: stage %d list rules not mirrored yet (stage.cpp checkEmListNo)" % stage)
 
 
 def esl_entries(path, room):

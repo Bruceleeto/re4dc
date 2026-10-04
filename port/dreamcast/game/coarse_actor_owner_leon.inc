@@ -133,8 +133,17 @@ extern "C" int re4dc_actor_hair_texture_key(const Re4dcUiImage* i,unsigned* c,un
     return 0;
 }
 extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p) {
+#if RE4DC_ACTOR_PL08
+    // pl08 (0x108): nine roles; the same hair (role 7, pl00's runs 7..20) and one role-8 run last, its whole chunk.
+    const bool pl08=p && p->appearance==0x108;
+    if(!p || (pl08?(p->count!=9 || p->run_count!=22 || p->runs[21].role!=8 || p->runs[21].material ||
+                    p->runs[21].triangles!=p->input[8].triangles || p->runs[21].stream.data!=p->input[8].stream.data):
+                   (p->appearance!=0x100 || p->count!=8 || p->run_count!=21)) || p->material_count!=3 ||
+       p->input[7].palette_count!=229 || p->immutable_asset_id[7]!=8 || !p->info[7] || !(p->info[7]->be_flag&0x40))return 0;
+#else
     if(!p || p->appearance!=0x100 || p->count!=8 || p->material_count!=3 || p->run_count!=21 ||
        p->input[7].palette_count!=229 || p->immutable_asset_id[7]!=8 || !p->info[7] || !(p->info[7]->be_flag&0x40))return 0;
+#endif
     for(unsigned k=0;k<14;++k) {
         const auto& want=leon_hair_runs::runs[k];const auto& r=p->runs[7+k];
         if(r.role!=7 || r.material!=want.material || r.immutable_asset_id!=29+k || r.triangles!=want.triangles ||
@@ -152,6 +161,9 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
 #include "coarse_actor_owner_registry.inc"
 #endif
 #include "coarse_actor_geometry_once.inc"
+#if RE4DC_ACTOR_PL08
+#include "coarse_actor_owner_pl08.inc"
+#endif
 #include "coarse_actor_transaction.inc"
 #include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK

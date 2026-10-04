@@ -38,6 +38,15 @@ extern EspgenWork* EspgenArray;   // espgen.cpp
 extern u32 nEspgen;
 #endif
 #include <string.h>
+#ifndef RE4DC_LOGIC_TRACE_SWAPPED
+#define RE4DC_LOGIC_TRACE_SWAPPED 0
+#endif
+#if RE4DC_LOGIC_TRACE_SWAPPED
+#include "trace_region_view.hpp"
+extern "C" int re4dc_ssb_trace_begin(unsigned);
+extern "C" int re4dc_ssb_trace_append(const void*,unsigned,unsigned*);
+extern "C" int re4dc_ssb_trace_read(void*,unsigned,unsigned);
+#endif
 
 #ifndef RE4DC_LOGIC_TRACE_DELAY_US
 #define RE4DC_LOGIC_TRACE_DELAY_US 0
@@ -65,20 +74,48 @@ unsigned re4dc_dt_snd;
 #endif
 
 namespace {
+#if RE4DC_LOGIC_TRACE_SWAPPED
+// Only the exact raw ranges consumed by the trace are retained. No game data is changed.
+struct TraceVramBacking {
+    bool append(const void* p,unsigned n,unsigned* offset) { return re4dc_ssb_trace_append(p,n,offset)!=0; }
+    bool read(void* dst,unsigned offset,unsigned n) const { return re4dc_ssb_trace_read(dst,offset,n)!=0; }
+};
+TraceRegionView<4096,TraceVramBacking> g_trace_region;
+void trace_copy(void* dst,const void* src,unsigned bytes) {
+    if (!g_trace_region.capture(src,bytes) || !g_trace_region.copy(dst,src,bytes))
+        re4dc_missing("logic trace: uncaptured or overflowing borrowed-memory read");
+}
+template<class T> T trace_value(const T* src) {
+    T value; trace_copy(&value,src,sizeof(value)); return value;
+}
+#else
+// Preserve the original access expressions and generated code when the diagnostic is off.
+#define trace_copy(dst,src,bytes) memcpy(dst,src,bytes)
+#define trace_value(src) (*(src))
+#endif
 struct Fnv {
     unsigned h = 2166136261u;
     void word(unsigned w) { h = (h ^ w) * 16777619u; }
     void words(const void* p, unsigned bytes) {
         const unsigned char* b = (const unsigned char*) p;
+#if RE4DC_LOGIC_TRACE_SWAPPED
+        if (!g_trace_region.capture(p,bytes & ~3U))
+            re4dc_missing("logic trace: borrowed-memory range capacity");
+#endif
         for (unsigned i = 0; i + 4 <= bytes; i += 4) {
             unsigned w;
-            memcpy(&w, b + i, 4);
+            #if RE4DC_LOGIC_TRACE_SWAPPED
+            if (!g_trace_region.copy(&w,b+i,4))
+                re4dc_missing("logic trace: borrowed-memory word absent");
+#else
+            memcpy(&w,b+i,4);
+#endif
             word(w);
         }
     }
     template <class T> void add(const T& v) {
         unsigned w = 0;
-        memcpy(&w, &v, sizeof(v) < 4 ? sizeof(v) : 4);
+        trace_copy(&w, &v, sizeof(v) < 4 ? sizeof(v) : 4);
         word(w);
     }
 };
@@ -122,7 +159,7 @@ void coord_block(Fnv& f, const void* unit)
 void model_state(Fnv& discrete, Fnv& coords, Fnv& parts, cModel* m)
 {
 #if RE4DC_LOGIC_TRACE_MASK_RENDER
-    discrete.add(m->be_flag & ~0x08000000u);
+    discrete.add(trace_value(&m->be_flag) & ~0x08000000u);
 #else
     discrete.add(m->be_flag);
 #endif
@@ -134,7 +171,8 @@ void model_state(Fnv& discrete, Fnv& coords, Fnv& parts, cModel* m)
     coords.words(&m->speed, sizeof(Vec) * 2);   // speed 0x104, pos_old 0x110
     coords.add(m->Motion.Mot_frame);
     unsigned n = 0;
-    for (cModel* p = m->pParts; p && n < 256; p = (cModel*) ((cParts*) p)->pList, ++n)
+    for (cModel* p = trace_value(&m->pParts); p && n < 256;
+         p = (cModel*) trace_value(&((cParts*) p)->pList), ++n)
         coord_block(parts, p);
     parts.word(n);
 }
@@ -148,6 +186,36 @@ bool g_digStarted;
 Fnv g_dig;
 unsigned g_latchRoom, g_latchTicks, g_latchDigest;
 }  // namespace
+
+#if RE4DC_LOGIC_TRACE_SWAPPED
+// Called after backing save but before the owner swap, and after complete restoration, respectively.
+// Global C linkage is required by the source bridge.
+extern "C" void re4dc_logic_trace_swap_open(void* base,unsigned bytes,unsigned saved_end) {
+    if(!re4dc_ssb_trace_begin(saved_end))re4dc_missing("logic trace: backing store not ready");
+    if (!g_trace_region.begin(base,bytes)) re4dc_missing("logic trace: nested memory borrow");
+    Fnv d,c,p;
+    if(pPL) model_state(d,c,p,pPL);
+    unsigned n=0;
+    cUnit* u=(cUnit*)EmMgr.pAlive;
+    for(;u && n<1024;u=trace_value(&u->pNext),++n) {
+        cEm* e=(cEm*)u; model_state(d,c,p,e);d.add(e->hp);
+    }
+    if(u)re4dc_missing("logic trace: enemy capture walk limit");
+    n=0;u=(cUnit*)ObjMgr.pAlive;
+    for(;u && n<1024;u=trace_value(&u->pNext),++n) model_state(d,c,p,(cModel*)u);
+    if(u)re4dc_missing("logic trace: object capture walk limit");
+    if(!g_trace_region.seal())re4dc_missing("logic trace: memory borrow seal");
+    re4dc_log("LTS open t=%u lo=%08x size=%u spans=%u bytes=%u\n",
+        pG?(unsigned)pG->Frame_cnt:0,unsigned(base),bytes,g_trace_region.count,g_trace_region.used);
+}
+extern "C" void re4dc_logic_trace_swap_close() {
+    const bool restored=g_trace_region.restored();
+    re4dc_log("LTS close t=%u restored=%u spans=%u bytes=%u\n",
+        pG?(unsigned)pG->Frame_cnt:0,unsigned(restored),g_trace_region.count,g_trace_region.used);
+    if(!restored)re4dc_missing("logic trace: borrowed game bytes were not restored");
+    g_trace_region.end();
+}
+#endif
 
 // Last latched room digest: FNV over every LT/LU field of every tick since the room anchor (the
 // first tick of the current room with the player placed, the anchor logic_trace_diff.py
@@ -168,6 +236,39 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) int re4dc_logic_t
     return 1;
 }
 
+
+#if defined(RE4DC_H2_EXTERNAL_DELAY) && RE4DC_H2_EXTERNAL_DELAY
+#include "main.h"
+#include <kos/fs.h>
+#include <kos/timer.h>
+#include <fcntl.h>
+namespace {
+unsigned h2_delay;
+bool h2_delay_read;
+void h2_probe_delay() {
+    if (!h2_delay_read) {
+        h2_delay_read=true;
+        const file_t f=fs_open("/cd/dc/h2_delay.bin",O_RDONLY);
+        unsigned value=0;
+        if(f<0) re4dc_missing("H2 delay file missing");
+        const int got=fs_read(f,&value,sizeof(value));
+        fs_close(f);
+        if(got!=sizeof(value) || value>20000) re4dc_missing("H2 delay file invalid");
+        h2_delay=value;
+        re4dc_log("H2CFG delay_us=%u raw=%u\n",h2_delay,value);
+    }
+    if(pG->Frame_cnt>=1668 && pG->Frame_cnt<=1675)
+        re4dc_log("H2STATUS t=%u sf=%08x/%08x/%08x/%08x key_on=%08x key_trg=%08x\n",
+            (unsigned)pG->Frame_cnt, (unsigned)pG->Status_flg[0], (unsigned)pG->Status_flg[1],
+            (unsigned)pG->Status_flg[2], (unsigned)pG->Status_flg[3], (unsigned)Key.on, (unsigned)Key.trg);
+    if(h2_delay && pG->Frame_cnt<1800) {
+        const unsigned long long end=timer_us_gettime64()+h2_delay;
+        while(timer_us_gettime64()<end) {}
+    }
+}
+}
+#endif
+
 extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_trace_tick(void)
 {
 #if RE4DC_LOGIC_TRACE_DELAY_US
@@ -178,6 +279,12 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     }
 #endif
     if (!pG) return;
+#if defined(RE4DC_H2_EXTERNAL_DELAY) && RE4DC_H2_EXTERNAL_DELAY
+    h2_probe_delay();
+#endif
+#if RE4DC_LOGIC_TRACE_SWAPPED
+    if (!samples) re4dc_log("LTV version=3 model_memory=borrow-vram\n");
+#endif
     ++samples;
     Fnv st, rf, sc, cam, ps, pf, pm, es, ef, em, os, of, om;
 #if RE4DC_LOGIC_TRACE_MASK_RENDER
@@ -208,12 +315,12 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
         mf = bits(pPL->Motion.Mot_frame); ms = pPL->Motion.Mot_state;
     }
     unsigned ne = 0, no = 0;
-    for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = u->pNext, ++ne) {
+    for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
         cEm* e = (cEm*) u;
         model_state(es, ef, em, e);
         es.add(e->hp);
     }
-    for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = u->pNext, ++no)
+    for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = trace_value(&u->pNext), ++no)
         model_state(os, of, om, (cModel*) u);
     const unsigned rng = re4dc_rnd_state();
     const unsigned room = (unsigned(pG->stage_no) << 8) | pG->room_no;
@@ -262,7 +369,7 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     }
     if ((samples & 3) == 0) {
         unsigned k = 0;
-        for (cUnit* u = (cUnit*) EmMgr.pAlive; u && k < 40; u = u->pNext) {
+        for (cUnit* u = (cUnit*) EmMgr.pAlive; u && k < 40; u = trace_value(&u->pNext)) {
             const cEm* e = (const cEm*) u;
             unsigned q[3][4];
             unsigned m = 0;
@@ -272,7 +379,7 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
                 q[m][1] = bits(f->pos.x);
                 q[m][2] = bits(f->pos.y);
                 q[m][3] = bits(f->pos.z);
-                if (m < 2) u = u->pNext;
+                if (m < 2) u = trace_value(&u->pNext);
             }
             (void) e;
             re4dc_log("LP t=%u k=%u %02x:%08x,%08x,%08x %02x:%08x,%08x,%08x %02x:%08x,%08x,%08x\n",
@@ -334,12 +441,12 @@ extern "C" unsigned re4dc_logic_trace_hash(void)
         all.add(pPL->Motion.Mot_frame); all.add(pPL->Motion.Mot_state);
     }
     unsigned ne = 0, no = 0;
-    for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = u->pNext, ++ne) {
+    for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
         cEm* e = (cEm*) u;
         model_state(es, ef, em, e);
         es.add(e->hp);
     }
-    for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = u->pNext, ++no)
+    for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = trace_value(&u->pNext), ++no)
         model_state(os, of, om, (cModel*) u);
     const unsigned v[] = {re4dc_rnd_state(), (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h, rf.h, sc.h,
                           (unsigned(pG->stage_no) << 8) | pG->room_no, ps.h, pf.h, pm.h, ne, es.h, ef.h, em.h, no,
