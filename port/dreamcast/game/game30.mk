@@ -1810,6 +1810,18 @@ $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
 endif
 $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
 endif
+# SCENERY_ENCODING=1 (render only, default 0): the native scenery path (native_static.cpp open()) adopts each room
+# package by its own validated header colour encoding (instanced_mesh.hpp adopt_by_encoding): oct packages exactly as
+# before; prelit packages (convert_room_bins.py --color prelit: route r104-r107, r210, any room with more than 16 CLR0
+# colours) draw their stored ARGB1555 corners and are never lit again; any other encoding is still rejected. Off, a
+# prelit scenery package is rejected ("color encoding") and a room whose PS2 world package is absent has no world.
+SCENERY_ENCODING ?= 0
+ifneq ($(SCENERY_ENCODING),0)
+ifneq ($(SCENERY_ENCODING),1)
+$(error SCENERY_ENCODING must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_SCENERY_ENCODING=1
+endif
 # MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
 # first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
 MESH_CLASSIFY ?= 0

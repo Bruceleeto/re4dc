@@ -40,6 +40,8 @@ VERTEX = struct.Struct("<6H")              # 12 bytes
 MAX_MESHLET_VERTICES = 256
 COLOR_OCT_NORMAL = 1  # header reserved[0]: colour slot = palette<<12 | oct normal, lit at runtime
 COLOR_ARGB1555 = 2    # header reserved[0]: colour slot = prelit ARGB1555 (--color prelit; PS2 world)
+COLOR_OCT_VERTEX = 3  # header reserved[0]: colour slot = oct normal (palette index 0), CLR0 per vertex in an ARGB8888
+                      # table at header reserved[1] (--color oct-vertex: oct lighting without the 16-colour palette)
 MAX_STRIP = 255
 
 
@@ -718,7 +720,10 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
     non-BIN source such as the PS2 world, tools/ps2_world_r4im.py).
     color_mode: "oct" (default: palette index + octahedral normal, lit at runtime) or "prelit": the
     colour slot is the corner's final ARGB1555 (source color() 8-bit RGBA, color_scale ignored), header
-    reserved[0] = COLOR_ARGB1555 and a one-word palette; the runtime lights nothing."""
+    reserved[0] = COLOR_ARGB1555 and a one-word palette; the runtime lights nothing. "oct-vertex": the colour
+    slot is palette index 0 + the octahedral normal, each vertex's CLR0 x color_scale (as an oct palette entry) is
+    an ARGB8888 table at header reserved[1], reserved[0] = COLOR_OCT_VERTEX: lit at runtime exactly as oct, with
+    any number of colours (the runtime's adopt_by_encoding, game SCENERY_ENCODING=1)."""
     mesh_lod = _mesh_lod()
     # cluster_trees: {(owner, bin)} grove BINs whose clusters are formed per tree (tree_groups)
     cluster_trees = set(cluster_trees or ())
@@ -750,6 +755,13 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
 
     def slot_of(color, normal):
         r, g, b, a = color
+        if color_mode == "oct-vertex":
+            # The stored key carries the vertex colour too (corners that differ only in colour stay apart);
+            # the vertex slot keeps the low 12 bits (palette index 0 + oct normal), the table the colour.
+            if not palette:
+                palette.append(0xFFFFFFFF)
+            argb = (a << 24) | (min(255, round(r * color_scale)) << 16) |                    (min(255, round(g * color_scale)) << 8) | min(255, round(b * color_scale))
+            return (argb << 12) | oct12(normal)
         if color_mode == "prelit":
             if not palette:
                 palette.append(0xFFFFFFFF)
@@ -989,16 +1001,19 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
     for name, blob in (("mesh", b"".join(MESH.pack(*m) for m in meshes)),
                        ("part", b"".join(PART.pack(*p) for p in parts)),
                        ("meshlet", b"".join(MESHLET.pack(*m) for m in meshlets)),
-                       ("vertex", b"".join(VERTEX.pack(*v) for v in vertices)),
+                       ("vertex", b"".join(VERTEX.pack(*v[:5], v[5] & 0xFFF if color_mode == "oct-vertex" else v[5])
+                                           for v in vertices)),
                        ("index", bytes(index_bytes)),
                        ("palette", b"".join(struct.pack("<I", c) for c in palette)),
+                       ("vcolor", b"".join(struct.pack("<I", v[5] >> 12) for v in vertices)
+                        if color_mode == "oct-vertex" else b""),
                        ("part_lod", b"".join(PART_LOD.pack(*p) for p in part_lods)),
                        ("cluster", b"".join(CLUSTER.pack(*c) for c in clusters)),
                        ("level", b"".join(LEVEL.pack(*l) for l in levels)),
                        ("class", bytes(mesh_classes) if classes or class_auto else b""),
                        ("rule", b"".join(CLASS_RULE.pack(*class_rules.get(c, (0, 0))) for c in range(CLASS_RULES))
                         if class_rules else b"")):
-        if not blob and name in ("class", "rule"):
+        if not blob and name in ("class", "rule", "vcolor"):
             continue
         start = align(head + len(body)) - head
         body.extend(b"\0" * (start - len(body)))
@@ -1013,7 +1028,8 @@ def convert_lod(entries, color_scale, scales=None, px=2.0, eps_world=DEFAULT_EPS
                          len(meshes), len(parts), len(meshlets), len(vertices), len(index_bytes), len(palette),
                          offsets["mesh"], offsets["part"], offsets["meshlet"], offsets["vertex"],
                          offsets["index"], offsets["palette"],
-                         COLOR_ARGB1555 if color_mode == "prelit" else COLOR_OCT_NORMAL, 0, 0, 0)
+                         {"prelit": COLOR_ARGB1555, "oct-vertex": COLOR_OCT_VERTEX}.get(color_mode, COLOR_OCT_NORMAL),
+                         offsets.get("vcolor", 0), 0, 0)
     blob = header + body
     summary = dict(package_bytes=total, meshes=len(meshes), parts=len(parts), meshlets=len(meshlets),
                    vertices=len(vertices), strip_bytes=len(index_bytes), palette=len(palette),
@@ -1108,10 +1124,11 @@ def main():
     ap.add_argument("--common", action="store_true", help="BINs are the room's common (shared) set")
     ap.add_argument("--color-policy", choices=["vertex"], default="vertex")
     ap.add_argument("--color-scale", type=float, default=1.0)
-    ap.add_argument("--color", dest="color_mode", choices=["oct", "prelit"], default="oct",
-                    help="--lod colour slots: oct (palette of at most 16 CLR0 values + normal, lit at runtime) or "
-                         "prelit (CLR0 as ARGB1555, no palette limit; for rooms the PS2 world draws, where the "
-                         "package is the release identity and the fallback)")
+    ap.add_argument("--color", dest="color_mode", choices=["oct", "prelit", "oct-vertex"], default="oct",
+                    help="--lod colour slots: oct (palette of at most 16 CLR0 values + normal, lit at runtime), "
+                         "prelit (CLR0 as ARGB1555, no palette limit, never lit; the PS2 world's encoding) or "
+                         "oct-vertex (oct normal + each vertex's CLR0 in a side table: lit at runtime like oct, any "
+                         "number of colours; game SCENERY_ENCODING=1)")
     ap.add_argument("--cell", type=float, default=0.0,
                     help="spatial meshlet cell in model units (source mm); 0 keeps source strip order")
     ap.add_argument("--min-fill", type=int, default=64,

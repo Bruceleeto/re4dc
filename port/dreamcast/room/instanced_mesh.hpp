@@ -24,6 +24,7 @@
 // aligned, strip_bytes excludes them); strip indices address that table. Each
 // part's vertices form one contiguous pool [lo, hi) that no other part touches,
 // so lighting stays one pass per part over that range (part_pool()).
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include "room_package.hpp"
@@ -36,6 +37,11 @@ constexpr std::uint32_t kColorOctNormal=1;
 // Header reserved[0] = 2 (convert_lod color_mode="prelit", tools/ps2_world_r4im.py): every colour slot
 // is already the corner's final ARGB1555; the palette is one unused word. Only adopt(..., prelit=true).
 constexpr std::uint32_t kColorArgb1555=2;
+// Header reserved[0] = 3 (convert_room_bins.py --color oct-vertex): the colour slot is kColorOctNormal's with palette
+// index 0 (12-bit octahedral normal), and each vertex's CLR0 is an ARGB8888 entry of the table at header reserved[1]
+// (vertex_count words): lit at runtime exactly as kColorOctNormal, without its 16-colour palette limit. Only
+// adopt_by_encoding adopts it.
+constexpr std::uint32_t kColorOctVertex=3;
 constexpr std::uint16_t kIndexedMeshlet=0x8000U; // v3 Meshlet::strip_count flag
 struct MeshHeader {
     char magic[4];
@@ -389,4 +395,41 @@ private:
     const std::uint8_t* data_=nullptr;
     const char* error_=nullptr;
 };
+// Scenery adopt by the package's own validated colour encoding (game30.mk SCENERY_ENCODING): kColorOctNormal adopts
+// as adopt(data, size, lod) always did (lit at the first draw); kColorArgb1555 adopts prelit and marks every part lit,
+// so the runtime never decodes its colour slots as palette index + normal nor lights them again; kColorOctVertex is
+// validated as kColorOctNormal (every slot's palette index must be 0) plus its vertex colour table, returned in
+// *vertex_colors (nullptr otherwise) for the lighting to read in place of the palette; any other value is rejected
+// ("color encoding"). data is the caller's writable copy of the file.
+inline bool adopt_by_encoding(MeshPackage& p,std::uint8_t* data,std::uint32_t size,bool lod,
+                              const std::uint32_t** vertex_colors=nullptr){
+    if(vertex_colors)*vertex_colors=nullptr;
+    std::uint32_t encoding=0,table=0,vertices=0;
+    if(size>=sizeof(MeshHeader)){
+        std::memcpy(&encoding,data+offsetof(MeshHeader,reserved),4);
+        std::memcpy(&table,data+offsetof(MeshHeader,reserved)+4,4);
+        std::memcpy(&vertices,data+offsetof(MeshHeader,vertex_count),4);
+    }
+    if(encoding==kColorOctVertex){
+        // A bad table or palette: rejected as the plain reader rejects the encoding ("color encoding").
+        const auto reject=[&]{p.adopt(data,size,lod,false);return false;};
+        if(!vertex_colors || table<sizeof(MeshHeader) || (table&3U) || table>size ||
+           std::uint64_t(vertices)*4U>std::uint64_t(size-table))return reject();
+        // adopt() checks the oct slots (palette index < palette_count = 1) under kColorOctNormal; the file word is
+        // restored after, so the storage keeps its own encoding.
+        const std::uint32_t oct=kColorOctNormal;
+        std::memcpy(data+offsetof(MeshHeader,reserved),&oct,4);
+        const bool ok=p.adopt(data,size,lod,false);
+        std::memcpy(data+offsetof(MeshHeader,reserved),&encoding,4);
+        if(!ok)return false;
+        if(p.header().palette_count!=1)return reject();
+        *vertex_colors=reinterpret_cast<const std::uint32_t*>(data+table);
+        return true;
+    }
+    const bool prelit=encoding==kColorArgb1555;
+    if(!p.adopt(data,size,lod,prelit))return false;
+    if(prelit)for(unsigned i=0;i<p.header().part_count;++i)
+        reinterpret_cast<MeshPart*>(data+p.header().part_offset)[i].reserved=1;
+    return true;
+}
 } // namespace re4dc::room

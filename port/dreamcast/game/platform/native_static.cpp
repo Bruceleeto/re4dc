@@ -812,6 +812,9 @@ struct MeshView {
     const std::uint32_t* lut=nullptr; // ARGB1555 -> 8888 halves, same allocation
     re4dc::room::CompactVertex12* gather=nullptr; // v3: one meshlet's gathered corners, same allocation
     unsigned room=0; bool attempted=false;
+#if RE4DC_SCENERY_ENCODING
+    const std::uint32_t* vertex_colors=nullptr; // kColorOctVertex: each vertex's CLR0 (ARGB8888), read in place of the palette
+#endif
 };
 MeshView mesh_views[kMeshViews];
 #if RE4DC_TREE_IMPOSTOR
@@ -839,6 +842,9 @@ void retire(MeshView& v){
     v.package.close();
     if(v.storage){re4dc_static_free(v.storage);stats.package_bytes-=v.bytes;--stats.owners_open;}
     v.storage=nullptr;v.bytes=0;v.entries=nullptr;v.capacity=0;v.lut=nullptr;v.gather=nullptr;v.attempted=false;v.room=0;
+#if RE4DC_SCENERY_ENCODING
+    v.vertex_colors=nullptr;
+#endif
 }
 
 bool open(MeshView& v,unsigned index,unsigned room){
@@ -888,7 +894,11 @@ bool open(MeshView& v,unsigned index,unsigned room){
     fs_close(file);
     stats.heap_after=re4dc_static_heap_free();
     if(!storage){re4dc_log("native mesh: %s not loaded (size=%u heap=%d)\n",path,size,stats.heap_before);return false;}
+#if RE4DC_SCENERY_ENCODING
+    if(!re4dc::room::adopt_by_encoding(v.package,storage,size,RE4DC_MESH_LOD!=0,&v.vertex_colors)){
+#else
     if(!v.package.adopt(storage,size,RE4DC_MESH_LOD!=0)){
+#endif
         re4dc_log("native mesh: %s rejected: %s\n",path,v.package.error());
         re4dc_static_free(storage);++stats.open_failures;
 #if RE4DC_QUALITY_ASSETS
@@ -898,6 +908,14 @@ bool open(MeshView& v,unsigned index,unsigned room){
         return false;
     }
     v.storage=storage;v.bytes=package_bytes+table+kLutBytes+gather;
+#if RE4DC_SCENERY_ENCODING
+    {
+        std::uint32_t encoding;std::memcpy(&encoding,storage+offsetof(re4dc::room::MeshHeader,reserved),4);
+        re4dc_log("native mesh: %s color encoding %u (%s)\n",path,unsigned(encoding),
+            encoding==re4dc::room::kColorArgb1555?"prelit ARGB1555, parts marked lit":
+            v.vertex_colors?"oct + vertex colours, lit at first draw":"oct, lit at first draw");
+    }
+#endif
 #if RE4DC_QUALITY_ASSETS
     // Per-mesh records apply only to the package they were built against.
     if(std_room.active && std_room.room==room){
@@ -1052,7 +1070,11 @@ void light_part(MeshView& v,const re4dc::room::MeshRecord& mesh,re4dc::room::Mes
         const std::uint32_t first=pool?lo:lets[i].first_vertex,count=pool?hi-lo:lets[i].vertex_count;
         for(unsigned k=0;k<count;++k){
             auto& corner=vertices[first+k];
+#if RE4DC_SCENERY_ENCODING
+            const std::uint32_t argb=v.vertex_colors?v.vertex_colors[first+k]:palette[corner.color>>12];
+#else
             const std::uint32_t argb=palette[corner.color>>12];
+#endif
             const std::uint8_t color[4]={std::uint8_t(argb>>16),std::uint8_t(argb>>8),std::uint8_t(argb),std::uint8_t(argb>>24)};
             float rgb[3]={1.0f,1.0f,1.0f};
             if(p.lighting){
