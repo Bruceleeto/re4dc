@@ -21,29 +21,29 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 ## Status
 
 Updated **2026-10-04**. The newest public play build is
-**[r21t (inventory fix)](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004)**.
-Downloads are available for Windows, SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256
-checksums. Its source fixes are on `dreamcast-port`. This is a prerelease test build.
+**[r21v (performance)](https://github.com/lamb2k/re4dc/releases/tag/play-r21v-performance-20261004)**,
+which supersedes r21t. Downloads are available for Windows, SteamOS / Steam Deck, CachyOS / Arch, and
+GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`. This is a prerelease test build.
 
-Since r21m, the play build includes SH-4 alignment fixes and an on-screen crash report, corrected
-wall texture seams, faster texture loading, reduced reloading after radio calls, the cliff-movie
-memory fix, and the approved character and mesh-rendering optimizations. **r21t fixes the inventory
-case, items, menus and Leon preview**, and adds its missing texture package.
+**r21v turns on the performance features measured on the experimental branch**: native drawing for the
+stage-1 animals and the no-jacket Leon, a leaner world-mesh walk and vertex scheduling, and cheaper
+character lighting and proofs. It keeps r21t's fixes (inventory, SH-4 alignment fixes, on-screen crash
+report, wall seams, texture pack, radio-call and cliff-movie memory fixes).
 
-Checked in [Flycast](https://github.com/flyinghead/flycast) for r21t:
+Checked in [Flycast](https://github.com/flyinghead/flycast) for r21v (emulator figures, not console results):
 
+- **Faster than r21t's code:** r100 gameplay 24.3 -> 25.9 fps; the r101 bell fight's busy moments
+  +1 to +1.7 fps and its steady scene 27.1 -> 24.8 ms per frame; r103 3-7% faster.
 - The normal title / New Game sequence completes the opening movies and reaches r100 gameplay.
-- A test build with the same play settings passes repeated inventory open/close checks in r100 and
-  r104, restoring the saved game-memory area correctly.
-- A separate test starting near the end of r106 reaches the chapter 1-1 results, saves to the VMU,
-  enters r104 and reaches Continue after the scripted missed QTE.
-- A matched gameplay trace passes for 1,804 r100 frames. This covers ordinary gameplay; inventory
-  validation uses visual and memory-restore checks.
+- Inventory open/close in r100 and r104 restores the saved game-memory area correctly.
+- A test starting near the end of r106 reaches the chapter 1-1 results, saves to the VMU, enters r104
+  and reaches Continue after the scripted missed QTE.
+- r100 radio calls, the r101 bell fight and r103 entry play as before. Gameplay traces match a
+  timing-matched control (the new features are render-only).
+- The GDEMU image boots in Flycast to the game's VMU prompt.
 
-These are separate checks. **A continuous r21t title-to-chapter-end playthrough remains pending.**
-The r21t GDEMU image has verified file contents and track layout, and the released image boots in
-Flycast (built-in BIOS) through the title to r100 gameplay; it has not yet run on a GDEMU or a physical
-console. No new FPS improvement was measured for the inventory repair.
+These are separate checks. **A continuous title-to-chapter-end playthrough remains pending, and r21v
+has not yet run on a GDEMU or a physical console** (a first console test is under way).
 See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) for source revisions,
 test scope and earlier build history.
 
@@ -51,8 +51,8 @@ The staged play data covers the following route; it is not the full game:
 
 | Chapter | Rooms | Verification scope |
 | --- | --- | --- |
-| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21t playthrough pending |
-| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21t run remain unchecked |
+| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21v playthrough pending |
+| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21v run remain unchecked |
 | 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene tested in earlier builds; the onward route remains unfinished |
 
 The target remains **30 fps at full game speed on a real NTSC Dreamcast**. Flycast checks and hardware
@@ -75,20 +75,21 @@ estimates do not establish physical-console performance or compatibility.
   serialized texture/disc reads; that test alone does not establish saved-game reload acceptance.
 - **Performance is below target in demanding views.** Earlier r21m Flycast measurements with Fast pacing were
   about 12 fps / 80% game speed in the r101 fight, 12.5 fps / 84% in r106, 14 fps / 90-99% in r103, and 11 fps /
-  74% in r105 after the chapter 1-3 opening. These are historical emulator figures, not r21t benchmarks or
-  real-Dreamcast results. Fast pacing can look choppy; hold R and press START to cycle the pacing mode.
+  74% in r105 after the chapter 1-3 opening. r21v is a few fps faster (Status), but these are emulator
+  figures, not real-Dreamcast results. Fast pacing can look choppy; hold R and press START to cycle the pacing mode.
 - **Room-entry pauses remain.** Texture packing reduced earlier measured Flycast entry loads to about 3 s;
   loading is still visible. Radio calls no longer require the earlier full room-texture reload in the tested case.
-- **Cutscene playback can still drop frames.** The r104 arrival has shown dropped pictures. During the r21t
-  chapter-end check, an early r104 world preload failed before the subsequent room-entry load succeeded.
+- **Cutscene playback can still drop frames.** The r104 arrival has shown dropped pictures. During the
+  chapter-end checks, an early r104 world preload failed before the subsequent room-entry load succeeded.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
 - **Physical hardware is untested.** r21m predates the SH-4 alignment fixes included in later builds.
-  The current r21t GDEMU package is content-verified and boots in Flycast; console acceptance is still pending.
+  The r21v GDEMU package is content-verified and boots in Flycast; console acceptance is still pending. Its new
+  render features have never run on a console: a crash there should show the on-screen crash report.
 
 ## Playing
 
-Download **[r21t](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004)** and follow
+Download **[r21v](https://github.com/lamb2k/re4dc/releases/tag/play-r21v-performance-20261004)** and follow
 the instructions for your system below. The release includes a checksum file and test notes. No BIOS or
 personal VMU saves are included; game data is not committed to this source repository.
 

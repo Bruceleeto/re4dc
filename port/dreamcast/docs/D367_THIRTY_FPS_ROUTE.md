@@ -1,5 +1,39 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: r21v, the performance knobs in the play recipe (local session)
+
+User 2026-10-04: "turn on all of the performant features", cut r21v, release it in place of r21t, and test it on a
+console. build-r21.sh's recipe now carries the supervisor's 82.65 ms knob set (fe50a85a): PS2_WORLD_REGISTRY,
+PS2_OPEN_READ, SCENERY_ENCODING, PS2_WORLD_FOG_SOURCE, ACTOR_APPEARANCE_ALIAS=2, ACTOR_GANADO_SOURCE_LIGHT,
+ACTOR_LIGHT_N16, NATIVE_MODEL_REGISTRY (+_PACK, _TX, _PALBOUND), ACTOR_PL08 (+_PACK), SS_CERT, MESH_VP_SCHED,
+ACTOR_PROOF_LEAN, MESH_STRIP_LEAN and ACTOR_MATERIAL_RECORD.
+- **Left off:** the early-admission experiment (-6.11 ms), the diagnostics, and WORLD_STAGE/ROOM_MODULES and
+  EM1F_SHARED (on in both measured arms, so no proven gain).
+- **Disc:** dc/native/r100, r101 and r103 registry.re4nmr (frozen r7), dc/native/pl08/leon_pl08.re4cp, and a tex.pak of
+  3,249 packages (r21u's plus the six registry animal textures and the pl08 atlas). Rooms without a registry package
+  log "NMRPACK ... none" and draw those actors on the source path.
+- **Image:** +48.5 KB (_end 8c3b00bc -> 8c3bc29c), out of the room heap; room entries still show ~8 MB heap-4 free.
+- **Flycast (proxy) vs r21u's code:**
+  - r100 gameplay 24.3 -> 25.9 fps at 100% speed;
+  - r101 bell fight busy windows 16.7/19.0/18.3 -> 17.7/20.7/19.8 fps, steady draw 27.1 -> 24.8 ms;
+  - r103 +3-7%.
+- **Gates (all HALT 0, MISSING 0):**
+  - inventory r100 / r104: open/close restore hashes ok, screens as r21u;
+  - New Game: intros 1971/1971, 2360/2360, s40 1175/1175;
+  - chapter end: r106s00 1738/1738 -> VMU syswrite rc=0 -> r104s00 4856/4856 -> missed QTE;
+  - route checks: r100 calls 1465/571/340, r101 bell events released, r103 entry;
+  - registry packages validated in r100/r101/r103, and the pl08 pack published in r104;
+  - the GDEMU image boots in Flycast (high-density TOC) to the VMU prompt, crash screen armed, no fault.
+- **STRICT, and a test-fixture finding.** On H2, r21v closes the radio-call sub screen one tick earlier (1217 vs
+  1218), then diverges, as a different-speed build would: the call's end follows wall time, even with the warp rig's
+  `act_clock source`. The timing control proves it. The r21u-equivalent trace build with LOGIC_TRACE_DELAY_US=5000
+  shifts identically. r21v vs that delayed control: all 6,204 common ticks identical apart from `om` in the
+  sub-screen swap window (741..1217). So H2 STRICT across the call needs equal frame times; compare a faster build
+  against a timing-matched control.
+- **Console:** r21v is the first build with these features on a console (user test via GDEMU). Watch r100/r101/r103
+  entry (the registry pack reader) and the first no-jacket Leon in r104 (the pl08 pack); the crash screen reports
+  misaligned accesses that Flycast hides.
+
 ## 2026-10-04: supervisor code landed default-off (local session)
 
 experiment/supervisor-20261004's code is on dreamcast-port, every feature default-off. None of it is in the play

@@ -65,6 +65,10 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
     (ticks 741..1217).
 - Play disc r21u (b730bf1a; checklist step 6): C:/RE4DC-Play-Discs/r21u-title + r21u-gdemu, launcher
   D:/RE4DC-Play/Play-r21u-Review-Fixes.cmd; GDI boot, New Game, chapter end, inventory r100/r104 all pass. Not released.
+- r21v (fe50a85a; route doc "r21v"): the supervisor performance knobs are now IN the play recipe (build-r21.sh);
+  r100 24.3 -> 25.9 fps, r101 bell steady 27.1 -> 24.8 ms (Flycast). Disc needs registry/pl08 packages + tex.pak
+  (fixtures-v/title-v-pak.json). Released play-r21v-performance-20261004 (supersedes r21t); console test pending.
+  H2 STRICT across the radio call needs equal frame times (compare against a LOGIC_TRACE_DELAY_US control).
 - LANDED default-off (route doc "supervisor code landed default-off"): experiment/supervisor-20261004's code (r101
   square 90.08 -> 82.65 ms modeled with its knob set, SUPERVISOR_BASELINE_20261004.md). 038d1c59 is split into
   one commit per feature. MESH_STRIP_LEAN now feeds TA_HASH. Not in the play recipe (a separate user decision).
