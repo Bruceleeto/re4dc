@@ -39,7 +39,10 @@
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
 //   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
-//   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h)
+//   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n>
+//  - Later rooms: `entry <n>` (n >= 2) scopes the `act` / `goto` lines after it to the n-th room entry of the run
+//    (their frames count in that room; the door that leads there is the source's). Without it every act / goto
+//    belongs to the first room, as before. A fixture with entries also logs Leon's placement in those rooms.
 #if RE4DC_DBG_WARP
 #include "types.h"
 #include "global.h"
@@ -65,7 +68,7 @@ void re4dc_fixture_state(const char* name, int a, int b);  // pad.cpp fixture an
 }
 
 namespace {
-struct Act { u32 frame; u16 buttons; s8 stick; u16 hold; };
+struct Act { u32 frame; u16 buttons; s8 stick; u16 hold; u8 entry; };
 struct Rsf { u16 room; u8 bit; };
 struct Warp {
     bool loaded, active, placed_logged, applied, dump;
@@ -92,8 +95,10 @@ struct Warp {
     u32 kill_frame, kill_hits;
     u16 kill_room;  // 0: any room
     cEm* kill_em;   // the target once found (kept until its hp is gone)
-    struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; } go[4];
+    u32 kill_watch; // after the kill: state lines left
+    struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; u8 entry; } go[4];
     unsigned n_go;
+    u8 parse_entry, max_entry;  // `entry <n>`: the room entry later act / goto lines belong to (1 = first room)
     // runtime
     u32 room_frames, first_room_gen, rooms;
     u32 pad_frames;  // PADRead calls in the current room: the action clock
@@ -115,6 +120,7 @@ u32 num(const char* s) { return (u32) strtoul(s, nullptr, 0); }
 void load()
 {
     wp.loaded = true;
+    wp.parse_entry = wp.max_entry = 1;
     static char text[2048];
     const int len = re4dc_fixture_read("/cd/dc/warp.txt", text, sizeof(text) - 1);
     if (len <= 0) return;
@@ -173,8 +179,12 @@ void load()
             wp.area_dx = n >= 3 ? (f32) strtod(tok[2], nullptr) : 0.0f;
             wp.area_dz = n >= 4 ? (f32) strtod(tok[3], nullptr) : 0.0f;
             wp.has_area = true;
+        } else if (!strcmp(k, "entry") && n >= 2 && num(tok[1]) >= 1 && num(tok[1]) <= 8) {
+            wp.parse_entry = (u8) num(tok[1]);
+            if (wp.parse_entry > wp.max_entry) wp.max_entry = wp.parse_entry;
         } else if (!strcmp(k, "act") && n >= 4 && wp.n_act < 16) {
             Act& a = wp.act[wp.n_act++];
+            a.entry = wp.parse_entry;
             a.frame = num(tok[1]);
             a.hold = (u16) num(tok[3]);
             a.buttons = 0;
@@ -199,6 +209,7 @@ void load()
             wp.kill_room = n >= 4 ? (u16) num(tok[3]) : 0;
         } else if (!strcmp(k, "goto") && n >= 5 && wp.n_go < 4) {
             Warp::Goto& g = wp.go[wp.n_go++];
+            g.entry = wp.parse_entry;
             g.frame = num(tok[1]);
             for (int i = 0; i < 3; ++i) g.pos[i] = (f32) strtod(tok[2 + i], nullptr);
             g.has_ang = n >= 6;
@@ -264,6 +275,18 @@ void dump_areas()
 // the hp <= 0 death, the scene links). Ends when its hp is gone or it left the live list.
 void kill_poll()
 {
+    if (wp.kill_watch && wp.kill_em && (wp.room_frames % 15) == 0) {
+        --wp.kill_watch;
+        cEm* em = wp.kill_em;
+        bool live = false;  // still in the enemy manager's list (else the object may be gone / reused)
+        for (cEm* e = EmMgr.getEmPtr(wp.kill_id, 0); e; e = EmMgr.getEmPtr(wp.kill_id, e)) live |= e == em;
+        re4dc_log("warp: kill watch frame %u t=%u m=%08x listed=%d be_flag=%08x hp=%d r=%u/%u/%u pos=%d,%d,%d color=%08x\n",
+                  (unsigned) wp.room_frames, (unsigned) pG->Frame_cnt, (unsigned) (uintptr_t) em, (int) live,
+                  live ? (unsigned) em->be_flag : 0u, live ? (int) em->hp : 0, live ? (unsigned) em->r_no_0 : 0u,
+                  live ? (unsigned) em->r_no_1 : 0u, live ? (unsigned) em->r_no_2 : 0u, live ? (int) em->pos.x : 0,
+                  live ? (int) em->pos.y : 0, live ? (int) em->pos.z : 0,
+                  live && em->pModelInfo ? (unsigned) em->pModelInfo->colorWord : 0u);
+    }
     if (!wp.has_kill || wp.kill_done) return;
     if (wp.kill_room && pG->room_id != wp.kill_room) return;
     if (wp.room_frames < wp.kill_frame) return;
@@ -278,9 +301,12 @@ void kill_poll()
         snprintf(what, sizeof(what), "kill 0x%02x fired in %03x at room frame %u hp=%d", (unsigned) wp.kill_id,
                  (unsigned) pG->room_id, (unsigned) wp.room_frames, (int) em->hp);
         stamp(what);
+        re4dc_log("warp: kill target m=%08x pos=%d,%d,%d t=%u\n", (unsigned) (uintptr_t) em, (int) em->pos.x, (int) em->pos.y,
+                  (int) em->pos.z, (unsigned) pG->Frame_cnt);
     }
     if (!(em->be_flag & 1) || em->hp <= 0) {
         wp.kill_done = true;
+        wp.kill_watch = 40;  // then its state every 15 room frames, 40 times (death motion, fade, removal)
         snprintf(what, sizeof(what), "kill 0x%02x hp<=0 at room frame %u after %u hits", (unsigned) wp.kill_id,
                  (unsigned) wp.room_frames, (unsigned) wp.kill_hits);
         stamp(what);
@@ -301,7 +327,7 @@ void goto_poll()
 {
     for (unsigned i = 0; i < wp.n_go; ++i) {
         Warp::Goto& g = wp.go[i];
-        if (g.done || wp.room_frames < g.frame || !pPL || (pG->Status_flg[1] & 0x10000000)) continue;
+        if (g.done || g.entry != wp.rooms || wp.room_frames < g.frame || !pPL || (pG->Status_flg[1] & 0x10000000)) continue;
         g.done = true;
         Vec p = {g.pos[0], g.pos[1], g.pos[2]};
         pPL->setPos(&p);
@@ -362,6 +388,11 @@ void re4dc_warp_room_enter(void)
     ++wp.rooms;
     wp.room_frames = 0;
     wp.pad_frames = 0;
+    if (wp.max_entry > 1) {
+        // A held action never carries over into the next room's clock.
+        wp.cur_act = -1;
+        wp.cur_until = 0;
+    }
     char what[48];
     snprintf(what, sizeof(what), "room enter %03x (#%u)", (unsigned) pG->room_id, (unsigned) wp.rooms);
     stamp(what);
@@ -393,7 +424,17 @@ void re4dc_warp_poll(void)
     if (!wp.active) return;
     ++wp.room_frames;
     kill_poll();
-    if (wp.rooms != 1) return;
+    if (wp.rooms != 1) {
+        if (wp.rooms > wp.max_entry) return;
+        // A scripted later room (`entry`): its moves, its placement and periodic positions.
+        goto_poll();
+        if ((wp.room_frames == 1 || (wp.room_frames % 300) == 0) && pPL) {
+            re4dc_log("warp: entry %u frame %u room=%03x pl=%d,%d,%d ang=%d/1000 status1=%08x vbl=%u\n", (unsigned) wp.rooms,
+                      (unsigned) wp.room_frames, (unsigned) pG->room_id, (int) pPL->pos.x, (int) pPL->pos.y, (int) pPL->pos.z,
+                      (int) (pPL->ang.y * 1000.0f), (unsigned) pG->Status_flg[1], (unsigned) re4dc_vi_retrace_count());
+        }
+        return;
+    }
     goto_poll();
     if (wp.room_frames == 1) {
         if (wp.has_area && pPL) {
@@ -428,7 +469,7 @@ void re4dc_warp_poll(void)
 // A route movie or an event started (movies pause PADRead): the running action ends there.
 static void re4dc_warp_cut(const char* why)
 {
-    if (!wp.active || wp.rooms != 1 || wp.pad_frames >= wp.cur_until) return;
+    if (!wp.active || wp.rooms < 1 || wp.rooms > wp.max_entry || wp.pad_frames >= wp.cur_until) return;
     wp.cur_until = wp.pad_frames;
     char what[48];
     snprintf(what, sizeof(what), "act cut by %s", why);
@@ -454,7 +495,7 @@ void re4dc_warp_pad(unsigned short* buttons, signed char* stickY)
         return;
     }
     if (gap > 30) re4dc_warp_cut("hold");  // a movie or a load held the frame
-    if (wp.rooms != 1) return;
+    if (wp.rooms < 1 || wp.rooms > wp.max_entry) return;
     ++wp.pad_frames;
     // An event took the game (Status_flg[1] 0x10000000): the running action ends there, so a
     // held stick never walks Leon back into the trigger after the event (movies pause PADRead).
@@ -468,7 +509,8 @@ void re4dc_warp_pad(unsigned short* buttons, signed char* stickY)
         if (a.stick) *stickY = a.stick;
         return;
     }
-    if (wp.next_act < wp.n_act && wp.pad_frames >= wp.act[wp.next_act].frame) {
+    while (wp.next_act < wp.n_act && wp.act[wp.next_act].entry < wp.rooms) ++wp.next_act;  // an earlier room's, unfired
+    if (wp.next_act < wp.n_act && wp.act[wp.next_act].entry == wp.rooms && wp.pad_frames >= wp.act[wp.next_act].frame) {
         const Act& a = wp.act[wp.next_act];
         wp.cur_act = (int) wp.next_act++;
         wp.cur_until = wp.pad_frames + a.hold;

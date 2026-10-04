@@ -57,3 +57,15 @@ extern "C" re4dc_source::BlobError re4dc_actor_immutable_chunk_proof(
     if(entry.error==BlobError::None)output=entry.proof;
     return entry.error;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+namespace {
+// NATIVE_MODEL_REGISTRY_PACK: the registry IDs belong to one published room package (its unique geometries). Only its
+// retire resets them, after the transaction's owned records are revoked; the next package's geometry is
+// qualified again on its first admission. The fixed IDs before kRegistryAsset0 are never reset.
+unsigned actor_immutable_reset_registry() {
+    unsigned n=0;
+    for(unsigned id=kRegistryAsset0;id<kRegistryAssetEnd;++id){auto& e=actor_immutable_chunks[id-1];n+=e.state!=0;e={};}
+    return n;
+}
+}
+#endif

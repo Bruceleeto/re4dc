@@ -116,8 +116,8 @@ extern "C" void re4dc_actor_archive_adopt(const void* key,void* base,unsigned by
     if(exhausted || !key || !readable(base,bytes) || bytes<16 || family<1 || family>3)return;
     unsigned oi=0;while(oi<kArchives && archives[oi].key)++oi;if(oi==kArchives){CROWD_LIFE(++crowd_archive_full);return;}
     auto& owner=archives[oi];owner={key,static_cast<const unsigned char*>(base),bytes,next(),family};
-    for(unsigned t=0;t<sizeof(source_blobs)/sizeof(source_blobs[0]);++t) {
-        const auto& s=source_blobs[t];if(s.family!=family)continue;
+    for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t) {
+        const auto& s=RE4DC_BLOB(t);if(s.family!=family)continue;
         const unsigned char* b=nullptr;unsigned n=0;
         if(!entry(owner,s.bin,"BIN",b,n) || s.normalized.bytes>n || !digest(b,s.normalized))continue;
         Asset* a=nullptr;
@@ -177,10 +177,10 @@ extern "C" void re4dc_actor_info_adopt(cModelInfo* info) {
     unsigned ai=0;while(ai<kAssets && assets[ai].data!=info->pData)++ai;
     if(ai==kAssets || !current(assets[ai])){CROWD_LIFE(++crowd_adopt_fail[ai==kAssets?0:1]);return;}
     const auto& a=assets[ai];Info found{};
-    for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r) {
-        const auto& row=roles[r];bool match=false;
-        for(unsigned t=0;t<sizeof(source_blobs)/sizeof(source_blobs[0]);++t)
-            if((a.templates&(1u<<t)) && source_blobs[t].model==row.model)match=true;
+    for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r) {
+        const auto& row=RE4DC_ROLE(r);bool match=false;
+        for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
+            if((a.templates&(1u<<t)) && RE4DC_BLOB(t).model==row.model)match=true;
         if(!match)continue;
         for(unsigned k=0;k<kArchives;++k) {
             const auto& o=archives[k];if(o.family!=(row.appearance==256?1u:2u))continue;
@@ -223,16 +223,16 @@ extern "C" void re4dc_actor_txdiag_info(const cModel* m,const cModelInfo* info,u
     else {
         const auto& a=assets[ai];bool row=false,tpl=false,owned=false;const unsigned char* first=nullptr;unsigned owner=kArchives;
         detail=a.templates;
-        for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]) && !code;++r) {
+        for(unsigned r=0;r<RE4DC_ROLE_COUNT && !code;++r) {
             bool match=false;
-            for(unsigned t=0;t<sizeof(source_blobs)/sizeof(source_blobs[0]);++t)
-                if((a.templates&(1u<<t)) && source_blobs[t].model==roles[r].model)match=true;
+            for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
+                if((a.templates&(1u<<t)) && RE4DC_BLOB(t).model==RE4DC_ROLE(r).model)match=true;
             if(!match)continue;row=true;
             for(unsigned k=0;k<kArchives;++k) {
-                const auto& o=archives[k];if(o.family!=(roles[r].appearance==256?1u:2u))continue;
+                const auto& o=archives[k];if(o.family!=(RE4DC_ROLE(r).appearance==256?1u:2u))continue;
                 const unsigned char* p=nullptr;unsigned n=0;
-                if(!entry(o,roles[r].source_tpl,"TPL",p,n) || p!=info->tpl_addr)continue;tpl=true;
-                if(!tpl_owned(o,p,n,roles[r]))continue;
+                if(!entry(o,RE4DC_ROLE(r).source_tpl,"TPL",p,n) || p!=info->tpl_addr)continue;tpl=true;
+                if(!tpl_owned(o,p,n,RE4DC_ROLE(r)))continue;
                 if(first && (owner!=k || first!=p)){code=7;break;}
                 owned=true;first=p;owner=k;
             }
@@ -251,7 +251,7 @@ unsigned atd_drops;
 void atd_drop(const char* how,const re4dc_material::life::Info& rec,const void* a,unsigned b,const void* ra) {
     using namespace re4dc_material;
     unsigned leon=0;
-    for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)if(roles[r].appearance==256 && (rec.roles[r/32]&(1u<<(r%32))))leon|=1u<<roles[r].role;
+    for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)if(RE4DC_ROLE(r).appearance==256 && (rec.roles[r/32]&(1u<<(r%32))))leon|=1u<<RE4DC_ROLE(r).role;
     if(leon && atd_drops++<48)re4dc_log("ATX_DROP f=%u %s info=%p roles=%02x a=%p b=%u ra=%p\n",re4dc_ui_frame(),how,rec.info,leon,a,b,ra);
 }
 #define ATD_DROP(how,rec,a,b) atd_drop(how,rec,a,b,__builtin_return_address(0))
@@ -270,12 +270,49 @@ extern "C" void re4dc_actor_forget_all() {
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key)revoke(k);
     for(auto& i:infos_live)i={};for(auto& b:bindings)b={};changed();
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+// NATIVE_MODEL_REGISTRY_PACK (coarse_actor_registry_pack.inc): one room generation's identity rows. Publishing changes
+// what an adoption can prove, so the epoch moves (every binding revision is derived again). Retiring removes the
+// room rows' bits from every live record (a record left with none is dropped, as a revoked owner's records are) and
+// moves the epoch; afterwards no live record names a room row. The counts of dropped records are returned.
+namespace re4dc_material { namespace life {
+void room_rows_publish(const Role* r,unsigned nr,const SourceBlob* b,unsigned nb,unsigned generation) {
+    room_rows={r,b,nr,nb,generation};changed();
+}
+void room_rows_retire(unsigned& infos,unsigned& assets_dropped) {
+    infos=assets_dropped=0;
+    if(!room_rows.role_count && !room_rows.blob_count){room_rows={};return;}
+    unsigned rmask[2]={0,0},tmask=0;
+    for(unsigned r=kBaseRoles;r<kBaseRoles+room_rows.role_count;++r)rmask[r/32]|=1u<<(r%32);
+    for(unsigned t=kBaseBlobs;t<kBaseBlobs+room_rows.blob_count;++t)tmask|=1u<<t;
+    for(auto& i:infos_live)if(i.info && ((i.roles[0]&rmask[0]) || (i.roles[1]&rmask[1]))) {
+        i.roles[0]&=~rmask[0];i.roles[1]&=~rmask[1];
+        if(!i.roles[0] && !i.roles[1]){i={};++infos;}
+    }
+    for(auto& a:assets)if(a.data && (a.templates&tmask)){a.templates&=~tmask;if(!a.templates){a={};++assets_dropped;}}
+    room_rows={};changed();
+}
+// Live records naming a room row (0 after a retire).
+unsigned room_rows_users() {
+    unsigned n=0;
+    for(const auto& i:infos_live)if(i.info)for(unsigned r=kBaseRoles;r<64u;++r)if(i.roles[r/32]&(1u<<(r%32))){++n;break;}
+    for(const auto& a:assets)if(a.data && (a.templates>>kBaseBlobs))++n;
+    return n;
+}
+unsigned live_family(unsigned family) {
+    unsigned n=0;for(const auto& o:archives)n+=o.key && o.family==family;return n;
+}
+} }
+#endif
 extern "C" void re4dc_actor_data_move(const void* p) {
     using namespace re4dc_material::life;
     for(unsigned k=0;k<kArchives;++k)if(archives[k].key && span(archives[k].base,archives[k].bytes,p,1))revoke(k);
 }
 extern "C" void re4dc_actor_model_retire(cModel* m) {
     using namespace re4dc_material::life;
+#if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
+    registry_note_retire(m,"retire");
+#endif
     // Also called on destruction: release the slot rather than accumulating
     // dead model addresses. A later binding receives a fresh monotonic token.
     for(auto& b:bindings)if(b.model==m){b={};return;}
@@ -303,9 +340,9 @@ static const re4dc_material::Role* actor_current_role(cModel* m,cModelInfo* info
     if(!member || n>8)return nullptr;
     auto* i=find_info(info);if(!i)return nullptr;
     const Role* found=nullptr;
-    for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)
-        if(roles[r].appearance==app && roles[r].role==role && info_current(*i,r)) {
-            if(found)return nullptr;found=&roles[r];
+    for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
+        if(RE4DC_ROLE(r).appearance==app && RE4DC_ROLE(r).role==role && info_current(*i,r)) {
+            if(found)return nullptr;found=&RE4DC_ROLE(r);
         }
     return found;
 }
@@ -319,8 +356,8 @@ extern "C" int re4dc_actor_material_owner_proof(cModel* m,cModelInfo* info,unsig
     for(auto* p=m->pModelInfo;p && n<9;p=p->pList,++n)if(p==info)member=true;
     if(!member || n>8)return 0;
     auto* i=find_info(info);if(!i)return 0;
-    for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)
-        if(roles[r].appearance==appearance && roles[r].role==role && info_current(*i,r))return 1;
+    for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
+        if(RE4DC_ROLE(r).appearance==appearance && RE4DC_ROLE(r).role==role && info_current(*i,r))return 1;
     return 0;
 }
 extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInfo** out,unsigned count) {
@@ -350,8 +387,8 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
 #endif
         if(!i){ATD(m,22,appearance,n-1);return 0;}
         unsigned role=count;
-        for(unsigned r=0;r<sizeof(roles)/sizeof(roles[0]);++r)
-            if(roles[r].appearance==appearance && info_current(*i,r)) {if(role!=count && role!=roles[r].role){ATD(m,24,appearance,n-1);return 0;}role=roles[r].role;}
+        for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)
+            if(RE4DC_ROLE(r).appearance==appearance && info_current(*i,r)) {if(role!=count && role!=RE4DC_ROLE(r).role){ATD(m,24,appearance,n-1);return 0;}role=RE4DC_ROLE(r).role;}
         const unsigned expected=appearance==256?leon_order[n-1]:n-1;
         if(role>=count || role!=expected || (seen&(1u<<role))){ATD(m,23,appearance,(n-1)*256+role);return 0;}out[role]=p;seen|=1u<<role;
     }

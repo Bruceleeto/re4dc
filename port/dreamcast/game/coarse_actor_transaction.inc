@@ -536,7 +536,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         }
         if(!actor_plan_layout(p)){
             ATD(m,5,p.count,p.run_count);
-            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,kRwLayout);
+            NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,kRwLayout);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
             return 0;
         }
@@ -546,7 +546,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_ACTOR_TRANSACTION_DIAG
             {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
 #endif
-            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,actor_certificate_reached?kRwCertificate:kRwSemantics);
+            NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,actor_certificate_reached?kRwCertificate:kRwSemantics);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
             return 0;
         }
@@ -612,7 +612,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_NATIVE_MODEL_REGISTRY
         if(!r){
             ATD(m,31,p.appearance,0);
-            NMR_CENSUS(if(plan_kind==3)registry_decline(&p,kRwAcquire);
+            NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,kRwAcquire);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
             return 0;
         }
@@ -622,7 +622,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!re4dc_actor_transaction_choose(m,2)){actor_release(*r);actor_fail();return -1;}
         ATD(m,16,p.appearance,p.run_count);
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
-        if(plan_kind==3)++registry_count[p.appearance-nmr::appearance_first].admitted;
+        if(plan_kind==3){++registry_count[p.appearance-nmr::appearance_first].admitted;registry_note_admit(m,p.appearance);}
         scene_note(m,plan_kind,kScNative);
 #endif
 #if RE4DC_CROWD

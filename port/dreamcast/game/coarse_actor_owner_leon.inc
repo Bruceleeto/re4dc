@@ -154,4 +154,7 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
 #include "coarse_actor_geometry_once.inc"
 #include "coarse_actor_transaction.inc"
 #include "coarse_actor_material.inc" // actor-lifetime-r2 current-owner/material policy
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+#include "coarse_actor_registry_pack.inc" // the room-owned registry package (loader, publish, retire)
+#endif
 #endif

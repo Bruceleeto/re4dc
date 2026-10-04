@@ -271,7 +271,7 @@ static const Texture t_extra_485[] = {
 static const Texture t_extra_486[] = {
 {137436048u,3095878342u,128u,128u,14u,{1u,1u,1u,1u,0u,0u,0u,0u},4294967295u,{0u,0u,0u}},
 };
-#if RE4DC_NATIVE_MODEL_REGISTRY
+#if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_facts.inc" // private registry bundle (tools/d367/model_registry.py)
 #endif
 static const Role roles[] = {
@@ -327,7 +327,7 @@ static const Role roles[] = {
 {4u,4u,467u,469u,&m_extra_467,t_extra_469,1u},
 {4u,4u,484u,485u,&m_extra_484,t_extra_485,1u},
 {4u,4u,484u,486u,&m_extra_484,t_extra_486,1u},
-#if RE4DC_NATIVE_MODEL_REGISTRY
+#if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_roles.inc"
 #endif
 };
@@ -358,7 +358,31 @@ static const SourceBlob source_blobs[] = {
 {&m_extra_456,2u,456u,{5952u,3566550875u,4284573839u}},
 {&m_extra_467,2u,467u,{4256u,3007827131u,2804973797u}},
 {&m_extra_484,2u,484u,{6528u,1573052172u,1172918242u}},
-#if RE4DC_NATIVE_MODEL_REGISTRY
+#if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_blobs.inc"
 #endif
 };
+#if RE4DC_NATIVE_MODEL_REGISTRY_PACK
+// NATIVE_MODEL_REGISTRY_PACK: the room package's identity rows (coarse_actor_registry_pack.inc builds them from the
+// validated package and publishes them for one room generation; actor_lifetime.inc retires them at room leave).
+// They follow the reviewed rows above in one index space: role r >= kBaseRoles is room row r-kBaseRoles, blob
+// t >= kBaseBlobs room blob t-kBaseBlobs. The Info::roles (64) and Asset::templates (32) masks bound them.
+constexpr unsigned kBaseRoles=sizeof(roles)/sizeof(roles[0]),kBaseBlobs=sizeof(source_blobs)/sizeof(source_blobs[0]);
+constexpr unsigned kRoomRoles=64u-kBaseRoles,kRoomBlobs=32u-kBaseBlobs;
+static_assert(kBaseRoles<64u && kBaseBlobs<32u,"room identity rows need free mask bits");
+struct RoomRows { const Role* roles;const SourceBlob* blobs;unsigned role_count,blob_count,generation; };
+RoomRows room_rows{};
+inline unsigned role_count() {return kBaseRoles+room_rows.role_count;}
+inline const Role& role_row(unsigned r) {return r<kBaseRoles?roles[r]:room_rows.roles[r-kBaseRoles];}
+inline unsigned blob_count() {return kBaseBlobs+room_rows.blob_count;}
+inline const SourceBlob& blob_row(unsigned t) {return t<kBaseBlobs?source_blobs[t]:room_rows.blobs[t-kBaseBlobs];}
+#define RE4DC_ROLE_COUNT (re4dc_material::role_count())
+#define RE4DC_ROLE(r) (re4dc_material::role_row(r))
+#define RE4DC_BLOB_COUNT (re4dc_material::blob_count())
+#define RE4DC_BLOB(t) (re4dc_material::blob_row(t))
+#else
+#define RE4DC_ROLE_COUNT sizeof(roles)/sizeof(roles[0])
+#define RE4DC_ROLE(r) roles[r]
+#define RE4DC_BLOB_COUNT sizeof(source_blobs)/sizeof(source_blobs[0])
+#define RE4DC_BLOB(t) source_blobs[t]
+#endif
