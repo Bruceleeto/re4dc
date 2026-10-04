@@ -1,5 +1,13 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-04: local experimental checkpoint and delivery audit
+
+The combined full-module candidate measured90.0806 ->82.6492ms in the uncapped r101 square (ticks1330:1389,60frames,stride1,tail3; ACT_CAP0/PACEoff; SH-4-model CPU work excluding waits). Seven controlled schema5 source/candidate pairs pass24,279 complete state/decision/effect frames. This is not30fps, natural-transition, visual or physical-console acceptance. r104 inventory is visibly broken in both controls and the introducing change remains unresolved.
+
+Source checkpoints4386239f and3739a8e0 are on experiment/supervisor-20261004. The latter preserves a default-off early-admission experiment that lost6.1125ms and must not be enabled. No play recipe change. The isolated ready diagnostic16f0da96 remains in the coordinator checkout.
+
+The supervisor did not follow incremental delivery promptly. A rejected publication attempt remained unresolved while local work accumulated. Live GitHub verification shows lamb2k/re4dc is public, contradicting the old private description; the publication question now explicitly states that fact. The remote wasce39455f at audit time. See [delivery audit](SUPERVISOR_DELIVERY_AUDIT_20261004.md) and [combined baseline](SUPERVISOR_BASELINE_20261004.md) for results and preserved failures.
+
 Goal: one play build that feels like the game from the title as far as it goes (r120 intro -> r100 -> r101 -> r103),
 on the fastest measured render pipeline, with every existing fix landed. Update this file with every step (status,
 commit, evidence). Do not start a later step's work inside an earlier step. Before calling the build complete, re-run
