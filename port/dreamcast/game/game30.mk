@@ -42,6 +42,11 @@ LOGIC_TRACE_DELAY_US ?= 0
 # LOGIC_TRACE_MASK_RENDER=1 (trace builds only, opt-in): leave the render-only be_flag 0x08000000
 # out of the hash (logic_trace.cpp; the frame pacing gates). Default 0: hashes unchanged.
 LOGIC_TRACE_MASK_RENDER ?= 0
+# LOGIC_TRACE_OBJ_FROM/TO=K (trace builds only, diagnostic; default 0 = off, hashes and image unchanged): one "LO"
+# line per alive object for Frame_cnt FROM..TO (id, type, be_flag, Mot_state/frame, its own coord/parts hashes),
+# so an om/of difference names the object.
+LOGIC_TRACE_OBJ_FROM ?= 0
+LOGIC_TRACE_OBJ_TO ?= 0
 
 GAME30_LINK_INPUTS =
 ifeq ($(GAME_SH4_MATH),1)
@@ -1024,7 +1029,7 @@ $(OBJDIR)/platform/mem.o: PLATFORM_CPPFLAGS += -DRE4DC_LOG_ATOMIC=1
 $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/rnd.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE=1
 $(OBJDIR)/logic_trace.o: logic_trace.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_LOGIC_TRACE=1 -DRE4DC_LOGIC_TRACE_DELAY_US=$(LOGIC_TRACE_DELAY_US) -DRE4DC_LOGIC_TRACE_MASK_RENDER=$(LOGIC_TRACE_MASK_RENDER) -MMD -MP -c $< -o $@
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_LOGIC_TRACE=1 -DRE4DC_LOGIC_TRACE_DELAY_US=$(LOGIC_TRACE_DELAY_US) -DRE4DC_LOGIC_TRACE_MASK_RENDER=$(LOGIC_TRACE_MASK_RENDER) $(if $(filter-out 0,$(LOGIC_TRACE_OBJ_TO)),-DRE4DC_LOGIC_TRACE_OBJ_FROM=$(LOGIC_TRACE_OBJ_FROM) -DRE4DC_LOGIC_TRACE_OBJ_TO=$(LOGIC_TRACE_OBJ_TO)) -MMD -MP -c $< -o $@
 endif
 
 ifneq ($(GAME_TICK_LOG),0)
