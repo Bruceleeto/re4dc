@@ -1952,3 +1952,16 @@ QUALITY_LOD_PX ?= 5
 ifneq ($(QUALITY_LOD_PX),5)
 $(OBJDIR)/platform/quality.o: PLATFORM_CPPFLAGS += -DRE4DC_QUALITY_LOD_PX=$(QUALITY_LOD_PX)
 endif
+
+# Diagnostic-only projection of room bytes while borrowed by the sub screen.
+LOGIC_TRACE_SWAPPED ?= 0
+ifeq ($(LOGIC_TRACE_SWAPPED),1)
+ifneq ($(LOGIC_TRACE),1)
+$(error LOGIC_TRACE_SWAPPED requires LOGIC_TRACE=1)
+endif
+ifneq ($(SS_PACK),1)
+$(error LOGIC_TRACE_SWAPPED requires SS_PACK=1)
+endif
+$(OBJDIR)/logic_trace.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE_SWAPPED=1
+$(OBJDIR)/platform/subscreen_backing.o: PLATFORM_CPPFLAGS += -DRE4DC_LOGIC_TRACE_SWAPPED=1
+endif
