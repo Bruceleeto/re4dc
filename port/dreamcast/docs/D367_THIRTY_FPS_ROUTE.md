@@ -27,6 +27,14 @@ docs/lanes/review-fixes.md "Landing" and in the commit messages.
   prompt. New Game plays both intros to r100 and s40; the chapter end saves to the VMU and enters r104. The r100 and
   r104 inventory restore hashes match the landing gate. HALT 0, MISSING 0 throughout. Not released.
 
+## 2026-10-04: local experimental checkpoint and delivery audit
+
+The combined full-module candidate measured90.0806 ->82.6492ms in the uncapped r101 square (ticks1330:1389,60frames,stride1,tail3; ACT_CAP0/PACEoff; SH-4-model CPU work excluding waits). Seven controlled schema5 source/candidate pairs pass24,279 complete state/decision/effect frames. This is not30fps, natural-transition, visual or physical-console acceptance. r104 inventory is visibly broken in both controls and the introducing change remains unresolved.
+
+Source checkpoints4386239f and3739a8e0 are on experiment/supervisor-20261004. The latter preserves a default-off early-admission experiment that lost6.1125ms and must not be enabled. No play recipe change. The isolated ready diagnostic16f0da96 remains in the coordinator checkout.
+
+The supervisor did not follow incremental delivery promptly. A rejected publication attempt remained unresolved while local work accumulated. Live GitHub verification shows lamb2k/re4dc is public, contradicting the old private description; the publication question now explicitly states that fact. The remote wasce39455f at audit time. See [delivery audit](SUPERVISOR_DELIVERY_AUDIT_20261004.md) and [combined baseline](SUPERVISOR_BASELINE_20261004.md) for results and preserved failures.
+
 ## 2026-10-04: review of 2026-10-03/04
 
 Review of the dreamcast-port commits b802e337..80912a72 and the unmerged experiment/supervisor-20261004: code reading,

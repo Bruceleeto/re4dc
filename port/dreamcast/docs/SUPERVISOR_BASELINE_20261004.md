@@ -12,7 +12,7 @@ The same two full-module images passed seven paired controlled scenarios (square
 
 Both sides use ACT_CAP=0 and PACE_MODE=off. The same schema-5 observer and codec-ready fixture are used on both sides. This is controlled-fixture evidence: enabling the ownership recorder changes asynchronous door timing compared with the older observer. It does not prove production timing, natural transitions, all-room coverage, or physical Dreamcast performance.
 
-The observer-disabled performance image is allocated-byte/layout/overlay identical to measured candidate e1cbf4a4c937def4c034df5bd61bb0c4f9e78a273c4c6442a0122fa0310fe23b, except its verified build timestamp. The current complete candidate costs 82.6492 ms of SH-4-model CPU work in the uncapped square, ticks 1330:1389, 60 frames, trace stride 1, tail 3. Main/pacing/retrace waits are excluded. Model sensitivity is 71.2304 to 98.6795 ms. This is not 30 fps or hardware acceptance.
+The observer-disabled performance image is allocated-byte/layout/overlay identical to measured candidate e1cbf4a4c937def4c034df5bd61bb0c4f9e78a273c4c6442a0122fa0310fe23b, except its verified build timestamp. The fresh full-module source/candidate pair measured 90.0806 -> 82.6492 ms (7.4314 ms saved, 8.25%) of SH-4-model CPU work in the uncapped square, ticks 1330:1389, 60 frames, trace stride 1, tail 3. Main/pacing/retrace waits are excluded. Model sensitivity is 71.2304 to 98.6795 ms. This is not 30 fps or hardware acceptance.
 
 ## Open visual and coverage issues
 
