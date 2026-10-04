@@ -295,6 +295,11 @@ __attribute__((always_inline)) inline pvr_vertex_t* emit(pvr_vertex_t* __restric
 }
 
 #if defined(__sh__)
+#if defined(RE4DC_TA_HASH) && RE4DC_TA_HASH
+} // namespace re4dc::vp
+extern "C" void re4dc_ta_hash(const void* data,unsigned bytes); // native_ui.cpp (TA_HASH test builds)
+namespace re4dc::vp {
+#endif
 // Phase B: the same copy straight into the TA through the store queues. The
 // caller holds sq_lock() and has already sent the packet header; sq points
 // into SQ_MASK_DEST(PVR_TA_INPUT) (32-byte aligned). EOL is written into the
@@ -302,6 +307,14 @@ __attribute__((always_inline)) inline pvr_vertex_t* emit(pvr_vertex_t* __restric
 inline std::uint32_t* emit_sq(std::uint32_t* sq,const pvr_vertex_t* __restrict cache,
                               const std::uint8_t* __restrict index,unsigned n){
     const std::uint32_t eol=PVR_CMD_VERTEX_EOL;
+#if defined(RE4DC_TA_HASH) && RE4DC_TA_HASH
+    // TA_HASH (test builds): the words this strip sends (EOL in the last flags word), as re4dc_ta_put hashes its own.
+    for(unsigned k=0;k<n;++k){
+        std::uint32_t w[8];__builtin_memcpy(w,cache+index[k],32);
+        if(k+1==n)w[0]=eol;
+        re4dc_ta_hash(w,32);
+    }
+#endif
     __asm__ __volatile__(
         "fschg\n"
         "1:\n\t"

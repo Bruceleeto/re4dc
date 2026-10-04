@@ -1,5 +1,23 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-03: native vertex coverage in graphics diagnostics
+
+`TA_HASH` now includes the direct store-queue strips emitted by `vp::emit_sq` (PS2 world/mesh fast path)
+and the native actor fast path. Previously both bypassed `re4dc_ta_put`, so matching hashes did not cover
+their vertex data. The diagnostic hashes the copied words with the final vertex's EOL flag. Direct
+store-queue writes in `coarse.cpp` and `coarse_world.cpp` are still outside this coverage.
+
+This repair compiles out with the normal `TA_HASH=0`. On a standalone ce39455f-based image, fresh
+`sup-ps-id-base` vs `sup-ps-sq-off` builds have identical .text/.data/overlay, .bss (803644 bytes) and
+`_end` (8c3afffc); only four __TIME__ bytes differ. `sup-ps-sq-t1` with TA_HASH=1 also builds with zero
+missing symbols. The enabled hooks ran in the stacked diagnostic route checks, including 3754 matched
+r101 frames; the standalone TA_HASH=1 image is build-verified, not separately route-tested.
+
+Evidence: private architect-review-20261003/tools/supervisor-20261003/pass-share/ARCHIVE.md,
+sqfix.log, sqfix2.log and tacmp-k.txt. This does not adopt PS2_PASS_SHARE (parked after mixed cost
+results), change the play recipe, establish complete TA equivalence against the old baseline, or
+claim a performance/physical-console result. Native scene coverage remains under implementation.
+
 Active since 2026-09-23 (Claude, user-directed). This document supersedes the
 paused D366 handover and the "beat D349" sequence as the current plan. Earlier
 checkpoints remain evidence.

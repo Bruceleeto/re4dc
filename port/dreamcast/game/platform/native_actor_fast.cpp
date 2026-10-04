@@ -2087,6 +2087,15 @@ inline void* emit_meshlet(void* dst, const pvr_vertex_t* cache, const u8* index,
 // EOL goes into the last vertex before its burst leaves.
 inline std::uint32_t* emit_sq(std::uint32_t* sq, const pvr_vertex_t* cache, const u8* index, unsigned n) {
     const std::uint32_t eol = PVR_CMD_VERTEX_EOL;
+#if RE4DC_TA_HASH
+    // TA_HASH (test builds): the words this strip sends (EOL in the last flags word), as re4dc_ta_put hashes its own.
+    for (unsigned k = 0; k < n; ++k) {
+        std::uint32_t w[8];
+        __builtin_memcpy(w, cache + (index[k] & 127u), 32);
+        if (k + 1 == n) w[0] = eol;
+        re4dc_ta_hash(w, 32);
+    }
+#endif
     __asm__ __volatile__(
         "fschg\n"
         "1:\n\t"
