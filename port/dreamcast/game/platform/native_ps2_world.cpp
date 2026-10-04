@@ -613,6 +613,25 @@ public:
 #endif
 };
 }}}
+#if RE4DC_PS2_WORLD_FOG_SOURCE
+// PS2_WORLD_FOG_SOURCE (game30.mk): the source GX fog state at this frame's scenery draw (pass 0), which the frame's
+// PT / TR flush keeps: the flush runs after the source has turned fog off for later draws.
+extern "C" unsigned re4dc_fog_enabled();
+static unsigned ps2_world_fog=1;
+extern "C" unsigned re4dc_ps2_world_fog(){return ps2_world_fog;}
+// The latched state is logged when it changes (once per room fog switch; the fog qualification's source fog record).
+static unsigned ps2_world_fog_logged=2;
+static inline void re4dc_ps2_world_fog_latch(){
+    ps2_world_fog=re4dc_fog_enabled();
+    if(ps2_world_fog!=ps2_world_fog_logged){
+        ps2_world_fog_logged=ps2_world_fog;
+        re4dc_log("ps2 world fog: source fog %s at the scenery draw\n",ps2_world_fog?"on":"off");
+    }
+}
+#define RE4DC_PS2_WORLD_FOG_LATCH() re4dc_ps2_world_fog_latch()
+#else
+#define RE4DC_PS2_WORLD_FOG_LATCH() ((void)0)
+#endif
 // Rooms whose scenery the PS2 world package replaces (trans.cpp COARSE_SCENERY_FALLBACK).
 #if RE4DC_PS2_WORLD_ROOMS
 // PS2_WORLD_ROOMS (game30.mk): r100, r101 and r103, each from its own package (native_static.cpp ps2_open),
@@ -628,6 +647,7 @@ extern "C" int re4dc_ps2_world_covers(unsigned room){return room==0x101;}
 #endif
 extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float far){
     using namespace re4dc::room::ps2;
+    RE4DC_PS2_WORLD_FOG_LATCH();
 #if RE4DC_PS2_WORLD_MESH
     // PS2_WORLD_MESH: the converted R4IM package (native_static.cpp); the .r4p is never loaded.
     (void)screen;state.pending=false;
@@ -672,6 +692,7 @@ extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float
 // already set): pass 0 now; re4dc_ps2_world_flush draws PT / TR as for a coarse image.
 extern "C" int re4dc_ps2_world_source_draw(){
     using namespace re4dc::room::ps2;
+    RE4DC_PS2_WORLD_FOG_LATCH();
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=25000;
     const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
     return drawn;

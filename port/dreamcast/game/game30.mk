@@ -1849,6 +1849,19 @@ $(error SCENERY_ENCODING must be 0 or 1)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_SCENERY_ENCODING=1
 endif
+# PS2_WORLD_FOG_SOURCE=1 (render only, default 0): the PS2 world headers (native_ui.cpp re4dc_ps2_world_packet,
+# _packet_cull, _direct_begin) take PVR table fog only if the source GX fog was on at the frame's scenery draw
+# (re4dc_fog_enabled latched by native_ps2_world.cpp at pass 0 and kept for the later PT / TR flush; model_bridge.cpp
+# reads the same state per model part). Off, they always take table fog: in a room whose source fog is off (r210) the
+# table is the previous room's, or never loaded on a direct entry, and every PS2 world surface is drawn as the fog
+# colour (flat grey).
+PS2_WORLD_FOG_SOURCE ?= 0
+ifneq ($(PS2_WORLD_FOG_SOURCE),0)
+ifneq ($(PS2_WORLD_FOG_SOURCE),1)
+$(error PS2_WORLD_FOG_SOURCE must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_FOG_SOURCE=1
+endif
 # MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
 # first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
 MESH_CLASSIFY ?= 0

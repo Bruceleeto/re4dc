@@ -3971,6 +3971,9 @@ extern "C" int re4dc_ps2_world_before_owned_tr(const Re4dcModelPart* part){
 // Included once at native_ui.cpp global scope, after the normal packet APIs.
 // Explicit keys reach the existing loader; submitted Entry::frame pins preserve
 // its TA/render-fence lifetime. No pointer hash, preload, private VRAM or lease.
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+extern "C" unsigned re4dc_ps2_world_fog(); // native_ps2_world.cpp: latched at this frame's scenery draw
+#endif
 extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,Re4dcModelPacket* out){
     if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
@@ -3992,7 +3995,9 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;
-#if RE4DC_NATIVE_FOG
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+    c.gen.fog_type=re4dc_ps2_world_fog()?PVR_FOG_TABLE:PVR_FOG_DISABLE; // source GX fog at the scenery draw
+#elif RE4DC_NATIVE_FOG
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
@@ -4025,7 +4030,9 @@ extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned wi
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;
-#if RE4DC_NATIVE_FOG
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+    c.gen.fog_type=re4dc_ps2_world_fog()?PVR_FOG_TABLE:PVR_FOG_DISABLE; // source GX fog at the scenery draw
+#elif RE4DC_NATIVE_FOG
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
@@ -4066,7 +4073,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;
-#if RE4DC_NATIVE_FOG
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+    c.gen.fog_type=re4dc_ps2_world_fog()?PVR_FOG_TABLE:PVR_FOG_DISABLE; // source GX fog at the scenery draw
+#elif RE4DC_NATIVE_FOG
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
