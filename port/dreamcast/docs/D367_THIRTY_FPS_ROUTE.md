@@ -1,5 +1,44 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: review of 2026-10-03/04
+
+Review of the dreamcast-port commits b802e337..80912a72 and the unmerged experiment/supervisor-20261004: code reading,
+host tests, a trial merge; no SH-4 build (cloud session).
+- **Inventory:** the corruption fixed by 6819f3a2 came in with ad0c59d0 (PS2_WORLD_ROOMS=2, 2026-09-29), so it was very
+  likely in every play disc from r21i to r21s, the public r21k, r21l and r21m included; the route checks count HALT /
+  MISSING and never open the inventory. Play discs now run an inventory open/close check (checklist "Play build rules").
+- **TA_HASH** (16f0da96) does not cover the actor fast path's whole meshlets: correction in the 2026-10-03 section.
+- **TEX_PACK retries** (766a5fa5): back-to-back attempts, no re-arm before the first room, a truncated pack never
+  INVALID: "Pack failure policy" below.
+- **Recipe hygiene:** five recipe knobs were read by no makefile (COARSE_WORLD_LAYERS, MOTION_HASH,
+  NATIVE_STATIC_PROBE_SKIP, PS2_SOURCE_SPANS, SOURCE_CENSUS; all 0), which resolved-knobs.txt cannot show;
+  route-build.sh only warns without resolved-knobs.txt, although 8f34aa63's message says it fails.
+- **Diagnostics only** (no play image effect): the WP2 census "read-only twins" (446f05a5, 59d2eab3) repeat calls that
+  have side effects (ATD 22 counted twice, a binding-revision slot, re-adoption under CROWD_READOPT=2, the material log
+  budgets spent), so ACTOR_TRANSACTION_DIAG=1 counts and the DIAG `late 0x10` arm differ from DIAG=0; the decisions
+  and the 7.09 ms pair (DIAG=0 cost builds) are unaffected. Late bit 0x04 never resets its pacing override.
+  hwwork.py can print a stale STRICT verdict when logic_trace_diff.py fails. A `--tail` run can wait for its deadline
+  when frames stop.
+- **Host suite:** 356 tests on 80912a72, 16 failing there and on 06e71078 alike: 12 host fixtures that no longer
+  compile against current code, and 4 guards (both "PowerPC source unchanged" checks: read.cpp RE4DC_HALT_STORE,
+  motion.cpp u16_un; the linked-enemy reader rule: em27; the room dependency gate). Nothing new broke and WP0 fixed one
+  failure, but a guard that is always red cannot catch a new violation.
+- **experiment/supervisor-20261004:** a trial merge onto 80912a72 conflicts only in two docs and keeps 6819f3a2; the
+  guards hold (one unguarded DBG_WARP=1-only change in dbgwarp_bridge.cpp); no defect found in the registry pack check,
+  registry lifetime, swap park or trace region view; its host tests pass where they need no private data. Before it
+  lands: its "r104 inventory, cause not isolated" paragraphs (SUPERVISOR_* docs and its route/checklist entries)
+  describe 6819f3a2's bug; the 82.65 ms candidate's knob set is not in the repo; 038d1c59 is a 62-file snapshot with
+  an empty body labelled "local only", yet on the public remote; the r104 inventory needs a re-capture on the merged
+  tree.
+- **Follow-up branch lane/review-fixes-20261004** (docs/lanes/review-fixes.md; not landed): TEX_PACK retry spacing
+  and short_file -> INVALID, the TA_HASH whole-meshlet hook, the native_static `#error` guard, build-r21.sh's
+  dead-knob check (the five knobs dropped) and route-build.sh's hard failure. Host-tested only: the local session
+  runs the target gates, lands it and cuts r21u.
+- **30 fps status** (hwsim, uncalibrated; per image): H2 ~49.6 ms work a tick with the adopted knobs; r101 square
+  82.65 ms on the unmerged candidate; kite fight 88.4 at its last measurement (2026-09-28). G alone in fights is ~29
+  against 24, and no lane owns G since the architect review voided "G closed". Calibration disc c8 still awaits a
+  console run.
+
 ## 2026-10-04: r21t public play downloads
 
 User-authorized public release:
@@ -79,6 +118,13 @@ Evidence: private architect-review-20261003/tools/supervisor-20261003/pass-share
 sqfix.log, sqfix2.log and tacmp-k.txt. This does not adopt PS2_PASS_SHARE (parked after mixed cost
 results), change the play recipe, establish complete TA equivalence against the old baseline, or
 claim a performance/physical-console result. Native scene coverage remains under implementation.
+
+Correction (review 2026-10-04): the actor fast path is only partly covered. Its whole meshlets (`Part::whole` ->
+`emit_meshlet<true>`, the common case under NATIVE_ACTOR_DIRECT=1, also in the COARSE_ONE_SUBMIT window) still go
+to the store queues unhashed, so matching `ta_hash:` lines do not prove matching actor geometry. The hook is on
+lane/review-fixes-20261004 (docs/lanes/review-fixes.md), not landed. Merging experiment/supervisor-20261004 would
+add MESH_STRIP_LEAN paths that also bypass or misattribute the hash (=1/=3 write the store queues in their own
+assembly; =2 hashes a dry-run copy that never reaches the TA).
 
 Active since 2026-09-23 (Claude, user-directed). This document supersedes the
 paused D366 handover and the "beat D349" sequence as the current plan. Earlier
@@ -265,6 +311,13 @@ drawn with diagonal seams, and the floor smeared.
     "tex pack: ... INVALID: <why>" line, then per-file loads. On a packed-only disc that means missing textures.
   - Known weakness (measured in Flycast): if 3 header reads fail in a room that never changes,
     that room has no pack textures until the next room load.
+  - Review 2026-10-04: the 3 attempts run back to back (one lookup burst, e.g. a room preload, spends them all);
+    nothing re-arms them before the first room after boot (re4dc_room_leave returns early without a live room heap),
+    so the title and the first room can stay without pack textures; a pack shorter than its header reads as a read
+    error forever instead of INVALID; a failed lookup sector is re-read and logged on every use. Fix (spaced retries
+    in UI frames, short_file -> INVALID, per-sector re-read spacing) on lane/review-fixes-20261004, not landed. Also
+    open: "absent" is any fs_open failure (a handle shortage or directory read error reads as no pack for the
+    session; on a packed-only disc its keys then end in missing_keys).
   - Tools: `texpack.py --verify <pak>` runs the runtime's checks plus each package's magic. pack-fixture.sh
     (13eaccec) writes content-addressed verified packs `<name>.<sha16>.pak` with a provenance manifest beside
     them, and refuses to overwrite an output fixture without `--replace`.

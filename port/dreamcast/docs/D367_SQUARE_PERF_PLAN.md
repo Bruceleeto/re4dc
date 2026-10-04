@@ -645,8 +645,9 @@ instead (version C, G0, knobs off, no margin: standard window 18.2 fps, kite 10.
   path 56.64, **7.09 ms saved** (low-high 5.48-9.25). Cause of the old decline: after the s20 cutscene Leon's
   material-lifetime records are dropped (a part swap at about UI frame 684, a heap teardown at about 1211) and
   nothing re-proves them. The existing default-off CROWD_READOPT=2 re-proves them with the load-time proof. Adopting
-  it in the play recipe is a coordinator/user decision: it also changes the r100 post-cutscene Leon from the source
+  it in the play recipe was a coordinator/user decision: it also changes the r100 post-cutscene Leon from the source
   mesh to the 4K cast, as already drawn in r101/r103. hwsim projections in Flycast, not console measurements.
+  **Adopted 2026-10-03 (user; 7cbea8e7, with CROWD_CULL=1 CROWD_FOGSKIP=1).**
 
 #### Coarse world (lane wd, 2026-09-25; landed 6f4c91c, default off)
 

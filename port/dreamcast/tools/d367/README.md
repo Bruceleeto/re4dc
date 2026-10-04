@@ -9,7 +9,8 @@ The plan and measurements are in `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md`.
   knobs as make resolved them (defaults, the recipe line, caller overrides, Makefile overrides); route-build.sh
   records its path in programs-route.json. Quote that file, not a make line.
 - Known differences from the make line: MODEL_DRAW_PLANS is forced to 1 by the D349_RENDERER_STACK=1 Makefile
-  override; MESH_CLIP_LEAN is not in the recipe (default 0; adopting it needs the route gate).
+  override. MESH_CLIP_LEAN=1 (ce39455f) and CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 (7cbea8e7) joined the
+  recipe on 2026-10-03 (user decisions); before that the make line never had MESH_CLIP_LEAN.
 - The LH / M1 / PERF / LFV blocks below are dated snapshots (2026-09-23/24), kept as evidence. They still list
   `QUALITY=1` (the Standard/Original picker); play builds pass `QUALITY_PICKER=0` (Standard only).
 - Profiler areas are not G. hwproject's "game-logic" area (e.g. LH's 12.0 hw ms/tick) books the shared matrix kernels
@@ -510,8 +511,8 @@ the arms share the binary and the prelude, and switch at a fixed tick.
   `hwproject.sh --count 1450:1569 --trace 1450:1569:1 --drop-traces`; work = total minus the rows `main`,
   `re4dc_pace_end`, `re4dc_vi_retrace_count`. Cost build: `route-build.sh impl-<x> PC_SAMPLER_BYTES=8192
   PACE_MODE=off ACT_CAP=0 ENC_CENSUS=1 ACTOR_CENSUS=1 MESH_CLIP_LEAN=1 PACE_FORCE=A LOGIC_TRACE=0
-  GAME_DECISION_TRACE=0`; behaviour build: the same with `LOGIC_TRACE=1 GAME_DECISION_TRACE=1`. (MESH_CLIP_LEAN=1 is
-  part of these measurement arms only; it is not in the play recipe.)
+  GAME_DECISION_TRACE=0`; behaviour build: the same with `LOGIC_TRACE=1 GAME_DECISION_TRACE=1`. (MESH_CLIP_LEAN=1 was
+  part of these arms before it joined the play recipe on 2026-10-03, ce39455f.)
 - **Last tick:** the hwtrace Flycast exits right after the window's last frame, before the log reader drains it, so
   the trace log ended at 1568. `hwproject.sh --tail 3` keeps the emulator running and stops the reader (the tree's
   read_log.py, `RE4DC_LOG_STOP`) 3 frames later after a final drain; counts and traces are unchanged. A/A on H2

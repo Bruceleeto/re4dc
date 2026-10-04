@@ -92,7 +92,8 @@ Never reset/clean, overwrite inherited edits or broadly stage. Private source an
 derived assets, discs and captures stay outside Git. Keep the selected toolchain
 and accepted evidence immutable; use new generated-output directories.
 
-The user authorizes reviewed commits/pushes to origin/dreamcast-port. Stage owned
+lamb2k/re4dc is a public repository (it also publishes the play builds): every push is a
+publication. The user authorizes reviewed commits/pushes to origin/dreamcast-port. Stage owned
 changes only, inspect the diff and verify the remote SHA. A docs commit does not
 accept uncommitted runtime changes. Use script files for complex Windows/WSL
 commands; inspect a stalled process before restarting it.

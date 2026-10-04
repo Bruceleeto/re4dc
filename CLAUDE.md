@@ -1,6 +1,6 @@
 # RE4 Dreamcast working handoff
 
-Updated 2026-10-03. Project rules: [AGENTS.md](AGENTS.md).
+Updated 2026-10-04. Project rules: [AGENTS.md](AGENTS.md).
 
 **Active (D367, user-directed).** Goals:
 - 30 fps at full game speed (33.3 ms a tick: gameplay G <= 24 + render R <= 6 + a margin) on a real NTSC Dreamcast via GDEMU + VMU, per the 2026-09-25 rethink (a coarse complete square first). This is the acceptance target; 20 fps and a 15 fps fight fallback were the earlier targets (historical).
@@ -46,8 +46,23 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
 - House fixtures: H (unguarded, 2,512-entry pack) vs H2 (guarded, title-c14 pack; diagnostic, same-binary late
   activation).
 - Discs: the GDEMU raw 2352-byte image vs the 2048-byte CUE image Flycast boots.
-- WP2 (H2, hwsim): Leon by the 4K cast saves 7.09 ms a tick vs the per-part source path. CROWD_READOPT=2 in the play
-  recipe is a pending coordinator/user decision.
+- WP2 (H2, hwsim): Leon by the 4K cast saves 7.09 ms a tick vs the per-part source path. CROWD_READOPT=2 (with
+  CROWD_CULL=1 CROWD_FOGSKIP=1) joined the play recipe the same day (user; 7cbea8e7), and MESH_CLIP_LEAN=1 too
+  (ce39455f, H2 -2.18).
+
+2026-10-04 (inventory fix, r21t, review; route doc "2026-10-04: review of 2026-10-03/04"):
+- 6819f3a2: PS2_WORLD_ROOMS=2 took the inventory's rigid models for room scenery (since ad0c59d0, 2026-09-29; very
+  likely in the public r21k-r21m too). r21t is a public prerelease (tag play-r21t-inventory-fix-20261004). Play discs
+  now run an inventory open/close check (checklist "Play build rules").
+- Not landed, local target gates pending: lane/review-fixes-20261004 (docs/lanes/review-fixes.md): TEX_PACK retry
+  spacing, the TA_HASH whole-meshlet hook (16f0da96 left actor whole meshlets unhashed), a native_static #error guard,
+  build-r21.sh failing on dead knobs, route-build.sh failing without resolved-knobs.txt.
+- Not landed: experiment/supervisor-20261004 (r101 square 90.08 -> 82.65 ms modeled). Its "inventory not isolated"
+  paragraphs predate 6819f3a2 and are wrong; landing needs the 82.65 ms knob set in the repo, described commits for
+  038d1c59 and an r104 inventory re-capture on the merged tree.
+- lamb2k/re4dc is public: every push publishes (AGENTS.md).
+- Open user decisions: land the supervisor code default-off or park it; who owns gameplay-logic cost (G), which no
+  lane carries since the architect review voided "G closed".
 
 State at the 2026-09-23 update (HEAD 5285bc7; history, superseded by the paragraph above):
 - **Perf lane:**

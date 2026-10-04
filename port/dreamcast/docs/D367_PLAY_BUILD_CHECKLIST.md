@@ -1,5 +1,14 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-04: review follow-ups for the next play disc
+
+Details in the route doc, "2026-10-04: review of 2026-10-03/04". For play discs:
+- New rule: every play disc opens and closes the inventory in r100 and r104 ("Play build rules", inventory check).
+- The next disc (r21u) waits for lane/review-fixes-20261004 to pass its target gates and land
+  (docs/lanes/review-fixes.md): TEX_PACK retry spacing (changes the play image's error path only), the TA_HASH
+  whole-meshlet hook, a native_static `#error` guard, build-r21.sh failing on knobs no makefile reads (five dead ones
+  dropped from the recipe), route-build.sh failing without resolved-knobs.txt.
+
 ## 2026-10-04: r21t public play downloads
 
 User-authorized public release:
@@ -80,6 +89,13 @@ sqfix.log, sqfix2.log and tacmp-k.txt. This does not adopt PS2_PASS_SHARE (parke
 results), change the play recipe, establish complete TA equivalence against the old baseline, or
 claim a performance/physical-console result. Native scene coverage remains under implementation.
 
+Correction (review 2026-10-04): the actor fast path is only partly covered. Its whole meshlets (`Part::whole` ->
+`emit_meshlet<true>`, the common case under NATIVE_ACTOR_DIRECT=1, also in the COARSE_ONE_SUBMIT window) still go
+to the store queues unhashed, so matching `ta_hash:` lines do not prove matching actor geometry. The hook is on
+lane/review-fixes-20261004 (docs/lanes/review-fixes.md), not landed. Merging experiment/supervisor-20261004 would
+add MESH_STRIP_LEAN paths that also bypass or misattribute the hash (=1/=3 write the store queues in their own
+assembly; =2 hashes a dry-run copy that never reaches the TA).
+
 Goal: one play build that feels like the game from the title as far as it goes (r120 intro -> r100 -> r101 -> r103),
 on the fastest measured render pipeline, with every existing fix landed. Update this file with every step (status,
 commit, evidence). Do not start a later step's work inside an earlier step. Before calling the build complete, re-run
@@ -122,6 +138,11 @@ the unlanded-work sweep (every local tree's files hashed against every dreamcast
     house fixture, not a full play validation. Measured with same-binary late activation (warp.txt
     `late <mask> 1400 0x100`; tools/d367/README.md "Late activation").
   - Neither replaces the route checks of a play disc (r21s and later).
+- Inventory check (review 2026-10-04): every play disc opens and closes the inventory in r100 and r104 before it is
+  called done (route-play-invfix-r100-r2 / -r104-r2 pattern: matching restore hash, and a capture showing the case,
+  items, menu bars and Leon preview). HALT / MISSING counts never open it: the corruption fixed by 6819f3a2 came in
+  with ad0c59d0 (PS2_WORLD_ROOMS=2, 2026-09-29) and was very likely in every disc from r21i to r21s, the public
+  r21k, r21l and r21m included.
 - Crash screen (user 2026-10-02): build-r21.sh sets `CRASH_SCREEN=1` for every play build. Before a console disc
   the build must log 0 misaligned accesses over its rooms (`tools/d367/hwready/route-hw.sh align`).
 - Disc: `debug/config.txt` ROOM 0x20 (New Game -> r120 intro), no `dc/quality.txt`, the r100 release (route fix e)
