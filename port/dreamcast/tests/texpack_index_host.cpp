@@ -96,9 +96,10 @@ int main() {
     // P1: one transient header read failure; the next use retries and the pack works (was latched off for good)
     reset(); make(300); fail_reads = 1; fail_at = 0;
     CHECK(find(1, 0x100) == texpack::kError);
-    CHECK(texpack::state == texpack::kRetry);
+    CHECK(texpack::state == texpack::kRetry && !texpack::settled());
     now += texpack::kRetryFrames;
-    CHECK(find(1, 0x100) == texpack::kFound && texpack::state == texpack::kReady);
+    CHECK(find(1, 0x100) == texpack::kFound && texpack::state == texpack::kReady && texpack::settled());
+    CHECK(locks == 0);
     std::printf("TRANSIENT_HEADER_READ: first=error, %u frames later found, reads=%u\n", texpack::kRetryFrames, reads);
 
     // a transient index-sector failure during init: nothing published, then a full init
@@ -170,7 +171,7 @@ int main() {
 
     // absent: per-file path, never retried
     reset(); make(300); present = false;
-    CHECK(find(1, 0x100) == texpack::kNotInPack && texpack::state == texpack::kAbsent);
+    CHECK(find(1, 0x100) == texpack::kNotInPack && texpack::state == texpack::kAbsent && texpack::settled());
     present = true;
     CHECK(find(1, 0x100) == texpack::kNotInPack && reads == 0);
     std::printf("ABSENT: per-file\n");
@@ -178,7 +179,7 @@ int main() {
     // a truncated pack (shorter than its 2048-byte header, or empty) is invalid media, not a transient read error
     reset(); disk.assign(100, 0x55);
     CHECK(find(1, 0x100) == texpack::kNotInPack && texpack::state == texpack::kInvalid);
-    CHECK(std::strstr(last_log, "shorter than its header"));
+    CHECK(std::strstr(last_log, "shorter than its header") && texpack::settled());
     CHECK(find(7, 0x999) == texpack::kNotInPack && reads == 1);   // per-file loads, no more pack reads
     reset(); disk.clear();
     CHECK(find(1, 0x100) == texpack::kNotInPack && texpack::state == texpack::kInvalid);

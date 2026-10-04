@@ -248,6 +248,11 @@ void overlay_slab_take(){ if(!overlay_slab && !overlay_owner)overlay_slab=pvr_me
 #endif
 #if RE4DC_TEX_RESIDENT
 bool preload_pending; unsigned preload_loads,preload_skipped,preload_runs;
+#if RE4DC_TEX_PACK
+// load() calls that met a pack read error (texpack::kError). A preload pass that met one skipped those picks, since
+// texpack spaces its retries over UI frames: the pass runs once more when the pack has settled (preload_after_pack).
+unsigned pack_error_skips; bool preload_after_pack;
+#endif
 // Open VRAM claims (re4dc_ui_vram_claim: route movie texture, sub screen backing):
 // the room-entry preload waits while any is open and runs again after the last
 // one closes if a claim released uploads.
@@ -1291,7 +1296,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     // A pack read error is transient: no eviction, no per-file probe, and the key is not remembered as missing
     // (on a packed disc its loose file is gone); a later use retries (texpack_index.inc spaces the retries in UI frames).
-    if(pack==texpack::kError){RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;}
+    if(pack==texpack::kError){++pack_error_skips;RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;}
     const bool in_pack=pack==texpack::kFound;
     if(slot->valid && !in_pack){
 #else
@@ -1686,6 +1691,9 @@ void preload_identities(){
 #endif
     const std::uint64_t start=timer_us_gettime64();
     const unsigned loads=preload_loads,skipped=preload_skipped;
+#if RE4DC_TEX_PACK
+    const unsigned pack_errors=pack_error_skips;
+#endif
     const unsigned budget=(RE4DC_UI_VRAM?vram_budget:kVramBudget),reserve=RE4DC_TEX_RESIDENT_RESERVE_KB*1024U;
     unsigned pinned=0,pinned_bytes=0;
     for(const auto& e:entries)if(e.valid && RE4DC_ENTRY_PINNED(e)){++pinned;pinned_bytes+=e.package.vram_bytes();}
@@ -1826,6 +1834,15 @@ void preload_identities(){
     if(frame)for(auto& e:entries)if(e.valid && e.frame==frame)e.frame=frame-1;
     re4dc_log("native texture preload: frame=%u picked=%u resident=%u loads=%u skipped=%u full=%d used=%u budget=%u entries=%u us=%u\n",frame,n,resident,preload_loads-loads,
         preload_skipped-skipped,full?1:0,used,budget,kTextureCount,unsigned(timer_us_gettime64()-start));
+#if RE4DC_TEX_PACK
+    // Only while the pack's init is waiting to retry: a failed lookup sector of a ready pack would otherwise re-arm
+    // the pass every frame (its keys load on first sight once the sector re-reads).
+    if(pack_error_skips!=pack_errors && !texpack::settled()){
+        preload_after_pack=true;
+        re4dc_log("native texture preload: %u picks met a pack read error; the pass runs again when the pack settles\n",
+                  pack_error_skips-pack_errors);
+    }
+#endif
 #if RE4DC_PS2_PRELOAD_LEAN
     if(ps2_lean)re4dc_log("native texture preload: ps2 world room pass (runs=%u)\n",preload_ps2_lean_runs);
 #endif
@@ -2618,6 +2635,11 @@ extern "C" void re4dc_ui_begin(){
 #endif
 #endif
 #if RE4DC_TEX_RESIDENT
+#if RE4DC_TEX_PACK
+    // A preload pass that met a pack read error: once the pack is ready (or absent / invalid: per-file loads), run it
+    // again for the picks it skipped (resident ones are kept).
+    if(preload_after_pack && texpack::settled()){preload_after_pack=false;preload_pending=true;}
+#endif
     if(preload_pending && frame_ready && !vram_claims)preload_identities();
 #endif
     re4dc_prepare_model_assets(); // registration/update work precedes frame submission

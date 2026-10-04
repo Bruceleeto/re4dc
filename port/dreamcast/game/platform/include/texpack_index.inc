@@ -115,6 +115,11 @@ bool open_locked(unsigned now){
               attempts?" (after read errors)":"");
     return true;
 }
+// The pack is no longer retrying: ready, absent or invalid (native_ui.cpp re-runs a room preload that met a read error).
+bool settled(){
+    mutex_lock(&lock);const bool s=state==kReady || state==kAbsent || state==kInvalid;mutex_unlock(&lock);
+    return s;
+}
 // A room load (native_ui.cpp re4dc_ui_retire_room) allows the next init attempt at once and restarts the fast
 // spacing; it also lets a failed lookup sector be re-read at once.
 void room_loaded(){mutex_lock(&lock);++room_gen;bad_sector=~0U;mutex_unlock(&lock);}
