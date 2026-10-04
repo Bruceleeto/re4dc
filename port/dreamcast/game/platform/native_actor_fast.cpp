@@ -1964,6 +1964,19 @@ constexpr bool avk_emit_ref = false;
 #endif
 template <bool SQ>
 inline void* emit_meshlet(void* dst, const pvr_vertex_t* cache, const u8* index, unsigned n) {
+#if RE4DC_TA_HASH
+    // TA_HASH (test builds): a store-queue meshlet's words as every copy below sends them: the cache entry with its
+    // flags word from index bit 7 (EOL ends a strip). Whole meshlets (Part::whole, the common direct case and the
+    // ONE_SUBMIT window) were the actor fast path's unhashed writer (review 2026-10-04).
+    if constexpr (SQ) {
+        for (unsigned k = 0; k < n; ++k) {
+            std::uint32_t w[8];
+            __builtin_memcpy(w, cache + (index[k] & 127u), 32);
+            w[0] = (index[k] & 128u) ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+            re4dc_ta_hash(w, 32);
+        }
+    }
+#endif
 #if RE4DC_AVK
     // ACTOR_VTX_KERNEL: the same copy two vertices at a time, software-pipelined: vertex k's four
     // stores, flags word and burst go out while vertex k+1's index, offset and four loads come in
