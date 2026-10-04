@@ -2190,12 +2190,44 @@ bool ps2_open(){
     const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
     const unsigned mbytes=(msize+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
     const int before=re4dc_static_heap_free();
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN opened mesh=%d/%u sidecar=%d/%u heap=%d\n",int(fm),msize,int(fp),psize,before);
+#endif
     auto* s=msize && psize>=sizeof(Ps2Head)?static_cast<unsigned char*>(re4dc_static_alloc(total)):nullptr;
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN alloc %p bytes=%u align32=%u\n",static_cast<void*>(s),total,unsigned(reinterpret_cast<std::uintptr_t>(s)&31U));
+    bool ok=s!=nullptr;
+#if RE4DC_PS2_OPEN_READ
+    const auto read_all=[](file_t f,unsigned char* d,unsigned n){return read_package(f,d,n,0)?ssize_t(n):ssize_t(-1);};
+#else
+    const auto read_all=[](file_t f,unsigned char* d,unsigned n){return fs_read(f,d,n);};
+#endif
+    if(ok){
+        re4dc_log("PS2OPEN read mesh dst=%p bytes=%u tail=%u\n",static_cast<void*>(s),msize,msize&31U);
+        const ssize_t got=read_all(fm,s,msize);ok=got==ssize_t(msize);
+        re4dc_log("PS2OPEN read mesh got=%d\n",int(got));
+    }
+    if(ok){
+        re4dc_log("PS2OPEN read sidecar dst=%p bytes=%u tail=%u\n",static_cast<void*>(s+mbytes),psize,psize&31U);
+        const ssize_t got=read_all(fp,s+mbytes,psize);ok=got==ssize_t(psize);
+        re4dc_log("PS2OPEN read sidecar got=%d\n",int(got));
+    }
+#elif RE4DC_PS2_OPEN_READ
+#if !RE4DC_IO_ALIGNED
+#error "PS2_OPEN_READ needs IO_ALIGNED=1 (read_package)"
+#endif
+    // PS2_OPEN_READ: both files through the IO_ALIGNED whole-file reader (s and s+mbytes are 32-byte aligned).
+    bool ok=s && read_package(fm,s,msize,0) && read_package(fp,s+mbytes,psize,0);
+#else
     bool ok=s && fs_read(fm,s,msize)==ssize_t(msize) && fs_read(fp,s+mbytes,psize)==ssize_t(psize);
+#endif
     if(fm!=FILEHND_INVALID)fs_close(fm);
     if(fp!=FILEHND_INVALID)fs_close(fp);
     const char* why=ok?nullptr:s?"read":"missing or no heap";
     if(ok && !ps2w.package.adopt(s,msize,true,true)){why=ps2w.package.error();ok=false;}
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN adopt ok=%d why=%s\n",int(ok),why?why:"-");
+#endif
     Ps2Head h{};
     if(ok){
         std::memcpy(&h,s+mbytes,sizeof(h));
@@ -2217,6 +2249,9 @@ bool ps2_open(){
         }
         if(!ok)why="sidecar records";
     }
+#if RE4DC_PS2_OPEN_TRACE
+    re4dc_log("PS2OPEN sidecar ok=%d why=%s\n",int(ok),why?why:"-");
+#endif
     if(!ok){
         ps2w.package.close();if(s)re4dc_static_free(s);ps2w.parts=nullptr;ps2w.placements=nullptr;
         re4dc_log("PS2MESH open failed: %s mesh=%u sidecar=%u heap=%d\n",why?why:"?",msize,psize,before);

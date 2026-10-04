@@ -1810,6 +1810,33 @@ $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
 endif
 $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_ROOMS=$(PS2_WORLD_ROOMS)
 endif
+# PS2_OPEN_READ=1 (default 0; needs PS2_WORLD_ROOMS and IO_ALIGNED=1): ps2_open reads the world package and its R4PW
+# sidecar through read_package (IO_ALIGNED's whole-file reader: aligned body stream, seek away and back, tail through
+# the block cache), not one plain fs_read each. PS2_OPEN_TRACE showed r210's 6,120 B sidecar read (8 B past its last
+# 32 B unit, 32-byte-aligned destination) never return: the KOS stream stall R4_5A that read_package avoids.
+PS2_OPEN_READ ?= 0
+ifneq ($(PS2_OPEN_READ),0)
+ifneq ($(PS2_OPEN_READ),1)
+$(error PS2_OPEN_READ must be 0 or 1)
+endif
+ifeq ($(PS2_WORLD_ROOMS),0)
+$(error PS2_OPEN_READ needs PS2_WORLD_ROOMS=1 or 2)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_OPEN_READ=1
+endif
+# PS2_OPEN_TRACE=1 (diagnostic, default 0; needs PS2_WORLD_ROOMS): ps2_open logs each step it completes (both opens
+# with sizes, the heap-4 block and its alignment, each read with destination / size / result, adopt, the R4PW
+# checks) as "PS2OPEN ..." lines, so a stall names the last completed operation.
+PS2_OPEN_TRACE ?= 0
+ifneq ($(PS2_OPEN_TRACE),0)
+ifneq ($(PS2_OPEN_TRACE),1)
+$(error PS2_OPEN_TRACE must be 0 or 1)
+endif
+ifeq ($(PS2_WORLD_ROOMS),0)
+$(error PS2_OPEN_TRACE needs PS2_WORLD_ROOMS=1 or 2)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_OPEN_TRACE=1
+endif
 # SCENERY_ENCODING=1 (render only, default 0): the native scenery path (native_static.cpp open()) adopts each room
 # package by its own validated header colour encoding (instanced_mesh.hpp adopt_by_encoding): oct packages exactly as
 # before; prelit packages (convert_room_bins.py --color prelit: route r104-r107, r210, any room with more than 16 CLR0
