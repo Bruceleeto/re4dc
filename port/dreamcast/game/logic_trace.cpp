@@ -236,6 +236,39 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) int re4dc_logic_t
     return 1;
 }
 
+
+#if defined(RE4DC_H2_EXTERNAL_DELAY) && RE4DC_H2_EXTERNAL_DELAY
+#include "main.h"
+#include <kos/fs.h>
+#include <kos/timer.h>
+#include <fcntl.h>
+namespace {
+unsigned h2_delay;
+bool h2_delay_read;
+void h2_probe_delay() {
+    if (!h2_delay_read) {
+        h2_delay_read=true;
+        const file_t f=fs_open("/cd/dc/h2_delay.bin",O_RDONLY);
+        unsigned value=0;
+        if(f<0) re4dc_missing("H2 delay file missing");
+        const int got=fs_read(f,&value,sizeof(value));
+        fs_close(f);
+        if(got!=sizeof(value) || value>20000) re4dc_missing("H2 delay file invalid");
+        h2_delay=value;
+        re4dc_log("H2CFG delay_us=%u raw=%u\n",h2_delay,value);
+    }
+    if(pG->Frame_cnt>=1668 && pG->Frame_cnt<=1675)
+        re4dc_log("H2STATUS t=%u sf=%08x/%08x/%08x/%08x key_on=%08x key_trg=%08x\n",
+            (unsigned)pG->Frame_cnt, (unsigned)pG->Status_flg[0], (unsigned)pG->Status_flg[1],
+            (unsigned)pG->Status_flg[2], (unsigned)pG->Status_flg[3], (unsigned)Key.on, (unsigned)Key.trg);
+    if(h2_delay && pG->Frame_cnt<1800) {
+        const unsigned long long end=timer_us_gettime64()+h2_delay;
+        while(timer_us_gettime64()<end) {}
+    }
+}
+}
+#endif
+
 extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_trace_tick(void)
 {
 #if RE4DC_LOGIC_TRACE_DELAY_US
@@ -246,6 +279,9 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     }
 #endif
     if (!pG) return;
+#if defined(RE4DC_H2_EXTERNAL_DELAY) && RE4DC_H2_EXTERNAL_DELAY
+    h2_probe_delay();
+#endif
 #if RE4DC_LOGIC_TRACE_SWAPPED
     if (!samples) re4dc_log("LTV version=3 model_memory=borrow-vram\n");
 #endif

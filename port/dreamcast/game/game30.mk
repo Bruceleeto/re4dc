@@ -1965,3 +1965,12 @@ endif
 $(OBJDIR)/logic_trace.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE_SWAPPED=1
 $(OBJDIR)/platform/subscreen_backing.o: PLATFORM_CPPFLAGS += -DRE4DC_LOGIC_TRACE_SWAPPED=1
 endif
+
+# Isolated timing qualification only, excluded from the clean trace patch.
+H2_EXTERNAL_DELAY ?= 0
+ifeq ($(H2_EXTERNAL_DELAY),1)
+ifneq ($(LOGIC_TRACE),1)
+$(error H2_EXTERNAL_DELAY requires LOGIC_TRACE=1)
+endif
+$(OBJDIR)/logic_trace.o: GAME_CPPFLAGS += -DRE4DC_H2_EXTERNAL_DELAY=1
+endif
