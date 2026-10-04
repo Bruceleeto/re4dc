@@ -30,9 +30,38 @@
 #       (actor_material_records.inc). Any failure publishes nothing: every actor keeps the whole source path. At
 #       room leave (re4dc_room_leave, before the heap-4 close) the rows, the adopted records using them, the registry
 #       bindings and the immutable chunk proofs of its IDs are retired and the cell is freed. Needs NATIVE_STATIC=1.
+# NATIVE_MODEL_REGISTRY_TX (default 0; needs NATIVE_MODEL_REGISTRY=1 and NATIVE_MODEL_REGISTRY_PACK=1; render only):
+#              one registry actor transaction proves each thing once. The decisions are the =0 decisions:
+#   - the palette build reuses the plan's registry_bind proof (shape, revision, role rows, skeleton parents / rest
+#     inverse / finite matrices) of the SAME re4dc_actor_transaction_draw call (a one-use token: call serial, model,
+#     binding slot, room generation) instead of running it a second time; anything else runs the whole proof;
+#   - the pass that acquired the actor keeps the actor_semantics verdict it got before actor_acquire (a later pass,
+#     another OT group, proves it again);
+#   - the skeleton's finite test skips the rest inverses (the bind comparison already fails NaN / inf: no
+#     -ffinite-math-only in this image) and tests the current matrices and the palette outputs with an exact integer
+#     reduction of coarse_finite;
+#   - a registry appearance's role-row scans visit only the info's set role bits (info_current's first clause);
+#   - the registry plan is built in the transaction's plan (no second zeroed plan, no whole-plan copy).
+#   Audit (plan -> palettes / semantics, one call): actor_plan_layout (writes the plan), actor_semantics (reads),
+#   actor_acquire: re4dc_bind_actor_frame (native frame scratch), texture / workspace / palette-arena / prim-tail
+#   leases, the palette build, re4dc_actor_skin_acquire, actor_source_lighting (reads GX state), preflight; then
+#   re4dc_actor_transaction_choose (the ledger's presentation choice, not its membership). None runs source code or
+#   writes cModel / cParts / cModelInfo, the lifetime records or the room rows; the room leave clears the token.
+#   =2: compare build: every reused or reduced verdict is also computed the =0 way, the =0 verdict decides, and
+#   "NMRTX" lines (every 600 frames and at room leave) count uses and differences (bind_bad, skeleton_bad, finite_bad,
+#   semantics_bad, roles_bad must be 0).
 NATIVE_MODEL_REGISTRY ?= 0
 NATIVE_MODEL_REGISTRY_CENSUS ?= 0
 NATIVE_MODEL_REGISTRY_PACK ?= 0
+NATIVE_MODEL_REGISTRY_TX ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_TX),0 1 2),)
+$(error NATIVE_MODEL_REGISTRY_TX must be 0, 1 or 2)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_TX),0)
+ifneq ($(NATIVE_MODEL_REGISTRY)$(NATIVE_MODEL_REGISTRY_PACK),11)
+$(error NATIVE_MODEL_REGISTRY_TX needs NATIVE_MODEL_REGISTRY=1 and NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+endif
 ifeq ($(filter $(NATIVE_MODEL_REGISTRY_PACK),0 1),)
 $(error NATIVE_MODEL_REGISTRY_PACK must be 0 or 1)
 endif
@@ -84,6 +113,9 @@ $(OBJDIR)/coarse_actor.o: $(NATIVE_MODEL_REGISTRY_FILES)
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY=$(NATIVE_MODEL_REGISTRY)   -DRE4DC_NATIVE_MODEL_REGISTRY_CENSUS=$(NATIVE_MODEL_REGISTRY_CENSUS) -I$(NATIVE_MODEL_REGISTRY_DIR)
 else
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY=$(NATIVE_MODEL_REGISTRY)   -DRE4DC_NATIVE_MODEL_REGISTRY_CENSUS=$(NATIVE_MODEL_REGISTRY_CENSUS) -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1
+ifneq ($(NATIVE_MODEL_REGISTRY_TX),0)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_TX=$(NATIVE_MODEL_REGISTRY_TX)
+endif
 # The room hooks: re4dc_room_enter opens and re4dc_room_leave retires the room's package (coarse_actor_registry_pack.inc).
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1
 endif

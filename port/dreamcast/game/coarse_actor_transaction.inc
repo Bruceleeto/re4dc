@@ -483,6 +483,10 @@ static int enc_transaction_draw(cModel* m) {
 extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
     ATD(m,0,0,0);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    ++registry_tx_serial;  // this call (the registry plan's token names it)
+    bool tx_semantics_held=false;
+#endif
     FrameIdentity frame{};ModelIdentity model{};unsigned choice=0;
     const int identity=re4dc_actor_transaction_identity(m,&frame,&model);
     if(identity<0){actor_fail();return -1;}
@@ -621,6 +625,12 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
         if(!re4dc_actor_transaction_choose(m,2)){actor_release(*r);actor_fail();return -1;}
         ATD(m,16,p.appearance,p.run_count);
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+        // A registry actor acquired by THIS call passed actor_semantics above; since then only native code ran
+        // (actor_acquire's leases, palettes, skin, lighting state read, preflight; the ledger choice): the verdict holds
+        // for this pass. A later pass (another OT group) proves it again.
+        tx_semantics_held=plan_kind==3;
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
         if(plan_kind==3){++registry_count[p.appearance-nmr::appearance_first].admitted;registry_note_admit(m,p.appearance);}
         scene_note(m,plan_kind,kScNative);
@@ -632,8 +642,19 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     }
     const unsigned pass=m->ot_type==7 && (m->be_flag&0x08000000)?2u:1u;
     if((r->done&pass) || r->released){actor_fail();return -1;}
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+    bool tx_semantics=actor_semantics(m,r->plan);
+    ++registry_txc.semantics;if(tx_semantics_held){++registry_txc.held;if(!tx_semantics)++registry_txc.semantics_bad;}
+    if(pG->Frame_cnt/600!=registry_txc.last){registry_txc.last=pG->Frame_cnt/600;registry_tx_report("periodic");}
+    if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) ||
+       m->pParts!=r->parts_owner || !tx_semantics){actor_release(*r);actor_fail();return -1;}
+#elif RE4DC_NATIVE_MODEL_REGISTRY_TX
+    if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) ||
+       m->pParts!=r->parts_owner || (!tx_semantics_held && !actor_semantics(m,r->plan))){actor_release(*r);actor_fail();return -1;}
+#else
     if(!actor_palette_arena.data(r->palette,r->plan.palette_bytes) ||
        m->pParts!=r->parts_owner || !actor_semantics(m,r->plan)){actor_release(*r);actor_fail();return -1;}
+#endif
     float projection[7],viewport[6];GXGetProjectionv(projection);GXGetViewportv(viewport);
     if(std::memcmp(projection,r->base.projection,sizeof(projection)) || std::memcmp(viewport,r->base.viewport,sizeof(viewport))) {
         actor_release(*r);actor_fail();return -1;

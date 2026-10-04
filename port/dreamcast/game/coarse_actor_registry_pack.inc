@@ -41,6 +41,9 @@ void registry_view_clear() {
     registry=RegistryView{};registry_mask_ready=false;std::memset(registry_id_mask,0,sizeof(registry_id_mask));
     for(auto& b:registry_bindings)b=RegistryBinding{};
     registry_replace=0;registry_bound=nullptr;
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX
+    registry_tx=RegistryTxToken{};  // no plan token outlives its view
+#endif
     std::memset(registry_skin_built,0,sizeof(registry_skin_built));std::memset(registry_skin_state,0,sizeof(registry_skin_state));
     std::memset(registry_skin_used,0,sizeof(registry_skin_used));registry_skin_next=0;registry_skin=nullptr;registry_skin_cap=0;
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
@@ -67,6 +70,9 @@ extern "C" void re4dc_registry_room_leave() {
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
     if(registry.descriptor_count)scene_report(re4dc_ui_frame());  // this generation's census before its view goes
     while(registry_tracked_n)registry_note_retire(registry_tracked[0].m,"room-retire");
+#endif
+#if RE4DC_NATIVE_MODEL_REGISTRY_TX == 2
+    registry_tx_report("room-leave");
 #endif
     registry_view_clear();
     re4dc_static_free(pack.cell);
