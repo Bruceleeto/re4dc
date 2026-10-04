@@ -2360,9 +2360,22 @@ namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
 // The rooms that have a PS2 world package (tools/ps2_room_r4im.py, dc/native/r%03x/ps2-world.*): the one list
 // native_ps2_world.cpp (re4dc_ps2_world_covers) and the =2 preload share. r106: the route lane (stage 1-1 end);
 // r104 / r105 / r107 (chapter 1-2, route lane): their GC scenery is released like r106's.
+#if RE4DC_PS2_WORLD_REGISTRY
+// PS2_WORLD_REGISTRY=1 (game30.mk): the list is generated from the validated package manifest
+// (tools/d367/ps2world/world_registry.py -> include/ps2_world_rooms.inc): one bit per room, stage = room >> 8.
+// A listed room whose package is absent falls back to its own scenery (re4dc_ps2_mesh_failed): drawn only if oct-encoded, or prelit with SCENERY_ENCODING=1.
+namespace { const std::uint32_t kPs2WorldRoomBits[6][8]={
+#include "include/ps2_world_rooms.inc"
+}; }
+extern "C" int re4dc_ps2_world_room(unsigned room){
+    const unsigned stage=room>>8,index=room&255U;
+    return stage<6 && ((kPs2WorldRoomBits[stage][index>>5]>>(index&31U))&1U);
+}
+#else
 extern "C" int re4dc_ps2_world_room(unsigned room){
     return room==0x100 || room==0x101 || room==0x103 || room==0x104 || room==0x105 || room==0x106 || room==0x107;
 }
+#endif
 #if RE4DC_PS2_WORLD_ROOMS >= 2
 // bind_mesh (room entry, file I/O allowed): open this room's PS2 world before its scenery package would open.
 extern "C" int re4dc_ps2_mesh_preload(unsigned room){
