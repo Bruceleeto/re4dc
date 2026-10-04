@@ -174,9 +174,9 @@ def sha_cached(path):
 
 def base_disc_bytes(disc_path):
     """The base disc's file at `disc_path` (joliet), or None."""
-    import io, pycdlib
     if not BASE_DISC.is_file():
         return None
+    import io, pycdlib  # only with a base disc: hosts without pycdlib still run the tests
     if not _BASE_ISO:
         iso = pycdlib.PyCdlib()
         iso.open(str(BASE_DISC))

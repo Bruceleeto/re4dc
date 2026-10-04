@@ -228,7 +228,7 @@ class CompactR101Room(unittest.TestCase):
                 self.assertEqual(body(small,i),body(before,i),i)
             self.assertEqual(source.read_bytes(),container)
             other=root/'r102.das';other.write_bytes(container)
-            with self.assertRaisesRegex(ValueError,'reviewed r100/r101'):
+            with self.assertRaisesRegex(ValueError,'only the reviewed consumer contracts are supported'):
                 ui.compact_room(other,textures,root/'r102')
 
 class CompactR103Room(unittest.TestCase):

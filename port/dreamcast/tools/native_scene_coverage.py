@@ -51,10 +51,11 @@ ANIMAL_CASTS = {'em21': 'dog-00/01', 'em23': 'crow-folded/spread', 'em26': 'cow-
 
 
 def runtime_ps2_world_rooms():
+    # The hand list (PS2_WORLD_REGISTRY=0, the default): the definition that returns room==... comparisons. With the
+    # registry the first definition is the bitmap lookup, so a plain "first body" search found no rooms.
     s = (GAME / 'platform/native_static.cpp').read_text()
-    f = s[s.index('int re4dc_ps2_world_room(unsigned room)'):]
-    f = f[:f.index('}')]
-    return sorted(int(x, 16) for x in re.findall(r'room==(0x[0-9a-fA-F]+)', f))
+    m = re.search(r'int re4dc_ps2_world_room\(unsigned room\)\{\s*return (room==0x[^;]+);', s)
+    return sorted(int(x, 16) for x in re.findall(r'room==(0x[0-9a-fA-F]+)', m.group(1)))
 
 
 def aliases_emitted(name='actor_appearance_aliases.inc'):
