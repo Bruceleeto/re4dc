@@ -48,6 +48,17 @@ OBJDIR = obj
 # global symbols are its renamed entry points (obj/modules.mk), and
 # platform/modules.cpp maps the REL header ids to them for OSLink.
 MODULES = st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27
+# ROUTE_CH13=1 (route lane c13, default 0: no effect): chapter 1-3's rooms. Links em18 (module 22, the merchant:
+# r102), em17 (21, r108's Ganados; joins the EM10_SHARED group) and em24 (8: r108 / r10a), and r102's s00 is
+# presented by its PS2 movie (src/st1/r102.cpp, route-movies.h RE4DC_ROUTE_CH13).
+ROUTE_CH13 ?= 0
+ifneq ($(ROUTE_CH13),0)
+ifneq ($(ROUTE_CH13),1)
+$(error ROUTE_CH13 must be 0 or 1)
+endif
+MODULES += em18 em17 em24
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
+endif
 # WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
 # r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests
 # (platform/modules.cpp MODULE(75, st2_0) / MODULE(96, st4_0)). Their porting-trap lint is clean (assets.sh discover
@@ -82,6 +93,7 @@ endif
 # live at a time, which holds on the r100 -> r101 -> r103 route (platform/modules.cpp logs it).
 # em13 (r104's chapter 1-2 Ganados, route lane 2026-10-01) joins the group: alone it carried a
 # second em10.cpp (264,538 B of text = 266 KB of heap 4 in every room); r104 loads em13 only.
+# em17 (r108's chapter 1-3 Ganados, route lane c13) joins it for the same reason; r108 loads em17 + em23 only.
 EM10_SHARED ?= 0
 # EM1F_SHARED=1 (world coverage lane, default 0: no effect; needs WORLD_ROOM_MODULES=1 and EM10_SHARED=1): em1f
 # (module 109, the St4 Ganados) joins the group too: em10.cpp + em10_tmpl.cpp + em1f_set.cpp, as the others, so the
@@ -92,7 +104,7 @@ ifneq ($(EM1F_SHARED)$(WORLD_ROOM_MODULES)$(EM10_SHARED),111)
 $(error EM1F_SHARED must be 0 or 1, and 1 needs WORLD_ROOM_MODULES=1 and EM10_SHARED=1)
 endif
 endif
-EM10_GROUP = $(filter em12 em15 em13 $(if $(filter 1,$(EM1F_SHARED)),em1f),$(MODULES))
+EM10_GROUP = $(filter em12 em15 em13 em17 $(if $(filter 1,$(EM1F_SHARED)),em1f),$(MODULES))
 MODULE_ARGS = $(if $(filter 1,$(EM10_SHARED)),$(filter-out $(EM10_GROUP),$(MODULES)) em10g=$(subst $(eval) ,+,$(strip $(EM10_GROUP))),$(MODULES))
 MODULE_OBJS =
 MODULES_MK = $(OBJDIR)/modules.mk
@@ -418,11 +430,11 @@ ROUTE_QTE_FRAMES ?= 0
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n#define RE4DC_ROUTE_QTE_FRAMES %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' '$(ROUTE_QTE_FRAMES)' > $@.tmp
+	@printf '#define RE4DC_ROUTE_MOVIES %s\n#define RE4DC_ROUTE_MOVIE_YUV %s\n#define RE4DC_ROUTE_MOVIE_TEXHASH %s\n#define RE4DC_ROUTE_MOVIE_DIAG %s\n#define RE4DC_ROUTE_QTE_FRAMES %s\n#define RE4DC_ROUTE_CH13 %s\n' '$(ROUTE_MOVIES)' '$(ROUTE_MOVIE_YUV)' '$(ROUTE_MOVIE_TEXHASH)' '$(ROUTE_MOVIE_DIAG)' '$(ROUTE_QTE_FRAMES)' '$(ROUTE_CH13)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 ROUTE_MOVIE_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/pad.o
-ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r105.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
+ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r102.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r105.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/route_movie_bridge.o
 $(ROUTE_MOVIE_PLATFORM) $(ROUTE_MOVIE_GAME): $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/route-movies.h
@@ -611,7 +623,7 @@ ENEMY_DEMAND ?= 0
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24,$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif

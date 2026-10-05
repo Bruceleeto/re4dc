@@ -23,7 +23,9 @@ MAX_CLIP=32768
 # em13 (r104's chapter 1-2 Ganados; native scene lane 2026-10-03): the same three units as em12/em15
 # (config/G4BE08/modules.py: em13/em10.cpp, em10_tmpl.cpp, em13_set.cpp), so the same consumers. Its GC
 # archive's 4,367,968 B body did not fit r104's heap 4 (DVD: Memory allocate failed, EmSetFromList2 Id=13).
-GANADO=('em12.drs','em15.drs','em13.drs')
+# em17 (r108's chapter 1-3 Ganados, route lane c13): em17/em10.cpp, em10_tmpl.cpp, em17_set.cpp, the same three
+# units; its GC archive did not fit r108's heap 4 next to the room and its PS2 world (route-c13-r102c).
+GANADO=('em12.drs','em15.drs','em13.drs','em17.drs')
 SMALL=('em26.drs','em28.drs','em21.drs')
 # Small enemies whose motions also leave the body: em21 (r100 trap dog) plays every clip through
 # MotionSetCore/MotionMove (src/em21/em21.cpp; ARC() otherwise only feeds modelInit), the leased

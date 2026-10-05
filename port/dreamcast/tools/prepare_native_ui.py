@@ -428,6 +428,13 @@ ROOM_CONTRACTS={
     'r107':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
     # r105 (route lane): r107's 27-slot layout.
     'r105':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    # Chapter 1-3 (route lane c13): r102 and r108 have r107's 27-slot layout; r109 adds three SAT
+    # (#27-29, byte-identical); r10a has 46 slots: EMI#27, BIN#28, FCV/SEQ#29-45 (byte-identical) and
+    # EFF#42 local effects; its header ends flush with the first payload, as r104's (header_grow=32).
+    'r102':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r108':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r109':dict(slots=30,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r10a':dict(slots=46,smd=4,effs=(7,42),itm=9,model_slots=(),header_grow=32),
     # r210 (St2, world coverage lane): 36 slots, SMD#4, EFF#7, ITM#9, model TPL#31 (after BIN#30); FCV#27-29/#32-35
     # (the lift motions) and every other slot stay byte-identical.
     'r210':dict(slots=36,smd=4,effs=(7,),itm=9,model_slots=(31,)),

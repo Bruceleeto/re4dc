@@ -361,6 +361,8 @@ void goto_poll()
         snprintf(what, sizeof(what), "goto %u at room frame %u pl=%d,%d,%d", i, (unsigned) wp.room_frames, (int) p.x,
                  (int) p.y, (int) p.z);
         stamp(what);
+        // padscript presses can wait for the move ("goto=<n>", n = goto index + 1; c13 door walks)
+        re4dc_fixture_state("goto", int(i + 1), -1);
     }
 }
 #if RE4DC_WARP_JUMP

@@ -56,6 +56,11 @@ MODULE(em29)
 MODULE(em2e)
 MODULE(em13)
 MODULE(em27)
+#if defined(RE4DC_ROUTE_CH13) && RE4DC_ROUTE_CH13
+MODULE(em18)
+MODULE(em17)
+MODULE(em24)
+#endif
 #if RE4DC_SUBSCREEN && !RE4DC_SUBSCREEN_OVL
 MODULE(Sscrn)
 #endif
@@ -108,6 +113,11 @@ static const Re4dcModule g_modules[] = {
     MODULE(38, em2e),  // r106: script-load
     MODULE(34, em13),  // r104: enabled-later
     MODULE(16, em27),  // r107: entry
+#if defined(RE4DC_ROUTE_CH13) && RE4DC_ROUTE_CH13
+    MODULE(22, em18),  // ROUTE_CH13: r102 (the merchant): enabled-later,script-load
+    MODULE(21, em17),  // ROUTE_CH13: r108: enabled-later,entry,script-load
+    MODULE(8, em24),   // ROUTE_CH13: r108 (room entry) / r10a: entry
+#endif
 #if RE4DC_SUBSCREEN_OVL
     {71, "Sscrn", 0, 0, 0, 0, 0, 0, 0},  // sub screen overlay (entry points set per load)
 #elif RE4DC_SUBSCREEN

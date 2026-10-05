@@ -104,6 +104,11 @@ ROOMS = {
     'r107': ['st1/r107.dar', 'em/em12.drs', 'em/em27.drs', 'em/em2a.drs'],
     # r105 (route lane): the ESL lists em15 (enabled later) / em23 / em2a (assets.sh discover r105)
     'r105': ['st1/r105.dar', 'em/em15.drs', 'em/em23.drs', 'em/em2a.drs'],
+    # Chapter 1-3 (route lane c13; assets.sh discover): r102 em18 (the merchant, script load), r108 em17 (enabled
+    # later) / em23 / em24 (read at room entry, route-c13-r108a), r10a em12 / em24 / em2a (r109 below: em23).
+    'r102': ['st1/r102.dar', 'em/em18.drs'],
+    'r108': ['st1/r108.dar', 'em/em17.drs', 'em/em23.drs', 'em/em24.drs'],
+    'r10a': ['st1/r10a.dar', 'em/em12.drs', 'em/em24.drs', 'em/em2a.drs'],
     # r210 (St2, world coverage lane): no enemy archive (assets.sh discover r210: lists emleon03/04, no entries)
     'r210': ['st2/r210.dar'],
     # r40c (St4, world coverage lane): no enemy archive (discover r40c: omake00.esl, no entries)

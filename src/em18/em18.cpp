@@ -84,7 +84,12 @@ extern "C" void _unresolved()
 // EmInitFunc of the module: constructs the cEm18 class in the manager's work.
 void Em18Init(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Value-initialisation would zero the fields cEmMgr::construct set (e6f65cc).
+    new (em) cEm18;
+#else
     new (em) cEm18();
+#endif
 }
 
 // Per-frame damage check (cEm18::move, r_no_0 != 0): an explosion / fire damage volume (kind 1 / 7) or

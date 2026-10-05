@@ -89,7 +89,12 @@ extern "C" void _unresolved()
 // EmInitFunc of the module: constructs the cEm24 class in the manager's work.
 void Em24Init(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Value-initialisation would zero the fields cEmMgr::construct set (e6f65cc).
+    new (em) cEm24;
+#else
     new (em) cEm24();
+#endif
 }
 
 // Per-frame damage check (cEm24::move): an explosion / fire volume (kind 1/4/5/7) or any weapon hit

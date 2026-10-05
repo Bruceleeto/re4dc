@@ -37,6 +37,16 @@ struct PlPtr { cPlayer* p; };
 #define pPLS (((PlPtr*) &pPL)->p)
 
 static void r102_execEvent00();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH13
+// Route cutscenes (ROUTE_CH13, route lane c13, chapter 1-3): r102s00 (the merchant) is presented by its PS2 movie
+// (docs/ROUTE_CUTSCENES.md); the surrounding source code (room flag 1, Leon's placement, the shop, enemy 0x4C)
+// runs unchanged. The evd is not loaded while the movie owns the event; em18 is still read ahead (0x4C uses it).
+#include "route_movie.h"
+#define R102_ROUTE_MOVIES 1
+static u8 r102MovieOwns;
+#else
+#define R102_ROUTE_MOVIES 0
+#endif
 void r102_checkBgm();
 static void r102_openCover();
 
@@ -58,8 +68,15 @@ void R102Init()
     if (RsfCheck(G_ROOM_ID, 1) == 0) {
         SceAtDataSet_exec(5, SCE_LEVEL10, 0, (TaskFunc) r102_execEvent00, 0, 1);
         EmReadSearch(0x18, 0, 0);
+#if R102_ROUTE_MOVIES
+        r102MovieOwns = re4dc_movie_available(0x10200) ? 1 : 0;
+        OSReport("route movie r102: %s\n", r102MovieOwns ? "movie owns s00" : "no media, source event");
+        if (!r102MovieOwns)
+#endif
+        {
         PSet(r102_work->evd, DC.setData(EvtMgr.NameChange("evd/r102s00.evd")));
         r102_work->evd->setCommand(CMND_MRAM_LOAD, 0, 0);
+        }
     }
     SceExec(0x12, (TaskFunc) r102_checkBgm, 0, 0, SCE_PRIO_DEF_2, 0);
 }
@@ -74,6 +91,11 @@ static void r102_execEvent00()
 {
     RsfSet(G_ROOM_ID, 1);
     SceEventStart(0);
+#if R102_ROUTE_MOVIES
+    if (r102MovieOwns) {
+        RouteMoviePlay(0x10200, ROUTE_MOVIE_SND_EVENT, 0, 0);
+    } else
+#endif
     if (r102_work->evd->waitUseOk() == 1) {
         EvtMgr.SetEvt(r102_work->evd->m_addr, 0);
         while (EvtMgr.IsAliveEvt(&EvtMgr.NowExeEvtKey, 0, 0) != 0) {
@@ -95,6 +117,9 @@ static void r102_execEvent00()
         ang.z = 0.0f;
         pl->setAng(&ang);
     }
+#if R102_ROUTE_MOVIES
+    if (!r102MovieOwns)
+#endif
     r102_work->evd->setCommand(CMND_DEL_DATA, 0, 0);
     SubScreenOpen(SS_OPEN_SHOP, 0);
     setEm(0x4C, -1, 1, 1, 1);
