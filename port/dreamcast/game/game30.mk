@@ -1824,6 +1824,59 @@ endif
 $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_MESH=1
 endif
+# PS2_WORLD_HDR_CACHE=1 (native_ui.cpp, render only, exact, default 0; needs PS2_WORLD_MESH=1): the PS2 world's
+# direct bind (re4dc_ps2_world_direct_begin) keeps each material's compiled header (texture key/size, pass, cull, fog)
+# with its texture Entry in a 4-way 128-slot table (5 KiB), valid while that Entry holds the key at the same VRAM address:
+# a hit skips the texture lookup and the header compile. Exact in pixels: the same header words 0..3; words 4..7, which
+# KOS pvr_poly_compile leaves unset (stack contents; unused by the PVR for these headers), go out as zeros
+# (perf-20261004 candidate 4).
+# =2 (diagnostic): every hit also runs the uncached lookup + compile and counts a different Entry or header word
+# (PS2HDR log line: checked / mismatched).
+PS2_WORLD_HDR_CACHE ?= 0
+ifneq ($(PS2_WORLD_HDR_CACHE),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_WORLD_HDR_CACHE needs PS2_WORLD_MESH=1)
+endif
+ifneq ($(filter-out 1 2 3,$(PS2_WORLD_HDR_CACHE)),)
+$(error PS2_WORLD_HDR_CACHE must be 0, 1, 2 or 3)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_HDR_CACHE=$(PS2_WORLD_HDR_CACHE)
+# =3 (layout control, diagnostic): both paths linked, PS2_WORLD_HDR_CACHE_SELECT=0|1 (one .data word) picks one.
+ifeq ($(PS2_WORLD_HDR_CACHE),3)
+PS2_WORLD_HDR_CACHE_SELECT ?= 0
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_HDR_CACHE_SELECT=$(PS2_WORLD_HDR_CACHE_SELECT)
+endif
+endif
+# PS2_PASS_MASK=1 (native_static.cpp, render only, exact, default 0; needs PS2_WORLD_MESH=1): ps2_pass skips a
+# placement without a part in the pass on a per-placement pass-bit byte (2 KiB table, built when the package opens)
+# instead of reading its placement + mesh records and scanning the mesh's parts, for each of the three passes.
+# =2 (diagnostic): the scan runs too and a different decision is counted (PS2MASK log line).
+PS2_PASS_MASK ?= 0
+ifneq ($(PS2_PASS_MASK),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_PASS_MASK needs PS2_WORLD_MESH=1)
+endif
+ifneq ($(filter-out 1 2 3,$(PS2_PASS_MASK)),)
+$(error PS2_PASS_MASK must be 0, 1, 2 or 3)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PASS_MASK=$(PS2_PASS_MASK)
+# =3 (layout control, diagnostic): PS2_PASS_MASK_SELECT=0|1 (one .data word) picks the scan or the mask.
+ifeq ($(PS2_PASS_MASK),3)
+PS2_PASS_MASK_SELECT ?= 0
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PASS_MASK_SELECT=$(PS2_PASS_MASK_SELECT)
+endif
+endif
+# PS2_FOLIAGE_FAR=<source units, mm> (native_static.cpp, render only, CHANGES THE LOOK, default 0 = off; needs
+# PS2_WORLD_MESH=1): the PS2 world's punch-through / translucent passes (ps2_pass 1 and 2: foliage, fences, alpha
+# cards) reject placements, clusters and meshlets whose nearest depth is past this distance (the opaque pass keeps the
+# fog far). A user look decision (perf-20261004 candidate 9): measure / capture only.
+PS2_FOLIAGE_FAR ?= 0
+ifneq ($(PS2_FOLIAGE_FAR),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_FOLIAGE_FAR needs PS2_WORLD_MESH=1)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_FOLIAGE_FAR=$(PS2_FOLIAGE_FAR)
+endif
 # PS2_WORLD_ROOMS=1 (render only, default off; needs PS2_WORLD_MESH=1): the PS2 world in r100, r103, r104 and r106 too
 # (the room list: native_static.cpp re4dc_ps2_world_room)
 # (tools/ps2_room_r4im.py, staged as dc/native/r%03x/ps2-world.re4mesh / .r4pw). Each room opens its own
@@ -1973,6 +2026,28 @@ endif
 MESH_CLIP_LEAN ?= 0
 ifneq ($(MESH_CLIP_LEAN),0)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLIP_LEAN=$(MESH_CLIP_LEAN)
+endif
+# MESH_CLIP_ACCEPT=1 (native_static.cpp, render only, exact: the same TA words; default 0; needs MESH_CLIP_LEAN=1 and
+# HW_LEAN=1): a strip the clipper takes (a corner nearer than near, or longer than the slab) runs clip_vertex once per
+# corner for any strip length (a three-corner ring) and packs each corner once; a triangle with all three corners at
+# depth >= near is the clipper's accept case and is written from the packed corners after the clipper's own far and
+# screen tests, none at depth >= near is dropped as the clipper drops it, and only a crossing triangle calls
+# clip_projected_triangle (perf-20261004 candidate 8: world near-plane clipping). =2 (diagnostic): every accepted or
+# dropped triangle also runs clip_projected_triangle into scratch and a different count or word is counted (CLIPACC log).
+MESH_CLIP_ACCEPT ?= 0
+ifneq ($(MESH_CLIP_ACCEPT),0)
+ifneq ($(MESH_CLIP_LEAN)$(HW_LEAN),11)
+$(error MESH_CLIP_ACCEPT needs MESH_CLIP_LEAN=1 HW_LEAN=1)
+endif
+ifneq ($(filter-out 1 2 3,$(MESH_CLIP_ACCEPT)),)
+$(error MESH_CLIP_ACCEPT must be 0, 1, 2 or 3)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLIP_ACCEPT=$(MESH_CLIP_ACCEPT)
+# =3 (layout control, diagnostic): both paths linked, MESH_CLIP_ACCEPT_SELECT=0|1 (one .data word) picks one.
+ifeq ($(MESH_CLIP_ACCEPT),3)
+MESH_CLIP_ACCEPT_SELECT ?= 0
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLIP_ACCEPT_SELECT=$(MESH_CLIP_ACCEPT_SELECT)
+endif
 endif
 # UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
 # minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".

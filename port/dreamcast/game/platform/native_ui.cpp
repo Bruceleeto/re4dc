@@ -4105,6 +4105,38 @@ extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned wi
 #endif
 #endif
 #if RE4DC_PS2_WORLD_DRAW && RE4DC_PS2_WORLD_MESH
+#if RE4DC_PS2_WORLD_HDR_CACHE
+// PS2_WORLD_HDR_CACHE (game30.mk; exact in pixels): the compiled header of each PS2 world material (texture key and
+// size, pass, cull, latched fog) with the Entry it was compiled for. A hit skips the texture lookup (load(): hint,
+// else the TEX_SLOTS scan) and pvr_poly_cxt_txr + pvr_poly_compile. A slot is used only while its Entry is valid,
+// still holds that key and still has the same VRAM address: a closed (evicted, retired) and reloaded upload fails
+// the address test and recompiles, so header words 0..3 are always the ones a compile would give now. Words 4..7:
+// KOS pvr_poly_compile never writes them for a header without a modifier volume, so the uncached path sends whatever
+// the stack held there (the PVR ignores them for these packed-colour, non-modifier headers); with this knob both
+// paths send zeros. 32 sets of 4 slots; a miss refills the set's slots in turn.
+namespace {
+constexpr unsigned kPs2HdrSets=32,kPs2HdrWays=4;
+struct Ps2HdrSlot { unsigned crc,fnv,size,mode; Entry* entry; pvr_ptr_t texture; std::uint32_t words[4]; };
+static_assert(sizeof(pvr_poly_hdr_t)==32);
+Ps2HdrSlot ps2_hdr[kPs2HdrSets][kPs2HdrWays];
+unsigned char ps2_hdr_next[kPs2HdrSets];
+unsigned ps2_hdr_hits,ps2_hdr_fills,ps2_hdr_log=~0U;
+#if RE4DC_PS2_WORLD_HDR_CACHE==2
+unsigned ps2_hdr_checked,ps2_hdr_bad;
+#endif
+#if RE4DC_PS2_WORLD_HDR_CACHE==3
+// =3 (layout control, diagnostic): this .data word picks the path (1 = uncached, 2 = cached; never 0, so it stays
+// in .data), so the two arms differ in this word only (PS2_WORLD_HDR_CACHE_SELECT=0|1).
+#ifndef RE4DC_PS2_WORLD_HDR_CACHE_SELECT
+#define RE4DC_PS2_WORLD_HDR_CACHE_SELECT 0
+#endif
+volatile unsigned ps2_hdr_select=1U+RE4DC_PS2_WORLD_HDR_CACHE_SELECT;
+#define RE4DC_PS2_HDR_ON (ps2_hdr_select==2U)
+#else
+#define RE4DC_PS2_HDR_ON true
+#endif
+}
+#endif
 // PS2_WORLD_MESH (native_static.cpp): re4dc_ps2_world_packet's texture bind and pass header, with the
 // part's cull (0 none, 1 CCW, 2 CW, as re4dc_model_packet_begin maps a part's cull), sent by store queue
 // as re4dc_model_direct_begin does. key: crc, fnv, width, height, pass, cull.
@@ -4114,6 +4146,90 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!k || !out || k[4]>2 || k[5]>2 || !frame_ready || stream_aborted ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
     const Key key{k[0],k[1]};
+#if RE4DC_PS2_WORLD_HDR_CACHE
+    const bool hdr_on=RE4DC_PS2_HDR_ON;
+    unsigned hdr_size=0,hdr_mode=0,hdr_set=0;Ps2HdrSlot* hit=nullptr;
+    if(hdr_on){
+        // The fog latch changes only at the scenery draw (native_ps2_world.cpp), never inside stream_select.
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+        const unsigned hdr_fog=re4dc_ps2_world_fog()?1U:0U;
+#else
+        const unsigned hdr_fog=0;
+#endif
+        hdr_size=k[2]|k[3]<<16;hdr_mode=k[4]|k[5]<<2|hdr_fog<<4|0x100U;
+        hdr_set=(k[0]^(k[1]>>7)^(k[1]<<3)^(k[4]*0x9e5U)^(k[5]*0x3c1U))&(kPs2HdrSets-1U);
+        if(frame-ps2_hdr_log>=600U){
+            ps2_hdr_log=frame;
+#if RE4DC_PS2_WORLD_HDR_CACHE==2
+            re4dc_log("PS2HDR frame=%u hits=%u fills=%u checked=%u mismatched=%u\n",frame,ps2_hdr_hits,ps2_hdr_fills,ps2_hdr_checked,ps2_hdr_bad);
+#else
+            re4dc_log("PS2HDR frame=%u hits=%u fills=%u\n",frame,ps2_hdr_hits,ps2_hdr_fills);
+#endif
+        }
+        for(auto& s:ps2_hdr[hdr_set])
+            if(s.mode==hdr_mode && s.crc==k[0] && s.fnv==k[1] && s.size==hdr_size){hit=&s;break;}
+    }
+    if(hit && hit->entry->valid && hit->entry->key==key && hit->entry->package.pvr_texture(0)==hit->texture){
+        const Ps2HdrSlot& slot=*hit;
+        Entry* const handle=slot.entry;
+        {constexpr bool pin=false;RE4DC_TOUCH(*handle);} // load()'s hit bookkeeping (pin=false)
+        const unsigned pass=k[4];
+        const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
+        stream_select(list);
+        if(stream_aborted)return 0;
+        pvr_poly_hdr_t header;
+        auto* hw=reinterpret_cast<std::uint32_t*>(&header);
+        for(unsigned i=0;i<4;++i){hw[i]=slot.words[i];hw[4+i]=0;}
+        ++model_header_hits;++ps2_hdr_hits;
+#if RE4DC_PS2_WORLD_HDR_CACHE==2
+        // =2 (diagnostic): the uncached lookup and compile beside every hit; a different Entry or word is counted.
+        {
+            const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
+            Entry* const ref_handle=load(image,false,&key);
+            bool bad=ref_handle!=handle;
+            if(!bad){
+                const auto& t=ref_handle->package.textures()[0];
+                pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,list,re4dc::texture::pvr_format(t),t.width,t.height,ref_handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
+                const pvr_cull_mode_t cull[]={PVR_CULLING_NONE,PVR_CULLING_CCW,PVR_CULLING_CW};
+                c.gen.culling=cull[k[5]];
+                c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
+                c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
+                c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+                c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+                c.txr.env=PVR_TXRENV_MODULATEALPHA;
+                c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
+                c.txr.uv_clamp=PVR_UVCLAMP_NONE;
+#if RE4DC_NATIVE_FOG && RE4DC_PS2_WORLD_FOG_SOURCE
+                c.gen.fog_type=re4dc_ps2_world_fog()?PVR_FOG_TABLE:PVR_FOG_DISABLE;
+#elif RE4DC_NATIVE_FOG
+                c.gen.fog_type=PVR_FOG_TABLE;
+#endif
+                pvr_poly_hdr_t ref;pvr_poly_compile(&ref,&c);
+                bad=std::memcmp(&ref,&header,16)!=0; // words 0..3: pvr_poly_compile leaves 4..7 unset
+            }
+            ++ps2_hdr_checked;
+            if(bad && ++ps2_hdr_bad<=8)re4dc_log("PS2HDR mismatch frame=%u key=%08x-%08x pass=%u cull=%u entry=%d/%d\n",
+                frame,k[0],k[1],pass,k[5],int(handle-entries),ref_handle?int(ref_handle-entries):-1);
+        }
+#endif
+        std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+        model_pending=model_used+count;model_handle=handle;
+        if(!stream_scene)stream_open();
+        auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
+        const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
+        for(unsigned i=0;i<8;++i)sq[i]=words[i];
+#if RE4DC_TA_HASH
+        re4dc_ta_hash(words,32);
+#endif
+        sq_flush(sq);
+        direct_open=true;
+        model_handle->frame=frame; // the header is in the TA: pinned for this scene
+        ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
+        out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
+        out->u_scale=out->v_scale=1;
+        return 1;
+    }
+#endif
     const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
     Entry* handle=load(image,false,&key);
     if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
@@ -4139,6 +4255,18 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+#if RE4DC_PS2_WORLD_HDR_CACHE
+    if(hdr_on){
+        auto* hw=reinterpret_cast<std::uint32_t*>(&header);
+        hw[4]=hw[5]=hw[6]=hw[7]=0; // never written by pvr_poly_compile here (stack contents before; unused by the PVR)
+        // The key's stale slot if it has one, else the set's next slot in turn.
+        Ps2HdrSlot& slot=hit?*hit:ps2_hdr[hdr_set][ps2_hdr_next[hdr_set]++%kPs2HdrWays];
+        slot.crc=k[0];slot.fnv=k[1];slot.size=hdr_size;slot.mode=hdr_mode;slot.entry=handle;
+        slot.texture=handle->package.pvr_texture(0);
+        for(unsigned i=0;i<4;++i)slot.words[i]=hw[i];
+        ++ps2_hdr_fills;
+    }
+#endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
     if(!stream_scene)stream_open();

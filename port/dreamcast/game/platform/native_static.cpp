@@ -104,6 +104,32 @@ extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h k
 #define RE4DC_MESH_CLIP_LEAN 0 // 1: clipper frustum pre-cull + one clip_vertex per corner (exact in pixels)
 #endif
 static constexpr unsigned kClipOnce=16; // MESH_CLIP_LEAN: longer clipped strips take the per-triangle path
+#if defined(RE4DC_MESH_CLIP_ACCEPT) && RE4DC_MESH_CLIP_ACCEPT==2
+// MESH_CLIP_ACCEPT=2 (diagnostic): accepted triangles checked, dropped triangles checked, mismatches, crossings.
+static unsigned clip_accept_stats[4];
+#endif
+#if defined(RE4DC_MESH_CLIP_ACCEPT) && RE4DC_MESH_CLIP_ACCEPT==3
+// MESH_CLIP_ACCEPT=3 (layout control, diagnostic): both paths linked, this .data word picks one (1 = the MESH_CLIP_LEAN
+// path, 2 = the accept path; never 0, so it stays in .data); MESH_CLIP_ACCEPT_SELECT=0|1.
+#ifndef RE4DC_MESH_CLIP_ACCEPT_SELECT
+#define RE4DC_MESH_CLIP_ACCEPT_SELECT 0
+#endif
+static volatile unsigned clip_accept_select=1U+RE4DC_MESH_CLIP_ACCEPT_SELECT;
+#define RE4DC_CLIP_ACCEPT_ON (clip_accept_select==2U)
+#else
+#define RE4DC_CLIP_ACCEPT_ON true
+#endif
+#if defined(RE4DC_PS2_PASS_MASK) && RE4DC_PS2_PASS_MASK==3
+// PS2_PASS_MASK=3 (layout control, diagnostic): the mask is built, this .data word picks its use (1 = the scan,
+// 2 = the mask; never 0); PS2_PASS_MASK_SELECT=0|1.
+#ifndef RE4DC_PS2_PASS_MASK_SELECT
+#define RE4DC_PS2_PASS_MASK_SELECT 0
+#endif
+static volatile unsigned ps2_mask_select=1U+RE4DC_PS2_PASS_MASK_SELECT;
+#define RE4DC_PS2_MASK_ON (ps2_mask_select==2U)
+#else
+#define RE4DC_PS2_MASK_ON true
+#endif
 #ifndef RE4DC_MESH_VP_SCHED
 #define RE4DC_MESH_VP_SCHED 0 // 1: software-pipelined kChecksAll transform (exact); 2: both, compare; 3: layout control (diagnostics)
 #endif
@@ -717,6 +743,79 @@ struct Emitter {
             }
             if(all){++stats.strips_culled;return 1;}
         }
+#if RE4DC_MESH_CLIP_ACCEPT
+        // MESH_CLIP_ACCEPT (game30.mk; the same TA words). Corner i goes through clip_vertex once, into a ring of the
+        // strip's last three corners (s2 = i-2, s1 = i-1, s0 = i; any strip length), and is packed at most once the
+        // way clip_projected_triangle writes an accepted corner (shade_color, then the alpha byte from the same float).
+        // Per triangle (strip winding: odd triangles swap their first two corners), the clipper's own cases:
+        // all three corners at depth >= near = its accept (the same beyond-far and triangle_visible_xy tests, then
+        // the packed corners, EOL on the third), none = it emits nothing, a crossing = clip_projected_triangle.
+        if(RE4DC_CLIP_ACCEPT_ON){
+            re4dc::render::RenderVertex ring[3];float ring_alpha[3];
+            // A corner is packed (8 words) the first time an accepted triangle uses it; corners of dropped and
+            // crossing triangles never are.
+            typedef std::uint32_t __attribute__((may_alias)) Word;
+            alignas(4) Word packed[3][8];bool is_packed[3];
+            const auto pack=[&](unsigned s){
+                if(is_packed[s])return;
+                is_packed[s]=true;
+                // pvr_geometry.cpp's shade_color and alpha byte, inline: static_cast<uint32_t>(std::clamp(f*255, 0, 255)).
+                const auto byte=[](float f){const float x=f*255.0f;return static_cast<std::uint32_t>(x<0.0f?0.0f:255.0f<x?255.0f:x);};
+                const re4dc::render::RenderVertex& r=ring[s];Word* w=packed[s];
+                w[0]=PVR_CMD_VERTEX;w[1]=__builtin_bit_cast(std::uint32_t,r.position.x);w[2]=__builtin_bit_cast(std::uint32_t,r.position.y);
+                w[3]=__builtin_bit_cast(std::uint32_t,r.position.z);w[4]=__builtin_bit_cast(std::uint32_t,r.u);w[5]=__builtin_bit_cast(std::uint32_t,r.v);
+                w[6]=(byte(ring_alpha[s])<<24U)|(byte(r.light_red)<<16U)|(byte(r.light_green)<<8U)|byte(r.light_blue);
+                w[7]=r.offset_color;
+            };
+            const float near_d=clip.near_distance,far_d=clip.far_distance;
+            unsigned s2=0,s1=1,s0=2;
+            for(unsigned i=0;i<count;++i){
+                {const unsigned t=s2;s2=s1;s1=s0;s0=t;}
+                const re4dc::render::StaticCorner c=corner(base[index[i]]);
+                re4dc::render::RenderVertex& v=ring[s0];
+                clip_vertex(c,batch,v);
+                ring_alpha[s0]=vertex_alpha?float(c.argb>>24)RE4DC_INV255:alphas[0];
+                is_packed[s0]=false;
+                if(i<2)continue;
+                const unsigned ia=(i&1)?s1:s2,ib=(i&1)?s2:s1;
+                if(limit-used<6 && !flush())return submitted?-1:0;
+                const re4dc::render::RenderVertex& va=ring[ia];const re4dc::render::RenderVertex& vb=ring[ib];
+                const unsigned inside=(va.position.depth>=near_d?1U:0U)+(vb.position.depth>=near_d?1U:0U)+(v.position.depth>=near_d?1U:0U);
+                unsigned emitted=0;
+                if(inside==3U){
+                    if(!(va.position.depth>far_d && vb.position.depth>far_d && v.position.depth>far_d) &&
+                       re4dc::render::triangle_visible_xy(va.position,vb.position,v.position,p.cull,clip.width,clip.height)){
+                        pack(ia);pack(ib);pack(s0);
+                        Word* o=reinterpret_cast<Word*>(dst+used);
+                        for(unsigned k=0;k<8;++k){o[k]=packed[ia][k];o[8+k]=packed[ib][k];o[16+k]=packed[s0][k];}
+                        o[16]=PVR_CMD_VERTEX_EOL;
+                        emitted=1;
+                    }
+                }else if(inside){
+                    const re4dc::render::RenderVertex tri[3]={va,vb,v};
+                    const float ta[3]={ring_alpha[ia],ring_alpha[ib],ring_alpha[s0]};
+                    emitted=re4dc::render::clip_projected_triangle(tri,dst+used,p.cull,clip,nullptr,ta);
+                }
+#if RE4DC_MESH_CLIP_ACCEPT==2
+                if(inside==3U || !inside){
+                    // The clipper on the same corners into scratch: the same triangle count and words.
+                    alignas(32) pvr_vertex_t ref[6];
+                    const re4dc::render::RenderVertex tri[3]={va,vb,v};
+                    const float ta[3]={ring_alpha[ia],ring_alpha[ib],ring_alpha[s0]};
+                    const unsigned n=re4dc::render::clip_projected_triangle(tri,ref,p.cull,clip,nullptr,ta);
+                    ++clip_accept_stats[inside?0:1];
+                    if((n!=emitted || (n && std::memcmp(ref,dst+used,3*sizeof(pvr_vertex_t)))) && ++clip_accept_stats[2]<=8)
+                        re4dc_log("CLIPACC mismatch inside=%u n=%u/%u\n",inside,emitted,n);
+                }else ++clip_accept_stats[3];
+#endif
+#if RE4DC_MESH_DIRECT
+                if(sq){if(emitted)put(emitted*3);output+=emitted;stats.triangles_clipped+=emitted;continue;}
+#endif
+                used+=emitted*3;output+=emitted;stats.triangles_clipped+=emitted;
+            }
+            return 1;
+        }
+#endif
         if(count<=kClipOnce){
             re4dc::render::RenderVertex once[kClipOnce];float once_alpha[kClipOnce];
             for(unsigned i=0;i<count;++i){
@@ -2377,7 +2476,15 @@ struct Ps2World {
 #if RE4DC_PS2_WORLD_ROOMS
     unsigned room=0,want=0x101; // package loaded / attempted for; the room re4dc_ps2_mesh_select asks for
 #endif
+#if RE4DC_PS2_PASS_MASK
+    // PS2_PASS_MASK (game30.mk; exact): bit p = the placement's mesh has a part in pass p, built at open.
+    static constexpr unsigned kMaskPlacements=2048;
+    std::uint8_t pass_mask[kMaskPlacements]{}; bool masked=false;
+#endif
 } ps2w;
+#if RE4DC_PS2_PASS_MASK==2
+unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
+#endif
 std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
     std::uint32_t c=~0U;
     for(unsigned i=0;i<n;++i){c^=p[i];for(unsigned b=0;b<8;++b)c=(c>>1)^(0xedb88320U&(0U-(c&1U)));}
@@ -2476,6 +2583,18 @@ bool ps2_open(){
         return false;
     }
     ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_PASS_MASK
+    // ps2_pass then skips a placement with no part in the pass on one byte, without reading its placement and mesh
+    // records and scanning the mesh's parts (three passes x every placement, every drawn image). More placements
+    // than the table: the scan, as before.
+    ps2w.masked=h.placements<=Ps2World::kMaskPlacements;
+    for(unsigned i=0;ps2w.masked && i<h.placements;++i){
+        const auto& mesh=ps2w.package.meshes()[ps2w.placements[i].mesh];
+        unsigned m=0;
+        for(unsigned k=0;k<mesh.part_count;++k)m|=1U<<ps2w.parts[mesh.first_part+k].pass;
+        ps2w.pass_mask[i]=std::uint8_t(m);
+    }
+#endif
 #if RE4DC_MESH_FASTPATH
     auto* lut=reinterpret_cast<std::uint32_t*>(s+mbytes+pbytes);re4dc::vp::build_lut(lut);ps2w.lut=lut;
 #endif
@@ -2498,6 +2617,12 @@ int ps2_pass(unsigned pass,float zfar){
 #if RE4DC_NATIVE_FOG
     if(fog_now.far>near && fog_now.far<cull_far)cull_far=fog_now.far; // hidden by the fog ramp
 #endif
+#if RE4DC_PS2_FOLIAGE_FAR
+    // PS2_FOLIAGE_FAR (game30.mk; changes the look): the PT / TR passes stop at this depth. One .data word, so arms
+    // with different distances differ in that word only (a distance past the 25 m cap, e.g. 1000000, is a no-op).
+    static volatile float foliage_far=float(RE4DC_PS2_FOLIAGE_FAR);
+    if(pass){const float f=foliage_far;if(f>near && f<cull_far)cull_far=f;}
+#endif
     c.near=near;c.far=far;c.cull_far=cull_far;
     Re4dcModelPart part{};
     std::memcpy(part.projection,P,sizeof(part.projection));std::memcpy(part.viewport,ps2w.viewport,sizeof(part.viewport));
@@ -2511,10 +2636,29 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
     const auto& pk=ps2w.package;
     for(unsigned i=0;i<ps2w.nplacements;++i){
+#if RE4DC_PS2_PASS_MASK==2
+        if(ps2w.masked){
+            // =2 (diagnostic): the scan beside the mask bit.
+            const auto& m=pk.meshes()[ps2w.placements[i].mesh];
+            bool any=false;
+            for(unsigned k=0;k<m.part_count && !any;++k)any=ps2w.parts[m.first_part+k].pass==pass;
+            ++ps2_mask_stats[0];
+            if(any!=(((ps2w.pass_mask[i]>>pass)&1U)!=0))++ps2_mask_stats[1];
+        }
+#endif
+#if RE4DC_PS2_PASS_MASK
+        const bool masked=ps2w.masked && RE4DC_PS2_MASK_ON;
+        if(masked && !((ps2w.pass_mask[i]>>pass)&1U))continue;
+#endif
         const auto& pl=ps2w.placements[i];const auto& mesh=pk.meshes()[pl.mesh];
+#if RE4DC_PS2_PASS_MASK
+        if(!masked)
+#endif
+        {
         bool any=false;
         for(unsigned k=0;k<mesh.part_count && !any;++k)any=ps2w.parts[mesh.first_part+k].pass==pass;
         if(!any)continue;
+        }
         ++c.placements;
         float mv[12];concat(ps2w.view,pl.affine,mv);
         const re4dc::render::DrawBounds bounds{{mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},
@@ -2566,12 +2710,22 @@ extern "C" void re4dc_ps2_mesh_log(unsigned frame){
     re4dc_log("PS2MESH frame=%u strips=%u culled=%u clipped=%u vertices=%u clusters=%u/%u lod=%u,%u,%u,%u\n",frame,
         stats.strips,stats.strips_culled,stats.strips_clipped,stats.vertices,stats.clusters_visible,stats.clusters_culled,
         stats.lod_draws[0],stats.lod_draws[1],stats.lod_draws[2],stats.lod_draws[3]);
+#if RE4DC_PS2_PASS_MASK==2
+    re4dc_log("PS2MASK frame=%u masked=%d checked=%u mismatched=%u\n",frame,int(ps2w.masked),ps2_mask_stats[0],ps2_mask_stats[1]);
+#endif
+#if RE4DC_MESH_CLIP_ACCEPT==2
+    re4dc_log("CLIPACC frame=%u accepted=%u dropped=%u mismatched=%u crossings=%u\n",frame,clip_accept_stats[0],
+        clip_accept_stats[1],clip_accept_stats[2],clip_accept_stats[3]);
+#endif
 }
 extern "C" void re4dc_ps2_mesh_retire(){
     ps2w.package.close();
     if(ps2w.storage)re4dc_static_free(ps2w.storage);
     ps2w.storage=nullptr;ps2w.bytes=0;ps2w.parts=nullptr;ps2w.placements=nullptr;ps2w.nplacements=0;
     ps2w.lut=nullptr;ps2w.gather=nullptr;ps2w.attempted=false;
+#if RE4DC_PS2_PASS_MASK
+    ps2w.masked=false;
+#endif
 }
 #if RE4DC_PS2_WORLD_ROOMS
 namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
