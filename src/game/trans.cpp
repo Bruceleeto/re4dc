@@ -500,6 +500,36 @@ extern "C" int re4dc_pace_drop_models;  // v2: this tick's image is dropped (no 
 // port/dreamcast/game/coarse.cpp (COARSE): in-room play images drawn from gameplay records. Such a
 // tick's presentation stages run as for a dropped image; Render() of the image draws the coarse view.
 extern "C" int re4dc_coarse_tick(int dropped);
+#if !defined(__PPC__)
+// sscrn_bridge.cpp (SUBSCREEN=1): 1 while the sub screen's data fills the 3 MiB window at pG->pStFnt.
+#if RE4DC_TRANS_SS_GUARD
+// SUBSCREEN=1 (subscreen.mk): a strong reference, and tools/link.sh refuses a generated stub for it while
+// this marker is defined (a stub returns 0 and Trans would walk the swapped lists again).
+extern "C" int re4dc_ss_ui_order();
+extern "C" const int re4dc_trans_ss_guard = 1;
+#define RE4DC_SS_HOOK_PRESENT 1
+#else
+// Weak: a build without the sub screen backing has no such window (the call is skipped).
+extern "C" int re4dc_ss_ui_order() __attribute__((weak));
+#define RE4DC_SS_HOOK_PRESENT (re4dc_ss_ui_order != 0)
+#endif
+// Trans(): the room's obj / em works are in that window while it is swapped (heap 4 and the demand
+// pools' chunks), so their alive lists are sub screen bytes, not works. SubScreenExec step 2 sets every
+// Disp_flg hide bit first (restored after the swap back), so every objTrans / emTrans callback would
+// return without a write; only the walk itself remains, and it reads the sub screen's bytes as pNext.
+// Flycast reads on; a real SH-4 raises an address error on an odd one (r21v console, Trans+0x166).
+static int roomListsSwapped()
+{
+    if (!RE4DC_SS_HOOK_PRESENT || !re4dc_ss_ui_order()) return 0;
+    static u32 logged;
+    if (logged != (u32) pG->Frame_cnt / 600 + 1) {
+        logged = (u32) pG->Frame_cnt / 600 + 1;
+        re4dc_log("Trans: room lists not walked while the sub screen window is swapped (obj %p em %p disp %08x)\n",
+                  (void*) ObjMgr.pAlive, (void*) EmMgr.pAlive, (unsigned) pG->Disp_flg);
+    }
+    return 1;
+}
+#endif
 #ifndef RE4DC_COARSE_SOURCE_OBJECTS
 #define RE4DC_COARSE_SOURCE_OBJECTS 0
 #endif
@@ -766,8 +796,15 @@ void Trans()
     void (*func)(cModel*);
     cUnit* u;
 
+#if !defined(__PPC__)
+    const int roomSwapped = roomListsSwapped();
+#else
+    const int roomSwapped = 0;
+#endif
 #if RE4DC_COARSE
     coarseTick = re4dc_coarse_tick(re4dc_pace_drop_models);
+    // No coarse image of a swapped room: its plan walks EmMgr too (sourceActorPlan).
+    if (roomSwapped) {coarseTick = 0;re4dc_coarse_image = 0;}
 #if RE4DC_COARSE_SOURCE_ACTORS
 
 #if RE4DC_ACTOR_TRANSACTION
@@ -886,6 +923,7 @@ void Trans()
 #endif
     if (!paceDrop || RE4DC_PACE_CHECK) {
 #endif
+    if (!roomSwapped) {
     func = objTrans;
     for (u = ObjMgr.pAlive; u != 0;) {
         cUnit* cur = u;
@@ -897,6 +935,7 @@ void Trans()
         cUnit* cur = u;
         u = u->pNext;
         func((cModel*) cur);
+    }
     }
 #if RE4DC_PACE_CATCHUP >= 2
     }

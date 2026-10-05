@@ -49,6 +49,12 @@ if grep -Eq '^_st[0-9]+_[0-9]+_(prolog|epilog)$' obj/missing.txt; then
     grep -E '^_st[0-9]+_[0-9]+_(prolog|epilog)$' obj/missing.txt >&2
     exit 1
 fi
+# trans.cpp's sub screen guard (RE4DC_TRANS_SS_GUARD, SUBSCREEN=1) must reach the real hook in sscrn_bridge.cpp:
+# a stub returns 0 and Trans walks the swapped room lists again (r21v console fault 0xE0).
+if grep -qx '_re4dc_trans_ss_guard' obj/defined.txt && grep -qx '_re4dc_ss_ui_order' obj/missing.txt; then
+    echo "re4dc_ss_ui_order is missing but trans.cpp's sub screen guard needs it (sscrn_bridge.cpp)" >&2
+    exit 1
+fi
 python3 tools/gen_missing.py obj/missing.txt obj/missing.cpp
 kos-c++ $KOS_CFLAGS $OPT -Iplatform/include -c obj/missing.cpp -o obj/missing.o
 kos-c++ $OPT ${GAME_LDFLAGS:-} $OVL_LD -o $TARGET $OBJS obj/missing.o obj/aliases-all.ld
