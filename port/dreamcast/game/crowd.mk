@@ -203,6 +203,37 @@ $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
 endif
 endif
 
+# CROWD_INVIS_SKIP=1 (lane iv 2026-10-05; render only, exact; default 0): a Ganado the player cannot see gets no
+#              drawing-side work after the game's own view test. ModelTrans (trans.cpp), once AddOt has queued the
+#              Ganado (everything that test writes is kept), asks re4dc_invis_decide (coarse_actor_owner_ganado.inc)
+#              before the screen matrices. An owner-path Ganado (its last draw admitted the cast plan) is skipped
+#              when the crowd policy would cull it anyway (CROWD_FOGSKIP's root test, CROWD_CULL's pregate balls with
+#              the fog far plane) or when every ball lies behind the near plane. A Ganado whose last draw the owner
+#              plan declined (source path) is skipped when every per-bone sphere of its source mesh (all drawn infos,
+#              built once from vtxOrig / weights / bind matrices) lies outside one screen edge or the near plane.
+#              A skipped Ganado keeps commonScreenMat's texture animation / UV scroll advance; an owner-path one
+#              loses its OT entry (as the screen-matrix failure path), a source-path one keeps it and its ModelRender
+#              replays only the texture-object cache step (TPL / cTexChg) the source draw would have taken. The view
+#              is the next Render's: projection from pG->Cam.ProjMat, viewport and fogged far as the previous Render
+#              saw them (the fog only while LightEnv predicts the same value). Never with shadow lights, morphs,
+#              render-to-texture or foot shadows (needs FX_LEAN=1).
+#              =2 (check build): nothing is skipped; each Ganado the knob would skip must emit 0 triangles in its
+#              ModelRender and take the predicted path under the predicted projection / viewport / fog ("INVIS2"
+#              lines: violations and mismatches must stay 0).
+CROWD_INVIS_SKIP ?= 0
+ifeq ($(filter $(CROWD_INVIS_SKIP),0 1 2),)
+$(error CROWD_INVIS_SKIP must be 0, 1 or 2)
+endif
+ifneq ($(CROWD_INVIS_SKIP),0)
+ifneq ($(CROWD_CULL)$(FX_LEAN)$(ACTOR_FOG_GATE)$(SCENERY_GATE),1111)
+$(error CROWD_INVIS_SKIP needs CROWD_CULL=1 FX_LEAN=1 ACTOR_FOG_GATE=1 SCENERY_GATE=1)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_CROWD_INVIS_SKIP=$(CROWD_INVIS_SKIP)
+ifeq ($(CROWD_INVIS_SKIP),2)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
+endif
+endif
+
 # ACTOR_EARLY_COARSE=1: labelled four-role Ganado coarse path, selected before
 # source preparation only through the existing complete source/material proof.
 # A next-frame texture ticket lives in the existing source frame ledger. Other

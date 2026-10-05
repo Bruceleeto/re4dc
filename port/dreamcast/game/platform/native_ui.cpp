@@ -3387,7 +3387,16 @@ extern "C" void re4dc_ta_hash(const void* data,unsigned bytes){
     const unsigned l=(unsigned)stream_list<5?(unsigned)stream_list:2;
     const auto* w=static_cast<const std::uint32_t*>(data);
     std::uint32_t h=ta_hash_h[l];
+#if RE4DC_TA_HASH == 2
+    // TA_HASH=2 (lane iv): comparable across builds: a 32-byte block whose first word is a polygon / sprite header
+    // (PCW para type 4 / 5) hashes words 0..3 only (KOS leaves header words 4..7 as stack garbage).
+    for(unsigned i=0;i<bytes/4;++i){
+        if(bytes>=32 && (i&7)>=4 && ((w[i&~7u]>>29)==4u || (w[i&~7u]>>29)==5u))continue;
+        h=(h^w[i])*16777619u;
+    }
+#else
     for(unsigned i=0;i<bytes/4;++i)h=(h^w[i])*16777619u;
+#endif
     ta_hash_h[l]=h;ta_hash_words[l]+=bytes/4;
 }
 #endif

@@ -497,6 +497,14 @@ extern "C" void re4dc_actor_transaction_retire() {
     actor_palette_arena.retire();
     re4dc_actor_texture_retire_all();
 }
+#if RE4DC_CROWD_INVIS_SKIP
+// CROWD_INVIS_SKIP (crowd.mk): each Ganado's path in this Render, for the next Trans's decision (owner admission:
+// re4dc_crowd_offscreen; plan declined: 2; anything else, or a later decline: 0).
+extern "C" void re4dc_invis_note(cModel*,unsigned);  // coarse_actor_owner_ganado.inc
+#define INVIS_NOTE(m,k) re4dc_invis_note(m,k)
+#else
+#define INVIS_NOTE(m,k)
+#endif
 #if defined(RE4DC_ENCV) && RE4DC_ENCV
 extern "C" unsigned re4dc_encv_crowd;  // ENC_CENSUS=2 (coarse.cpp): the crowd policy's reason in this call
 #endif
@@ -513,7 +521,7 @@ static int enc_transaction_draw(cModel* m) {
 #else
 extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
-    ATD(m,0,0,0);
+    ATD(m,0,0,0);INVIS_NOTE(m,0);
 #if RE4DC_ACTOR_BIND_REUSE
     ++re4dc_actor_tx_serial;  // this call: the Ganado plan's binding token names it (coarse_actor_owner_ganado.inc)
 #endif
@@ -579,7 +587,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         const unsigned plan_kind=re4dc_actor_plan_leon(m,&p)?1u:re4dc_actor_plan_ganado(m,&p)?2u:re4dc_actor_plan_registry(m,&p)?3u:0u;
 #endif
         if(!plan_kind){
-            ATD(m,4,0,0);
+            ATD(m,4,0,0);INVIS_NOTE(m,2);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
             if(m->id==0 && m->ot_type==7){unsigned d=0;const unsigned why=owner_leon_bind_why(m,&d);
                 re4dc_actor_txdiag_why(m,"leon_bind",why?why:99,d);}  // 99: bound, the plan's own checks declined
@@ -625,7 +633,7 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #else
         if(!(re4dc_actor_plan_leon(m,&p) || re4dc_actor_plan_ganado(m,&p))){
 #endif
-            ATD(m,4,0,0);
+            ATD(m,4,0,0);INVIS_NOTE(m,2);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
             if(m->id==0 && m->ot_type==7){unsigned d=0;const unsigned why=owner_leon_bind_why(m,&d);
                 re4dc_actor_txdiag_why(m,"leon_bind",why?why:99,d);}  // 99: bound, the plan's own checks declined
@@ -676,13 +684,13 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(failed){actor_fail();return -1;}
 #if RE4DC_NATIVE_MODEL_REGISTRY
         if(!r){
-            ATD(m,31,p.appearance,0);
+            ATD(m,31,p.appearance,0);INVIS_NOTE(m,0);
             NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,kRwAcquire);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
             return 0;
         }
 #else
-        if(!r){ATD(m,31,p.appearance,0);return 0;}
+        if(!r){ATD(m,31,p.appearance,0);INVIS_NOTE(m,0);return 0;}
 #endif
         if(!re4dc_actor_transaction_choose(m,2)){actor_release(*r);actor_fail();return -1;}
         ATD(m,16,p.appearance,p.run_count);

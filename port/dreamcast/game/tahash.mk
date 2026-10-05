@@ -3,6 +3,8 @@
 # re4dc_ta_vertex bursts) into an FNV-1a hash per display list and logs one line per scene:
 #   ta_hash: frame=<native frame> present=<0|1> op=<hash>/<words> tr=.. pt=.. mod=<op mod>,<tr mod>
 # Two builds that must submit the same geometry compare these lines frame by frame.
+# TA_HASH=2: the same with polygon / sprite header words 4..7 left out (KOS leaves them as stack garbage), so
+# two different builds' lines compare.
 TA_HASH ?= 0
 .PHONY: tahash-force
 $(OBJDIR)/tahash.h: tahash-force

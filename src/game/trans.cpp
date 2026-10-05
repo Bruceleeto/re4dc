@@ -833,6 +833,79 @@ extern "C" int re4dc_coarse_source_actor_route(const void* object) {
 #include "source_actor_owner_hooks.inc"
 #endif
 
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+// CROWD_INVIS_SKIP (crowd.mk; lane iv; render only): a Ganado the next Render would draw nothing of gets no drawing
+// work after the game's own view test (coarse_actor_owner_ganado.inc decides). Armed only for a coarse image's source
+// actor preparation, whose Render owns the Ganados through the actor transaction. A skipped Ganado keeps
+// commonScreenMatSub's texture animation / UV scroll advance (invisAdvance) and skips the screen matrices and
+// lightSetEm (its light list is read only by its own draw). Kind 1 (owner path) loses its OT entry as the
+// screen-matrix failure path does; kind 2 (source path) keeps it, and its ModelRender replays the state calls and
+// commonModelTrans's texture-object / TPL cache step without the draw (invisReplayRender). =2 (check build): nothing
+// is skipped; ModelRender reports each Ganado's emitted triangles (re4dc_invis_check).
+extern "C" void re4dc_invis_begin(const float* P, float fog_pred);
+extern "C" unsigned re4dc_invis_decide(cModel* m);
+extern "C" float re4dc_fog_far_for_gate(float far);  // native_static.cpp (SCENERY_GATE)
+extern int ProjType;                                   // camera.cpp
+static int g_invisArmed;
+static int invisAdvance(cModelInfo* info);
+#if RE4DC_CROWD_INVIS_SKIP == 2
+extern "C" void re4dc_invis_check(cModel* m, unsigned emitted);
+extern "C" unsigned re4dc_model_output_count();
+#else
+static cModel* g_invisReplay[64];
+static u32 g_invisReplayNum;
+static void invisReplayRender(cModel* m, int alphaUpdate);
+#endif
+// Trans start: the next Render's projection (CameraSetProjection(1)'s words) and fogged View far (cLightMgr::setFog
+// and re4dc_fog_note_far's clamp).
+static void invisTransBegin()
+{
+    float P[7];
+    const float* pp = 0;
+    g_invisArmed = 0;
+#if RE4DC_CROWD_INVIS_SKIP == 1
+    g_invisReplayNum = 0;
+#endif
+    if (ProjType == 1) {
+        const f32(*M)[4] = pG->Cam.ProjMat;
+        P[0] = 0.0f; P[1] = M[0][0]; P[2] = M[0][2]; P[3] = M[1][1]; P[4] = M[1][2]; P[5] = M[2][2]; P[6] = M[2][3];
+        pp = P;
+    }
+    cLightEnv* env = LightMgr.getEnvPtr();
+    float fog = 0.0f;
+    if (!(pG->Disp_flg & 0x4000) && !(pG->Status_flg[1] & 0x04000000) && env->Fog.Type != 0) {
+        fog = re4dc_fog_far_for_gate(env->Fog.End * (1.0f - env->far_play_ratio) + 1.0f);
+    }
+    re4dc_invis_begin(pp, fog);
+}
+// ModelTrans, the OT entry made: 1 when the Ganado is skipped.
+static int invisSkip(cModel* m, int ot, int ret)
+{
+    if (m->kindid != 0 || m->ot_type != 0 || (m->be_flag & 0x4001) != 1 || m->Shader_type != 0 ||
+        (pG->Status_flg[2] & 0x00100000) || (pG->Debug_flg[1] & 0x40000000)) {
+        return 0;
+    }
+    const unsigned k = re4dc_invis_decide(m);
+#if RE4DC_CROWD_INVIS_SKIP == 2
+    (void) k; (void) ot; (void) ret;
+    return 0;
+#else
+    if (k == 0 || (k == 2 && g_invisReplayNum == sizeof(g_invisReplay) / sizeof(g_invisReplay[0]))) {
+        return 0;
+    }
+    if (invisAdvance(m->pModelInfo) && m->pShadowModelInfo != 0) {
+        invisAdvance(m->pShadowModelInfo);
+    }
+    if (k == 1) {
+        DeleteOtData(ot, (u16) ret);
+    } else {
+        g_invisReplay[g_invisReplayNum++] = m;
+    }
+    return 1;
+#endif
+}
+#endif
+
 void Trans()
 {
     u8* primStart = (u8*) pG->prim_base;
@@ -843,6 +916,9 @@ void Trans()
     const int roomSwapped = roomListsSwapped();
 #else
     const int roomSwapped = 0;
+#endif
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+    invisTransBegin();
 #endif
 #if RE4DC_COARSE
     coarseTick = re4dc_coarse_tick(re4dc_pace_drop_models);
@@ -1008,7 +1084,13 @@ void Trans()
                 unsigned(pG->Frame_cnt),source_calls,scenery_skipped);
 #endif
 #if RE4DC_COARSE_SOURCE_ACTORS
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+        g_invisArmed = !roomSwapped;
+#endif
         if(!sourceActorPrepare())sourceActorLedger.retire();
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+        g_invisArmed = 0;
+#endif
 #endif
     }
 #endif
@@ -1353,6 +1435,11 @@ void ModelTrans(cModel* m)
     }
     ENCV_TRANS_NOTE(m, ret != 0xFFFF ? 9u : 2u);  // 9: reached the OT (the draw decides), 2: outside the view test
     if (ret != 0xFFFF) {
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+        if (g_invisArmed && invisSkip(m, ot, ret)) {
+            return;
+        }
+#endif
 #if RE4DC_SKIN_PALETTE_LAZY
         g_skinLazyArm = 1;  // this commonScreenMat may defer weight palettes (SKIN_PALETTE_LAZY)
 #endif
@@ -1772,6 +1859,134 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
     return 1;
 }
 
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+// CROWD_INVIS_SKIP: commonScreenMatSub's per-info texture animation / UV scroll advance, alone (0: an invalid
+// header, where commonScreenMatSub stops).
+static int invisAdvance(cModelInfo* info)
+{
+    for (; info != 0; info = info->pList) {
+        ModelTexInfo* t = MODEL_TEX(info);
+        if (info->flagsDC & 2) {
+            t->frame++;
+            if (t->frame >= t->anim[1]) {
+                t->frame = 0;
+            }
+        }
+        if (!(pG->Stop_flg & 0x08000000) && (t->flags & 1)) {
+            f32 u = t->u + t->su;
+            f32 v = t->v + t->sv;
+            t->u = u;
+            t->v = v;
+            if (u > 2.0f) {
+                do {
+                    u -= 2.0f;
+                } while (u > 2.0f);
+                t->u = u;
+            }
+            UV_WRAP_HI(t->v);
+            UV_WRAP_LO(t->u);
+            UV_WRAP_LO(t->v);
+        }
+        if (PTR_INVALID(info->pData)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+#if RE4DC_CROWD_INVIS_SKIP == 1
+static const GXColor invisCol64 = {0x40, 0x40, 0x40, 0x40};  // ModelRender's col64
+// ModelRender of a kind 2 Ganado: its state calls, then commonModelTrans's texture-object / TPL cache step for every
+// info it would draw (the cache and the objects stay as the source draw leaves them for the next model).
+static void invisReplayRender(cModel* m, int alphaUpdate)
+{
+    GxWork* gx = GXWORK();
+    GXSetAlphaCompare(7, 0, 1, 7, 0);
+    if (m->z_mode == 0) {
+        GXSetZMode(1, 3, 1);
+    } else if (m->z_mode == 1) {
+        GXSetZMode(1, 3, 0);
+    } else if (m->z_mode == 2) {
+        GXSetZMode(1, 7, 0);
+    }
+    CameraCurrentProjection();
+    if (m->be_flag & 0x00020000) {
+        GXSetNumChans(1);
+        GXSetChanCtrl(0, 0, 0, 0, 0, 2, 2);
+        GXSetChanCtrl(2, 0, 0, 0, 0, 2, 2);
+        GXSetChanAmbColor(4, invisCol64);
+        GXSetChanMatColor(4, *(GXColor*) m->pModelInfo->color);
+    } else {
+        LightSetModel(m);
+    }
+    if (alphaUpdate) {
+        GXSetAlphaUpdate(1);
+        GXSetDstAlpha(1, 0);
+    }
+    FRONT_TEX_FLUSH();
+    for (cModelInfo* info = m->pModelInfo; info != 0; info = info->pList) {
+        if (PTR_INVALID(info)) {
+            break;
+        }
+        if (!(info->be_flag & 8)) {
+            continue;
+        }
+        ModelData* d = info->pData;
+        if (PTR_INVALID(d) || d->nTex > 0xF7) {
+            break;
+        }
+        if (g_prev_tpl_addr != info->tpl_addr || g_prev_add_tpl_addr != info->pAddTpl) {
+            for (u32 i = 0; i < ((TEXPalette*) info->tpl_addr)->numDescriptors + info->nAddTex; i++) {
+                TEXPalette* tpl = (TEXPalette*) info->tpl_addr;
+                TEXDescriptor* td;
+                u8 mip;
+                int filt;
+                u8 edge;
+                if (tpl->numDescriptors == 0) {
+                    td = TEXGet(info->pAddTpl, i);
+                } else if (i < tpl->numDescriptors) {
+                    td = TEXGet(tpl, i);
+                } else {
+                    td = TEXGet(info->pAddTpl, i - tpl->numDescriptors);
+                }
+                if ((s32) d->flags < 0) {
+                    TEXHeader* wh = td->textureHeader;
+                    wh->wrapT = 1;
+                    wh->wrapS = 1;
+                }
+                if (td->textureHeader->minLOD == td->textureHeader->maxLOD) {
+                    mip = 0;
+                    filt = 1;
+                } else {
+                    mip = 1;
+                    filt = 5;
+                }
+                if (aniso != 0) {
+                    edge = 1;
+                } else {
+                    edge = td->textureHeader->edgeLODEnable;
+                }
+                GXInitTexObj(&gx->texObj[i], td->textureHeader->data, td->textureHeader->width, td->textureHeader->height,
+                             td->textureHeader->format, td->textureHeader->wrapS, td->textureHeader->wrapT, mip);
+                if (mip == 1) {
+                    GXInitTexObjLOD(&gx->texObj[i], filt, 1, (f32) min_lod, (f32) max_lod, lod_bias, 0, edge, aniso);
+                }
+            }
+            if (MODEL_EXT(m)->pTexChg != 0) {
+                MODEL_EXT(m)->pTexChg->move(gx->texObj);
+            }
+        }
+        PSet(g_prev_tpl_addr, info->tpl_addr);
+        PSet(g_prev_add_tpl_addr, info->pAddTpl);
+    }
+    if (alphaUpdate) {
+        GXSetAlphaUpdate(0);
+        GXSetDstAlpha(0, 0);
+    }
+    shaderReset();
+}
+#endif
+#endif
+
 // Per parts: world matrix x bind matrix into the parts' weight matrix (the skinning palette base).
 void calcWeightMat(cModel* m)
 {
@@ -2123,6 +2338,18 @@ void ModelRender(cModel* m)
     if (m->invisible_factor * m->invisible_factor2 == 0.0f) {
         return;
     }
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 1
+    if (g_invisReplayNum != 0) {
+        u32 k;
+        for (k = 0; k < g_invisReplayNum && g_invisReplay[k] != m; k++) {
+        }
+        if (k < g_invisReplayNum) {
+            g_invisReplay[k] = 0;
+            invisReplayRender(m, modeltransalphaupdate);
+            return;
+        }
+    }
+#endif
 #if RE4DC_ACTOR_SWAP
     // ACTOR_SWAP (benchmark): Leon / the Ganados through the reduced-mesh adapters, both OT passes.
     if (re4dc_actor_swap(m)) {
@@ -2188,7 +2415,15 @@ void ModelRender(cModel* m)
         GXSetAlphaUpdate(1);
         GXSetDstAlpha(1, 0);
     }
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 2
+    const unsigned invisOut0 = re4dc_model_output_count();
+#endif
     commonModelTrans(m, m->pModelInfo, pG->Cam.v_mat, 0);
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 2
+    if (m->kindid == 0) {
+        re4dc_invis_check(m, re4dc_model_output_count() - invisOut0);
+    }
+#endif
 #if RE4DC_FRONT_LEAN && defined(__sh__)
     g_leanRender = 0;
 #endif
