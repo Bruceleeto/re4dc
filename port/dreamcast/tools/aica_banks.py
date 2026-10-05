@@ -559,6 +559,12 @@ ROUTE_STREAMS = [
     (1, 14),          # em21 (em21.cpp SndStrReq(1, 0xE)), in r100 and r103
     (1, 0x33),        # Ope radio, strTbl term 2: r101 post-bell call (r101_execOperator, design-r103 W8c)
 ]
+# Radio call voices (stage.sh AICA_CALL_VOICES=1 / --call-voices). Without them the call screen is
+# silent: SndSubScreenEnter ducks the BGM and pauses the SEs for the voice, which the reader logs as
+# "stream sbb=... not in aica_str.dat, silent". Requests seen on the stage-1 route (sbb offsets):
+# 1:140 (09310000, r100 first call), 1:141 (09400000, r100 call after the s20 truck), 1:142, 1:144,
+# 1:145, 1:152. One-shots streamed through the same ring; disc cost ~4 MB.
+CALL_VOICE_STREAMS = [(1, 140), (1, 141), (1, 142), (1, 144), (1, 145), (1, 152)]
 
 
 def nibble_to_sample(n):
@@ -789,6 +795,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('cmd', choices=('plan', 'build', 'merge', 'streams', 'disc'))
     ap.add_argument('--streams', default=','.join('%d:%d' % k for k in ROUTE_STREAMS), help='blk:no list')
+    ap.add_argument('--call-voices', action='store_true',
+                    help='add CALL_VOICE_STREAMS (the radio call voices) to --streams')
     ap.add_argument('--overlay')
     ap.add_argument('--mirror', required=True)
     ap.add_argument('--out')
@@ -799,6 +807,8 @@ def main():
     ap.add_argument('--json')
     ap.add_argument('--check', action='store_true', help='decode the AICA output and report SNR')
     a = ap.parse_args()
+    if a.call_voices:
+        a.streams = ','.join([k for k in a.streams.split(',') if k] + ['%d:%d' % k for k in CALL_VOICE_STREAMS])
     if a.cmd == 'merge':
         return merge(a.mirror, a.overlay, a.out)
     if a.cmd == 'disc':

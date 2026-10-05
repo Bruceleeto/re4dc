@@ -21,6 +21,8 @@
 # adds bgm/aica_str.dat (the disc streams), tools/aica_banks.py disc, for AICA_AUDIO=1
 # images (the silent audio_stub.cpp never reads either). AICA_CACHE (private, default
 # /root/probe/d367-aica-cache) keeps the conversions: ~25 s the first time, ~2 s after.
+# AICA_CALL_VOICES=1 (default 0) also streams the radio call voices (aica_banks.py CALL_VOICE_STREAMS);
+# without them every call screen is silent (BGM ducked, SEs paused, no voice).
 # EFFECT_SPRITES=1 builds get the effect texture packages (tex_fx.sh) first in TEXDIRS.
 # ASSETS=<dir> sources <dir>/stage.env from the asset pipeline (tools/d367/assets.sh; its
 # MESHDIR/MESHROOMS/TEXDIRS/ROOMFILES/KEYED); variables set explicitly still win.
@@ -156,7 +158,8 @@ fi
 if [ "${AICA_BANKS:-1}" = 1 ]; then
   aica=$(mktemp -d "${TMPDIR:-/tmp}/re4dc-aica.XXXXXX"); rmdir "$aica"
   python3 "$here/../aica_banks.py" disc --mirror "$mirror" --out "$aica" \
-    --cache "${AICA_CACHE:-/root/probe/d367-aica-cache}" --json "$aica.json" | tail -1
+    --cache "${AICA_CACHE:-/root/probe/d367-aica-cache}" --json "$aica.json" \
+    $([ "${AICA_CALL_VOICES:-0}" = 1 ] && echo --call-voices) | tail -1
   mirror=$aica
 fi
 bash "$here/mkdisc-hardlink.sh" "$build/re4dc-game.elf" "$mirror" "$out" "$fixtures"
