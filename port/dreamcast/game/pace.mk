@@ -15,6 +15,14 @@
 #                    decided before Trans() of tick k and iteration k+1 then skips as above.
 #   PACE_CAP=N       consecutive skipped iterations at most (default 1 = 2 ticks per drawn
 #                    frame). PACE_CAP=0 keeps the anchor clock without any skip (reference arm).
+#                    PACE_CAP=2 (crowd lane 2026-10-04): up to 3 ticks per drawn frame. Only Fast takes the
+#                    second skip (Smooth's 15 fps floor blocks it), and only while the game is still >= 1 tick
+#                    behind after one skip (drawn + skipped tick > 66.7 ms). Logic STRICT (PACE_FORCE=T trace vs
+#                    the unpaced control: r101 square 4951 ticks).
+#   PACE_CAP2_SPEED=N (default 0 = no gate; with PACE_CAP >= 2): the second consecutive skip only while one
+#                    skip per drawn image would leave the game below N% speed (draw_ema + skip_ema > 66.7 ms
+#                    x 100 / N), so a scene slightly over budget keeps CAP 1's frame rate (house: 97% at
+#                    14.5 fps instead of 100% at 13.5 fps with N=90).
 #   Runtime mode (pace.cpp re4dc_pace_mode, read every iteration, safe to change at any moment;
 #                    it only changes which ticks draw): Smooth (the floor below; the default) /
 #                    Fast (no floor, catch-up up to the cap) / Off (no pacing: today's loop).
@@ -48,6 +56,7 @@
 # Build every arm in its own OBJDIR; pace.h is regenerated when a value changes.
 PACE_CATCHUP ?= 0
 PACE_CAP ?= 1
+PACE_CAP2_SPEED ?= 0
 PACE_FLOOR_FPS ?= 15
 PACE_LOG ?= 300
 PACE_FORCE ?= 0
@@ -62,6 +71,11 @@ PACE_MODE ?= $(if $(filter 0,$(PACE_FLOOR_FPS)),fast,smooth)
 ifneq ($(PACE_CATCHUP),0)
 PACE_MODE_NUM = $(if $(filter off,$(PACE_MODE)),2,$(if $(filter fast,$(PACE_MODE)),1,$(if $(filter smooth,$(PACE_MODE)),0,$(error PACE_MODE=smooth|fast|off))))
 PACE_FORCE_NUM = $(if $(filter R,$(PACE_FORCE)),-1,$(if $(filter T,$(PACE_FORCE)),-2,$(if $(filter A,$(PACE_FORCE)),1,$(PACE_FORCE))))
+ifneq ($(PACE_CAP2_SPEED),0)
+ifneq ($(filter 0 1,$(PACE_CAP)),)
+$(error PACE_CAP2_SPEED gates the second consecutive skip (PACE_CAP >= 2))
+endif
+endif
 ifneq ($(PACE_CHECK),0)
 ifneq ($(LOGIC_TRACE),1)
 $(error PACE_CHECK=2 hashes the logic-trace fields and needs LOGIC_TRACE=1)
@@ -73,7 +87,7 @@ endif
 .PHONY: pace-force
 $(OBJDIR)/pace.h: pace-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' > $@.tmp
+	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n#define RE4DC_PACE_CAP2_SPEED %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' '$(PACE_CAP2_SPEED)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 PLATFORM_OBJS += $(OBJDIR)/pace.o

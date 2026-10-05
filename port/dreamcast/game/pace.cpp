@@ -41,6 +41,9 @@
 #ifndef RE4DC_PACE_MODE
 #define RE4DC_PACE_MODE 0
 #endif
+#ifndef RE4DC_PACE_CAP2_SPEED
+#define RE4DC_PACE_CAP2_SPEED 0
+#endif
 #include "warp_late.h"
 #ifndef RE4DC_PACE_VMU
 #define RE4DC_PACE_VMU 0
@@ -153,6 +156,14 @@ int want_skip(int lag, unsigned since)
 {
     if (lag < 2) return 0;
     if (run >= RE4DC_PACE_CAP) { ++w_cap; return 0; }
+#if RE4DC_PACE_CAP2_SPEED
+    // PACE_CAP2_SPEED=N (pace.mk): a second (or later) consecutive skip only while one skip per drawn image would
+    // leave the game below N% speed: 2 ticks (2 x 2 fields) per drawn + skipped pair, draw_ema + skip_ema of wall time.
+    if (run >= 1) {
+        const unsigned skip = skip_ema ? skip_ema : (draw_ema > render_ema ? draw_ema - render_ema : 0);
+        if ((unsigned long long) (draw_ema + skip) * RE4DC_PACE_CAP2_SPEED <= 4ULL * kVbUs * 100) { ++w_cap; return 0; }
+    }
+#endif
     if (floor_blocks(since)) { ++w_floor; return 0; }
     return 1;
 }
