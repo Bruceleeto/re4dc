@@ -18,7 +18,7 @@ r101 square, 2026-09-25 (8 KB clusters from a never-draw and a drawn run): never
 clusters: -0.77 / -0.97. Hottest-first without clustering: +0.17 / +0.05.
 
 usage: ordgen_c3.py --objdir <OBJDIR of a build with the same code> [--max 8192] [--limit 400000]
-                    [--evidence-root D] -o <out.ld> <hwproject evidence dir name>...
+                    [--evidence-root D] [--exclude REGEX] [--skip-weight W] -o <out.ld> <hwproject evidence dir name>...
 Regenerate after code changes (sections it names that no longer exist are ignored by ld)."""
 import argparse
 import bisect
@@ -35,6 +35,12 @@ ap.add_argument("--max", type=int, default=8192, help="largest cluster in bytes 
 ap.add_argument("--limit", type=int, default=400000, help="bytes of hot code to place")
 ap.add_argument("--evidence-root", default=os.environ.get("HWM_EVIDENCE", "/mnt/d/Flycast-Evidence/re4-dreamcast"))
 ap.add_argument("--tools", default="/opt/toolchains/dc/sh-elf/bin/sh-elf-")
+ap.add_argument("--exclude", default="",
+                help="regex of functions (demangled) whose hw ms is not hardware work, e.g. the pacing spin "
+                     "re4dc_pace_end|re4dc_vi_retrace_count (a PACE_FORCE run books Flycast's wait there)")
+ap.add_argument("--skip-weight", type=float, default=0.0,
+                help="also add W x the hw ms of the run's skipped ticks (proj-skip/rep/functions.tsv, from "
+                     "perf-20261004 modesplit.sh): more weight for the code of never-drawn ticks (logic)")
 ap.add_argument("-o", "--out", required=True)
 ap.add_argument("runs", nargs="+")
 a = ap.parse_args()
@@ -85,14 +91,20 @@ for name in a.runs:
         i = bisect.bisect_right(starts, ad) - 1
         return names[i] if i >= 0 else None
 
-    L = open(E + "/proj/rep/functions.tsv").read().splitlines()
-    h = L[0].split("\t")
-    fi, hi = h.index("func"), h.index("hw_ms")
-    for l in L[1:]:
-        f = l.split("\t")
-        m = dem2m.get(f[fi])
-        if m:
-            hot[m] += float(f[hi])
+    reps = [("/proj/rep/functions.tsv", 1.0)]
+    if a.skip_weight:
+        reps.append(("/proj-skip/rep/functions.tsv", a.skip_weight))
+    for rep, wt in reps:
+        L = open(E + rep).read().splitlines()
+        h = L[0].split("\t")
+        fi, hi = h.index("func"), h.index("hw_ms")
+        for l in L[1:]:
+            f = l.split("\t")
+            if a.exclude and re.search(a.exclude, f[fi]):
+                continue
+            m = dem2m.get(f[fi])
+            if m:
+                hot[m] += wt * float(f[hi])
     recent = {}
     for line in run(TOOLS + "objdump", "-d", "--no-show-raw-insn", ELF).splitlines():
         mm = rx.match(line)
@@ -166,8 +178,9 @@ for c in order:
     total += csize[c]
     cov += chot[c]
 with open(a.out, "w") as f:
-    f.write("/* ordgen_c3.py: clusters <= %d B, %d input sections, %d B, %.2f of %.2f hw ms; runs: %s */\n" % (
-        a.max, len(rules), total, cov, sum(hot.values()), " ".join(a.runs)))
+    f.write("/* ordgen_c3.py: clusters <= %d B, %d input sections, %d B, %.2f of %.2f hw ms; runs: %s%s */\n" % (
+        a.max, len(rules), total, cov, sum(hot.values()), " ".join(a.runs),
+        ("; excluded: " + a.exclude if a.exclude else "") + ("; skip weight %g" % a.skip_weight if a.skip_weight else "")))
     f.write(".text : {\n  *_kos_startup.o(.text)\n")
     for r in rules:
         f.write("  %s\n" % r)

@@ -47,6 +47,13 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
   and `LINK_ORDER=link-order/r101-square-c3-8k.ld` (the hot code placed first in .text from hwproject
   evidence; regenerate it with `tools/d367/ordgen_c3.py --objdir <OBJDIR> -o <file> <never-draw run>
   <drawn run>` after code changes).
+- Code placement for r21y (2026-10-04, lane build): `link-order/r21y-house-fight-square-c3-8k.ld`, regenerated
+  from the perf-20261004 cost arm (route-build `DBG_WARP=1 PACE_MODE=fast PC_SAMPLER=0 PACE_FORCE=2
+  ENC_CENSUS=1`) on the r100-h-quiet, r100-h-fight and perf-r101sq windows:
+  `ordgen_c3.py --objdir <cost arm OBJDIR> --exclude '^(re4dc_pace_end|re4dc_vi_retrace_count)$' -o <file>
+  <hwmodel runs>` (the exclusion drops the pacing spin, which a PACE_FORCE run books as hw ms). Before each
+  release, `tools/d367/ordcheck.py --objdir <OBJDIR> <order.ld> <hwmodel runs>` reports the order's stale rules
+  and the share of the runs' hw ms it places; regenerate when it falls well below the placeable share.
 - The em-em candidate cache (aeefd26; exact, room-independent; not in LH yet: gated on the r101 square): the
   coarse-square arms add `GAME_ATCHK_CACHE=1` (needs GAME_ATCHK_LIST=1, in LH). `GAME_ATCHK_CACHE=2` is its
   check build (every reuse compared with a fresh collection, "ATC" lines).

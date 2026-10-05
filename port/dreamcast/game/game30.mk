@@ -566,7 +566,13 @@ endif
 #                    input sections first in .text (tools/d367/ordgen_c3.py from hwproject evidence: call
 #                    chains clustered to the 8 KB direct-mapped I-cache, placed by density). The r101-square
 #                    order is link-order/r101-square-c3-8k.ld: never-draw work -1.25 hw ms (I-miss 4.67 ->
-#                    3.74), every tick drawn -0.94, logic trace STRICT. Regenerate it after code changes.
+#                    3.74), every tick drawn -0.94, logic trace STRICT. Regenerate it after code changes
+#                    (tools/d367/ordcheck.py measures how stale an order is): link-order/
+#                    r21y-house-fight-square-c3-8k.ld is the r21y code's order from the r100-h-quiet,
+#                    r100-h-fight and perf-r101sq cost windows (perf-20261004 presets; drawn / skipped tick
+#                    hw ms vs the square order: house -1.00 / -0.16, fight -0.96 / -0.17, square -1.23 /
+#                    -0.27; H2 logic trace STRICT). The old order covered 47-57% of those windows' hw ms, the
+#                    new one 87-88% (all the placeable code).
 LINK_ORDER ?=
 ifneq ($(LINK_ORDER),)
 GAME_LDFLAGS += -Wl,--section-ordering-file,$(abspath $(LINK_ORDER))
