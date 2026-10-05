@@ -210,7 +210,10 @@ endif
 #              when the crowd policy would cull it anyway (CROWD_FOGSKIP's root test, CROWD_CULL's pregate balls with
 #              the fog far plane); the CROWD_LOD ranking then sees the same models. A Ganado whose last draw the owner
 #              plan declined (source path) is skipped when every per-bone sphere of its source mesh (all drawn infos,
-#              built once from vtxOrig / weights / bind matrices) lies outside one screen edge or the near plane.
+#              built once from vtxOrig / weights / bind matrices) lies outside one screen edge or the near plane,
+#              and every part its draw would hand to the native parts is settled (converted in place, no LOD build
+#              waiting: native_actor_fast.cpp re4dc_actor_part_settled), so the skip leaves the part streams and the
+#              frame's LOD build budget as the draw would.
 #              A skipped Ganado keeps commonScreenMat's texture animation / UV scroll advance; an owner-path one
 #              loses its OT entry (as the screen-matrix failure path), a source-path one keeps it and its ModelRender
 #              replays only the texture-object cache step (TPL / cTexChg) the source draw would have taken and notes
@@ -230,7 +233,8 @@ ifneq ($(CROWD_CULL)$(FX_LEAN)$(ACTOR_FOG_GATE)$(SCENERY_GATE),1111)
 $(error CROWD_INVIS_SKIP needs CROWD_CULL=1 FX_LEAN=1 ACTOR_FOG_GATE=1 SCENERY_GATE=1)
 endif
 $(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_CROWD_INVIS_SKIP=$(CROWD_INVIS_SKIP)
-# re4dc_actor_crowd_note (and the =2 peek): a skipped source-path Ganado keeps its CROWD_LOD crowd entry.
+# re4dc_actor_crowd_note (and the =2 peek): a skipped source-path Ganado keeps its CROWD_LOD crowd entry;
+# re4dc_actor_part_settled: the source path's settled-parts condition.
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_INVIS_SKIP=$(CROWD_INVIS_SKIP)
 ifeq ($(CROWD_INVIS_SKIP),2)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1

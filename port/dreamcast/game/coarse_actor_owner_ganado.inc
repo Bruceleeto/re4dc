@@ -241,7 +241,7 @@ struct InvisView { bool ok; float P[7], V[6], fog, near, far_owner, rows[3][3]; 
 InvisView invis_view;
 float invis_obs_V[6], invis_obs_fog;
 bool invis_obs_valid;
-unsigned invis_n[8];  // decided 0/1/2, no record, structure moved, unknown path, view invalid, declined test
+unsigned invis_n[8], invis_unsettled;  // decided 0/1/2, no record, structure moved, unknown path, view invalid, declined test
 #if RE4DC_CROWD_INVIS_SKIP == 2
 unsigned invis_marked, invis_checked, invis_violations, invis_violation_tris, invis_path_mis, invis_view_mis,
     invis_fog_mis, invis_logs, invis_crowd_checked, invis_crowd_mis;
@@ -621,19 +621,40 @@ extern "C" void re4dc_invis_begin(const float* P, float fog_pred) {
 #if RE4DC_CROWD_INVIS_SKIP == 2
     if (!(invis_gen % 120))
         re4dc_log("INVIS2 t=%u marked=%u checked=%u violations=%u violation_tris=%u path_mis=%u view_mis=%u fog_mis=%u "
-                  "crowd=%u/%u draw=%u owner=%u source=%u norec=%u moved=%u unknown=%u noview=%u builds=%u build_fail=%u\n",
+                  "crowd=%u/%u draw=%u owner=%u source=%u unsettled=%u norec=%u moved=%u unknown=%u noview=%u builds=%u "
+                  "build_fail=%u\n",
                   unsigned(pG->Frame_cnt), invis_marked, invis_checked, invis_violations, invis_violation_tris, invis_path_mis,
-                  invis_view_mis, invis_fog_mis, invis_crowd_mis, invis_crowd_checked, invis_n[0], invis_n[1], invis_n[2], invis_n[3], invis_n[4], invis_n[5],
-                  invis_n[6], invis_builds, invis_build_fail);
+                  invis_view_mis, invis_fog_mis, invis_crowd_mis, invis_crowd_checked, invis_n[0], invis_n[1], invis_n[2],
+                  invis_unsettled, invis_n[3], invis_n[4], invis_n[5], invis_n[6], invis_builds, invis_build_fail);
 #else
     if (!(invis_gen % 600))
-        re4dc_log("INVIS t=%u draw=%u owner=%u source=%u norec=%u moved=%u unknown=%u noview=%u builds=%u build_fail=%u\n",
-                  unsigned(pG->Frame_cnt), invis_n[0], invis_n[1], invis_n[2], invis_n[3], invis_n[4], invis_n[5], invis_n[6],
-                  invis_builds, invis_build_fail);
+        re4dc_log("INVIS t=%u draw=%u owner=%u source=%u unsettled=%u norec=%u moved=%u unknown=%u noview=%u builds=%u "
+                  "build_fail=%u\n",
+                  unsigned(pG->Frame_cnt), invis_n[0], invis_n[1], invis_n[2], invis_unsettled, invis_n[3], invis_n[4],
+                  invis_n[5], invis_n[6], invis_builds, invis_build_fail);
 #endif
 }
 // ModelTrans, after AddOt queued a Ganado (the caller checked kindid 0, ot_type 0, be_flag 1 without 0x4000,
 // Shader_type 0, no shadow light, a coarse image): 1 owner path skip, 2 source path skip, 0 draw.
+extern "C" int re4dc_actor_part_settled(const void* stream, unsigned bytes);  // native_actor_fast.cpp
+// trans.cpp's PTR_INVALID.
+static inline bool invis_bad_ptr(const void* p) { return int(uintptr_t(p)) >= 0 || uintptr_t(p) > RE4_MEM_HI; }
+// Source path: every part of every info its draw would hand to the native parts (commonModelTrans's walk) settled.
+static bool invis_settled(cModel* m) {
+    for (cModelInfo* info = m->pModelInfo; info; info = info->pList) {
+        if (invis_bad_ptr(info)) return false;
+        if (!(info->be_flag & 8)) continue;
+        const ModelData* d = info->pData;
+        if (invis_bad_ptr(d) || d->nTex > 0xF7) return false;
+        const unsigned char* part = reinterpret_cast<const unsigned char*>(d->pParts);
+        for (unsigned i = 0; i < d->displist_num; ++i) {
+            const unsigned size = reinterpret_cast<const ModelPart*>(part)->size;
+            if (!re4dc_actor_part_settled(part + 0x20, size)) return false;
+            part += 0x20 + size;
+        }
+    }
+    return true;
+}
 extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (m->id < 0x10 || m->id > 0x20) return 0;
     if (!invis_view.ok) { ++invis_n[6]; return 0; }
@@ -642,7 +663,10 @@ extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (!invis_same(*r, m)) { ++invis_n[4]; return 0; }
     unsigned k = 0;
     if (r->outcome == 1) k = invis_owner(m, *r) ? 1u : 0u;
-    else if (r->outcome == 2) k = invis_source(m, *r) ? 2u : 0u;
+    else if (r->outcome == 2) {
+        k = invis_source(m, *r) ? 2u : 0u;
+        if (k && !invis_settled(m)) { ++invis_unsettled; k = 0; }
+    }
     else { ++invis_n[5]; return 0; }
     ++invis_n[k];
 #if RE4DC_CROWD_INVIS_SKIP == 2

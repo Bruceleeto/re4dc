@@ -3721,6 +3721,13 @@ extern "C" void re4dc_actor_crowd_note(const void* model, const float* modelview
         (void)model; (void)modelview;
     }
 }
+// A source part whose next native draw changes nothing that outlives the frame: converted in place (convert) and no
+// LOD build waiting (relod, which also spends the frame's lod_budget). The skip takes only Ganados whose drawn parts
+// are all settled, so a skipped draw leaves the part streams and the LOD budget exactly as the source draw would.
+extern "C" int re4dc_actor_part_settled(const void* stream, unsigned bytes) {
+    const u8* s = static_cast<const u8*>(stream);
+    return bytes >= sizeof(BlobHeader) && s[0] == kMagic && s[1] == kVersion && !(s[2] & kLodPending);
+}
 #if RE4DC_CROWD_INVIS_SKIP == 2
 // =2 (check build): the model's crowd entry in this frame: 1 and its distance when its parts noted it, else 0.
 extern "C" int re4dc_actor_crowd_peek(const void* model, float* distance) {
