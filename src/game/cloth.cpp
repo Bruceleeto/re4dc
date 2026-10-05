@@ -194,6 +194,21 @@ int ClothTexSetUp(void* tpl, GXTexObj* tex, int no, GXTlutObj* tlut)
 
 // One simulation step of the speeds: spring forces (K_PARAM) toward each neighbour's rest
 // distance (Wgap / Hgap), gravity G_PARAM, then the speed scaled by `damping`.
+#if defined(RE4DC_CLOTH_SPRING) && RE4DC_CLOTH_SPRING
+// GAME_CLOTH_SPRING (game30.mk; lane logic 2026-10-04; exact): every spring is evaluated from both of its ends
+// (k toward k+1, then k+1 toward k), and the second evaluation is the first one negated bit for bit: p[a] - p[b]
+// is -(p[b] - p[a]), the magnitude squares the components, the factor K (len - gap) / len is the same, and
+// (-v) * f is -(v * f). Each spring's force is computed once, at its first end (the right spring of k, the down
+// spring of row i), and the other end adds its negation (s + (-v) is s - v) in the source's order: left, right,
+// up, down, gravity, damping. A neighbour the source skips (the interior of the pinned top row) has computed
+// nothing, so its spring is evaluated as before.
+static Vec clothDn[256];
+static u8 clothDnOk[256];   // the spring below row i-1's point j: 0 not computed, 1 no force, 2 force in clothDn
+#if RE4DC_CLOTH_SPRING == 2
+#define calcSpeed calcSpeedSrc
+#endif
+#endif
+#if !(defined(RE4DC_CLOTH_SPRING) && RE4DC_CLOTH_SPRING == 1)
 void Cloth::calcSpeed(f32 damping)
 {
     Vec v;
@@ -249,6 +264,121 @@ void Cloth::calcSpeed(f32 damping)
         }
     }
 }
+#endif
+#if defined(RE4DC_CLOTH_SPRING) && RE4DC_CLOTH_SPRING
+#if RE4DC_CLOTH_SPRING == 2
+#undef calcSpeed
+#endif
+static inline __attribute__((always_inline)) void clothSpringAddNeg(Vec* s, const Vec* v)
+{
+    s->x = s->x - v->x;
+    s->y = s->y - v->y;
+    s->z = s->z - v->z;
+}
+#if RE4DC_CLOTH_SPRING == 2
+extern "C" void re4dc_log(const char* fmt, ...);
+static Vec clothChkIn[2048];
+static Vec clothChkNew[2048];
+static u32 clothChkCalls, clothChkMis, clothChkBig;
+#endif
+void Cloth::calcSpeed(f32 damping)
+{
+#if RE4DC_CLOTH_SPRING == 2
+    const u32 npt = (u32) divH * divV;
+    const int chk = npt <= 2048;
+    if (chk) {
+        __builtin_memcpy(clothChkIn, pSpd, npt * sizeof(Vec));
+    } else {
+        clothChkBig++;
+    }
+#endif
+    Vec* p = pVer;
+    Vec* s = pSpd;
+    const int w = divH;
+    const int nv = divV;
+    int i;
+    int j;
+
+    for (i = 0; i < nv; i++) {
+        Vec rv;
+        int rk = 0;   // the spring from the left neighbour: 0 not computed, 1 no force, 2 force in rv
+        for (j = 0; j < w; j++) {
+            Vec v;
+            f32 len;
+            if (i == 0 && j != 0 && j != w - 1) {
+                rk = 0;
+                clothDnOk[j] = 0;
+                continue;
+            }
+            const int k = j + i * w;
+            if (j != 0) {
+                if (rk == 2) {
+                    clothSpringAddNeg(&s[k], &rv);
+                } else if (rk == 0) {
+                    PSVECSubtract(&p[k - 1], &p[k], &v);
+                    len = PSVECMag(&v);
+                    if (len > Wgap) {
+                        PSVECScale(&v, &v, K_PARAM * (len - Wgap) / len);
+                        PSVECAdd(&v, &s[k], &s[k]);
+                    }
+                }
+            }
+            rk = 0;
+            if (j != w - 1) {
+                PSVECSubtract(&p[k + 1], &p[k], &v);
+                len = PSVECMag(&v);
+                rk = 1;
+                if (len > Wgap) {
+                    PSVECScale(&v, &v, K_PARAM * (len - Wgap) / len);
+                    PSVECAdd(&v, &s[k], &s[k]);
+                    rv = v;
+                    rk = 2;
+                }
+            }
+            if (i != 0) {
+                const int dk = clothDnOk[j];
+                if (dk == 2) {
+                    clothSpringAddNeg(&s[k], &clothDn[j]);
+                } else if (dk == 0) {
+                    PSVECSubtract(&p[k - w], &p[k], &v);
+                    len = PSVECMag(&v);
+                    if (len > Hgap) {
+                        PSVECScale(&v, &v, K_PARAM * (len - Hgap) / len);
+                        PSVECAdd(&v, &s[k], &s[k]);
+                    }
+                }
+            }
+            clothDnOk[j] = 0;
+            if (i != nv - 1) {
+                PSVECSubtract(&p[k + w], &p[k], &v);
+                len = PSVECMag(&v);
+                clothDnOk[j] = 1;
+                if (len > Hgap) {
+                    PSVECScale(&v, &v, K_PARAM * (len - Hgap) / len);
+                    PSVECAdd(&v, &s[k], &s[k]);
+                    clothDn[j] = v;
+                    clothDnOk[j] = 2;
+                }
+            }
+            s[k].y -= G_PARAM;
+            PSVECScale(&s[k], &s[k], damping);
+        }
+    }
+#if RE4DC_CLOTH_SPRING == 2
+    if (chk) {
+        __builtin_memcpy(clothChkNew, pSpd, npt * sizeof(Vec));
+        __builtin_memcpy(pSpd, clothChkIn, npt * sizeof(Vec));
+        calcSpeedSrc(damping);
+        if (__builtin_memcmp(clothChkNew, pSpd, npt * sizeof(Vec)) != 0) {
+            clothChkMis++;
+        }
+        if (++clothChkCalls % 256 == 0) {
+            re4dc_log("CSPR calls=%u mismatch=%u big=%u\n", clothChkCalls, clothChkMis, clothChkBig);
+        }
+    }
+#endif
+}
+#endif
 
 // A free cloth work in *out; 0 when all 8 are used.
 int PullCloth(Cloth** out)

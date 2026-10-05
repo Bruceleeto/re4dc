@@ -42,6 +42,9 @@ public:
     void SetPosAng(Vec ang, Vec pos);
     void Destroy();
     void calcSpeed(f32 damping);
+#if defined(RE4DC_CLOTH_SPRING) && RE4DC_CLOTH_SPRING == 2
+    void calcSpeedSrc(f32 damping);   // GAME_CLOTH_SPRING=2: the source step, for the check
+#endif
     void move();
     void calcNormal();
     void disturbance(f32 power, u32 x, u32 y);

@@ -1645,6 +1645,14 @@ $(error GAME_HF_REG and GAME_HF_ASM both replace the hermite entry)
 endif
 $(OBJDIR)/src/game/motion.o: GAME_CPPFLAGS += -DRE4DC_HF_REG=$(GAME_HF_REG)
 endif
+# GAME_CLOTH_SPRING=1 (exact): Cloth::calcSpeed (esp4e sheets) computes each spring's force once and adds its
+#                     negation at the other end (the source evaluates every spring from both ends; the second
+#                     evaluation is the first negated bit for bit; cloth.cpp). =2 (check build): the source step
+#                     runs on the same input after it and the speed grids are compared ("CSPR" lines).
+GAME_CLOTH_SPRING ?= 0
+ifneq ($(GAME_CLOTH_SPRING),0)
+$(OBJDIR)/src/game/cloth.o: GAME_CPPFLAGS += -DRE4DC_CLOTH_SPRING=$(GAME_CLOTH_SPRING)
+endif
 
 # Draw original non-scenery objects on coarse images; candidate, default off.
 COARSE_SOURCE_OBJECTS ?= 0
