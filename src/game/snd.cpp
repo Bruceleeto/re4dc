@@ -495,6 +495,52 @@ static int sndWallCheckSub(Vec* pos)
     return ret;
 }
 
+#if defined(RE4DC_SND_WALL_ALT) && RE4DC_SND_WALL_ALT
+// GAME_SND_WALL_ALT (game30.mk; lane logic 2026-10-04; audio only): sndSurroundCalc's per-frame wall test of a
+// tracked positional SE (a line query from the source to the player's head through the effect collision,
+// ~0.1 hw ms each) runs on every other call; in between, the slot reuses its last verdict while it still holds
+// the same sound. Only the muffled volume of an occluded SE can lag by one frame: the verdict feeds nothing
+// but c->vol / c->svol (never to 0, so the stop decision is unchanged) and the query writes no game state (the
+// decision trace hashes these queries apart: "sq", outside the STRICT records). New sounds and the start-time
+// test (sndSetPara) always query.
+static u32 sndWallAltId[48];
+static u8 sndWallAltHit[48];   // 0: no verdict, 1: clear, 2: blocked
+static u32 sndWallAltTick;
+static void sndWallCheckAlt(int slot, u32 id, SND_SIT* sit, u8* vol, u8* svol, Vec* pos)
+{
+    int hit;
+
+    if (pos == NULL) {
+        return;
+    }
+    if (sit->wall_vol < 1 || sit->wall_vol > 99) {
+        return;
+    }
+    if ((sndWallAltTick & 1) && sndWallAltHit[slot] != 0 && sndWallAltId[slot] == id) {
+        hit = sndWallAltHit[slot] - 1;
+    } else {
+        hit = sndWallCheckSub(pos) == 1;
+        sndWallAltHit[slot] = (u8) (hit + 1);
+        sndWallAltId[slot] = id;
+    }
+    if (!hit) {
+        return;
+    }
+    if (*vol != 0) {
+        *vol = (s8) ((f32) (s8) *vol * ((f32) (s8) sit->wall_vol / 100.0f));
+        if ((s8) *vol <= 0) {
+            *vol = 1;
+        }
+    }
+    if (*svol != 0) {
+        *svol = (s8) ((f32) (s8) *svol * ((f32) (s8) sit->wall_vol / 100.0f));
+        if ((s8) *svol <= 0) {
+            *svol = 1;
+        }
+    }
+}
+#endif
+
 // SEs flagged se_flag 0x20 drop to volume 1 when the player stands in a volume-control floor area
 // (FlrAt kind 1) that does not contain the source.
 static void sndVolCtrlAtCheck(SND_SIT* sit, u8* vol, u8* svol, Vec* pos)
@@ -2268,6 +2314,9 @@ static void sndSurroundCalc()
     f32 pan;
     f32 dist;
 
+#if defined(RE4DC_SND_WALL_ALT) && RE4DC_SND_WALL_ALT
+    sndWallAltTick++;
+#endif
     for (i = 0; i < 48; i++) {
         SndSurWork* w = &pSnd->sur[i];
         SND_SIT* sit;
@@ -2313,7 +2362,11 @@ static void sndSurroundCalc()
                     c->ovr_flag |= 0x418;
                     c->vol = sndVolCalc(Snd_iss_get_sit_vol(w->blk, w->no), w->vol_ofs, dist);
                     c->svol = sndVolCalc(Snd_iss_get_sit_svol(w->blk, w->no), w->svol_ofs, dist);
+#if defined(RE4DC_SND_WALL_ALT) && RE4DC_SND_WALL_ALT
+                    sndWallCheckAlt(i, w->id, sit, &c->vol, &c->svol, &w->pos);
+#else
                     sndWallCheck(sit, &c->vol, &c->svol, &w->pos);
+#endif
                     sndVolCtrlAtCheck(sit, &c->vol, &c->svol, &w->pos);
                     sndInnerVolCheck(sit, &c->vol, &c->svol);
                     c->pitch_ofs = sndPitchCalc(w->pitch_ofs, dist);

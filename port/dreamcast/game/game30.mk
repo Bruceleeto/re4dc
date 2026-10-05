@@ -1645,6 +1645,14 @@ $(error GAME_HF_REG and GAME_HF_ASM both replace the hermite entry)
 endif
 $(OBJDIR)/src/game/motion.o: GAME_CPPFLAGS += -DRE4DC_HF_REG=$(GAME_HF_REG)
 endif
+# GAME_SND_WALL_ALT=1 (audio only; report candidate 12): sndSurroundCalc tests a tracked SE's wall occlusion (a line
+#                     query to the player's head) on every other frame and reuses the slot's last verdict in
+#                     between (snd.cpp). Only an occluded SE's muffled volume can lag one frame; the logic trace
+#                     stays STRICT (the sound queries are hashed apart).
+GAME_SND_WALL_ALT ?= 0
+ifneq ($(GAME_SND_WALL_ALT),0)
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_SND_WALL_ALT=$(GAME_SND_WALL_ALT)
+endif
 # GAME_CLOTH_SPRING=1 (exact): Cloth::calcSpeed (esp4e sheets) computes each spring's force once and adds its
 #                     negation at the other end (the source evaluates every spring from both ends; the second
 #                     evaluation is the first negated bit for bit; cloth.cpp). =2 (check build): the source step
