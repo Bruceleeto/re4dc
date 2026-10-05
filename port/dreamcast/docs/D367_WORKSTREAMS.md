@@ -72,6 +72,14 @@ The user's 2026-09-30 direction:
 
 Sources:
 - GC debug disc: `/root/work/re4-dreamcast/orig/G4BE08/re4_debug_disc1.iso`.
+- GC Disc 2 (user, 2026-10-05): `/root/work/re4-dreamcast/orig/usa-retail/re4_usa_disc2.iso` (link to the private
+  image; sha1 c75f7936...). It is the RETAIL USA Disc 2 (G4BE08, disc 2, rev 0), not the debug Disc 2 that
+  config/G4BE08/build.sha1 expects: its st3_0..3 RELs, DOL, Sscrn.rel and st4_0.rel hash differently, and 240 of the
+  846 files it shares with debug Disc 1 differ (123 em*.drs, all 14 St4 rooms, r22c, ss, bgm). Kept outside
+  orig/G4BE08 so configure.py's REL extraction never takes retail RELs. Contents: stage 3 rooms r300-r333 (42 St3
+  archives, 61 events, the st3 RELs, ending.sfd), plus St4 and r22c, which debug Disc 1 also has. The port compiles
+  stage 3 from src/st3 (38 files), so the disc supplies data only; check each retail data format against the debug
+  code before using it (the shared files show the data changed between the two builds).
 - PS2 disc: `C:\Game Dev\Emulators\re4_helpers\Resident Evil 4 (USA)\Resident Evil 4 (USA).iso`.
 - r100/r101/r103 PS2 inputs: `re4-assets-private/world-agent-20260926/ps2-rooms-20260929`.
 - External cast: `re4-assets-private/cast-20260925` (the 09-26 revision; v4-fit is in the play build).
