@@ -23,6 +23,13 @@
 #ifndef RE4DC_COARSE_SCENERY_FALLBACK
 #define RE4DC_COARSE_SCENERY_FALLBACK 0
 #endif
+// COARSE_SAT_SCENERY_ONLY (game30.mk, render only): once the image's scenery is drawn by another path (the
+// PS2 world, or the room's own scenery under COARSE_SCENERY_FALLBACK), no collision piece is drawn, not only
+// piece 0. The other pieces are gameplay-only collision: AEV wall areas (sce_at.cpp sceAtSetScrAt, attr 0x40)
+// and object pieces, which the GameCube never draws (r100 bridge: the post-s20 wall drew as a flat block).
+#ifndef RE4DC_COARSE_SAT_SCENERY_ONLY
+#define RE4DC_COARSE_SAT_SCENERY_ONLY 0
+#endif
 #if RE4DC_COARSE_SCENERY_FALLBACK
 extern "C" int re4dc_ps2_world_covers(unsigned room);   // platform/native_ps2_world.cpp
 #endif
@@ -534,6 +541,18 @@ void draw_blocks(Out& o, cSat* sat, const cSatBlock* b, const PieceView& pv, con
 
 void draw_world(Out& o)
 {
+#if RE4DC_COARSE_SAT_SCENERY_ONLY
+    bool scenery_drawn = false;
+#if RE4DC_PS2_WORLD_DRAW
+    scenery_drawn = scenery_drawn || g_ps2_world;
+#endif
+#if RE4DC_COARSE_SCENERY_FALLBACK
+    scenery_drawn = scenery_drawn || !re4dc_ps2_world_covers(G_ROOM_ID);
+#endif
+    if (scenery_drawn) {
+        return;   // every piece is collision only: the scenery path draws what is seen
+    }
+#endif
     for (u32 i = 0; i < SatMgr.nArray; ++i) {
 #if RE4DC_PS2_WORLD_DRAW
         if(i==0 && g_ps2_world)continue; // replaces diagnostic collision drawing only

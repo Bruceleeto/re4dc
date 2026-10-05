@@ -1638,6 +1638,21 @@ $(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_COARSE_S
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_COARSE_SCENERY_FALLBACK=$(COARSE_SCENERY_FALLBACK)
 endif
 
+# COARSE_SAT_SCENERY_ONLY=1 (coarse.cpp; default 0; needs PS2_WORLD_DRAW=1): a coarse image whose scenery another
+# path draws (the PS2 world, or the room's own scenery under COARSE_SCENERY_FALLBACK) draws no collision piece at
+# all; without it only piece 0 is skipped and the gameplay-only pieces (AEV wall areas, sce_at.cpp sceAtSetScrAt)
+# draw as flat grey walls (r100 bridge after s20, 2026-10-04 hardware report). Render only.
+COARSE_SAT_SCENERY_ONLY ?= 0
+ifneq ($(COARSE_SAT_SCENERY_ONLY),0)
+ifneq ($(COARSE_SAT_SCENERY_ONLY),1)
+$(error COARSE_SAT_SCENERY_ONLY must be 0 or 1)
+endif
+ifneq ($(PS2_WORLD_DRAW),1)
+$(error COARSE_SAT_SCENERY_ONLY needs PS2_WORLD_DRAW=1)
+endif
+$(OBJDIR)/coarse.o: GAME_CPPFLAGS += -DRE4DC_COARSE_SAT_SCENERY_ONLY=1
+endif
+
 # Unsupported source actors on coarse images; unqualified candidate, default off.
 COARSE_SOURCE_ACTORS ?= 0
 ifneq ($(COARSE_SOURCE_ACTORS),0)
