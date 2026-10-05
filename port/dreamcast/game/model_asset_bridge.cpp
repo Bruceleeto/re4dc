@@ -39,7 +39,17 @@ WalkSignature walk_signature(unsigned tables=~0U){
 WalkSignature walk_signature(){
 #endif
     WalkSignature s{2166136261U,0x9e3779b9U,0};
+#if RE4DC_MODEL_PREP_KEEP
+    // MODEL_PREP_KEEP: the same registrations in another OT order are the same walk once the plan owner is idle
+    // (every part hits or keeps its stable negative outcome; demand counts are order-free). Each model's words
+    // (its info chain in chain order) hash on their own; the models combine by sum and xor.
+    WalkSignature h{0,0,0};
+    auto mix=[&](unsigned w){h.a=(h.a^w)*16777619U;h.b=(h.b+w)*0x85ebca6bU;h.b^=h.b>>13;++h.n;};
+    auto model_done=[&](){s.a+=h.a*0x9e3779b1U+(h.b^h.n);s.b^=(h.b+0x7f4a7c15U)*0xc2b2ae35U^h.a;s.n+=h.n;h={2166136261U,0x9e3779b9U,0};};
+    h={2166136261U,0x9e3779b9U,0};
+#else
     auto mix=[&](unsigned w){s.a=(s.a^w)*16777619U;s.b=(s.b+w)*0x85ebca6bU;s.b^=s.b>>13;++s.n;};
+#endif
     for(unsigned priority=0;priority<2;++priority)for(unsigned table=0;table<OT_MAX;++table){
         const auto& ot=g_OtWork[table];
 #if RE4DC_OT_MASK
@@ -57,6 +67,9 @@ WalkSignature walk_signature(){
                 mix(unsigned(reinterpret_cast<std::uintptr_t>(info)));
                 mix(unsigned(reinterpret_cast<std::uintptr_t>(info->pData)));mix(info->be_flag&2);
             }
+#if RE4DC_MODEL_PREP_KEEP
+            model_done();
+#endif
         }
     }
     return s;
@@ -83,6 +96,12 @@ extern "C" void re4dc_prepare_model_assets(){
         const WalkSignature now=walk_signature();
 #endif
         const bool idle=re4dc_model_asset_update_idle()!=0;
+#if RE4DC_MODEL_PREP_KEEP
+        // A dropped image (pace skip) leaves no model OT: on an idle owner the walk would only zero the demand
+        // counts, which nothing reads before the next begin_asset_update zeroes them again. Keep the drawn walk's
+        // signature, so the next drawn tick over the same registrations skips its walk too.
+        if(idle && now.n==0)return;
+#endif
         const bool same=now==last_walk;
         last_walk=now;
         if(idle && same)return;

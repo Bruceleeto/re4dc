@@ -27,6 +27,22 @@ MESH_DIRECT ?= 0
 HW_LEAN ?= 0
 RELEASE_FLAGS ?= 0
 FRONT_NATIVE ?= 0
+# MODEL_PREP_KEEP=1 (perf-20261004 candidate 5; render only, exact; needs FRONT_LEAN=1): FRONT_LEAN's "unchanged
+#   registrations" skip of the draw-plan OT walk (model_asset_bridge.cpp) survives pacing and depth order: a pace-skipped
+#   tick (no model OT) on an idle plan owner neither walks nor replaces the last drawn walk's signature, and the
+#   signature is a multiset of the registrations (OT depth order changes every frame in a fight). Without it the
+#   alternating empty/full OTs made every drawn tick re-walk all parts (r100 h-fight: 222 plan lookups + 490 owner
+#   scans, ~1.7 hw ms per drawn tick).
+MODEL_PREP_KEEP ?= 0
+ifeq ($(filter $(MODEL_PREP_KEEP),0 1),)
+$(error MODEL_PREP_KEEP must be 0 or 1)
+endif
+ifeq ($(MODEL_PREP_KEEP),1)
+ifneq ($(FRONT_LEAN),1)
+$(error MODEL_PREP_KEEP=1 extends FRONT_LEAN=1)
+endif
+$(OBJDIR)/model_asset_bridge.o: GAME_CPPFLAGS += -DRE4DC_MODEL_PREP_KEEP=1
+endif
 ifeq ($(MESH_DIRECT),1)
 ifneq ($(TA_DIRECT),1)
 $(error MESH_DIRECT=1 requires TA_DIRECT=1 (pipeline30 direct TA API))
