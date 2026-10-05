@@ -1,5 +1,14 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-05: integrated perf lanes (next play build candidate, not released)
+
+build-r21.sh (616a5a11 on perf/int-20261005, local) adds SKIN_PALETTE_LAZY ESP_SPRITE_FAST ESP47_SKIP_LEAN
+MODEL_PREP_KEEP CROWD_READOPT_MEMO ACTOR_BIND_REUSE PS2_WORLD_HDR_CACHE MESH_CLIP_ACCEPT PS2_PASS_MASK GAME_HF_REG
+GAME_CLOTH_SPRING GAME_SND_WALL_ALT (all =1) and LINK_ORDER link-order/r21z-perf-c3-8k.ld; route doc "2026-10-05:
+integrated perf lanes". Same play flags and disc fixture as r21y. Checked on the play / warp images: New Game (intros
+1971/2360, s40 1175), radio call, inventory restore x2, r100 window jump (no reset), HALT 0 / MISSING 0, 0 MISALIGN.
+PS2_FOLIAGE_FAR stays off (look decision pending). A play disc from it still needs the user's console play.
+
 ## 2026-10-04: chapter 1-3 (ROUTE_CH13, default off)
 
 Landed default-off (route doc "chapter 1-3"): r101 1-3 state, r102, r108, r109, r10a; resident BGM0 tracks for the

@@ -11,6 +11,12 @@ The plan and measurements are in `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md`.
 - Known differences from the make line: MODEL_DRAW_PLANS is forced to 1 by the D349_RENDERER_STACK=1 Makefile
   override. MESH_CLIP_LEAN=1 (ce39455f) and CROWD_READOPT=2 CROWD_CULL=1 CROWD_FOGSKIP=1 (7cbea8e7) joined the
   recipe on 2026-10-03 (user decisions); before that the make line never had MESH_CLIP_LEAN.
+- 2026-10-05 (perf lanes integration, perf/int-20261005): the recipe's last line adds SKIN_PALETTE_LAZY=1
+  ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1 ACTOR_BIND_REUSE=1 PS2_WORLD_HDR_CACHE=1
+  MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1 (render-only or exact; their
+  =2 check builds and comments are in game30.mk / effects30.mk / frontend30.mk / crowd.mk) and LINK_ORDER is
+  `link-order/r21z-perf-c3-8k.ld`. PS2_FOLIAGE_FAR (changes the look) stays 0. Route doc "2026-10-05: integrated perf
+  lanes" has the A/B and the gates.
 - The LH / M1 / PERF / LFV blocks below are dated snapshots (2026-09-23/24), kept as evidence. They still list
   `QUALITY=1` (the Standard/Original picker); play builds pass `QUALITY_PICKER=0` (Standard only).
 - Profiler areas are not G. hwproject's "game-logic" area (e.g. LH's 12.0 hw ms/tick) books the shared matrix kernels
@@ -54,6 +60,12 @@ EXTRA_MAKE="$LH $M1 $PERF OBJDIR=/path/obj-<name>"
   <hwmodel runs>` (the exclusion drops the pacing spin, which a PACE_FORCE run books as hw ms). Before each
   release, `tools/d367/ordcheck.py --objdir <OBJDIR> <order.ld> <hwmodel runs>` reports the order's stale rules
   and the share of the runs' hw ms it places; regenerate when it falls well below the placeable share.
+- Code placement for the 2026-10-05 recipe (perf lanes integration): `link-order/r21z-perf-c3-8k.ld`, the same method
+  on the all-knobs cost arm plus `--skip-weight 1` (adds the skipped ticks' hw ms, from modesplit.sh's proj-skip, as
+  weight). Without the skip weight the regenerated order measured +0.2..0.4 hw ms worse than keeping the older r21y
+  order; `--max 4096` was worse too. Once the placed share is near the placeable share (~88%), a regenerated order is
+  a few-tenths lottery: build each candidate (`LINK_ORDER=<file>` on the route-build line overrides the recipe) and
+  keep the one with the lowest hw ms on house + fight + square. ordcheck.py on r21z: 0 stale rules, 88-89% placed.
 - The em-em candidate cache (aeefd26; exact, room-independent; not in LH yet: gated on the r101 square): the
   coarse-square arms add `GAME_ATCHK_CACHE=1` (needs GAME_ATCHK_LIST=1, in LH). `GAME_ATCHK_CACHE=2` is its
   check build (every reuse compared with a fresh collection, "ATC" lines).

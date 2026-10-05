@@ -1,6 +1,11 @@
 # RE4 Dreamcast working handoff
 
-Updated 2026-10-04. Project rules: [AGENTS.md](AGENTS.md).
+Updated 2026-10-05. Project rules: [AGENTS.md](AGENTS.md).
+
+2026-10-05 (branch perf/int-20261005, local): the perf lanes sk / fx / cl / wd / logic are integrated and their 12 knobs
+are in build-r21.sh with LINK_ORDER link-order/r21z-perf-c3-8k.ld (route doc "2026-10-05: integrated perf lanes"):
+hw ms drawn house 47.80 -> 43.61, fight 66.03 -> 59.10, square 78.03 -> 72.39; console projection fight 66.6% 10.0 fps
+-> 73.2% 11.0, house 100% 15.0. Logic STRICT (H2, bell, PACE_FORCE=2 pair). PS2_FOLIAGE_FAR stays off (user look call).
 
 **Active (D367, user-directed).** Goals:
 - 30 fps at full game speed (33.3 ms a tick: gameplay G <= 24 + render R <= 6 + a margin) on a real NTSC Dreamcast via GDEMU + VMU, per the 2026-09-25 rethink (a coarse complete square first). This is the acceptance target; 20 fps and a 15 fps fight fallback were the earlier targets (historical).

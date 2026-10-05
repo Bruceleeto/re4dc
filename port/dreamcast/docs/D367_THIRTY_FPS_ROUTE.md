@@ -1,5 +1,38 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-05: integrated perf lanes (branch perf/int-20261005, local commits, not pushed)
+
+- **What landed (lane doc docs/lanes/perf-int-20261005.md):** the 2026-10-04/05 fight-plan lanes, each behind its own
+  default-off knob, now all in build-r21.sh: sk SKIN_PALETTE_LAZY (lazy source weight palettes); fx ESP_SPRITE_FAST +
+  ESP47_SKIP_LEAN (effect sprite pass without unread work; the lane's EspTrans dead-slot skip measured neutral and was
+  left out); cl MODEL_PREP_KEEP + CROWD_READOPT_MEMO + ACTOR_BIND_REUSE (draw-plan walk skip across skipped ticks, the
+  failed s03 re-adopt remembered, the Ganado owner bind reused; =2 check build bad 0 on fight and square); wd
+  PS2_WORLD_HDR_CACHE + MESH_CLIP_ACCEPT + PS2_PASS_MASK (PS2 world header cache, near clip accept path, per-placement
+  pass mask); logic GAME_HF_REG + GAME_CLOTH_SPRING + GAME_SND_WALL_ALT (hermite templates, one evaluation per cloth
+  spring, SE wall occlusion every other frame: audio only). **PS2_FOLIAGE_FAR stays off** (it changes the look: a
+  pending user decision). The warp rig's `freeze <tick>` line (DBG_WARP=1 only) came with the fx lane.
+- **LINK_ORDER r21z-perf-c3-8k.ld** (ordgen_c3.py `--skip-weight 1` on the all-knobs cost arm, house + fight + square).
+  The README method (no skip weight) measured +0.2..0.4 hw ms WORSE than keeping the r21y order on the new code; with
+  the skip weight it is equal to r21y on the square and slightly better on house and fight, with 0 stale rules (the
+  r21y order had 3 and left the new hfReg<5/6/0> unplaced). A regenerated order is a placement lottery of a few tenths
+  once the placed share is ~88%: measure every candidate.
+- **hw ms drawn / skipped (one run per arm, the same scenes: ENC census lines identical in every window):** house
+  47.80/24.56 -> 43.61/23.24, fight 66.03/24.45 -> 59.10/23.18, r101 square 78.03/27.87 -> 72.39/26.15. Biggest
+  function movers (drawn, fight): model prepare -1.39 (cl), source palettes -0.89 (sk), PS2 headers -0.58 and pass
+  mask -0.41 (wd), effect sprites -0.50 (fx), hermite -0.42 (logic), CROWD_READOPT_MEMO -0.32 (cl).
+- **Console projection** (REPORT.md factors house 0.937, fight 1.107; VMU model speed = 66.7/(D+S)): house 98.4%
+  14.8 fps -> 100% 15.0 fps; fight 66.6% 10.0 fps -> 73.2% 11.0 fps; square (fight factor) 56.9% 8.5 -> 61.1% 9.2.
+- **Gates (evidence D:/Flycast-Evidence/re4-dreamcast/int-20261005):** knob-off identity (HEAD without the knobs =
+  fresh 51d77d07, play flags, SOURCE_DATE_EPOCH pinned: image + overlay byte-identical, missing.txt empty); H2 STRICT
+  vs route-z-strict (1450..1569, to 740, from 1218; whole room om-only); bell whole run STRICT (4577 ticks) vs a
+  knob-off 51d77d07 trace build; PACE_FORCE=2 trace pair STRICT outside the radio call window (om/ef drift only, 7027
+  ticks); frozen-frame look (warp freeze 2341 r100-h-fight, 1441 r100-h-quiet) identical, apart from 1-RGB565-step
+  run-to-run sets that also differ between two runs of one build; 0 MISALIGN (interpreter, 900 s, to frame 14493);
+  New Game intros 1971/2360 + s40 1175, radio call, inventory restore x2 and the r100 window jump as r21y. The all-knobs
+  trace build's .text crosses the 8 KiB .init alignment (.bss/heap +8 KiB): STRICT anyway.
+- **Harness note:** with the host display off, vsync-on Flycasts crawl (vblank 38 in 100 s); the final gates ran
+  through the D:-staged drun kit with `rend.vsync = no` (route-run's run-emulator.py has no such switch).
+
 ## 2026-10-04: chapter 1-3 behind ROUTE_CH13 (default off) and the fight plan (local session)
 
 - **Chapter 1-3 (b877ae7f, c4ec84e9; ROUTE_CH13=1, not in the play recipe):** the r101 1-3 state, r102, r108, r109 and
