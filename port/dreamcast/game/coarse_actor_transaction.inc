@@ -479,10 +479,16 @@ extern "C" int re4dc_crowd_far(cModel* m) {
 }
 #endif
 #endif
+#if RE4DC_LEON_NATIVE_PIPE
+#include "coarse_actor_leon_pipe.inc"  // LEON_NATIVE_PIPE (native_model_registry.mk): Leon's lean owner passes
+#endif
 extern "C" void re4dc_actor_transaction_retire() {
     // Revoke exported owners without traversing old primitive storage. This is
     // called BEFORE FrameLedger retirement and SetPrimBuffPtr storage reuse.
     actor_owned_head=nullptr;actor_owned_live=false;
+#if RE4DC_LEON_NATIVE_PIPE
+    leon_pipe.live=false;  // its leases are revoked below with every other owner's
+#endif
 #if RE4DC_CROWD
     crowd_skips=0;
 #endif
@@ -540,6 +546,12 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     }
 #endif
     if(choice==2) {
+#if RE4DC_LEON_NATIVE_PIPE
+        if(leon_pipe.live && leon_pipe.r.model==model) {
+            if(!(leon_pipe.r.frame==frame)){actor_fail();return -1;}
+            return leon_pass(m,leon_pipe.r,false);
+        }
+#endif
         for(auto* p=actor_owned_head;p;p=p->next)if(p->model==model){r=p;break;}
 #if RE4DC_CROWD
         if(!r && crowd_skipped(model))return 1;  // a Ganado the crowd policy does not draw: its second pass
@@ -550,6 +562,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         // already prepared original path and cannot retry in a later OT group.
         if(!re4dc_actor_transaction_choose(m,1)){actor_fail();return -1;}
         if(m->ot_type==7 && (m->be_flag&0x08000000)){ATD(m,3,0,0);return 0;}
+#if RE4DC_LEON_NATIVE_PIPE
+        {const int lean=leon_pipe_first(m,frame,model);if(lean!=2)return lean;}
+#endif
         Re4dcActorPlan p{};
 #if RE4DC_NATIVE_MODEL_REGISTRY
         // NATIVE_MODEL_REGISTRY: the generic descriptors plan after Leon and the Ganado cast. NMR_CENSUS: census builds

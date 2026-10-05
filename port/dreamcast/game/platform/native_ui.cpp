@@ -3437,6 +3437,93 @@ extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart* p,const R
     return begun;
 }
 #endif
+#if defined(RE4DC_LEON_NATIVE_PIPE) && RE4DC_LEON_NATIVE_PIPE
+// LEON_NATIVE_PIPE (native_model_registry.mk; render only, exact): Leon's lean owner pass keeps one store-queue window
+// across the material changes of its runs. Right after a material's own window began (re4dc_model_direct_begin, in
+// this submission), re4dc_leon_direct_capture records what that begin used. re4dc_leon_direct_switch, at a later
+// change back to that material inside the open window (only the actor kernels ran since), does what
+// re4dc_model_direct_end(vertices) followed by re4dc_model_direct_begin(part) would do for it: the same refusals for
+// this state, the same header words from the same texture entry's header cache, the same slab copy and counters;
+// only the store queues stay locked (their pointer continues).
+#if !RE4DC_COARSE_ONE_SUBMIT || !RE4DC_TA_DIRECT || !RE4DC_D349_RENDERER_STACK || RE4DC_ACTOR_UV16 || RE4DC_TA_GUARD
+#error LEON_NATIVE_PIPE extends the COARSE_ONE_SUBMIT TA_DIRECT D349 window (ACTOR_UV16=0, TA_GUARD=0)
+#endif
+#include "include/leon_native_pipe.h"
+namespace {
+unsigned leon_header_key(const Re4dcModelPart* p,unsigned list){
+    // re4dc_model_packet_begin's header-cache key.
+    return list|(p->blend<<3)|(p->depth_mode<<6)|(p->wrap_s<<8)|(p->wrap_t<<10)|((p->material_flags&4)<<12)|(p->cull<<16)
+#if RE4DC_NATIVE_FOG
+        |(p->source_key[2]?1U<<20:0U)
+#endif
+        ;
+}
+}
+extern "C" int re4dc_leon_direct_capture(const Re4dcModelPart* p,Re4dcLeonHeader* out){
+    out->valid=0;
+#if RE4DC_MESH_TEXTURES
+    if(model_texture)return 0;
+#endif
+    if(!p || !direct_open || !model_handle || draining_parts || !stream_scene)return 0;
+    const unsigned list=unsigned(stream_list),key=leon_header_key(p,list);
+    if(select_model_pass(p)!=stream_list || model_handle->model_header_key!=key)return 0;
+    std::memcpy(out->words,model_packets+model_used,32);
+    if(std::memcmp(out->words,&model_handle->model_header,32))return 0;
+    // re4dc_model_packet_reserve's padded scale against the bound texture (re4dc_model_packet_begin's rebuild count).
+    unsigned width=8,height=8;
+    while(width<p->image.width)width*=2;
+    while(height<p->image.height)height*=2;
+    const auto& t=model_handle->package.textures()[0];
+    out->scale_rebuild=(float(p->image.width)/width!=float(p->image.width)/t.width ||
+                        float(p->image.height)/height!=float(p->image.height)/t.height)?1u:0u;
+    out->entry=model_handle;out->list=list;out->key=key;out->valid=1;
+    return 1;
+}
+extern "C" std::uint32_t* re4dc_leon_direct_switch(const Re4dcModelPart* p,const Re4dcLeonHeader* h,unsigned vertices,std::uint32_t* sq){
+    Entry* handle=static_cast<Entry*>(h?h->entry:nullptr);
+#if RE4DC_MESH_TEXTURES
+    if(model_texture)return nullptr;
+#endif
+    // The refusals the close + begin pair would meet for this captured material in this state (packet_reserve's
+    // frame / stream terms, packet_begin's list and cache hit, direct_begin's nesting).
+    if(!p || !h || !h->valid || !handle || !direct_open || !frame_ready || stream_aborted || draining_parts || !stream_scene ||
+       !re4dc_model_diagnostic_enabled() || model_used+4>kModelPacketBytes/32 || vertices>32767 ||
+       unsigned(stream_list)!=h->list || select_model_pass(p)!=stream_list || leon_header_key(p,h->list)!=h->key ||
+       handle->model_header_key!=h->key || std::memcmp(h->words,&handle->model_header,32))return nullptr;
+    // re4dc_model_direct_end(vertices)
+    ++direct_parts;direct_slots+=vertices;
+    frame_pvr_bytes+=vertices*32;stream_model_bytes+=vertices*32;
+    if(stream_model_bytes>stream_peak_bytes)stream_peak_bytes=stream_model_bytes;
+    model_used=0;
+    // re4dc_model_direct_begin(p): packet_reserve, packet_begin (cached header), the header into the store queue
+    model_pending=model_used+1;
+    desired_list=pvr_list_t(h->list);  // stream_select: the list is already open
+    const pvr_poly_hdr_t header=handle->model_header;++model_header_hits;
+    if(p->cull){
+        if(stream_list==PVR_LIST_OP_POLY)RE4DC_PROFILE_COUNT(HardwareCullOP,1);
+        else if(stream_list==PVR_LIST_PT_POLY)RE4DC_PROFILE_COUNT(HardwareCullPT,1);
+        else RE4DC_PROFILE_COUNT(HardwareCullTR,1);
+    }
+#if RE4DC_FRONT_NATIVE>=2
+    re4dc_front_header_built(&header,p->alpha_state);
+#endif
+    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+    model_pending=model_used+count;model_handle=handle;
+    if(h->scale_rebuild)++model_scale_rebuilds;
+    if(p->alpha_state&256)++model_alpha_vertex;else ++model_alpha_material;
+    if(!(p->alpha_state&256) && (p->alpha_state&255)<255)++model_alpha_faded;
+    if(model_parts<6)re4dc_log("native model DIAGNOSTIC source=%08x info=%08x part=%08x positions=%u stride=%u stream=%u flags=%08x material=%02x cull=%u\n",(unsigned)p->model,(unsigned)p->info,(unsigned)p->part,p->position_count,p->position_stride,p->stream_bytes,p->flags,p->material_flags,p->cull);
+    const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
+    for(unsigned i=0;i<8;++i)sq[i]=words[i];
+#if RE4DC_TA_HASH
+    re4dc_ta_hash(words,32);
+#endif
+    sq_flush(sq);
+    model_handle->frame=frame;
+    ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
+    return sq+8;
+}
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 // One immutable, non-paletted reviewed atlas. The lease pins the real upload,
 // not a descriptor pointer. Source frame/room/primitive ownership is additional.
@@ -4028,6 +4115,20 @@ extern "C" int re4dc_ps2_world_before_owned_tr(const Re4dcModelPart* part){
     re4dc_ps2_world_flush();
     return frame_ready && !stream_aborted && !direct_open && !model_used;
 }
+#if defined(RE4DC_LEON_NATIVE_PIPE) && RE4DC_LEON_NATIVE_PIPE
+// LEON_NATIVE_PIPE: 1 when re4dc_ps2_world_before_owned_tr(part) would return 1 without a side effect once the window
+// were closed (direct_end leaves direct_open false and model_used 0): the lean Leon pass then changes material inside
+// its open window instead (re4dc_leon_direct_switch). 0: close the window and call the barrier as usual.
+extern "C" int re4dc_leon_owned_tr_idle(const Re4dcModelPart* part){
+    if(!part || !frame_ready || stream_aborted)return 0;
+    if(select_model_pass(part)!=PVR_LIST_TR_POLY)return 1;
+    if(re4dc_ps2_world_pending())return 0;
+#if RE4DC_COARSE_SCENERY_FALLBACK && RE4DC_TREE_IMPOSTOR
+    if(!(stream_scene && stream_list==PVR_LIST_TR_POLY))return 0;
+#endif
+    return 1;
+}
+#endif
 // Included once at native_ui.cpp global scope, after the normal packet APIs.
 // Explicit keys reach the existing loader; submitted Entry::frame pins preserve
 // its TA/render-fence lifetime. No pointer hash, preload, private VRAM or lease.

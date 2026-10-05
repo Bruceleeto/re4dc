@@ -4383,12 +4383,24 @@ void one_close(OneWindow& w) {
 
 // re4dc_actor_submit() for one chunk, sent into the window (opened here when closed): 1 / 0 as that call
 // would return; -1 when the part is not an array-less (lazily skinned) part: nothing done.
+#if RE4DC_LEON_NATIVE_PIPE
+// LEON_NATIVE_PIPE (native_actor_leon_pipe.inc): known != nullptr hands in one_qualifies' result (its registry entry
+// and source), which the caller's preflight proved for this part; one_chunk(p, w) below is the unchanged call.
+int one_chunk_core(Re4dcModelPart& p, OneWindow& w, const SkinEntry* known, const Re4dcActorSource* known_src) {
+    if (p.positions) return -1;
+    ++stats.parts;
+    const SkinEntry* se = nullptr;
+    Re4dcActorSource src{};
+    if (known) { se = known; src = *known_src; }
+    else if (!one_qualifies(p, se, src)) { ++stats.declined; return 0; }
+#else
 int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     if (p.positions) return -1;
     ++stats.parts;
     const SkinEntry* se = nullptr;
     Re4dcActorSource src{};
     if (!one_qualifies(p, se, src)) { ++stats.declined; return 0; }
+#endif
     const float near_distance = p.projection[6] / (p.projection[5] - 1.0f);
     const float far_distance = p.projection[6] / p.projection[5];
     if (!re4dc::render::is_finite(near_distance) || !re4dc::render::is_finite(far_distance) ||
@@ -4738,6 +4750,9 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     re4dc_model_result(0, e.input, e.output);
     return 1;
 }
+#if RE4DC_LEON_NATIVE_PIPE
+int one_chunk(Re4dcModelPart& p, OneWindow& w) { return one_chunk_core(p, w, nullptr, nullptr); }
+#endif
 #if RE4DC_COARSE_ONE_SUBMIT == 2
 constexpr unsigned kOneCheckMax = 8;
 struct OneCheck {
@@ -4828,6 +4843,9 @@ extern "C" unsigned re4dc_actor_submit_chunks(Re4dcModelPart* part, const Re4dcA
 
 #if RE4DC_ACTOR_TRANSACTION
 #include "include/native_actor_owner_submit.inc"
+#if RE4DC_LEON_NATIVE_PIPE
+#include "include/native_actor_leon_pipe.inc"
+#endif
 #endif
 #endif
 

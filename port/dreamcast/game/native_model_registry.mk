@@ -186,3 +186,26 @@ $(error ACTOR_MATERIAL_RECORD extends the ACTOR_PROOF_LEAN=1 certificate (ACTOR_
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_MATERIAL_RECORD=$(ACTOR_MATERIAL_RECORD)
 endif
+
+# LEON_NATIVE_PIPE (default 0; lane ln 2026-10-05 experiment; needs ACTOR_TRANSACTION=1 and COARSE_ONE_SUBMIT=1; render
+# only, exact): Leon (pl00) through the owner transaction with what it repeats done once (coarse_actor_leon_pipe.inc,
+# platform/include/native_actor_leon_pipe.inc): one owner_leon_bind per pass-1 call with its finite test as one exponent
+# sweep; the plan and the record's fixed parts kept per binding; actor_semantics' fixed terms (immutable chunk proofs,
+# counts, bytes, run order) proved once per plan, its per-frame terms and the live certificate in every pass; the
+# palette finite scan replaced by a sufficient bound on the bone matrices (outside it the scan decides); the run
+# preflight's fixed terms proved once per plan by the full preflight, then its per-frame terms per material (pass 1's
+# submission does not repeat acquisition's); one_chunk takes the lease's registry entry instead of one_qualifies; the
+# hair's material changes inside one store-queue window (native_ui.cpp re4dc_leon_direct_switch: the same header
+# words and counters as closing and reopening). Same leases, allocations, ledger choices, kernels, inputs and order:
+# the TA receives the same words. Not with the transaction diagnostic / census / compare builds.
+LEON_NATIVE_PIPE ?= 0
+ifeq ($(filter $(LEON_NATIVE_PIPE),0 1),)
+$(error LEON_NATIVE_PIPE must be 0 or 1)
+endif
+ifneq ($(LEON_NATIVE_PIPE),0)
+ifneq ($(ACTOR_TRANSACTION)$(COARSE_ONE_SUBMIT),11)
+$(error LEON_NATIVE_PIPE acts on the ACTOR_TRANSACTION owner path with COARSE_ONE_SUBMIT=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_NATIVE_PIPE=$(LEON_NATIVE_PIPE)
+$(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_NATIVE_PIPE=$(LEON_NATIVE_PIPE)
+endif
