@@ -30,7 +30,8 @@
 #                    that START (pad.cpp, like the L+START debug chord).
 #   PACE_LOG=N      one "PACE" telemetry line every N ticks (default 300 = 10 s).
 #   PACE_VMU=1      (default 0) a speed page on the first VMU LCD, rewritten once a second: drawn fps,
-#                    game speed (% of 30 ticks/s) and CPU ms per tick (work before the vblank wait). One
+#                    game speed (% of 30 ticks/s) and CPU load (work per tick before the vblank wait, % of a
+#                    33.4 ms tick; >100 = saturated). One
 #                    queued maple LCD write a second (vmu_draw_lcd does not wait); reads pace state only.
 # Test instrumentation (never in a product image):
 #   PACE_FORCE=3|N|R|A  forced skip pattern, a pure function of the eligible-tick index (timing,

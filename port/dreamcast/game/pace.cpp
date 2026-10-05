@@ -205,10 +205,12 @@ void vmu_window(unsigned cost, u32 now)
     if (dvb < 60) return;
     const unsigned fps10 = unsigned(v_drawn * 59940ULL / 100 / dvb);   // 0.1 fps
     const unsigned speed = unsigned((v_ticks * 2000ULL / dvb + 5) / 10);   // %
-    const unsigned cpu10 = unsigned(v_cost_us / v_ticks / 100);         // 0.1 ms per tick
+    // CPU: work per tick (before the vblank wait) as % of a 30 Hz tick (2 NTSC fields, 33,367 us); above 100 the
+    // console is saturated even when it skips drawing (user's console readings, 2026-10-04).
+    const unsigned cpu = unsigned((v_cost_us * 100ULL / v_ticks + 16683) / 33367);
     char text[64];
-    snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u.%u\nMODE %s", fps10 / 10, fps10 % 10, speed,
-             cpu10 / 10, cpu10 % 10, kModeName[re4dc_pace_mode % 3]);
+    snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%%\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
+             kModeName[re4dc_pace_mode % 3]);
     vmufb_clear(&v_lcd);
     vmufb_print_string(&v_lcd, nullptr, text);
     v_tries = 30;
