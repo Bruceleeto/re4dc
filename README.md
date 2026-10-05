@@ -20,7 +20,7 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 
 ## Status
 
-Updated **2026-10-04**. The newest public play build is
+Updated **2026-10-05**. The newest public play build is
 **[r21y (camera crash fix)](https://github.com/lamb2k/re4dc/releases/tag/play-r21y-camera-fix-20261004)**, which supersedes r21x. Downloads are available for Windows,
 SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`.
 This is a prerelease test build.
@@ -28,6 +28,24 @@ This is a prerelease test build.
 **r21y fixes the console crash when Leon jumps out of the r100 house window.** The camera code deleted a special
 camera (left over from examining the dead Ganado, a rifle scope, the binoculars or pushing an object) a second time;
 Flycast resets there, the Dreamcast stops with an address error. r21y also shows the VMU's CPU line as a percentage.
+
+**r22 (2026-10-05, source on `dreamcast-port`; not a public download)** adds the next round of performance work:
+lazy skinning palettes, a faster effect-sprite path, actor and world preparation reused across frames, faster
+animation-curve and cloth maths, and a regenerated code layout. Each change was checked to leave gameplay unchanged
+(identical logic traces) and the picture identical. On a real NTSC Dreamcast, one r100 playthrough of the r22g test
+disc (r22 plus a GPU line on the VMU) read:
+
+| Moment | FPS | Speed | CPU | GPU (ms per frame) |
+| --- | --- | --- | --- | --- |
+| Outside, before the house | 17.6 | 98% | 102% | 43-46 |
+| House, before the first Ganado | 21.8 | 102% | 100% | 14-15 |
+| Right after the radio call | 12.9 | 87% | 116% | 11-14 |
+| Inside, before the window jump | 9.9 | 67% | 150% | 14 |
+| Fight after the jump, three Ganados | 10.4 | 70% | 142% | 53-55 |
+
+The fight improved from r21x's 9 fps at 66% speed; shooting drops it to about 9 fps. The CPU limits every slow
+moment. The graphics chip is light indoors and heavy outdoors, which would cap the outdoor fight near 19 fps once
+the CPU is faster.
 
 **r21v has now run on a real NTSC Dreamcast (GDEMU, S-Video).** r21x fixed what that first console test found:
 
@@ -42,12 +60,12 @@ Flycast resets there, the Dreamcast stops with an address error. r21y also shows
 
 **The VMU shows the speed.** Once a second the VMU in the first controller shows FPS (drawn frames per second),
 SPD (game speed, % of full speed), CPU (work per game tick as % of the time a tick has; above 100% the console is
-fully busy) and the pacing mode.
+fully busy) and the pacing mode. Test builds can add GPU (the graphics chip's render time per frame, mean/max ms).
 
 **First console measurements** (a self-running calibration disc on r21v's code, r100): one game-logic tick takes
 12.7 ms with Leon alone and 20.3 ms with eight Ganados, inside the 24 ms budget for 30 fps. A drawn frame takes about
-53 ms in a quiet view and 90-95 ms with four to eight Ganados, so **drawing is what keeps the game below 30 fps on
-the console**, and it is the next work. These figures fell inside the ranges the PC-side hardware model predicted
+53 ms in a quiet view and 90-95 ms with four to eight Ganados, so drawing was the first
+target; the r22 readings above show where the time goes now. These figures fell inside the ranges the PC-side hardware model predicted
 before the run.
 
 Checked in [Flycast](https://github.com/flyinghead/flycast) for r21y: examining the dead Ganado after s20 and then jumping out of the house window plays on (r21x resets there in Flycast and stops on the console); New Game, the radio call, inventory and the gameplay trace pass as for r21x. For r21x: the title / New Game sequence plays the three opening movies in full and reaches r100 gameplay; the radio call plays its voice; inventory open/close restores the saved game-memory area; no wall in front of the r100 bridge; gameplay traces match the previous build (the fixes change drawing only); the GDEMU image boots to the game's VMU prompt. These are separate checks; a continuous title-to-chapter-end playthrough remains pending.
@@ -61,15 +79,16 @@ The staged play data covers the following route; it is not the full game:
 | --- | --- | --- |
 | 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21y playthrough pending |
 | 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21y run remain unchecked |
-| 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene tested in earlier builds; the onward route remains unfinished |
+| 1-3 | r105, r101, r102, r108, r109, r10a | In the code but switched off in play builds: the rooms through r10a pass Flycast route checks, and doors into rooms not on the disc show "Coming Soon"; a console test of r22 with chapter 1-3 is next |
 
 The target remains **30 fps at full game speed on a real NTSC Dreamcast**. Flycast checks and hardware
 estimates do not establish physical-console performance or compatibility.
 
 ## Backlog
 
-1. Make drawing faster: on the console a drawn frame takes about 53 ms in a quiet view and 90-95 ms with
-   Ganados, against about 13-21 ms of game logic per tick.
+1. Speed up the fights on the console (r22: 70% speed and 10 fps with three Ganados): the enemies' game logic
+   (about 10 ms of every tick, with 9-11 Ganados active even when three are on screen), drawing Leon and the
+   Ganados, and, for 30 fps outdoors, the graphics chip's 43-55 ms per frame.
 2. Complete the continuous first-chapter playthrough, including combat, inventory, transitions and retry.
 3. Fix remaining scene/model/effect rendering gaps.
 4. Check normal chapter 1-2 emblem/key-item pickups and loading a save made inside r106.
@@ -83,10 +102,10 @@ estimates do not establish physical-console performance or compatibility.
 - **Untested pickups and saved-game reload.** Normal emblem and key-item pickups remain unchecked. A dedicated
   reload of a save made inside r106 is still needed. The earlier direct-start disc-open failure was fixed by
   serialized texture/disc reads; that test alone does not establish saved-game reload acceptance.
-- **Performance is below target on the console.** On a real Dreamcast a drawn frame takes about 53 ms in a quiet
-  r100 view and 90-95 ms with four to eight Ganados (r21v code, calibration disc); Fast pacing skips drawing frames
-  to keep the game speed up, so it can look choppy. The VMU shows the live numbers. Hold R and press START to cycle
-  the pacing mode.
+- **Performance is below target on the console.** r22 runs the quiet r100 house at full speed (about 22 fps) but
+  slows to 87% after the radio call, 67% before the window jump and about 70% (10 fps) in the fight after it (about
+  9 fps while shooting). Fast pacing skips drawing frames to keep the game speed up, so it can look choppy. The VMU
+  shows the live numbers. Hold R and press START to cycle the pacing mode.
 - **Room-entry pauses remain.** Texture packing reduced earlier measured Flycast entry loads to about 3 s;
   loading is still visible. Radio calls no longer require the earlier full room-texture reload in the tested case.
 - **Cutscene playback can still drop frames.** The r104 arrival has shown dropped pictures. During the
@@ -95,7 +114,8 @@ estimates do not establish physical-console performance or compatibility.
   remain flat and bright.
 - **Console testing has started.** r21v ran on a real NTSC Dreamcast with GDEMU; r21x fixes the two crashes and
   the drawing and sound problems found there. A full console playthrough of r21y is still pending. r21y fixes the camera
-  crash at the r100 house window found on r21x. A crash should show the on-screen crash report; please send a
+  crash at the r100 house window found on r21x. The r22g test disc played r100 through the
+  fight after the window jump on the console without a crash. A crash should show the on-screen crash report; please send a
   photo of it.
 
 ## Playing
