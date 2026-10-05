@@ -433,6 +433,35 @@ extern "C" int re4dc_actor_material_owner_proof(cModel* m,cModelInfo* info,unsig
         if(RE4DC_ROLE(r).appearance==appearance && RE4DC_ROLE(r).role==role && info_current(*i,r))return 1;
     return 0;
 }
+#if RE4DC_CROWD_READOPT && RE4DC_CROWD_READOPT_MEMO
+// CROWD_READOPT_MEMO (crowd.mk; render only, exact): a CROWD_READOPT proof that failed with its asset current (so at
+// the row / TPL owner stage, or with no free info slot) is remembered and not run again while nothing it read can
+// have changed. Every table it reads (archives, assets and their templates, live infos and free slots, the identity
+// rows) moves the epoch when it changes. What no epoch move covers is part of the memory and checked each time: the
+// info, its pData and tpl_addr, the TPL's descriptor word (calcTplAddr relocates in place without a notification) and
+// the asset's current() (pending conversions, section pointers relocated by calcModelAddr). The sub screen park keeps
+// the full proof (its info retire drops parked records). A failed proof has no side effect outside the park, so a
+// remembered failure is the same outcome as the proof (the r100 s03 corpse re-proved it every drawn tick: ~0.76 ms).
+namespace re4dc_material { namespace life {
+struct AdoptMiss { const void* info;const void* data;const void* tpl;unsigned tpl_word,epoch; };
+AdoptMiss adopt_miss[4]{};unsigned adopt_miss_next;
+// note=false: 1 when p's proof is remembered as failed under the current key; note=true: remember it (returns 0).
+bool adopt_memo(const cModelInfo* p,bool note) {
+#if RE4DC_SS_CERT
+    if(park.open)return false;
+#endif
+    unsigned ai=0;while(ai<kAssets && assets[ai].data!=p->pData)++ai;   // re4dc_actor_info_adopt's asset lookup
+    if(exhausted || ai==kAssets || !current(assets[ai]))return false;
+    unsigned word=0;
+    for(const auto& o:archives)if(o.key && span(o.base,o.bytes,p->tpl_addr,12)){word=u32at(p->tpl_addr,8);break;}
+    const AdoptMiss key{p,p->pData,p->tpl_addr,word,epoch};
+    if(note){adopt_miss[adopt_miss_next++&3]=key;return false;}
+    for(const auto& k:adopt_miss)
+        if(k.info==key.info && k.data==key.data && k.tpl==key.tpl && k.tpl_word==key.tpl_word && k.epoch==key.epoch)return true;
+    return false;
+}
+} }
+#endif
 extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInfo** out,unsigned count) {
     using namespace re4dc_material;using namespace life;
 #if RE4DC_NATIVE_MODEL_REGISTRY
@@ -456,7 +485,14 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
         // (re4dc_actor_info_adopt: current asset sections, the reviewed TPL owner and row). Nothing is assumed:
         // an info that fails the proof stays unadopted and its actor keeps the source path.
         // =1: Ganados only (Leon keeps whichever path he has today); =2: Ganados and Leon (appearance 256).
+#if RE4DC_CROWD_READOPT_MEMO
+        if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)) {
+            if(!adopt_memo(p,false)){re4dc_actor_info_adopt(p);i=find_info(p);if(!i)adopt_memo(p,true);}
+            CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));
+        }
+#else
         if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
+#endif
 #endif
 #if RE4DC_ACTOR_TRANSACTION_DIAG
         if(!i)re4dc_actor_txdiag_info(m,p,n-1);

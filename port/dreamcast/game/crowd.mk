@@ -144,6 +144,17 @@ CROWD_FREEZE_AT ?= 0
 CROWD_FREEZE_AT2 ?= 0
 CROWD_FREEZE_HOLD ?= 0
 CROWD_READOPT ?= 0
+# CROWD_READOPT_MEMO=1 (perf-20261004 candidate 3; render only, exact; needs CROWD_READOPT): a re-adoption proof that
+#              failed with its asset current is not run again until the lifetime epoch moves or the info's pData /
+#              tpl_addr / TPL descriptor word / asset current() change (actor_lifetime.inc). The r100 h-fight s03
+#              corpse (id 0x12) failed it every drawn tick (~0.76 hw ms) and then drew through the source path anyway.
+CROWD_READOPT_MEMO ?= 0
+ifeq ($(filter $(CROWD_READOPT_MEMO),0 1),)
+$(error CROWD_READOPT_MEMO must be 0 or 1)
+endif
+ifeq ($(CROWD_READOPT_MEMO)$(CROWD_READOPT),10)
+$(error CROWD_READOPT_MEMO=1 needs CROWD_READOPT=1 or 2)
+endif
 CROWD_FOGSKIP ?= 0
 CROWD_FAR_M ?= 0
 CROWD_NEAR_MAX ?= -1
@@ -166,6 +177,9 @@ ifneq ($(filter-out 0,$(CROWD_FAR_M))$(filter-out -1,$(CROWD_NEAR_MAX)),)
 CROWD_DEFS += -DRE4DC_CROWD_FAR=1
 endif
 $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += $(CROWD_DEFS)
+ifeq ($(CROWD_READOPT_MEMO),1)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_CROWD_READOPT_MEMO=1
+endif
 # The census and the cull check read native_ui.cpp's emitted-triangle total (otherwise a silent missing-symbol stub).
 ifneq ($(CROWD_CENSUS)$(filter 2,$(CROWD_CULL)),0)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
