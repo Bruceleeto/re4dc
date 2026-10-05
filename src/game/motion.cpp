@@ -1606,6 +1606,228 @@ int hermiteFast(HermitePrm* prm, Vec* out, u16* hist)
     return ret;
 }
 
+#if defined(RE4DC_HF_REG) && RE4DC_HF_REG
+#if defined(RE4DC_HF_ASM) && RE4DC_HF_ASM
+#error GAME_HF_REG and GAME_HF_ASM both replace hermiteSelected
+#endif
+// GAME_HF_REG (game30.mk; lane logic 2026-10-04; exact): hermiteFast once per common key layout (5, 0, 6:
+// 95% of the calls) at an even key address, where every axis header, frame array and value field is
+// 2-aligned (strides 6 / 12 / 4 keep the evenness): the frame and count halfwords are plain aligned loads
+// (hermiteFast composes them byte by byte: u16_un), the stride is a constant (no mul.l), and the value /
+// tangent pair lives in registers instead of the stack arrays the table fallback needs. The search, the
+// history reads / writes, the clamp / loop handling, the decode conversions (hfS16 / hfS8 / hfF32: the same
+// loads and the same * 0.0001f) and hfHermite's expression are hermiteFast's, in the same order; f0 / f1 /
+// the pair persist across the three axes as there. The two rare cases that need hermiteFast's own state
+// (an invalid history index: its error log and return value 1; a search that runs out: the blend of a stale,
+// possibly uninitialised pair) put the three history words back and hand the whole call to hermiteFast,
+// which recomputes the earlier axes from the same inputs (a pure function of prm, the history and the key
+// data): no call inside the loop, so the pair stays in caller-saved registers. Odd keys and the other
+// layouts take hermiteFast. =2 (check build): hermiteFast runs first on a copy of the history and every
+// output word, history slot and return value is compared ("HFR" lines; bails counted).
+template <int T>
+struct HfLayout;
+template <>
+struct HfLayout<5> {
+    enum { S = 6 };
+    static f32 v(const u8* d, int i) { return hfS16(d + i * 6); }
+    static f32 t0(const u8* d, int i) { return hfS16(d + i * 6 + 4); }
+    static f32 t1(const u8* d, int i) { return hfS16(d + i * 6 + 2); }
+};
+template <>
+struct HfLayout<0> {
+    enum { S = 12 };
+    static f32 v(const u8* d, int i) { return hfF32(d + i * 12); }
+    static f32 t0(const u8* d, int i) { return hfF32(d + i * 12 + 8); }
+    static f32 t1(const u8* d, int i) { return hfF32(d + i * 12 + 4); }
+};
+template <>
+struct HfLayout<6> {
+    enum { S = 4 };
+    static f32 v(const u8* d, int i) { return hfS16(d + i * 4); }
+    static f32 t0(const u8* d, int i) { return hfS8(d + i * 4 + 3); }
+    static f32 t1(const u8* d, int i) { return hfS8(d + i * 4 + 2); }
+};
+#if RE4DC_HF_REG == 2
+extern "C" void re4dc_log(const char*, ...);
+u32 hfrCalls, hfrFast, hfrBail, hfrMisOut, hfrMisHist, hfrMisRet;
+#endif
+template <int T>
+__attribute__((noinline)) int hfReg(HermitePrm* prm, Vec* out, u16* hist)
+{
+    typedef HfLayout<T> L;
+    f32 frame = prm->frame;
+    const f32 maxFrame = prm->maxFrame;
+    const u32 flags = prm->flags;
+    const u8* p = prm->key;
+    f32* o = (f32*) out;
+    f32 r = 0.0f;
+    f32 f0 = r;
+    f32 f1 = r;
+    f32 v0, v1, t0, t1;   // hermiteFast's val[0], val[1], tan[0], tan[1]
+    const u16 hs0 = hist[0], hs1 = hist[1], hs2 = hist[2];   // put back when the call goes to hermiteFast
+
+    for (int axis = 0; axis <= 2; axis++) {
+        const int n = *(const u16*) p;
+        const u16* frames = (const u16*) p + 1;
+        const u8* data = (const u8*) (frames + n);
+        u16* hp = hist + axis;
+        p = data + n * L::S;
+#if defined(RE4DC_HF_PF) && RE4DC_HF_PF
+        if (axis < 2) {
+            __builtin_prefetch(p);   // as GAME_HF_PF in hermiteFast: the next axis' header
+        }
+#endif
+        int cnt = n;
+        int found = 0;
+        if (maxFrame <= frame) {
+            if ((flags & 6) == 4) {
+                frame -= maxFrame;
+                if (!(flags & 8)) {
+                    *hp = 0;
+                }
+            } else {
+                v0 = L::v(data, n - 1);
+                v1 = L::v(data, 0);
+                t0 = L::t0(data, n - 1);
+                t1 = L::t1(data, 0);
+                cnt = 0;
+                found = 1;
+                r = v0;
+            }
+        }
+        int idx = !(flags & 8) ? *hp : 0;
+        const int last = n - 1;
+        if (idx > last) {
+            goto bail;   // hermiteFast logs it, restarts the axis at 0 and returns 1
+        }
+        if (cnt != 0) {
+            const u16* fp = frames + idx;
+            do {
+                f0 = (f32) *fp;
+                if (f0 == frame) {
+                    v0 = L::v(data, idx);
+                    v1 = L::v(data, 0);
+                    t0 = L::t0(data, idx);
+                    t1 = L::t1(data, 0);
+                    r = v0;
+                    if (!(flags & 8)) {
+                        *hp = idx;
+                    }
+                    found = 1;
+                    break;
+                }
+                if (f0 < frame) {
+                    int nx = idx + 1;
+                    if (nx > last) {
+                        nx = 0;
+                    }
+                    f1 = (f32) frames[nx];
+                    if (frame < f1) {
+                        v0 = L::v(data, idx);
+                        v1 = L::v(data, nx);
+                        t0 = L::t0(data, idx);
+                        t1 = L::t1(data, nx);
+                        if (!(flags & 8)) {
+                            *hp = idx;
+                        }
+                        break;
+                    }
+                }
+                if ((flags & 1) || f0 > frame) {
+                    fp--;
+                    idx--;
+                    if (idx < 0) {
+                        fp = frames + last;
+                        idx = last;
+                    }
+                } else {
+                    idx++;
+                    fp++;
+                    if (idx > last) {
+                        fp = frames;
+                        idx = 0;
+                    }
+                }
+                if (--cnt == 0) {
+                    goto bail;   // ran out: hermiteFast blends its stale pair
+                }
+            } while (true);
+        }
+        if (!found) {
+            const f32 t = (frame - f0) / (f1 - f0);
+            const f32 tt2 = t * t;
+            const f32 tt3 = t * tt2;
+            const f32 h01 = -(tt3 + tt3) + 3.0f * tt2;
+            const f32 h11 = tt3 - tt2;
+            const f32 h10 = h11 - tt2 + t;
+            const f32 h00 = -h01 + 1.0f;
+
+            r = v0 * h00 + v1 * h01 + t0 * h10 + t1 * h11;   // hfHermite(val, tan, t)
+        }
+        o[axis] = r;
+    }
+    return 0;
+bail:
+#if RE4DC_HF_REG == 2
+    hfrBail++;
+#endif
+    hist[0] = hs0;
+    hist[1] = hs1;
+    hist[2] = hs2;
+    return hermiteFast(prm, out, hist);
+}
+int hermiteReg(HermitePrm* prm, Vec* out, u16* hist)
+{
+#if RE4DC_HF_REG == 2
+    const u16 h0[3] = {hist[0], hist[1], hist[2]};
+    Vec ro;
+    const int rr = hermiteFast(prm, &ro, hist);
+    const u16 rh[3] = {hist[0], hist[1], hist[2]};
+    hist[0] = h0[0];
+    hist[1] = h0[1];
+    hist[2] = h0[2];
+    int fr;
+    if (!((u32) prm->key & 1) && (prm->type == 5 || prm->type == 0 || prm->type == 6)) {
+        hfrFast++;
+    }
+#define HFR_RET(x) fr = (x); goto check
+#else
+#define HFR_RET(x) return (x)
+#endif
+    if (!((u32) prm->key & 1)) {
+        switch (prm->type) {
+        case 5:
+            HFR_RET(hfReg<5>(prm, out, hist));
+        case 0:
+            HFR_RET(hfReg<0>(prm, out, hist));
+        case 6:
+            HFR_RET(hfReg<6>(prm, out, hist));
+        default:
+            break;
+        }
+    }
+    HFR_RET(hermiteFast(prm, out, hist));
+#undef HFR_RET
+#if RE4DC_HF_REG == 2
+check:
+    {
+        u32 a[3], b[3];
+        __builtin_memcpy(a, &ro, 12);
+        __builtin_memcpy(b, out, 12);
+        hfrMisOut += (a[0] != b[0]) + (a[1] != b[1]) + (a[2] != b[2]);
+        hfrMisHist += (rh[0] != hist[0]) + (rh[1] != hist[1]) + (rh[2] != hist[2]);
+        hfrMisRet += rr != fr;
+        if ((++hfrCalls & 0xFFF) == 0) {
+            re4dc_log("HFR calls=%u fast=%u bail=%u mismatch_out=%u mismatch_hist=%u mismatch_ret=%u\n", hfrCalls,
+                      hfrFast, hfrBail, hfrMisOut, hfrMisHist, hfrMisRet);
+        }
+        return fr;
+    }
+#endif
+}
+#define hermiteSelected hermiteReg
+#endif
+
 #if defined(RE4DC_HF_ASM) && RE4DC_HF_ASM
 extern "C" int re4dc_hf_run(HermitePrm*, Vec*, u16*);
 extern "C" void re4dc_log(const char*, ...);
@@ -1714,7 +1936,7 @@ int hermiteSelected(HermitePrm* prm, Vec* out, u16* hist)
 #endif
     return ret;
 }
-#else
+#elif !(defined(RE4DC_HF_REG) && RE4DC_HF_REG)
 #define hermiteSelected hermiteFast
 #endif
 

@@ -1630,6 +1630,21 @@ $(OBJDIR)/platform/hf_sh4.o: platform/hf_sh4.S
 	kos-cc $(KOS_CFLAGS) -DRE4DC_HF_PF=$(GAME_HF_PF) -c $< -o $@
 $(OBJDIR)/src/game/motion.o: GAME_CPPFLAGS += -DRE4DC_HF_ASM=$(GAME_HF_ASM)
 endif
+# ---- lane logic (2026-10-04; gameplay CPU, exact; gate: LOGIC_TRACE STRICT) ----
+# GAME_HF_REG=1 (exact; with GAME_HERMITE_FAST, not with GAME_HF_ASM): hermiteFast once per common key layout
+#               (5, 0, 6) at an even key address: aligned frame / count loads, a constant stride, the value /
+#               tangent pair in registers; the same search, history, decode conversions and blend expression
+#               (motion.cpp hfReg). =2 (check build): hermiteFast runs first and is compared ("HFR" lines).
+GAME_HF_REG ?= 0
+ifneq ($(GAME_HF_REG),0)
+ifeq ($(GAME_HERMITE_FAST),0)
+$(error GAME_HF_REG needs GAME_HERMITE_FAST)
+endif
+ifneq ($(GAME_HF_ASM),0)
+$(error GAME_HF_REG and GAME_HF_ASM both replace the hermite entry)
+endif
+$(OBJDIR)/src/game/motion.o: GAME_CPPFLAGS += -DRE4DC_HF_REG=$(GAME_HF_REG)
+endif
 
 # Draw original non-scenery objects on coarse images; candidate, default off.
 COARSE_SOURCE_OBJECTS ?= 0
