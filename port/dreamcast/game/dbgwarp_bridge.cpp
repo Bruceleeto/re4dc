@@ -41,6 +41,7 @@
 //   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
 //   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n> |
 //   god (Leon's life refilled every frame) | alert <frame> (the crowd hunts Leon from that frame of its entry)
+//   fxmode <flags> (EFFECT_PS2_TOGGLE builds: the effect look at load; 1 fade clamp, 2 PS2 haze, 4 PS2 streak)
 //  - Later rooms: `entry <n>` (n >= 2) scopes the `act` / `goto` lines after it to the n-th room entry of the run
 //    (their frames count in that room; the door that leads there is the source's). Without it every act / goto
 //    belongs to the first room, as before. A fixture with entries also logs Leon's placement in those rooms.
@@ -67,6 +68,9 @@ u32 re4dc_vi_retrace_count(void);
 
 int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
 void re4dc_fixture_state(const char* name, int a, int b);  // pad.cpp fixture anchors (overlay)
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+void re4dc_ps2fx_set(unsigned flags);  // esp_sub.cpp (effects30.mk EFFECT_PS2_TOGGLE)
+#endif
 }
 
 namespace {
@@ -260,6 +264,10 @@ void load()
         } else if (!strcmp(k, "freeze") && n >= 2) {
             wp.has_freeze = true;
             wp.freeze_tick = num(tok[1]);
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+        } else if (!strcmp(k, "fxmode") && n >= 2) {
+            re4dc_ps2fx_set(num(tok[1]));
+#endif
         } else if (!strcmp(k, "late") && n >= 2) {
             wp.has_late = true;
             wp.late_mask = num(tok[1]);

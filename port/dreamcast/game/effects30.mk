@@ -65,12 +65,79 @@ $(error ESP47_SKIP_LEAN needs PACE_CATCHUP (pace.cpp re4dc_pace_skipping))
 endif
 $(OBJDIR)/src/game/esp47.o: GAME_CPPFLAGS += -DRE4DC_ESP47_SKIP_LEAN=$(ESP47_SKIP_LEAN)
 endif
+#   EFFECT_PS2_HAZE=1 (needs EFFECT_SPRITES=1 and EFFECT_ROOM bit 4; lane ph 2026-10-05): the room generator's
+#                    camera haze (Esp15, owner 0xd0) as the PS2 release draws it, in the rooms whose PS2 EFF has it
+#                    (r100, r101, r103; others unchanged): a fixed subset of the live sprites (pool slot % 5 / 2 / 1)
+#                    inside the PS2's camera box (5.0 / 5.0 / 5.3 m deep), the PS2 size (x1.48 / 1.46 / 1.64), colour,
+#                    alpha (34 / 35 / 35 against GC 70 / 25 / 30) and fades (near 3.0 -> 0.5 m, far: last 30 % of the
+#                    box). About 11 / 8 / 11 sprites in view against GC 60 / 39 / 41 live. Render only: the
+#                    generator, its Rnd() draws and every sprite's motion run as before; only the draw is changed.
+#   EFFECT_PS2_STREAK=1 (needs EFFECT_SPRITES=1 and EFFECT_ROOM bit 2): r100's house window streaks (sst 0x09
+#                    records 5, 8, 13: the Esp0a copies, up to ~80 static additive sprites; the stairs glare) are
+#                    not drawn, as on the PS2. =2 (needs EFFECT_FADE_CLAMP=1) also draws the PS2's light shafts in
+#                    their place (texture e9: the stairs window's, inside its PS2 area 13, and the back window's
+#                    two). Render only: the generators, their Rnd() and the copies themselves still run.
+#   EFFECT_FADE_CLAMP=1 port fix: ChannelSet's near fade (m_Del_far -> m_Del_near) goes negative inside m_Del_near;
+#                    the GameCube's (u8) store saturates that to 0, SH-4 wrapped it (near-opaque sprites inside the
+#                    near distance: haze within 1 m, the streak copies, the dust). Clamped at 0. Render only.
+#   EFFECT_PS2_TOGGLE=1 test builds (needs one of the three above): the look starts at the GameCube's (as the
+#                    base) and hold X + press START steps GC -> GF (fade clamp) -> PH (PS2 haze) -> PS (PS2 haze +
+#                    streak) over the built ones (START is masked while the chord is down; L/R must be up: R + START
+#                    paces, L + START is the debug slot); the PACE_VMU page shows the look after its GPU (or MODE)
+#                    line; DBG_WARP's warp.txt `fxmode <flags>` (1 clamp, 2 haze, 4 streak) sets it at load.
+EFFECT_PS2_HAZE ?= 0
+EFFECT_PS2_STREAK ?= 0
+EFFECT_FADE_CLAMP ?= 0
+EFFECT_PS2_TOGGLE ?= 0
+ifneq ($(filter-out 0 1,$(EFFECT_PS2_HAZE))$(filter-out 0 1 2,$(EFFECT_PS2_STREAK))$(filter-out 0 1,$(EFFECT_FADE_CLAMP))$(filter-out 0 1,$(EFFECT_PS2_TOGGLE)),)
+$(error EFFECT_PS2_HAZE / EFFECT_FADE_CLAMP / EFFECT_PS2_TOGGLE are 0 or 1, EFFECT_PS2_STREAK 0..2)
+endif
+ifneq ($(EFFECT_PS2_HAZE)$(EFFECT_PS2_STREAK),00)
+ifneq ($(EFFECT_SPRITES),1)
+$(error EFFECT_PS2_HAZE / EFFECT_PS2_STREAK need EFFECT_SPRITES=1)
+endif
+endif
+ifeq ($(EFFECT_PS2_HAZE),1)
+ifeq ($(filter 4 5 6 7,$(EFFECT_ROOM)),)
+$(error EFFECT_PS2_HAZE needs EFFECT_ROOM bit 4 (the haze class drawn))
+endif
+endif
+ifneq ($(EFFECT_PS2_STREAK),0)
+ifeq ($(filter 2 3 6 7,$(EFFECT_ROOM)),)
+$(error EFFECT_PS2_STREAK needs EFFECT_ROOM bit 2 (the room glows / streaks drawn))
+endif
+endif
+ifeq ($(EFFECT_PS2_STREAK),2)
+ifneq ($(EFFECT_FADE_CLAMP),1)
+$(error EFFECT_PS2_STREAK=2 needs EFFECT_FADE_CLAMP=1 (the shafts' near fade))
+endif
+endif
+ifeq ($(EFFECT_PS2_TOGGLE),1)
+ifeq ($(EFFECT_PS2_HAZE)$(EFFECT_PS2_STREAK)$(EFFECT_FADE_CLAMP),000)
+$(error EFFECT_PS2_TOGGLE needs EFFECT_PS2_HAZE, EFFECT_PS2_STREAK or EFFECT_FADE_CLAMP)
+endif
+$(OBJDIR)/platform/pad.o: PLATFORM_CPPFLAGS += -DRE4DC_EFFECT_PS2_TOGGLE=1
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_EFFECT_PS2_TOGGLE=1
+$(OBJDIR)/dbgwarp_bridge.o: GAME_CPPFLAGS += -DRE4DC_EFFECT_PS2_TOGGLE=1
+endif
 .PHONY: effects30-force
 $(OBJDIR)/effects30.h: effects30-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_EFFECT_LEAN %s\n#define RE4DC_EFFECT_SPRITES %s\n#define RE4DC_EFFECT_SPRITE_MAX %s\n' '$(EFFECT_LEAN)' '$(EFFECT_SPRITES)' '$(EFFECT_SPRITE_MAX)' > $@.tmp
 ifneq ($(EFFECT_ROOM),0)
 	@printf '#define RE4DC_EFFECT_ROOM %s\n' '$(EFFECT_ROOM)' >> $@.tmp
+endif
+ifneq ($(EFFECT_PS2_HAZE),0)
+	@printf '#define RE4DC_EFFECT_PS2_HAZE %s\n' '$(EFFECT_PS2_HAZE)' >> $@.tmp
+endif
+ifneq ($(EFFECT_PS2_STREAK),0)
+	@printf '#define RE4DC_EFFECT_PS2_STREAK %s\n' '$(EFFECT_PS2_STREAK)' >> $@.tmp
+endif
+ifneq ($(EFFECT_FADE_CLAMP),0)
+	@printf '#define RE4DC_EFFECT_FADE_CLAMP %s\n' '$(EFFECT_FADE_CLAMP)' >> $@.tmp
+endif
+ifneq ($(EFFECT_PS2_TOGGLE),0)
+	@printf '#define RE4DC_EFFECT_PS2_TOGGLE %s\n' '$(EFFECT_PS2_TOGGLE)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp

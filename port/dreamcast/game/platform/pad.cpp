@@ -389,6 +389,9 @@ int re4dc_pad_debug_state(void);  // ui_bridge.cpp: RE4DC_PAD_DBG_* (which debug
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG
 void re4dc_pace_cycle_mode(void);  // pace.cpp: Smooth -> Fast -> Off (test builds)
 #endif
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+void re4dc_ps2fx_cycle(void);  // esp_sub.cpp: the next effect look (effects30.mk EFFECT_PS2_TOGGLE)
+#endif
 
 #if RE4DC_ROUTE_MOVIES
 static u16 movie_skip_latch;
@@ -522,6 +525,25 @@ u32 PADRead(PADStatus* status)
                 paceChord = 0;
             }
             if (paceChord) p->button &= (u16) ~PAD_BUTTON_START;
+        }
+#endif
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+        // Test builds (effects30.mk EFFECT_PS2_TOGGLE): a START press that begins with X held (L and R up: R + START
+        // paces, L + START is the debug slot) steps the effect look (esp_sub.cpp re4dc_ps2fx_cycle: GC, GF, PH,
+        // PS); that START is masked until released. X has no game function. Real bits only; fixture bits pass.
+        if (i == 0) {
+            static u8 fxStartHeld, fxChord;
+            if (mapped.button & PAD_BUTTON_START) {
+                if (!fxStartHeld && (mapped.button & (PAD_TRIGGER_L | PAD_TRIGGER_R | PAD_BUTTON_X)) == PAD_BUTTON_X) {
+                    fxChord = 1;
+                    re4dc_ps2fx_cycle();
+                }
+                fxStartHeld = 1;
+            } else {
+                fxStartHeld = 0;
+                fxChord = 0;
+            }
+            if (fxChord) p->button &= (u16) ~PAD_BUTTON_START;
         }
 #endif
 #if RE4DC_VMU_DEBUG_SLOT

@@ -67,6 +67,9 @@ extern "C" int re4dc_quality_pace(void) __attribute__((weak));      // QUALITY b
 #if RE4DC_PACE_CHECK
 extern "C" unsigned re4dc_logic_trace_hash(void);                  // logic_trace.cpp
 #endif
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+extern "C" const char* re4dc_ps2fx_label(void);                    // esp_sub.cpp (effects30.mk EFFECT_PS2_TOGGLE)
+#endif
 
 enum { PACE_SMOOTH = 0, PACE_FAST = 1, PACE_OFF = 2 };
 // Smooth's floor; PACE_FLOOR_FPS=0 makes Fast the default mode.
@@ -310,10 +313,19 @@ void vmu_window(unsigned cost, u32 now)
     char gpu[16];
     if (a.rnd_n) {
         const unsigned long long mean = (a.rnd_sum / a.rnd_n + 500000) / 1000000, peak = (a.rnd_max + 500000) / 1000000;
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+        // EFFECT_PS2_TOGGLE: the effect look (GC / GF / PH / PS) after the GPU numbers
+        snprintf(gpu, sizeof(gpu), "GPU %u/%u %s", unsigned(mean < 999 ? mean : 999), unsigned(peak < 999 ? peak : 999),
+                 re4dc_ps2fx_label());
+    } else {
+        snprintf(gpu, sizeof(gpu), "GPU - %s", re4dc_ps2fx_label());
+    }
+#else
         snprintf(gpu, sizeof(gpu), "GPU %u/%u", unsigned(mean < 999 ? mean : 999), unsigned(peak < 999 ? peak : 999));
     } else {
         snprintf(gpu, sizeof(gpu), "GPU -");
     }
+#endif
     snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%%\n%s\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
              gpu, kModeName[re4dc_pace_mode % 3]);
     // busy: the window's summed render time as % of its wall time (dvb fields of 16,683 us)
@@ -329,8 +341,13 @@ void vmu_window(unsigned cost, u32 now)
               a.wait_n ? unsigned(a.wait_sum / a.wait_n / 1000) : 0, unsigned(a.wait_max / 1000), a.reg_n,
               a.reg_n ? unsigned(a.reg_sum / a.reg_n / 1000) : 0, page);
 #else
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+    snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%% %s\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
+             re4dc_ps2fx_label(), kModeName[re4dc_pace_mode % 3]);
+#else
     snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%%\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
              kModeName[re4dc_pace_mode % 3]);
+#endif
 #endif
     vmufb_clear(&v_lcd);
     vmufb_print_string(&v_lcd, nullptr, text);

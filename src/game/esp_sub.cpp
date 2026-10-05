@@ -51,6 +51,65 @@ extern f32 ZFAR;
 #if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST && !(RE4DC_EFFECT_LEAN && RE4DC_EFFECT_SPRITES)
 #error ESP_SPRITE_FAST needs EFFECT_LEAN=1 and EFFECT_SPRITES=1
 #endif
+#ifndef RE4DC_EFFECT_PS2_HAZE
+#define RE4DC_EFFECT_PS2_HAZE 0
+#endif
+#ifndef RE4DC_EFFECT_PS2_STREAK
+#define RE4DC_EFFECT_PS2_STREAK 0
+#endif
+#ifndef RE4DC_EFFECT_FADE_CLAMP
+#define RE4DC_EFFECT_FADE_CLAMP 0
+#endif
+#define RE4DC_PS2FX_DRAW (RE4DC_EFFECT_PS2_HAZE || RE4DC_EFFECT_PS2_STREAK)
+#if RE4DC_PS2FX_DRAW || RE4DC_EFFECT_FADE_CLAMP
+// D367 effect look knobs (effects30.mk EFFECT_PS2_HAZE / EFFECT_PS2_STREAK / EFFECT_FADE_CLAMP / EFFECT_PS2_TOGGLE).
+// Render only: they change what a sprite draws, never an effect's state or a Rnd() draw. re4dc_ps2fx holds the
+// active features (all built ones; EFFECT_PS2_TOGGLE builds start at none, X + START steps them, warp `fxmode`).
+#if RE4DC_PS2FX_DRAW && !RE4DC_EFFECT_SPRITES
+#error EFFECT_PS2_HAZE / EFFECT_PS2_STREAK need EFFECT_SPRITES=1
+#endif
+extern "C" void re4dc_log(const char* fmt, ...);
+enum { PS2FX_CLAMP = 1, PS2FX_HAZE = 2, PS2FX_STREAK = 4 };
+#define PS2FX_BUILT                                                                                                 \
+    ((RE4DC_EFFECT_FADE_CLAMP ? PS2FX_CLAMP : 0) | (RE4DC_EFFECT_PS2_HAZE ? PS2FX_HAZE : 0) |                         \
+     (RE4DC_EFFECT_PS2_STREAK ? PS2FX_STREAK : 0))
+extern "C" {
+#if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
+u8 re4dc_ps2fx = 0;
+#else
+u8 re4dc_ps2fx = PS2FX_BUILT;
+#endif
+// VMU label: GC (as the base), GF (GC + the fade clamp), PH (PS2 haze), PS (PS2 haze + streak), ST (streak only).
+const char* re4dc_ps2fx_label(void)
+{
+    const unsigned f = re4dc_ps2fx;
+    return (f & PS2FX_HAZE) ? ((f & PS2FX_STREAK) ? "PS" : "PH") : (f & PS2FX_STREAK) ? "ST" : (f & PS2FX_CLAMP) ? "GF" : "GC";
+}
+void re4dc_ps2fx_set(unsigned f)
+{
+    re4dc_ps2fx = (u8) (f & PS2FX_BUILT);
+    re4dc_log("ps2fx: %s (flags %u)\n", re4dc_ps2fx_label(), (unsigned) re4dc_ps2fx);
+}
+// The next look of GC -> GF -> PH -> PS (the states this build has).
+void re4dc_ps2fx_cycle(void)
+{
+    static const u8 seq[4] = {0, PS2FX_CLAMP, PS2FX_CLAMP | PS2FX_HAZE, PS2FX_CLAMP | PS2FX_HAZE | PS2FX_STREAK};
+    int cur = 0;
+    for (int i = 0; i < 4; ++i) {
+        if ((seq[i] & PS2FX_BUILT) == re4dc_ps2fx) {
+            cur = i;
+        }
+    }
+    for (int k = 1; k <= 4; ++k) {
+        const u8 c = (u8) (seq[(cur + k) & 3] & PS2FX_BUILT);
+        if (c != re4dc_ps2fx) {
+            re4dc_ps2fx_set(c);
+            return;
+        }
+    }
+}
+}
+#endif
 #if RE4DC_EFFECT_SPRITES
 // D367 EFFECT_SPRITES (effects30.mk): the approved effect classes as native PVR sprites. Reads
 // game state only (m_Mat, the texture work, ChannelSet's colour, the current GX projection).
@@ -84,6 +143,169 @@ static int EspSpriteEligible(cEsp* esp)
     }
     return 1;
 }
+#if RE4DC_PS2FX_DRAW
+#include "player.h"
+#if RE4DC_EFFECT_PS2_HAZE
+// EFFECT_PS2_HAZE: the room generator's camera haze (Esp15, owner 0xd0) drawn as the PS2 release draws it
+// (SLUS-211.34 rNNN.dat EFF): a fixed subset of the live sprites (pool slot % every) inside the PS2's smaller
+// camera box (depth [0, range), +-0.6 range across), the PS2 size (corners scaled about the centre by the
+// steady-state size ratio: Size_base x (1 + Size_plus / (1 - D_size_plus)), PS2 / GC), the PS2 colour and
+// alpha with the PS2 fades (near: Work8 30 / 5 -> 3.0 m to 0.5 m; far: the last 30 % of the box) and the
+// GC's indoor fade counter. Expected sprites in view = live / every x (range_ps2 / range_gc)^3, the PS2 count.
+struct Ps2fxHaze {
+    u16 room;
+    u8 every;
+    u8 r, g, b, a;
+    f32 range;
+    f32 scale;
+};
+static const Ps2fxHaze kPs2Haze[3] = {
+    // r100: GC 60 x 1283.056 mm (+0.011), alpha 70, R 5090.2; PS2 11 x 2000 mm (+0.010), (235,235,210,34), R 5000
+    {0x100, 5, 235, 235, 210, 34, 5000.0f, (2000.0f * 2.0f) / (1283.056f * 2.1f)},
+    // r101: GC 39 x 1299.956 mm, alpha 25, R 6860.2; PS2 8 x 1900 mm, (255,250,240,35), R 5000
+    {0x101, 2, 255, 250, 240, 35, 5000.0f, 1900.0f / 1299.956f},
+    // r103: GC 41 x 1283.056 mm, alpha 30, R 7954.4; PS2 11 x 2100 mm, (255,255,225,35), R 5300
+    {0x103, 1, 255, 255, 225, 35, 5300.0f, 2100.0f / 1283.056f},
+};
+static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
+{
+    if (!(re4dc_ps2fx & PS2FX_HAZE) || esp->m_Id != 0x15 || esp->info.owner != 0xD0) {
+        return NULL;
+    }
+    const u16 room = G_ROOM_ID;
+    for (int i = 0; i < 3; ++i) {
+        if (kPs2Haze[i].room == room) {
+            return &kPs2Haze[i];
+        }
+    }
+    return NULL;
+}
+// esp15.cpp's work (cEsp15::m_Free), read for the indoor fade counter.
+struct Ps2fxEsp15Work {
+    f32 Range;
+    f32 Del_ratio;
+    f32 Base_alpha;
+    f32 Min_y;
+    u8 Room_del_frame;
+    u8 Room_del_cnt;
+};
+class cPs2fxEsp15 : public cEsp {
+public:
+    Ps2fxEsp15Work m_Free;
+};
+#endif
+#if RE4DC_EFFECT_PS2_STREAK
+// EFFECT_PS2_STREAK: r100's house window streaks (sst 0x09, area 2: records 5, 8 and 13 are Esp0a type 0, which
+// lays up to 50 static id-0 copies along each record's path at spawn). The PS2 release has none of them: =1 skips
+// the copies (the generators, their Rnd() and the copies themselves still run). =2 also draws the PS2 light
+// shafts (texture e9, world-oriented, additive): the stairs window's (PS2 sst 0x06, its own area 13) and the back
+// window's two (PS2 sst 0x09 records 2/3), at the first copy of record 8 / 13 (the record's own position).
+struct Ps2fxStreak {
+    u8 tex;
+    u16 del_far, del_near;
+    Vec anchor;
+};
+static const Ps2fxStreak kPs2Streak[3] = {
+    {0x32, 300, 180, {-85734.398f, 3311.835f, -32300.832f}},   // record 5: side window (PS2 keeps GC 6/7's shafts)
+    {0x1f, 200, 100, {-73739.398f, 4998.185f, -32454.699f}},   // record 8: the stairs window glare
+    {0x32, 260, 100, {-82371.102f, 2484.679f, -29994.271f}},   // record 13: the back window
+};
+#if RE4DC_EFFECT_PS2_STREAK >= 2
+struct Ps2fxShaft {
+    Vec pos;
+    f32 ang_x;   // degrees
+    f32 w, h;
+    u8 r, g, b, a;
+    u16 del_far, del_near;   // x10 mm (EspGenWork Del_far * 10)
+};
+static const Ps2fxShaft kPs2Stairs = {{-73739.398f, 4678.185f, -32454.699f}, 40.0f, 1801.0f, 2700.0f, 255, 255, 235, 34, 380, 180};
+static const Ps2fxShaft kPs2Back[2] = {
+    {{-82371.102f, 2384.679f, -29994.271f}, 69.0f, 946.666f, 2100.0f, 255, 255, 225, 60, 300, 150},
+    {{-82371.102f, 2324.679f, -29994.271f}, 59.0f, 946.666f, 2100.0f, 255, 255, 225, 50, 300, 150},
+};
+// PS2 r100_11.EAR entry 17 (area 13, xz4): the player test of EffAreaUpdate (pos.y + 100; area.h bounds).
+static int Ps2fxInStairsArea()
+{
+    static const f32 px[4] = {-75353.765625f, -71789.0703125f, -72168.6484375f, -75650.09375f};
+    static const f32 pz[4] = {-41277.6953125f, -41237.60546875f, -32265.046875f, -32397.771484375f};
+    static const f32 floor = -241.27594f, height = 9921.8984f;
+    Vec pos;
+    if ((pG->Status_flg[2] & 0x10000) == 0) {
+        if (!pPL) {
+            return 0;
+        }
+        pos = pPL->pos;
+        pos.y += 100.0f;
+    } else {
+        pos = pG->Cam.param.pos;
+    }
+    const f32 x = pos.x, y = pos.y, z = pos.z;
+    if (y + 100.0f < floor || y >= floor + height) {
+        return 0;
+    }
+    if ((px[3] - px[0]) * (z - pz[0]) > (pz[3] - pz[0]) * (x - px[0]) ||
+        (px[1] - px[0]) * (z - pz[0]) < (pz[1] - pz[0]) * (x - px[0])) {
+        return 0;
+    }
+    if ((px[3] - px[2]) * (z - pz[2]) < (pz[3] - pz[2]) * (x - px[2]) ||
+        (px[1] - px[2]) * (z - pz[2]) > (pz[1] - pz[2]) * (x - px[2])) {
+        return 0;
+    }
+    return 1;
+}
+#endif
+#endif
+// 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
+// anchor (=2: draws the PS2 shafts in its place).
+static int Ps2fxClass(cEsp* esp)
+{
+    if (esp->info.owner != 0xD0) {
+        return 0;
+    }
+#if RE4DC_EFFECT_PS2_HAZE
+    if (esp->m_Id == 0x15) {
+        const Ps2fxHaze* h = Ps2fxHazeFor(esp);
+        if (!h) {
+            return 0;
+        }
+        const u32 slot = (u32) ((u8*) esp - (u8*) g_pEspSys->pEspBuf) / 0x150;
+        if (slot % h->every) {
+            return 1;
+        }
+        // esp15.cpp's box axes: the camera side (view x), Cam.up and the view axis
+        Vec v, d, up;
+        PSMTXMultVec(pG->Cam.v_mat, &esp->m_Pos, &v);
+        PSVECSubtract(&esp->m_Pos, &pG->Cam.param.pos, &d);
+        up = pG->Cam.up;
+        const f32 ul = up.x * up.x + up.y * up.y + up.z * up.z;
+        const f32 half = h->range * 0.6f;
+        const f32 dy = ul > 0.0f ? (d.x * up.x + d.y * up.y + d.z * up.z) / sqrtf(ul) : v.y;
+        if (-v.z >= h->range || v.x > half || v.x < -half || dy > half || dy < -half) {
+            return 1;
+        }
+        return 0;
+    }
+#endif
+#if RE4DC_EFFECT_PS2_STREAK
+    if ((re4dc_ps2fx & PS2FX_STREAK) && esp->m_Id == 0 && esp->m_Life_max == 0 && esp->m_Blend_type == 1 &&
+        G_ROOM_ID == 0x100) {
+        for (int i = 0; i < 3; ++i) {
+            const Ps2fxStreak* s = &kPs2Streak[i];
+            if (esp->m_Tex_id == s->tex && esp->m_Del_far == s->del_far && esp->m_Del_near == s->del_near) {
+#if RE4DC_EFFECT_PS2_STREAK >= 2
+                const f32 dx = esp->m_Pos.x - s->anchor.x, dy = esp->m_Pos.y - s->anchor.y, dz = esp->m_Pos.z - s->anchor.z;
+                if (i != 0 && dx * dx + dy * dy + dz * dz < 100.0f) {
+                    return 2;
+                }
+#endif
+                return 1;
+            }
+        }
+    }
+#endif
+    return 0;
+}
+#endif
 static void EspSpriteEmit(cEsp* esp)
 {
     // GX blend factors 0..7 (ZERO ONE DSTCLR/SRCCLR INVxCLR SRCA INVSRCA DSTA INVDSTA) have the
@@ -142,6 +364,51 @@ static void EspSpriteEmit(cEsp* esp)
         s.u[i] = tw->mtx[0][0] * cu[i] + tw->mtx[0][1] * cv[i] + tw->mtx[0][3];
         s.v[i] = tw->mtx[1][0] * cu[i] + tw->mtx[1][1] * cv[i] + tw->mtx[1][3];
     }
+#if RE4DC_EFFECT_PS2_HAZE
+    const Ps2fxHaze* hz = ortho ? NULL : Ps2fxHazeFor(esp);
+    if (hz) {
+        // PS2 size: the camera-facing square scaled about its centre (its anchor is the centre: tex 0x1f Cx/Cy 0)
+        const f32 mx = (s.x[0] + s.x[1] + s.x[2] + s.x[3]) * 0.25f, my = (s.y[0] + s.y[1] + s.y[2] + s.y[3]) * 0.25f;
+        for (int i = 0; i < 4; ++i) {
+            s.x[i] = mx + (s.x[i] - mx) * hz->scale;
+            s.y[i] = my + (s.y[i] - my) * hz->scale;
+        }
+        // PS2 colour and fades from the view depth (every corner of the square has the same z)
+        const f32 d = 1.0f / s.z[0];
+        const Ps2fxEsp15Work* w = &static_cast<cPs2fxEsp15*>(esp)->m_Free;
+        f32 fa = (f32) hz->a;
+        if (w->Room_del_frame != 0 && w->Room_del_cnt != 0) {
+            const u32 cnt = w->Room_del_cnt < w->Room_del_frame ? w->Room_del_cnt : w->Room_del_frame;
+            fa *= 1.0f - (f32) cnt / w->Room_del_frame;
+        }
+        if (d > hz->range * 0.7f) {
+            fa *= 1.0f - (d - hz->range * 0.7f) / (hz->range * 0.3f);
+        }
+        if (d < 3000.0f) {
+            const f32 rate = 1.0f - (3000.0f - d) / 2500.0f;
+            fa *= rate > 0.0f ? rate : 0.0f;
+        }
+        u32 hr = hz->r, hg = hz->g, hb = hz->b, ha = fa > 0.0f ? (u32) fa : 0;
+        if (!(esp->m_Flg & 4) && EffIsSetFinalCol()) {
+            GXColor fin;
+            EffGetFinalCol(&fin);
+            hr = hr * fin.r >> 8;
+            hg = hg * fin.g >> 8;
+            hb = hb * fin.b >> 8;
+            ha = ha * fin.a >> 8;
+        }
+        if (ha == 0) {
+            return;
+        }
+        s.color = (ha << 24) | (hr << 16) | (hg << 8) | hb;
+        s.src = esp->xA5 & 7;
+        s.dst = esp->xA6 & 7;
+        s.screen = 0;
+        s.pad = 0;
+        re4dc_effect_sprite(&s);
+        return;
+    }
+#endif
     u32 r = s_effect_col.r, g = s_effect_col.g, b = s_effect_col.b, a = s_effect_col.a;
     if (!(esp->m_Tool_flg & 0x40)) {
         if (esp->m_Tool_flg & 0x80) { // TEV colour scale 4
@@ -184,6 +451,14 @@ extern "C" void re4dc_esp_sprite_pass_begin()
 #endif
 extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
 {
+#if RE4DC_PS2FX_DRAW
+    if (re4dc_ps2fx & (PS2FX_HAZE | PS2FX_STREAK)) {
+        const int k = Ps2fxClass(esp);
+        if (k) {
+            return k == 2;   // a dropped haze sprite / streak copy is not queued; a streak anchor (=2) always is
+        }
+    }
+#endif
     if (!(esp->m_Flg & 1) && esp->m_Col_a < 1.0f) {
         return 0;   // faded out: ChannelSet's alpha is (u8) m_Col_a here (before the final-colour scale), so 0
     }
@@ -199,7 +474,12 @@ extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
     }
     PSMTXMultVec(pG->Cam.v_mat, &w, &v);
     const f32 bx = esp->m_Size_base_x, by = esp->m_Size_base_y;
+#if RE4DC_EFFECT_PS2_HAZE
+    const Ps2fxHaze* hz = Ps2fxHazeFor(esp);
+    const f32 r = 2.0f * (bx > by ? bx : by) * esp->m_Size_mul * (hz ? hz->scale : 1.0f) + 100.0f;
+#else
     const f32 r = 2.0f * (bx > by ? bx : by) * esp->m_Size_mul + 100.0f;
+#endif
     const f32 d = -v.z;
     if (d + r < 0.0f) {
         return 0;
@@ -269,6 +549,49 @@ struct EspPtr {
 // Tool_flg 0x4000). Tool_flg 0x100000 forces the alpha compare, 0x808000 disables alpha update.
 // Shared sprite draw: the sprite quad (g_EspCommonDisplayList) with the effect's texture, an
 // optional mask texture in TEV stage 1, screen-space or camera-relative placement.
+#if RE4DC_EFFECT_SPRITES && RE4DC_EFFECT_PS2_STREAK >= 2
+#include <string.h>
+// EFFECT_PS2_STREAK=2: one PS2 shaft as an effect of its own: a scratch copy of the streak anchor (owner 0xd0,
+// world parent, additive blend) given the PS2 record's texture, placement, size, colour and near fade, drawn by
+// the common body (ChannelSet's fade, EspSpriteEmit). The copy is a static scratch buffer outside the effect pool;
+// no effect state is written.
+static void Ps2fxShaft1(const cEsp* anchor, const Ps2fxShaft* q)
+{
+    static u32 buf[(sizeof(cEsp) + 3) / 4];
+    cEsp* t = (cEsp*) buf;
+    memcpy(buf, anchor, sizeof(cEsp));
+    t->m_Tex_id = 0xE9;
+    t->m_Ptn_no = 0;
+    t->m_Tool_flg = 0x1;   // world-oriented (low_RotMatrix(m_Ang)), like GC records 6/7
+    t->m_Shimmer_type = 0;
+    t->m_Pos = q->pos;
+    t->m_Ang.x = q->ang_x * DEG2RAD;
+    t->m_Ang.y = 0.0f;
+    t->m_Ang.z = 0.0f;
+    t->m_Size_base_x = q->w;
+    t->m_Size_base_y = q->h;
+    t->m_Size_mul = 1.0f;
+    t->m_Col_r = q->r;
+    t->m_Col_g = q->g;
+    t->m_Col_b = q->b;
+    t->m_Col_a = q->a;
+    t->m_Del_far = q->del_far;
+    t->m_Del_near = q->del_near;
+    EspCommonTrans(t);
+}
+static void Ps2fxShafts(cEsp* anchor)
+{
+    const f32 dx = anchor->m_Pos.x - kPs2Streak[1].anchor.x;
+    if (dx * dx < 1.0e6f) {   // record 8 (the stairs window): PS2 area 13 only
+        if (Ps2fxInStairsArea()) {
+            Ps2fxShaft1(anchor, &kPs2Stairs);
+        }
+    } else {                  // record 13 (the back window)
+        Ps2fxShaft1(anchor, &kPs2Back[0]);
+        Ps2fxShaft1(anchor, &kPs2Back[1]);
+    }
+}
+#endif
 void EspCommonTrans(cEsp* esp)
 {
     static int s_proj_type;
@@ -298,6 +621,26 @@ void EspCommonTrans(cEsp* esp)
         s_proj_type = -1;
         s_tex_no = -1;
         return;
+    }
+#endif
+#if RE4DC_EFFECT_SPRITES && RE4DC_PS2FX_DRAW
+    // EFFECT_PS2_HAZE / EFFECT_PS2_STREAK: a haze sprite outside the PS2 subset / box or a streak copy is not
+    // drawn (=2: a streak anchor draws the PS2 shafts instead). The cached projection / texture are forgotten,
+    // as for an ineligible sprite above.
+    if ((re4dc_ps2fx & (PS2FX_HAZE | PS2FX_STREAK)) && EspSpriteEligible(esp)) {
+        const int k = Ps2fxClass(esp);
+        if (k) {
+            s_proj_type = -1;
+            s_tex_no = -1;
+#if RE4DC_EFFECT_PS2_STREAK >= 2
+            if (k == 2) {
+                Ps2fxShafts(esp);
+                s_proj_type = -1;
+                s_tex_no = -1;
+            }
+#endif
+            return;
+        }
     }
 #endif
 #if !RE4DC_EFFECT_LEAN
@@ -1598,6 +1941,15 @@ int cEsp::ChannelSet()
         dot = PSVECDotProduct(&dir, &d);
         if (dot < m_Del_far * 10.0f) {
             f32 rate = 1.0f - (m_Del_far * 10.0f - dot) / ((m_Del_far - m_Del_near) * 10.0f);
+#if RE4DC_EFFECT_FADE_CLAMP
+            // EFFECT_FADE_CLAMP: nearer than m_Del_near the rate is negative. The GameCube stores these (u8)
+            // casts with psq_st through GQR2 (u8), which saturates to 0 (main.dol 0x8011edd4..0x8011ee5c); SH-4's
+            // ftrc + extu.b keeps the low byte of the negative integer, so a sprite inside its near distance was
+            // drawn near-opaque (alpha 70 x rate -0.04 -> 254). The rate is clamped at 0, the GameCube's result.
+            if ((re4dc_ps2fx & PS2FX_CLAMP) && rate < 0.0f) {
+                rate = 0.0f;
+            }
+#endif
             if (m_Flg & 1) {
                 col.r = (u8) (col.r * rate);
                 col.g = (u8) (col.g * rate);
