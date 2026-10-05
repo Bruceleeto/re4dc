@@ -41,8 +41,26 @@
 #                  the rest (free pool memory first). Without it each call or inventory open carved a
 #                  contiguous 1 MiB out of the room's textures (r21n r100 call: 159 uploads / 2.3 MB
 #                  released, 207 reloaded in 5.8 s after the close). Same bytes back, checked by the hash.
+#   SS_BG_BLACK=1  (needs SUBSCREEN=1) black PVR background while the sub screen hides the room
+#                  (Status_flg[1] bit 1, SubScreenExec step 2 .. SubScreenExit step 4). FOG_BACKGROUND
+#                  makes the background the fog colour; on the GameCube the copy clear is black and the
+#                  fog colour only tints geometry, so with every Disp_flg hide bit set the GC shows black
+#                  and the port showed a full tan (r100 fog) frame before each call / inventory, held on
+#                  screen through the backing save. Render only. =2: no change, logs what =1 would do.
 SUBSCREEN ?= 0
 SS_PACK ?= 0
+SS_BG_BLACK ?= 0
+ifneq ($(SS_BG_BLACK),0)
+ifneq ($(SUBSCREEN),1)
+$(error SS_BG_BLACK needs SUBSCREEN=1)
+endif
+endif
+# Trans() skips the room's obj / em list walks while the sub screen window is swapped (src/game/trans.cpp,
+# r21v console fault 0xE0). With the sub screen built the hook is a strong reference and tools/link.sh fails
+# the link if re4dc_ss_ui_order would become a generated stub.
+ifeq ($(SUBSCREEN),1)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_TRANS_SS_GUARD=1
+endif
 W11_FIXTURE ?= 0
 SUBSCREEN_OVL ?= 0
 SS_POOL_HIGH ?= 0
@@ -81,6 +99,7 @@ $(OBJDIR)/subscreen.h: subscreen-force
 	@if [ "$(SUBSCREEN_TA_SWITCH)" = 1 ]; then test "$$($(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-nm -g --defined-only $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a | grep -c ' T _pvr_set_vbuf_doublebuf$$')" -eq 1 || { echo 'SUBSCREEN=1 with TA_DOUBLEBUF=1 requires the KOS vbuf-switch patch (patches/kos-804b319-vbuf-switch.patch)' >&2; exit 1; }; fi
 	@printf '#define RE4DC_SUBSCREEN %s\n#define RE4DC_W11_FIXTURE %s\n#define RE4DC_SUBSCREEN_OVL %s\n#define RE4DC_SS_POOL_HIGH %s\n#define RE4DC_SS_UI_ORDER %s\n' '$(SUBSCREEN)' '$(W11_FIXTURE)' '$(SUBSCREEN_OVL)' '$(SS_POOL_HIGH)' '$(SS_UI_ORDER)' > $@.tmp
 	@printf '#define RE4DC_SS_PACK %s\n' '$(SS_PACK)' >> $@.tmp
+	@printf '#define RE4DC_SS_BG_BLACK %s\n' '$(SS_BG_BLACK)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 # A knob change regenerates the module list.

@@ -1785,7 +1785,28 @@ extern "C" int re4dc_fog_frame_pending(){
 // Frame start (native_ui re4dc_ui_begin, after the previous render's fence):
 // PVR table fog indexes scaled 1/w, entry j <-> depth far/v(j) with
 // v(j)=2^(j>>4)*((j&15)+16)/16 (KOS pvr_fog.c), entry 0 at the far plane.
+#if defined(RE4DC_SS_BG_BLACK) && RE4DC_SS_BG_BLACK
+// SS_BG_BLACK (subscreen.mk): while the sub screen hides the room the background is black, as the
+// GameCube's black copy clear shows it; the fog colour comes back with the room.
+extern "C" int re4dc_ss_scene_hidden(void); // sscrn_bridge.cpp
+static int ss_bg_hidden;
+static float ss_bg_rgb[3];
+static int ss_bg_rgb_set;
+#endif
 extern "C" void re4dc_fog_frame(){
+#if defined(RE4DC_SS_BG_BLACK) && RE4DC_SS_BG_BLACK
+    {const int hidden=re4dc_ss_scene_hidden();
+     if(hidden!=ss_bg_hidden){
+        ss_bg_hidden=hidden;
+        re4dc_log("ss bg: %s (scene %s) colour=%s%02x%02x%02x\n",RE4DC_SS_BG_BLACK==1?"set":"diag",
+            hidden?"hidden":"shown",hidden?"black was ":"",unsigned(ss_bg_rgb[0]*255.0f),unsigned(ss_bg_rgb[1]*255.0f),
+            unsigned(ss_bg_rgb[2]*255.0f));
+#if RE4DC_SS_BG_BLACK==1
+        if(hidden)pvr_set_bg_color(0,0,0);
+        else if(ss_bg_rgb_set)pvr_set_bg_color(ss_bg_rgb[0],ss_bg_rgb[1],ss_bg_rgb[2]);
+#endif
+     }}
+#endif
     if(!fog_now.type)return;
     if(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
@@ -1806,6 +1827,12 @@ extern "C" void re4dc_fog_frame(){
     pvr_fog_far_depth(far);
     pvr_fog_table_custom(table);
 #if RE4DC_FOG_BACKGROUND
+#if defined(RE4DC_SS_BG_BLACK) && RE4DC_SS_BG_BLACK
+    ss_bg_rgb[0]=r;ss_bg_rgb[1]=g;ss_bg_rgb[2]=b;ss_bg_rgb_set=1;
+#if RE4DC_SS_BG_BLACK==1
+    if(!ss_bg_hidden)
+#endif
+#endif
     pvr_set_bg_color(r,g,b);
 #endif
     re4dc_log("native fog: type=%d start=%d end=%d far=%d colour=%08x near=%u%% mid=%u%%\n",fog_now.type,

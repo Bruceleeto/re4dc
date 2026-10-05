@@ -899,3 +899,11 @@ extern "C" void re4dc_w11_frame()
     last_us = now;
 }
 #endif  // RE4DC_W11_FIXTURE
+
+#if RE4DC_SS_BG_BLACK
+// SS_BG_BLACK (platform/native_static.cpp re4dc_fog_frame): Status_flg[1] bit 1 is set by
+// SubScreenExec step 2 (every Disp_flg hide bit on) and cleared by SubScreenExit step 4, so it
+// spans the frames where the room draws nothing while the sub screen opens, runs and closes.
+// Read only; the renderer uses it to pick the PVR background colour.
+extern "C" int re4dc_ss_scene_hidden(void) { return (pG->Status_flg[1] & 2) != 0; }
+#endif
