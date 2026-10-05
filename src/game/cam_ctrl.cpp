@@ -1108,11 +1108,21 @@ void CameraControl::roomInit()
     m_pExtraCamera = 0;
     extra = NULL;
     interp.frame = 0;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // Fill the placement storage before the init-time Check() / Move(), not after them: Check()
+    // can construct an extra in m_Free (a CameraLookAt while the player's hip is <= 500 above his
+    // feet, a motion cut's CameraMotion), and the source's trailing fill overwrote that object,
+    // leaving `extra` non-NULL with a 0x09090909 vtable for the next `if (extra) delete extra` or
+    // extra->move() (see the note above startPushObject).
+    memset(m_Free, 9, sizeof(m_Free));
+#endif
     Check();
     Move();
     CameraMove();
     QuakeInit();
+#if !(defined(RE4DC_GAME) && !defined(__PPC__))
     memset(m_Free, 9, sizeof(m_Free));
+#endif
     g_pToolCamData = NULL;
 }
 
@@ -2278,6 +2288,13 @@ void CameraControl::UpCutCall(int no, Vec* pos, Vec* at, Vec* up, int sel)
     CutCall(no);
 }
 
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+// The cCamera destructors poison the object (memset 9 over 0x200 bytes). In the port they compile
+// to that bare memset (GCC drops ~cCamera's vtable store as dead), so a destroyed extra keeps a
+// 0x09090909 vtable word and the source's next `if (extra) delete extra` (checkAttachCamera, the
+// look-at entry in Check, a motion cut) faults: SH-4 address error 0xE0. The end* functions below
+// therefore forget the extra they destroyed, as Move's case 5 does.
+#endif
 // Enters the push-object camera (r0 0xF, CameraPushObject extra).
 void CameraControl::startPushObject()
 {
@@ -2291,6 +2308,9 @@ void CameraControl::endPushObject()
 {
     if (extra) {
         delete extra;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+        extra = NULL;  // destroyed, vtable poisoned: see the note above startPushObject
+#endif
     }
     Comeback(0);
 }
@@ -2317,6 +2337,9 @@ void CameraControl::EndLookDownEm()
 {
     if (extra) {
         delete extra;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+        extra = NULL;  // destroyed, vtable poisoned: see the note above startPushObject
+#endif
     }
     Comeback(0);
     BitOn(pG->Status_flg[0], 0x2000000);
@@ -2344,6 +2367,9 @@ void CameraControl::endScope()
         BitOff(pG->Disp_flg, 0x40000000);
         if (extra) {
             delete extra;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+            extra = NULL;  // destroyed, vtable poisoned: see the note above startPushObject
+#endif
         }
         Comeback(0);
     }
@@ -2399,6 +2425,9 @@ void CameraControl::LowerBinocular()
     BitOff(pG->Disp_flg, 0x40000000);
     if (extra) {
         delete extra;
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+        extra = NULL;  // destroyed, vtable poisoned: see the note above startPushObject
+#endif
     }
     Comeback(0);
 }
