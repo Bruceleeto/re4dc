@@ -1,5 +1,15 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-05: r22c (current play build, released)
+
+r22c = r22 + chapter 1-3: 2bb24730, build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1
+ROUTE_CH13=1`, fixture /root/probe/lanes-20261005/r22c/fixtures/title-r22c-pak.json (route doc "r22c"). Released by the
+user as play-r22c-chapter-1-3-20261005 (prerelease); local discs C:/RE4DC-Play-Discs/r22c-title + r22c-gdemu. Flycast:
+boot, New Game, chapter 1-3 route to "Coming Soon", content superset of r22. Console play pending. Disc rule (from
+the r21z-c13 fault): before a disc goes to the SD card, compare its tex.pak keys and file list with the last good
+disc and boot the real disc; pack-fixture.sh replaces a fixture's existing dc/tex.pak, so every package must be loose
+in the raw fixture. The r21z-c13 disc (SD folder 156) lacks most textures: not for play.
+
 ## 2026-10-05: r22 and r22g test discs (local, not released)
 
 r22 = the integrated perf lanes (3f4b599d recipe; route doc "r22 test disc ..."); r22g = r22 + PACE_VMU_GPU=1 (the
@@ -22,7 +32,7 @@ Landed default-off (route doc "chapter 1-3"): r101 1-3 state, r102, r108, r109, 
 second-slot music; "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 (local, not released) waits
 for the user's console play before ROUTE_CH13=1 goes into build-r21.sh.
 
-## 2026-10-04: r21y (current play build)
+## 2026-10-04: r21y (previous play build)
 
 r21y = r21x + the camera crash fix (dd995a7b) + the VMU CPU line as a percentage (564f5168); route doc "r21y". Same
 recipe and fixture as r21x. Disc and checks in step 6. Public release play-r21y-camera-fix-20261004 supersedes r21x.

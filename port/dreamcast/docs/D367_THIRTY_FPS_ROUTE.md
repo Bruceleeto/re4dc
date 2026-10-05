@@ -2,6 +2,21 @@
 
 ## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
 
+- **r22c = the play build (released by the user as play-r22c-chapter-1-3-20261005, prerelease):** 2bb24730 built
+  with build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1` (ELF 0f428379; warp image
+  for checks: `DBG_WARP=1 PC_SAMPLER=1 PACE_DEBUG=1 ROUTE_CH13=1`, 3cd1cead). resolved-knobs.txt vs r22-play: only
+  ROUTE_CH13 0 -> 1 (and the module / object lists it adds: em17, em18, em24, route_end). ROUTE_CH13=0 on the same
+  commit builds the r22 image (.text/.data/overlay equal, `__TIME__` bytes only). Disc fixture
+  /root/probe/lanes-20261005/r22c/fixtures/title-r22c-pak.json (raw: title-r22c-raw.json = every title-v texture
+  package loose + the chapter 1-3 files; pack 3,747 packages = the union of the title-v and c13f packs, title-v bytes
+  on the 12 keys both name). Content check vs the r22 disc: all 3,249 packages byte-identical, all 1,147 files present,
+  5 changed (1ST_READ.BIN, dc/sscrn.ovl, dc/tex.pak, bgm/bio4midi.dat, em/em24.drs = the fixed aica-c13f file), 23 new.
+  GD high-density area 97% full (489,959 / 504,150 sectors; r22 91%): ~29 MB left for later rooms. Flycast (vsync off,
+  HALT 0 / MISSING 0, no resets): GDI boot to the VMU prompt; New Game on the shipped contents (pack count 3747, intros
+  1971/2360, r100s40 1175, 0 texture failures); r105 -> r101 -> r102 -> r108 (r105s00 1667, save rc 0, r102s00 234,
+  em24 links at r108); r108 -> r109 -> r10a -> "Coming Soon" at the r10b door, final vbl 35481 (10-04: 35463).
+  Not yet played on the console. ROUTE_CH13=1 joins build-r21.sh (the traced gate recipe) once the running lanes
+  (iv / el / ms) have landed against the current base, with an H2 STRICT run on the new base.
 - **r22 (local test disc, not released):** the 3f4b599d recipe below; C:/RE4DC-Play-Discs/r22-title + r22-gdemu (ELF
   8bb30322), GDEMU SD folder 154. Its 73% fight speed is a PROJECTION: 59.10 + 23.18 = 82.28 model ms per pair x 1.107
   = ~91.1 console ms; full speed needs ~22 model ms (~24.4 console ms if the calibration holds) off the pair. Not yet
