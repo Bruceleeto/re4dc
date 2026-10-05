@@ -269,11 +269,30 @@ void Cloth::calcSpeed(f32 damping)
 #if RE4DC_CLOTH_SPRING == 2
 #undef calcSpeed
 #endif
-static inline __attribute__((always_inline)) void clothSpringAddNeg(Vec* s, const Vec* v)
+// One spring seen from point (px, py, pz): v = n - p, len = |v|; past the rest length `gap` the force
+// v * (k (len - gap) / len) is added to the speed (ax, ay, az) and returned in *f. 2 = force, 1 = none.
+// The same operations and operands as the source's PSVECSubtract / PSVECMag / PSVECScale / PSVECAdd; the
+// point and the speed sit in registers (the source re-read them after every store through s).
+static inline __attribute__((always_inline)) int clothSpring(const Vec* n, f32 px, f32 py, f32 pz, f32 gap, f32 kp,
+                                                             f32& ax, f32& ay, f32& az, Vec* f)
 {
-    s->x = s->x - v->x;
-    s->y = s->y - v->y;
-    s->z = s->z - v->z;
+    Vec v;
+    f32 len;
+    v.x = n->x - px;
+    v.y = n->y - py;
+    v.z = n->z - pz;
+    len = PSVECMag(&v);
+    if (len > gap) {
+        const f32 r = kp * (len - gap) / len;
+        f->x = v.x * r;
+        f->y = v.y * r;
+        f->z = v.z * r;
+        ax = f->x + ax;
+        ay = f->y + ay;
+        az = f->z + az;
+        return 2;
+    }
+    return 1;
 }
 #if RE4DC_CLOTH_SPRING == 2
 extern "C" void re4dc_log(const char* fmt, ...);
@@ -292,10 +311,14 @@ void Cloth::calcSpeed(f32 damping)
         clothChkBig++;
     }
 #endif
-    Vec* p = pVer;
+    const Vec* p = pVer;
     Vec* s = pSpd;
     const int w = divH;
     const int nv = divV;
+    const f32 kp = K_PARAM;   // K / G / the gaps do not change during the step (s never aliases them)
+    const f32 gp = G_PARAM;
+    const f32 wg = Wgap;
+    const f32 hg = Hgap;
     int i;
     int j;
 
@@ -303,65 +326,50 @@ void Cloth::calcSpeed(f32 damping)
         Vec rv;
         int rk = 0;   // the spring from the left neighbour: 0 not computed, 1 no force, 2 force in rv
         for (j = 0; j < w; j++) {
-            Vec v;
-            f32 len;
+            Vec f;
             if (i == 0 && j != 0 && j != w - 1) {
                 rk = 0;
                 clothDnOk[j] = 0;
                 continue;
             }
             const int k = j + i * w;
+            const f32 px = p[k].x;
+            const f32 py = p[k].y;
+            const f32 pz = p[k].z;
+            f32 ax = s[k].x;
+            f32 ay = s[k].y;
+            f32 az = s[k].z;
             if (j != 0) {
                 if (rk == 2) {
-                    clothSpringAddNeg(&s[k], &rv);
+                    ax = ax - rv.x;
+                    ay = ay - rv.y;
+                    az = az - rv.z;
                 } else if (rk == 0) {
-                    PSVECSubtract(&p[k - 1], &p[k], &v);
-                    len = PSVECMag(&v);
-                    if (len > Wgap) {
-                        PSVECScale(&v, &v, K_PARAM * (len - Wgap) / len);
-                        PSVECAdd(&v, &s[k], &s[k]);
-                    }
+                    clothSpring(&p[k - 1], px, py, pz, wg, kp, ax, ay, az, &f);
                 }
             }
             rk = 0;
             if (j != w - 1) {
-                PSVECSubtract(&p[k + 1], &p[k], &v);
-                len = PSVECMag(&v);
-                rk = 1;
-                if (len > Wgap) {
-                    PSVECScale(&v, &v, K_PARAM * (len - Wgap) / len);
-                    PSVECAdd(&v, &s[k], &s[k]);
-                    rv = v;
-                    rk = 2;
-                }
+                rk = clothSpring(&p[k + 1], px, py, pz, wg, kp, ax, ay, az, &rv);
             }
             if (i != 0) {
                 const int dk = clothDnOk[j];
                 if (dk == 2) {
-                    clothSpringAddNeg(&s[k], &clothDn[j]);
+                    ax = ax - clothDn[j].x;
+                    ay = ay - clothDn[j].y;
+                    az = az - clothDn[j].z;
                 } else if (dk == 0) {
-                    PSVECSubtract(&p[k - w], &p[k], &v);
-                    len = PSVECMag(&v);
-                    if (len > Hgap) {
-                        PSVECScale(&v, &v, K_PARAM * (len - Hgap) / len);
-                        PSVECAdd(&v, &s[k], &s[k]);
-                    }
+                    clothSpring(&p[k - w], px, py, pz, hg, kp, ax, ay, az, &f);
                 }
             }
             clothDnOk[j] = 0;
             if (i != nv - 1) {
-                PSVECSubtract(&p[k + w], &p[k], &v);
-                len = PSVECMag(&v);
-                clothDnOk[j] = 1;
-                if (len > Hgap) {
-                    PSVECScale(&v, &v, K_PARAM * (len - Hgap) / len);
-                    PSVECAdd(&v, &s[k], &s[k]);
-                    clothDn[j] = v;
-                    clothDnOk[j] = 2;
-                }
+                clothDnOk[j] = clothSpring(&p[k + w], px, py, pz, hg, kp, ax, ay, az, &clothDn[j]);
             }
-            s[k].y -= G_PARAM;
-            PSVECScale(&s[k], &s[k], damping);
+            ay -= gp;
+            s[k].x = ax * damping;
+            s[k].y = ay * damping;
+            s[k].z = az * damping;
         }
     }
 #if RE4DC_CLOTH_SPRING == 2
