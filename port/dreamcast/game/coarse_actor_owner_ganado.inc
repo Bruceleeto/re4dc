@@ -244,7 +244,7 @@ bool invis_obs_valid;
 unsigned invis_n[8];  // decided 0/1/2, no record, structure moved, unknown path, view invalid, declined test
 #if RE4DC_CROWD_INVIS_SKIP == 2
 unsigned invis_marked, invis_checked, invis_violations, invis_violation_tris, invis_path_mis, invis_view_mis,
-    invis_fog_mis, invis_logs;
+    invis_fog_mis, invis_logs, invis_crowd_checked, invis_crowd_mis;
 #endif
 unsigned invis_builds, invis_build_fail;
 InvisRec* invis_find(const cModel* m, bool create) {
@@ -621,9 +621,9 @@ extern "C" void re4dc_invis_begin(const float* P, float fog_pred) {
 #if RE4DC_CROWD_INVIS_SKIP == 2
     if (!(invis_gen % 120))
         re4dc_log("INVIS2 t=%u marked=%u checked=%u violations=%u violation_tris=%u path_mis=%u view_mis=%u fog_mis=%u "
-                  "draw=%u owner=%u source=%u norec=%u moved=%u unknown=%u noview=%u builds=%u build_fail=%u\n",
+                  "crowd=%u/%u draw=%u owner=%u source=%u norec=%u moved=%u unknown=%u noview=%u builds=%u build_fail=%u\n",
                   unsigned(pG->Frame_cnt), invis_marked, invis_checked, invis_violations, invis_violation_tris, invis_path_mis,
-                  invis_view_mis, invis_fog_mis, invis_n[0], invis_n[1], invis_n[2], invis_n[3], invis_n[4], invis_n[5],
+                  invis_view_mis, invis_fog_mis, invis_crowd_mis, invis_crowd_checked, invis_n[0], invis_n[1], invis_n[2], invis_n[3], invis_n[4], invis_n[5],
                   invis_n[6], invis_builds, invis_build_fail);
 #else
     if (!(invis_gen % 600))
@@ -654,20 +654,29 @@ extern "C" unsigned re4dc_invis_decide(cModel* m) {
 #endif
 }
 #if RE4DC_CROWD_INVIS_SKIP == 2
-// ModelRender (=2): a Ganado the knob would have skipped in this image must emit nothing and keep its path.
-extern "C" void re4dc_invis_check(cModel* m, unsigned emitted) {
+// ModelRender (=2): the kind the knob would have taken for m in this image (0: none).
+extern "C" unsigned re4dc_invis_marked(cModel* m) {
+    if (!m || m->id < 0x10 || m->id > 0x20) return 0;
+    const InvisRec* r = invis_find(m, false);
+    return r && r->mark_gen == invis_gen ? r->mark : 0u;
+}
+// ModelRender (=2): a Ganado the knob would have skipped in this image must emit nothing and keep its path; for a
+// source-path one, crowd (trans.cpp invisCrowdCheck: 1 / 0, -1 not checked) says whether the crowd entry its parts
+// left equals the one re4dc_actor_crowd_note would leave.
+extern "C" void re4dc_invis_check(cModel* m, unsigned emitted, int crowd) {
     if (!m || m->id < 0x10 || m->id > 0x20) return;
     InvisRec* r = invis_find(m, false);
     if (!r || !r->mark || r->mark_gen != invis_gen) return;
     ++invis_checked;
+    if (crowd >= 0) { ++invis_crowd_checked; if (!crowd) ++invis_crowd_mis; }
     const bool path = r->outcome == r->mark;
     if (!path) ++invis_path_mis;
     if (emitted) { ++invis_violations; invis_violation_tris += emitted; }
-    if ((emitted || !path) && invis_logs < 64) {
+    if ((emitted || !path || crowd == 0) && invis_logs < 64) {
         ++invis_logs;
         const float (*rt)[4] = m->pParts->mat;
-        re4dc_log("INVIS2 BAD t=%u id=%x kind=%u outcome=%u emitted=%u root=%g,%g,%g\n", unsigned(pG->Frame_cnt),
-                  unsigned(m->id), r->mark, r->outcome, emitted, rt[0][3], rt[1][3], rt[2][3]);
+        re4dc_log("INVIS2 BAD t=%u id=%x kind=%u outcome=%u emitted=%u crowd=%d root=%g,%g,%g\n", unsigned(pG->Frame_cnt),
+                  unsigned(m->id), r->mark, r->outcome, emitted, crowd, rt[0][3], rt[1][3], rt[2][3]);
     }
     r->mark = 0;
 }

@@ -849,9 +849,15 @@ extern int ProjType;                                   // camera.cpp
 static int g_invisArmed;
 static int invisAdvance(cModelInfo* info);
 #if RE4DC_CROWD_INVIS_SKIP == 2
-extern "C" void re4dc_invis_check(cModel* m, unsigned emitted);
+extern "C" void re4dc_invis_check(cModel* m, unsigned emitted, int crowd);
+extern "C" unsigned re4dc_invis_marked(cModel* m);
 extern "C" unsigned re4dc_model_output_count();
+extern "C" int re4dc_actor_crowd_peek(const void* model, float* distance);  // native_actor_fast.cpp
+extern "C" float re4dc_actor_crowd_distance(const float* modelview);
+static int invisCrowdCheck(cModel* m);
 #else
+extern "C" void re4dc_actor_crowd_note(const void* model, const float* modelview);  // native_actor_fast.cpp
+extern "C" void re4dc_bind_actor_frame();                                           // model_bridge.cpp
 static cModel* g_invisReplay[64];
 static u32 g_invisReplayNum;
 static void invisReplayRender(cModel* m, int alphaUpdate);
@@ -1893,6 +1899,56 @@ static int invisAdvance(cModelInfo* info)
     }
     return 1;
 }
+// The modelview commonModelTrans loads for one info (its pm, then the camera view), as re4dc_draw_model_part hands it
+// to the native parts (Re4dcModelPart::modelview, crowd_tier's distance).
+static void invisInfoModelview(cModel* m, cModelInfo* info, ModelData* d, Mtx mv)
+{
+    Mtx pm;
+    if (m->be_flag & 0x4000) {
+        PSMTXConcat(m->mat, (f32(*)[4]) &info->x5C, pm);
+    } else if (d->weight_palette_num <= 1 && d->weight_ext_num <= 0xFF && !(info->be_flag & 2) && d->nParts == 1) {
+        PSMTXConcat(m->getPartsPtr(d->pHead->partsNo)->mat, (f32(*)[4]) &info->x5C, pm);
+    } else {
+        PSMTXConcat(m->pParts->mat, (f32(*)[4]) &info->x5C, pm);
+    }
+    PSMTXConcat(pG->Cam.v_mat, pm, mv);
+}
+#if RE4DC_CROWD_INVIS_SKIP == 2
+// =2: the crowd entry the source draw just left (native_actor_fast.cpp) against the one invisReplayRender would note:
+// 1 equal (seen or not, and the distance bit for bit), 0 different.
+static int invisCrowdCheck(cModel* m)
+{
+    int seen = 0;
+    float best = 0.0f;
+    if (re4dc_model_diagnostic_enabled()) {
+        for (cModelInfo* info = m->pModelInfo; info != 0; info = info->pList) {
+            if (PTR_INVALID(info)) {
+                break;
+            }
+            if (!(info->be_flag & 8)) {
+                continue;
+            }
+            ModelData* d = info->pData;
+            if (PTR_INVALID(d) || d->nTex > 0xF7) {
+                break;
+            }
+            if (d->displist_num == 0) {
+                continue;
+            }
+            Mtx mv;
+            invisInfoModelview(m, info, d, mv);
+            const float dist = re4dc_actor_crowd_distance(&mv[0][0]);
+            if (!seen || dist < best) {
+                best = dist;
+            }
+            seen = 1;
+        }
+    }
+    float have = 0.0f;
+    const int noted = re4dc_actor_crowd_peek(m, &have);
+    return noted == seen && (!seen || memcmp(&have, &best, sizeof(best)) == 0);
+}
+#endif
 #if RE4DC_CROWD_INVIS_SKIP == 1
 static const GXColor invisCol64 = {0x40, 0x40, 0x40, 0x40};  // ModelRender's col64
 // ModelRender of a kind 2 Ganado: its state calls, then commonModelTrans's texture-object / TPL cache step for every
@@ -1923,6 +1979,10 @@ static void invisReplayRender(cModel* m, int alphaUpdate)
         GXSetDstAlpha(1, 0);
     }
     FRONT_TEX_FLUSH();
+    // The crowd ranking (CROWD_LOD) notes the model as its source parts would: the actor frame bound at its first
+    // drawn part (re4dc_draw_model_part), then one entry update per drawn info with a display list.
+    const int crowd = re4dc_model_diagnostic_enabled();
+    int bound = 0;
     for (cModelInfo* info = m->pModelInfo; info != 0; info = info->pList) {
         if (PTR_INVALID(info)) {
             break;
@@ -1977,6 +2037,15 @@ static void invisReplayRender(cModel* m, int alphaUpdate)
         }
         PSet(g_prev_tpl_addr, info->tpl_addr);
         PSet(g_prev_add_tpl_addr, info->pAddTpl);
+        if (crowd && d->displist_num != 0) {
+            if (!bound) {
+                re4dc_bind_actor_frame();
+                bound = 1;
+            }
+            Mtx mv;
+            invisInfoModelview(m, info, d, mv);
+            re4dc_actor_crowd_note(m, &mv[0][0]);
+        }
     }
     if (alphaUpdate) {
         GXSetAlphaUpdate(0);
@@ -2421,7 +2490,8 @@ void ModelRender(cModel* m)
     commonModelTrans(m, m->pModelInfo, pG->Cam.v_mat, 0);
 #if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 2
     if (m->kindid == 0) {
-        re4dc_invis_check(m, re4dc_model_output_count() - invisOut0);
+        const unsigned invisEmitted = re4dc_model_output_count() - invisOut0;
+        re4dc_invis_check(m, invisEmitted, re4dc_invis_marked(m) == 2 ? invisCrowdCheck(m) : -1);
     }
 #endif
 #if RE4DC_FRONT_LEAN && defined(__sh__)

@@ -213,7 +213,8 @@ endif
 #              built once from vtxOrig / weights / bind matrices) lies outside one screen edge or the near plane.
 #              A skipped Ganado keeps commonScreenMat's texture animation / UV scroll advance; an owner-path one
 #              loses its OT entry (as the screen-matrix failure path), a source-path one keeps it and its ModelRender
-#              replays only the texture-object cache step (TPL / cTexChg) the source draw would have taken. The view
+#              replays only the texture-object cache step (TPL / cTexChg) the source draw would have taken and notes
+#              it in the CROWD_LOD ranking as its parts would have (native_actor_fast.cpp re4dc_actor_crowd_note). The view
 #              is the next Render's: projection from pG->Cam.ProjMat, viewport and fogged far as the previous Render
 #              saw them (the fog only while LightEnv predicts the same value). Never with shadow lights, morphs,
 #              render-to-texture or foot shadows (needs FX_LEAN=1).
@@ -229,6 +230,8 @@ ifneq ($(CROWD_CULL)$(FX_LEAN)$(ACTOR_FOG_GATE)$(SCENERY_GATE),1111)
 $(error CROWD_INVIS_SKIP needs CROWD_CULL=1 FX_LEAN=1 ACTOR_FOG_GATE=1 SCENERY_GATE=1)
 endif
 $(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_CROWD_INVIS_SKIP=$(CROWD_INVIS_SKIP)
+# re4dc_actor_crowd_note (and the =2 peek): a skipped source-path Ganado keeps its CROWD_LOD crowd entry.
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_INVIS_SKIP=$(CROWD_INVIS_SKIP)
 ifeq ($(CROWD_INVIS_SKIP),2)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1
 endif

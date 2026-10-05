@@ -3697,6 +3697,47 @@ extern "C" void re4dc_actor_test_crowd_tier(int tier) { test_crowd_tier = tier; 
 extern "C" void re4dc_actor_crowd(unsigned near_count, float near_distance, float mid_distance, float mid_pixels) {
     crowd_near_count = near_count; crowd_near = near_distance; crowd_mid = mid_distance; crowd_mid_tau = mid_pixels;
 }
+#if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+// CROWD_INVIS_SKIP (crowd.mk, lane iv): crowd_tier's bookkeeping without drawing, for a Ganado whose source-path draw
+// the knob skipped (trans.cpp invisReplayRender, one call per info it would have drawn, with that info's modelview):
+// the model stays in the ranking with the distance its parts would have noted, so crowd_rank sees what it sees with
+// the knob off.
+extern "C" void re4dc_actor_crowd_note(const void* model, const float* modelview) {
+    if constexpr (kCrowd) {
+        const float* m = modelview;
+        const float d = std::sqrt(m[3] * m[3] + m[7] * m[7] + m[11] * m[11]);
+        CrowdEntry* e = nullptr;
+        for (unsigned i = 0; i < crowd_count && !e; ++i)
+            if (crowd[i].model == model) e = &crowd[i];
+        if (!e) {
+            if (crowd_count == kCrowdMax) return;
+            crowd[crowd_count++] = CrowdEntry{model, d, frame_serial, kTierNear};
+        } else if (e->seen != frame_serial) {
+            e->seen = frame_serial; e->distance = d;
+        } else if (d < e->distance) {
+            e->distance = d;
+        }
+    } else {
+        (void)model; (void)modelview;
+    }
+}
+#if RE4DC_CROWD_INVIS_SKIP == 2
+// =2 (check build): the model's crowd entry in this frame: 1 and its distance when its parts noted it, else 0.
+extern "C" int re4dc_actor_crowd_peek(const void* model, float* distance) {
+    for (unsigned i = 0; i < crowd_count; ++i)
+        if (crowd[i].model == model) {
+            if (crowd[i].seen != frame_serial) return 0;
+            *distance = crowd[i].distance;
+            return 1;
+        }
+    return 0;
+}
+// =2: the distance re4dc_actor_crowd_note (and crowd_tier) takes from a modelview.
+extern "C" float re4dc_actor_crowd_distance(const float* m) {
+    return std::sqrt(m[3] * m[3] + m[7] * m[7] + m[11] * m[11]);
+}
+#endif
+#endif
 #if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
 // ENC_CENSUS (diagnostic, default 0; read by coarse.cpp re4dc_enc_frame): the crowd-classed models drawn in the
 // census frame (crowd_tier notes each model once, at its body tier), by tier (full / near / mid / far).
