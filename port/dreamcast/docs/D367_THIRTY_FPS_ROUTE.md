@@ -2,6 +2,15 @@
 
 ## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
 
+- **Lane iv Step 1 (invisible Ganados, measurement only; ENC_CENSUS=2 on exp/iv-20261005, not landed):** hw ms per
+  Ganado per drawn tick: hidden 0.001; failing the game's own view test 0.003-0.006; off screen / fogged, culled late
+  at Render (CROWD_CULL / CROWD_FOGSKIP) 0.46-0.55; submitted but 0 triangles 1.33 (owner path) / ~2.2 (source path);
+  visible 1.7-1.9 / 3.1. Ceiling if every invisible Ganado were free: r100-h-call 0.51, r100-h-prejump 0.03 (FAIL
+  against the 1.0 ms bar there: the after-call and pre-jump slowdowns are not invisible Ganados), r100-h-fight 3.35
+  (the dead villager on the source path off the right edge, one just past the edge), perf-r101sq 3.04 (villagers
+  370-520 m out pass the game's 10 km far test; camera-straddling ones: no near plane). Step 2 (CROWD_INVIS_SKIP:
+  decide in ModelTrans after the game's view test; fog depth, bone balls + near plane, mesh bound for source-path
+  actors; =2 asserts 0 triangles) re-scoped to the fight, bar -1.0 hw ms drawn at function level, logic STRICT.
 - **r22c = the play build (released by the user as play-r22c-chapter-1-3-20261005, prerelease):** 2bb24730 built
   with build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1` (ELF 0f428379; warp image
   for checks: `DBG_WARP=1 PC_SAMPLER=1 PACE_DEBUG=1 ROUTE_CH13=1`, 3cd1cead). resolved-knobs.txt vs r22-play: only
