@@ -2,6 +2,33 @@
 
 ## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
 
+- **Lane ms (measurement; tools on local exp/ms-20261005 ffbc8ade + 72a474ec; evidence ms-20261005):** presets
+  r100-h-out, -pre03, -call, -prejump, -stairs, -shoot (fixtures /root/probe/lanes-20261005/ms/fixtures). Console
+  factor (console ms / model ms) is about **1.03 when only the indoor world is submitted** (pre03, call) and **~1.15-1.20
+  when the outdoor PS2 world is submitted** (outside idle, the fight, the staircase: the outdoor world behind the
+  house walls); mechanism unknown (hypothesis: TA FIFO / store-queue / bus contention the SH-4 model does not see). The
+  old 0.937 house factor is withdrawn. With these the model predicts call 86% (console 87%), fight 70% (70%), stairs
+  foot 66% (67%: console row 4 "before the window jump" is the staircase, user: "when the glare hits"). Stairs foot
+  87.5 model ms per pair vs 67 at the back window: world draw 16.0 (the outdoor world behind the walls, 14.3k OP tris),
+  3 hidden Ganados drawn behind the walls 4.6, source lighting 1.9. GPU: translucent area model GPU ~ 3.83 ms per
+  screen of translucent area - 6.5 (RMS 1.1 ms on four console rows). The outdoor GPU cost is camera-near mist sprites
+  (sa/1-sa, 128 VQ 4444, ~45 sprites within 0-5 m): ~40 of 53 ms in the fight, 32 of 43 outdoors. The staircase glare
+  is the same kind of camera-near additive sprite (sa/1, most likely Esp 0x15 weather particles), ~11 screens upstairs
+  (projected GPU 55-65 ms; the console's 14 ms reading was at the stair foot), ~0.3 ms CPU; not a lens flare (espgen01
+  and Esp 0x0E never run in r100; GXPeekZ is a stub). Mist options (look changes, user decision; PS2 version as the
+  reference, user 2026-10-05): fight GPU 53 -> halve count 31.7, drop sprites nearer than 3 m 23.5, cap 0.25 screen
+  per sprite 34.7.
+- **Lane ps: no change possible.** The game already runs the PVR in presort (native_ui.cpp re4dc_ui_init
+  autosort_disabled=1 since 4123a85a; KOS writes the tile presort bit; Flycast honours it). ms's earlier
+  "autosort passes" were geometry-only; the presort projection (53 -> 31 ms) was wrong and is withdrawn.
+- **Lane el: FAIL (bar 2.0 hw ms per tick).** cEmMgr::move ~10.8 ms per tick (0.62-0.68 per Ganado update x ~11;
+  motion 2.6, skeleton 2.4, foot IK maths 1.1, lines ~2.6, sphere 0.7, crows 2.2). Exact reuse is rare (idle
+  animations change skeletons every tick; crows never repeat). GAME_LQ_MEMO=1 (wallAdjust's second line query reuses
+  the first when pos is bit-identical) is exact, -0.20..-0.27 per tick, gates pass; to land default off. Trap: the
+  house look-freeze fixture changes when a build gets faster; compare against a timing control.
+- **Lane iv Step 2: CROWD_INVIS_SKIP** (exp/iv-20261005, local): fight -2.19 hw ms per drawn tick (source-path body
+  off screen); H2 STRICT, bell STRICT, =2 0 violations, 0 MISALIGN; TA streams equal except 2 of 2166 fight frames
+  (CROWD_LOD near-rank bookkeeping): being made exact with a crowd_tier note hook before landing.
 - **2026-10-05: GAME_ROT_FSCA adopted (user: "SWITCH THIS ON").** GAME_ROT_FSCA=1 joins build-r21.sh's perf-lanes line,
   with LINK_ORDER regenerated for it: link-order/r22-fsca-c3-8k.ld (ordgen_c3.py `--skip-weight 1`, pacing waits
   excluded, over fm's knob-on cost runs hwmodel-fm-cRL-{hq,hf,sq}; the kernel takes pmc_sh4.o's old slot, so the
