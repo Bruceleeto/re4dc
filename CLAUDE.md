@@ -87,6 +87,8 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 awaits the user's console play.
 - User 2026-10-04 "Pursue All": logic speed-ups are unparked (exact, STRICT), alongside the drawing lanes, cheaper
   Ganados (gameplay-gated: the AI reads visibility) and PACE_CAP=2. Route doc "chapter 1-3 ... fight plan".
+- 2026-10-05: LINK_ORDER in build-r21.sh is link-order/r21y-house-fight-square-c3-8k.ld (~-1 hw ms drawn, -0.2
+  skipped; STRICT). Run tools/d367/ordcheck.py before each release; regenerate when the placed share drops.
 - lamb2k/re4dc is public: every push publishes (AGENTS.md).
 - User decisions 2026-10-04: the supervisor branch's code lands default-off, after the cleanup above and after r21u
   (local session; turning any of it on in play builds stays a separate decision). Gameplay-logic cost (G, ~29 ms in

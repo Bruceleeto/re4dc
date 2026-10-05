@@ -19,6 +19,13 @@
   REPORT.md): no-look set -> fight ~74%; + logic -5 ms -> ~86%; + PACE_CAP=2 -> ~100% at ~10 fps. 15 fps at full
   speed in the fight needs drawing ~25 ms and logic ~19 per pair; 30 fps needs drawing <= ~18 and logic <= ~15.
 - **Releases:** the r21v and r21x release pages are deleted (tags kept); r21y is the only release.
+- **Landed 2026-10-05, lane build:** the play recipe's LINK_ORDER is now link-order/r21y-house-fight-square-c3-8k.ld
+  (regenerated from the perf-20261004 cost arm on house, fight and square; the r101-square order placed only 47-57%
+  of today's hot hw ms, the new one 87-88%). Code placement only, STRICT on H2. hw ms drawn / skipped: house
+  48.83/24.75 -> 47.83/24.59, fight 67.04/24.64 -> 66.08/24.47, square 79.35/28.17 -> 78.13/27.90. Console
+  projection: house 96.7% 14.5 fps -> 98.3% 14.7, fight 65.7% 9.9 -> 66.5% 10.0. tools/d367/ordcheck.py reports
+  stale rules and the placed share before each release (tools/d367/README.md). The warp rig's `god` and
+  `alert <frame>` lines (DBG_WARP=1 only) landed with it for the benchmark presets.
 
 ## 2026-10-04: r21y, the camera crash fix (local session)
 

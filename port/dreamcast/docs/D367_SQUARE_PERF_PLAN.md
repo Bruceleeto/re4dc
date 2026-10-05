@@ -943,6 +943,8 @@ control's objects (identical objects, identical .text size, identical instructio
 - The landed order is link-order/r101-square-c3-8k.ld (from sq67 + sq68). It is tied to the code:
   regenerate it after code changes (sections it names that no longer exist are ignored). Square arms
   pass `LINK_ORDER=link-order/r101-square-c3-8k.ld` from here on.
+- Superseded 2026-10-05: build-r21.sh sets link-order/r21y-house-fight-square-c3-8k.ld (house + fight + square;
+  route doc "chapter 1-3 ... fight plan"). Square arms on the current code use it too.
 
 #### Collision traversal (G, order item 3, 2026-09-25)
 
