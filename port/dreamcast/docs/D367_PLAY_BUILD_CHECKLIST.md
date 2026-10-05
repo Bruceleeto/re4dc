@@ -1,5 +1,12 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-05: r22 and r22g test discs (local, not released)
+
+r22 = the integrated perf lanes (3f4b599d recipe; route doc "r22 test disc ..."); r22g = r22 + PACE_VMU_GPU=1 (the
+VMU's GPU line). Both boot (GDI checks); on the GDEMU SD card (folders 154 r22, 157 r22g). First console session (user,
+r22g): fight 70% / 10.4 fps, no crash; full readings in the route doc. Not released yet: release after the next
+console playtest (with any adopted round-2 knobs, e.g. GAME_ROT_FSCA if the user approves it).
+
 ## 2026-10-05: integrated perf lanes (next play build candidate, not released)
 
 build-r21.sh (616a5a11 on perf/int-20261005, local) adds SKIN_PALETTE_LAZY ESP_SPRITE_FAST ESP47_SKIP_LEAN

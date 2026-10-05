@@ -92,6 +92,10 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 awaits the user's console play.
 - User 2026-10-04 "Pursue All": logic speed-ups are unparked (exact, STRICT), alongside the drawing lanes, cheaper
   Ganados (gameplay-gated: the AI reads visibility) and PACE_CAP=2. Route doc "chapter 1-3 ... fight plan".
+- 2026-10-05 console r22g: fight 70% / 10.4 fps (projected 73%); CPU limits every slow moment; GPU 43-55 ms outdoors,
+  11-15 indoors; slowest = inside before the window jump (67%), no preset yet (lane ms). Lane fm: GAME_ROT_FSCA
+  (last-bit FSCA local matrices, -1.18 hw ms per tick in the fight) landed default off; adoption awaits the user +
+  a console playtest. GAME_TRIG_FSCA failed its decision gate.
 - 2026-10-05: PACE_VMU_GPU=1 (test knob) adds `GPU <mean>/<max>` PVR render ms to the VMU page (console disc r22g).
   Round-2 experiments fm (logic maths, bounded, automated decision checks + playtests) and ln (native Leon renderer
   PoC) run with pass/fail thresholds (route doc "r22 test disc, the VMU GPU line and the round-2 experiments").

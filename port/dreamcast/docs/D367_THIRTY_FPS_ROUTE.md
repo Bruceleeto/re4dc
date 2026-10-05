@@ -25,6 +25,29 @@
   - ln, a native Leon rendering pipeline proof of concept (gameplay skeleton preserved, render-only): Leon's real r22
     cost first; PASS if it cuts Leon's attributable drawn-tick cost by >= 40% and >= 1.5 hw ms in the fight, look
     identical, logic STRICT, 0 MISALIGN; then a written plan for Ganados.
+- **Console r22g (user, one r100 playthrough; VMU FPS / SPD / CPU / GPU mean-max ms):** outside before the house
+  17.6 / 98% / 102% / 43-46; house before the first Ganado 21.8 / 102% / 100% / 14-15; just after the radio call
+  12.9 / 87% / 116% / 11-14; inside before the window jump 9.9 / 67% / 150% / 14; fight after the jump, 3 Ganados on
+  screen 10.4 / 70% / 142% / 53-55; shooting at the 3 ~9 fps. Findings: the fight projection roughly held (73%
+  projected, 70% measured; r21x 66% / 9 fps); the CPU limits every slow moment; the GPU never limits yet but is heavy
+  outdoors (43-55 ms: it caps the outdoor fight near 19 fps; 30 fps outdoors needs it <= ~33 ms) and light indoors;
+  calibration W1's 52.5 ms was not the GPU (11-14 in that view). The slowest moment (inside before the jump, GPU light)
+  and the after-call house (87% vs the r100-h-quiet projection ~100%) have no matching preset yet: a measurement lane
+  (ms) is building presets for them and for shooting, and reconciling the model with these readings.
+- **Lane fm result (docs/lanes/fm-20261005.md): GAME_ROT_FSCA=1, landed default off, not in the recipe.** The
+  skeleton's local-matrix stage (pmc) from FSCA sin/cos in one scheduled SH-4 loop: -1.18 hw ms per tick on both tick
+  types in the fight (house -1.17, square -0.96; function level), fight pair 82.26 -> 80.13 model ms (projection:
+  73.2% -> ~75.3%, about 2.1 of the ~22 model ms full speed needs). Numerical check: 4.08M parts, max difference
+  2.98e-7, 0 mismatches against its C twin (=2). Decision comparison (tools/game30/decision_cmp.py) on H2, the bell run
+  and r100-h-fight against base-vs-base controls: RNG, flags, rooms, AI states, em-em collision (696k results), line
+  queries (486k), area and damage tests identical; the fight's enemy hash `es` differs on 440 of 7359 ticks, all traced
+  (LOGIC_TRACE_EM_FROM/TO) to one non-live alive-list entry (a cEm25 parasite unit, be_flag 0) whose stat / Mot_state
+  words hold float data; every live enemy's inputs are identical. Look: skinned characters differ by sub-pixel
+  amounts (fight 1703 px, 1675 of them one RGB565 step; scenery identical; same side by side). 0 MISALIGN. GAME_TRIG_FSCA
+  (sinf/cosf from FSCA) FAILED the decision gate (line-query answers differ from tick 2003) and stays default 0 as a
+  negative result. Adoption needs the user: the automated checks above plus a console playtest (policy 2026-09-23 (3),
+  review 2026-10-05). When adopted, regenerate LINK_ORDER (the knob swaps pmc_sh4.o's slot in a derived order copy).
+  Trap: r22's .text ends 112 bytes below an 8 KiB step; code growth past it moves rodata/data/bss/heap up 8 KiB.
 
 ## 2026-10-05: integrated perf lanes (pushed 3f4b599d)
 
