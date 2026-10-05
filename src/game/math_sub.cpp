@@ -344,6 +344,56 @@ void RotMatrix(Mtx m, Vec* rot)
 }
 #if defined(RE4DC_ROT_CACHE) && RE4DC_ROT_CACHE
 #undef RotMatrix
+#if defined(RE4DC_TRIG_FSCA_ROT) && RE4DC_TRIG_FSCA_ROT
+// GAME_TRIG_FSCA with GAME_ROT_FSCA (game30.mk; lane fm 2026-10-05; last-bit FP policy): the parts no longer use
+// the memo (platform/pmc_fsca.c), so RotMatrix's other callers compute directly, with sin / cos as re4dc_sincosf
+// gives them (|x| < 2^-27 exact, |x| <= 2 pi the FSCA core inline, beyond through re4dc_sincosf) and the body
+// above's products. A memo hit returned the same words: only the time changes.
+#include "../../port/dreamcast/game/platform/include/re4dc_fsca.h"
+extern "C" void re4dc_sincosf(float x, float* s, float* c);
+#define ROT_FSCA_SC(x, w, s, c)                                                                 \
+    do {                                                                                    \
+        const u32 rot_a_ = (w) & 0x7fffffffu;                                               \
+        if (rot_a_ < RE4DC_FSCA_TINY_BITS) {                                                \
+            (s) = (x);                                                                      \
+            (c) = 1.0f;                                                                     \
+        } else if (__builtin_expect(rot_a_ <= RE4DC_FSCA_XMAX_BITS, 1)) {                   \
+            RE4DC_FSCA_SINCOS(x, s, c, "fr2", "fr3", "dr2");                                \
+        } else {                                                                            \
+            f32 rot_s_, rot_c_;                                                             \
+            re4dc_sincosf((x), &rot_s_, &rot_c_);                                           \
+            (s) = rot_s_;                                                                   \
+            (c) = rot_c_;                                                                   \
+        }                                                                                   \
+    } while (0)
+void RotMatrix(Mtx m, Vec* rot)
+{
+    const u32* k = (const u32*) rot;
+    const f32 ax = rot->x, ay = rot->y, az = rot->z;   // all read before the first store (m may overlap *rot)
+    const u32 kx = k[0], ky = k[1], kz = k[2];
+    f32 sx, sy, sz, cx, cy, cz, szcx, czsx, szsx, czcx;
+    ROT_FSCA_SC(ax, kx, sx, cx);
+    ROT_FSCA_SC(ay, ky, sy, cy);
+    ROT_FSCA_SC(az, kz, sz, cz);
+    szcx = sz * cx;
+    szsx = sz * sx;
+    czsx = cz * sx;
+    czcx = cz * cx;
+
+    m[0][0] = cz * cy;
+    m[0][1] = czsx * sy - szcx;
+    m[0][2] = czcx * sy + szsx;
+    m[0][3] = 0.0f;
+    m[1][0] = sz * cy;
+    m[1][1] = szsx * sy + czcx;
+    m[1][2] = szcx * sy - czsx;
+    m[1][3] = 0.0f;
+    m[2][0] = -sy;
+    m[2][1] = cy * sx;
+    m[2][2] = cy * cx;
+    m[2][3] = 0.0f;
+}
+#else
 // 32-entry direct-mapped memo keyed by the exact angle bits (+0 / -0 and NaN payloads distinct).
 // Static and idle models keep their angles from frame to frame; animated ones simply miss.
 struct RotCacheEntry {
@@ -395,6 +445,7 @@ void RotMatrix(Mtx m, Vec* rot)
     }
     e->valid = 1;
 }
+#endif /* RE4DC_TRIG_FSCA_ROT */
 #endif
 
 // RotMatrix using the game's fast SINF/COSF (zero angles short-cut); same matrix. Used by the

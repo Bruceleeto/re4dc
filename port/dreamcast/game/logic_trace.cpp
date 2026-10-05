@@ -208,6 +208,29 @@ void model_state(Fnv& discrete, Fnv& coords, Fnv& parts, cModel* m)
     parts.word(n);
 }
 
+#if defined(RE4DC_LOGIC_TRACE_EM_TO) && RE4DC_LOGIC_TRACE_EM_TO
+// LOGIC_TRACE_EM_FROM/TO (game30.mk; diagnostic, default off): every alive enemy's es inputs (be_flag, the r_no
+// bytes, id, type, Mot_state, hp) with its Mot_frame and position bits, its address and first word (the vtable:
+// the class), for Frame_cnt FROM..TO ("LE" lines), so an es difference names the enemy and the field.
+template <class T> unsigned em_w4(const T& v)
+{
+    unsigned w = 0;
+    memcpy(&w, &v, sizeof(v) < 4 ? sizeof(v) : 4);
+    return w;
+}
+void em_diag(unsigned k, cEm* e)
+{
+    const unsigned t = (unsigned) pG->Frame_cnt;
+    if (t < RE4DC_LOGIC_TRACE_EM_FROM || t > RE4DC_LOGIC_TRACE_EM_TO) return;
+    unsigned vt;
+    memcpy(&vt, (const void*) e, 4);
+    re4dc_log("LE t=%u k=%u id=%x type=%x be=%08x stat=%08x ms=%x hp=%x mf=%08x pos=%08x,%08x,%08x a=%08x vt=%08x\n",
+              t, k, em_w4(e->id), em_w4(e->type), em_w4(e->be_flag), em_w4(e->stat), em_w4(e->Motion.Mot_state),
+              em_w4(e->hp), em_w4(e->Motion.Mot_frame), em_w4(e->pos.x), em_w4(e->pos.y), em_w4(e->pos.z),
+              (unsigned) (unsigned long) e, vt);
+}
+#endif
+
 unsigned samples;
 
 // Room digest (hardware check without a serial link, see re4dc_logic_trace_digest).
@@ -407,6 +430,9 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
         cEm* e = (cEm*) u;
         model_state(es, ef, em, e);
         es.add(e->hp);
+#if defined(RE4DC_LOGIC_TRACE_EM_TO) && RE4DC_LOGIC_TRACE_EM_TO
+        em_diag(ne, e);
+#endif
     }
 #if RE4DC_LOGIC_TRACE_OWNERSHIP
     for (cUnit* u = (own & RE4DC_OWN_OB) ? (cUnit*) ObjMgr.pAlive : 0; u && no < 1024; u = trace_value(&u->pNext), ++no)

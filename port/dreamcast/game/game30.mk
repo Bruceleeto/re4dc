@@ -47,6 +47,11 @@ LOGIC_TRACE_MASK_RENDER ?= 0
 # so an om/of difference names the object.
 LOGIC_TRACE_OBJ_FROM ?= 0
 LOGIC_TRACE_OBJ_TO ?= 0
+# LOGIC_TRACE_EM_FROM/TO=K (trace builds only, diagnostic, lane fm; default 0 = off, hashes and image unchanged): one
+# "LE" line per alive enemy for Frame_cnt FROM..TO (the es inputs: be_flag, r_no bytes, id, type, Mot_state, hp;
+# with Mot_frame, the pos bits, the unit's address and first word), so an es difference names the enemy and field.
+LOGIC_TRACE_EM_FROM ?= 0
+LOGIC_TRACE_EM_TO ?= 0
 
 GAME30_LINK_INPUTS =
 ifeq ($(GAME_SH4_MATH),1)
@@ -591,8 +596,10 @@ endif
 #                    -0.27; H2 logic trace STRICT). The old order covered 47-57% of those windows' hw ms, the
 #                    new one 87-88% (all the placeable code).
 LINK_ORDER ?=
+# LINK_ORDER_FILE: the file ld reads, LINK_ORDER itself or a knob's derived copy (GAME_ROT_FSCA).
+LINK_ORDER_FILE = $(LINK_ORDER)
 ifneq ($(LINK_ORDER),)
-GAME_LDFLAGS += -Wl,--section-ordering-file,$(abspath $(LINK_ORDER))
+GAME_LDFLAGS += -Wl,--section-ordering-file,$(abspath $(LINK_ORDER_FILE))
 endif
 # PACE_TRANS_SKIP=mask (private test knob): presentation stages skipped for a dropped image
 # (1 EspTrans 2 EspgenTrans 4 CtrlMgr.trans 8 ShadowTrans 16 ClothDraw 32 FilterTrans 64 TexRender
@@ -910,6 +917,42 @@ $(OBJDIR)/platform/pwc_sh4.o: platform/pwc_sh4.S
 	kos-cc $(KOS_CFLAGS) -c $< -o $@
 $(OBJDIR)/src/game/model.o: GAME_CPPFLAGS += -DRE4DC_PWC_KERNEL=$(GAME_PWC_KERNEL)
 endif
+# GAME_ROT_FSCA=1 (lane fm 2026-10-05; last-bit FP policy, NOT exact; needs GAME_PMC_KERNEL=1 and
+#                    GAME_FP_CONTRACT=off): platform/pmc_fsca_sh4.S replaces pmc_sh4.S as re4dc_pmc_run and runs
+#                    every part of cModel::partsMatCalc (no memo, no miss path) as one hand-scheduled SH-4 loop:
+#                    the three angles' sin / cos from FSCA plus a residual correction (platform/include/
+#                    re4dc_fsca.h; |x| < 2^-27 exact, |x| > 2 pi or NaN: the part through the C twin with
+#                    re4dc_sincosf), then RotMatrix's products, the scale products, pos and the copy to mat as
+#                    before, the next part's lines fetched with PREF meanwhile. Bit-identical to the C twin
+#                    (platform/pmc_fsca.c). The local matrices (and so the skeleton the renderer reads) differ
+#                    in the last bits. =2: check build, every part recomputed by the C twin (all 24 stored words
+#                    must match) and with the exact sin / cos (differences counted; "ROTF" log lines). Host
+#                    check of the sin / cos: tools/game30/trig_fsca_check.sh. With LINK_ORDER the kernel takes
+#                    pmc_sh4.o's place in the order (ld reads a copy with that line renamed): left out of the
+#                    order, it lands in the unordered tail and the ordered hot code after the slot moves 228
+#                    bytes down. Regenerate the order (tools/d367/ordgen_c3.py) when landing it.
+GAME_ROT_FSCA ?= 0
+ifneq ($(GAME_ROT_FSCA),0)
+ifneq ($(GAME_PMC_KERNEL),1)
+$(error GAME_ROT_FSCA replaces the GAME_PMC_KERNEL loop: needs GAME_PMC_KERNEL=1)
+endif
+ifneq ($(GAME_FP_CONTRACT),off)
+$(error GAME_ROT_FSCA mirrors the contract-off RotMatrix / ScaleMatrix products: needs GAME_FP_CONTRACT=off)
+endif
+ifneq ($(LINK_ORDER),)
+LINK_ORDER_FILE = $(OBJDIR)/link-order-rot-fsca.ld
+$(OBJDIR)/link-order-rot-fsca.ld: $(LINK_ORDER)
+	@mkdir -p $(dir $@)
+	sed 's/\*pmc_sh4\.o(\.text)/*pmc_fsca_sh4.o(.text)/' $< > $@
+$(TARGET): $(OBJDIR)/link-order-rot-fsca.ld
+endif
+$(OBJDIR)/platform/pmc_fsca.o: platform/pmc_fsca.c
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -w $(GAME_OPT) -O2 -ffp-contract=off $(GAME30_DECOMP_SAFE) -DRE4DC_ROT_FSCA=$(GAME_ROT_FSCA) -MMD -MP -c $< -o $@
+$(OBJDIR)/platform/pmc_fsca_sh4.o: platform/pmc_fsca_sh4.S
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -DRE4DC_ROT_FSCA=$(GAME_ROT_FSCA) -c $< -o $@
+endif
 # GAME_PMC_KERNEL=1 (the 30 fps rethink, step 2; exact): cModel::partsMatCalc's parts whose rotation is in
 #                    RotMatrix's memo (GAME_ROT_CACHE) as one streaming SH-4 loop (platform/pmc_sh4.S: the
 #                    memo words, pos, the scale products and the copy to mat, stored with @-Rn); a memo miss
@@ -919,7 +962,11 @@ ifneq ($(GAME_PMC_KERNEL),0)
 ifneq ($(GAME_ROT_CACHE),1)
 $(error GAME_PMC_KERNEL needs GAME_ROT_CACHE=1)
 endif
+ifeq ($(GAME_ROT_FSCA),0)
 PLATFORM_OBJS += $(OBJDIR)/platform/pmc_sh4.o
+else
+PLATFORM_OBJS += $(OBJDIR)/platform/pmc_fsca.o $(OBJDIR)/platform/pmc_fsca_sh4.o
+endif
 $(OBJDIR)/platform/pmc_sh4.o: platform/pmc_sh4.S
 	@mkdir -p $(dir $@)
 	kos-cc $(KOS_CFLAGS) -c $< -o $@
@@ -1001,6 +1048,27 @@ GAME_TRIG_LEAN ?= 0
 ifneq ($(GAME_TRIG_LEAN),0)
 $(OBJDIR)/game30_trig.o: KOS_CFLAGS += -DRE4DC_TRIG_LEAN=$(GAME_TRIG_LEAN)
 endif
+# GAME_TRIG_FSCA=1 (lane fm 2026-10-05; last-bit FP policy, NOT exact; needs GAME_TRIG=1, GAME_TRIG_LEAN=1 and
+#                  GAME_SINCOS=1): re4dc_sincosf (RotMatrix, PSMTXRotRad, PSMTXRotAxisRad) takes sin / cos from
+#                  FSCA plus a residual correction (platform/include/re4dc_fsca.h): |x| <= 2 pi directly,
+#                  |x| <= 2^7 pi/2 after the exact reduction; |x| < 2^-27, larger and non-finite arguments
+#                  exact. sinf / cosf stay exact. =2: check build, the exact results beside every call,
+#                  differences counted ("TRIGF" log lines). Host check: tools/game30/trig_fsca_check.sh.
+#                  =1 with GAME_ROT_FSCA (the parts off the memo): RotMatrix also drops GAME_ROT_CACHE's memo and
+#                  computes directly with the FSCA core inline (math_sub.cpp; the same words as through re4dc_sincosf;
+#                  =2 keeps the memo path, whose misses go through the checked re4dc_sincosf).
+GAME_TRIG_FSCA ?= 0
+ifneq ($(GAME_TRIG_FSCA),0)
+ifneq ($(GAME_TRIG_LEAN)$(GAME_SINCOS),11)
+$(error GAME_TRIG_FSCA replaces the lean re4dc_sincosf: needs GAME_TRIG_LEAN=1 and GAME_SINCOS=1)
+endif
+$(OBJDIR)/game30_trig.o $(OBJDIR)/platform/pmc_fsca.o: KOS_CFLAGS += -DRE4DC_TRIG_FSCA=$(GAME_TRIG_FSCA)
+ifeq ($(GAME_TRIG_FSCA),1)
+ifneq ($(GAME_ROT_FSCA),0)
+$(OBJDIR)/src/game/math_sub.o: GAME_CPPFLAGS += -DRE4DC_TRIG_FSCA_ROT=1
+endif
+endif
+endif
 # GAME_ACOS_LEAN=1 (exact; acts with GAME_FDLIBM=1): acosf / asinf (ef_acos.c, ef_asin.c) built
 #                  -fno-math-errno, so their sqrtf is the bare fsqrt without the errno guard (a libgcc
 #                  __unordsf2 call per acosf, ~0.1 ms / tick, mostly I-cache misses). The guard's other
@@ -1052,7 +1120,7 @@ $(OBJDIR)/platform/mem.o: PLATFORM_CPPFLAGS += -DRE4DC_LOG_ATOMIC=1
 $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/rnd.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE=1
 $(OBJDIR)/logic_trace.o: logic_trace.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_LOGIC_TRACE=1 -DRE4DC_LOGIC_TRACE_DELAY_US=$(LOGIC_TRACE_DELAY_US) -DRE4DC_LOGIC_TRACE_MASK_RENDER=$(LOGIC_TRACE_MASK_RENDER) $(if $(filter-out 0,$(LOGIC_TRACE_OBJ_TO)),-DRE4DC_LOGIC_TRACE_OBJ_FROM=$(LOGIC_TRACE_OBJ_FROM) -DRE4DC_LOGIC_TRACE_OBJ_TO=$(LOGIC_TRACE_OBJ_TO)) -MMD -MP -c $< -o $@
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_LOGIC_TRACE=1 -DRE4DC_LOGIC_TRACE_DELAY_US=$(LOGIC_TRACE_DELAY_US) -DRE4DC_LOGIC_TRACE_MASK_RENDER=$(LOGIC_TRACE_MASK_RENDER) $(if $(filter-out 0,$(LOGIC_TRACE_OBJ_TO)),-DRE4DC_LOGIC_TRACE_OBJ_FROM=$(LOGIC_TRACE_OBJ_FROM) -DRE4DC_LOGIC_TRACE_OBJ_TO=$(LOGIC_TRACE_OBJ_TO)) $(if $(filter-out 0,$(LOGIC_TRACE_EM_TO)),-DRE4DC_LOGIC_TRACE_EM_FROM=$(LOGIC_TRACE_EM_FROM) -DRE4DC_LOGIC_TRACE_EM_TO=$(LOGIC_TRACE_EM_TO)) -MMD -MP -c $< -o $@
 endif
 
 ifneq ($(GAME_TICK_LOG),0)

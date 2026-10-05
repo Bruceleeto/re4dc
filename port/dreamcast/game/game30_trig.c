@@ -475,6 +475,9 @@ static __attribute__((noinline)) void sincosf_big(float x, float *s, float *c)
 	}
 }
 
+#if defined(RE4DC_TRIG_FSCA) && RE4DC_TRIG_FSCA
+#define re4dc_sincosf re4dc_exact_sincosf	/* GAME_TRIG_FSCA: this exact body under another name (end of file) */
+#endif
 void re4dc_sincosf(float x, float *s, float *c)
 {
 	float y0,y1,ks,kc,a,b;
@@ -507,3 +510,95 @@ void re4dc_sincosf(float x, float *s, float *c)
 }
 #endif /* RE4DC_SINCOS */
 #endif /* RE4DC_TRIG_LEAN */
+
+#if defined(RE4DC_TRIG_FSCA) && RE4DC_TRIG_FSCA
+#if !(defined(RE4DC_TRIG_LEAN) && RE4DC_TRIG_LEAN && defined(RE4DC_SINCOS) && RE4DC_SINCOS)
+#error "GAME_TRIG_FSCA needs GAME_TRIG_LEAN=1 and GAME_SINCOS=1"
+#endif
+#undef re4dc_sincosf
+/* GAME_TRIG_FSCA (game30.mk; lane fm 2026-10-05). Last-bit FP policy (user decision 2026-09-23 (3)), NOT
+ * exact: re4dc_sincosf -- RotMatrix's three angles (its callers other than the parts when GAME_ROT_FSCA=1
+ * runs those), PSMTXRotRad and PSMTXRotAxisRad -- from FSCA plus the residual correction
+ * (platform/include/re4dc_fsca.h): |x| <= 2 pi directly, 2 pi < |x| <= 2^7 pi/2 after the exact reduction
+ * above (lrem_pio2f: FSCA index + n * 16384, the tail y1 added to the residual). |x| < 2^-27 (sin = x,
+ * cos = 1), larger and non-finite arguments keep the exact results. sinf and cosf stay exact.
+ * =2: check build, re4dc_exact_sincosf runs beside every call, the FSCA results are returned and the
+ * differences counted ("TRIGF" log lines every 65536 calls).
+ */
+#include "platform/include/re4dc_fsca.h"
+void re4dc_exact_sincosf(float x, float *s, float *c);
+
+#if RE4DC_TRIG_FSCA == 2
+void re4dc_log(const char *fmt, ...);
+/* per output (0 sin, 1 cos): identical words, |difference| <= 2^-27 .. 2^-21 and above; the largest
+   |difference| (word) and its x; results differing by more than 4 of their own ulps (small results) */
+static unsigned trigf_calls, trigf_hist[2][9], trigf_max[2], trigf_maxx[2], trigf_rel4[2];
+static void trigf_note(int o, float x, float got, float ref)
+{
+	float d = got - ref;
+	__int32_t gb = lfbits(got), rb = lfbits(ref), db, h, u;
+	if (d < 0.0f) d = -d;
+	db = lfbits(d);
+	if (gb == rb) h = 0;
+	else if (d <= 0x1p-27f) h = 1;
+	else if (d <= 0x1p-26f) h = 2;
+	else if (d <= 0x1p-25f) h = 3;
+	else if (d <= 0x1p-24f) h = 4;
+	else if (d <= 0x1p-23f) h = 5;
+	else if (d <= 0x1p-22f) h = 6;
+	else if (d <= 0x1p-21f) h = 7;
+	else h = 8;
+	trigf_hist[o][h]++;
+	if (h && (unsigned) db > trigf_max[o]) {
+	    trigf_max[o] = db;
+	    trigf_maxx[o] = lfbits(x);
+	}
+	u = gb - rb;
+	if ((gb ^ rb) < 0 || u > 4 || u < -4) trigf_rel4[o]++;
+}
+static void trigf_report(void)
+{
+	re4dc_log("TRIGF calls=%u sin same=%u le27=%u le26=%u le25=%u le24=%u le23=%u le22=%u le21=%u gt21=%u max=%08x x=%08x rel4=%u\n",
+	          trigf_calls, trigf_hist[0][0], trigf_hist[0][1], trigf_hist[0][2], trigf_hist[0][3], trigf_hist[0][4],
+	          trigf_hist[0][5], trigf_hist[0][6], trigf_hist[0][7], trigf_hist[0][8], trigf_max[0], trigf_maxx[0],
+	          trigf_rel4[0]);
+	re4dc_log("TRIGF calls=%u cos same=%u le27=%u le26=%u le25=%u le24=%u le23=%u le22=%u le21=%u gt21=%u max=%08x x=%08x rel4=%u\n",
+	          trigf_calls, trigf_hist[1][0], trigf_hist[1][1], trigf_hist[1][2], trigf_hist[1][3], trigf_hist[1][4],
+	          trigf_hist[1][5], trigf_hist[1][6], trigf_hist[1][7], trigf_hist[1][8], trigf_max[1], trigf_maxx[1],
+	          trigf_rel4[1]);
+}
+#endif
+
+void re4dc_sincosf(float x, float *s, float *c)
+{
+	float y0,y1,a,b;
+	__int32_t n,hx,ix;
+	hx = lfbits(x);
+	ix = hx&0x7fffffff;
+	if(ix <= RE4DC_FSCA_XMAX_BITS) {	/* |x| <= 2 pi */
+	    if(ix<0x32000000) {			/* |x| < 2**-27: the exact results */
+		a = x;
+		b = one;
+	    } else {
+		RE4DC_FSCA_SINCOS(x, a, b, "fr2", "fr3", "dr2");
+	    }
+	} else if(ix <= 0x43490f80) {		/* |x| <= 2^7*pi/2: the exact reduction, then FSCA */
+	    n = lrem_pio2f(x,hx,ix,&y0,&y1);
+	    RE4DC_FSCA_SINCOS_RED(y0, y1, n, a, b, "fr2", "fr3", "dr2");
+	} else {				/* large, inf or NaN: exact */
+	    sincosf_big(x,s,c);
+	    return;
+	}
+#if RE4DC_TRIG_FSCA == 2
+	{
+	    float rs, rc;
+	    re4dc_exact_sincosf(x, &rs, &rc);
+	    trigf_note(0, x, a, rs);
+	    trigf_note(1, x, b, rc);
+	    if ((++trigf_calls & 0xFFFF) == 0) trigf_report();
+	}
+#endif
+	*s = a;
+	*c = b;
+}
+#endif /* RE4DC_TRIG_FSCA */
