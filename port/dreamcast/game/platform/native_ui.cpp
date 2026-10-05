@@ -3367,6 +3367,9 @@ extern "C" void re4dc_model_result(unsigned reason,unsigned input,unsigned outpu
 // COARSE_PREGATE=2 (check build): the emitted-triangle total, read around each cast Ganado chunk's submission.
 // CROWD_CENSUS / CROWD_CULL=2 (crowd.mk): the same total, read around each owner-path Ganado pass.
 extern "C" unsigned re4dc_model_output_count(){return model_output;}
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+extern "C" unsigned re4dc_model_input_count(){return model_input;}  // ENC_CENSUS=2 (game30.mk): triangles in
+#endif
 #endif
 
 extern "C" int re4dc_model_packet_streaming(){return RE4DC_PVR_STREAM;}

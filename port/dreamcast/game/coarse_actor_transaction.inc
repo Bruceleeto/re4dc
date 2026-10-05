@@ -497,6 +497,9 @@ extern "C" void re4dc_actor_transaction_retire() {
     actor_palette_arena.retire();
     re4dc_actor_texture_retire_all();
 }
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+extern "C" unsigned re4dc_encv_crowd;  // ENC_CENSUS=2 (coarse.cpp): the crowd policy's reason in this call
+#endif
 #if defined(RE4DC_ENC_CENSUS) && RE4DC_ENC_CENSUS
 // ENC_CENSUS (diagnostic, default 0): the draw below runs unchanged; coarse.cpp counts its result per model.
 extern "C" void re4dc_enc_note_actor(const void*,int);
@@ -644,6 +647,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_CROWD
         if(crowd_ganado(m)) {
             crowd_would=crowd_policy(m);
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+            re4dc_encv_crowd=crowd_would;  // ENC_CENSUS=2 (coarse.cpp)
+#endif
 #if RE4DC_CROWD_CENSUS
             ++crowd_cc.skip[crowd_would];
 #endif

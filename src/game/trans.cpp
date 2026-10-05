@@ -1064,8 +1064,107 @@ void lightSetObj(cModel* m)
     LightMgr.setModel2(m);
 }
 
-// Transform pass of one enemy (skipped when its Disp_flg hide bit is set).
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+// ENC_CENSUS=2 (game30.mk; diagnostic, lane iv): a Ganado's emTrans / ModelRender run inside a wrapper named after
+// its visibility state in the previous drawn image (coarse.cpp re4dc_encv_*), so the hw model's call tree prices
+// each state; the census notes this image's state (hidden, outside the view test, reached the OT, then the draw's
+// outcome). Distinct stores keep the wrappers from being merged or tail-called.
+extern "C" unsigned re4dc_encv_trans_pick(cModel* m);     // ~0u: not a Ganado
+extern "C" unsigned re4dc_encv_render_pick(cModel* m);    // ~0u: not a Ganado
+extern "C" void re4dc_encv_trans_note(cModel* m, unsigned state);
+extern "C" void re4dc_encv_render_note(cModel* m, unsigned emitted, unsigned input);
+extern "C" void re4dc_encv_render_done();
+extern "C" unsigned re4dc_model_output_count();
+extern "C" unsigned re4dc_model_input_count();
+static cModel* g_encvTrans;  // the Ganado whose emTrans runs (ModelTrans notes only that one)
+volatile unsigned g_encvLast;
+static void emTransBody(cModel* m);
+static void ModelRenderBody(cModel* m);
+#define ENCV_TRANS_WRAP(name, k)                                                                                   \
+    static __attribute__((noinline, noipa)) void name(cModel* m)                                                    \
+    {                                                                                                               \
+        g_encvLast = (k);                                                                                           \
+        emTransBody(m);                                                                                             \
+        g_encvLast = (k) + 100;                                                                                     \
+    }
+#define ENCV_RENDER_WRAP(name, k)                                                                                  \
+    static __attribute__((noinline, noipa)) void name(cModel* m)                                                    \
+    {                                                                                                               \
+        g_encvLast = (k) + 200;                                                                                     \
+        const unsigned o0 = re4dc_model_output_count(), i0 = re4dc_model_input_count();                             \
+        ModelRenderBody(m);                                                                                         \
+        re4dc_encv_render_note(m, re4dc_model_output_count() - o0, re4dc_model_input_count() - i0);                \
+    }
+extern "C" {
+ENCV_TRANS_WRAP(re4dc_iv_t_new, 0)
+ENCV_TRANS_WRAP(re4dc_iv_t_hidden, 1)
+ENCV_TRANS_WRAP(re4dc_iv_t_frustum, 2)
+ENCV_TRANS_WRAP(re4dc_iv_t_off, 3)
+ENCV_TRANS_WRAP(re4dc_iv_t_fog, 4)
+ENCV_TRANS_WRAP(re4dc_iv_t_empty, 5)
+ENCV_TRANS_WRAP(re4dc_iv_t_drawn, 6)
+ENCV_TRANS_WRAP(re4dc_iv_t_source, 7)
+ENCV_TRANS_WRAP(re4dc_iv_t_other, 8)
+ENCV_RENDER_WRAP(re4dc_iv_r_new, 0)
+ENCV_RENDER_WRAP(re4dc_iv_r_hidden, 1)
+ENCV_RENDER_WRAP(re4dc_iv_r_frustum, 2)
+ENCV_RENDER_WRAP(re4dc_iv_r_off, 3)
+ENCV_RENDER_WRAP(re4dc_iv_r_fog, 4)
+ENCV_RENDER_WRAP(re4dc_iv_r_empty, 5)
+ENCV_RENDER_WRAP(re4dc_iv_r_drawn, 6)
+ENCV_RENDER_WRAP(re4dc_iv_r_source, 7)
+ENCV_RENDER_WRAP(re4dc_iv_r_other, 8)
+}
 void emTrans(cModel* m)
+{
+    const unsigned s = re4dc_encv_trans_pick(m);
+    if (s == ~0u) {
+        emTransBody(m);
+        return;
+    }
+    g_encvTrans = m;
+    switch (s) {
+    case 0: re4dc_iv_t_new(m); break;
+    case 1: re4dc_iv_t_hidden(m); break;
+    case 2: re4dc_iv_t_frustum(m); break;
+    case 3: re4dc_iv_t_off(m); break;
+    case 4: re4dc_iv_t_fog(m); break;
+    case 5: re4dc_iv_t_empty(m); break;
+    case 6: re4dc_iv_t_drawn(m); break;
+    case 7: re4dc_iv_t_source(m); break;
+    default: re4dc_iv_t_other(m); break;
+    }
+    g_encvTrans = 0;
+}
+void ModelRender(cModel* m)
+{
+    const unsigned s = re4dc_encv_render_pick(m);
+    switch (s) {
+    case 0: re4dc_iv_r_new(m); break;
+    case 1: re4dc_iv_r_hidden(m); break;
+    case 2: re4dc_iv_r_frustum(m); break;
+    case 3: re4dc_iv_r_off(m); break;
+    case 4: re4dc_iv_r_fog(m); break;
+    case 5: re4dc_iv_r_empty(m); break;
+    case 6: re4dc_iv_r_drawn(m); break;
+    case 7: re4dc_iv_r_source(m); break;
+    case 8: re4dc_iv_r_other(m); break;
+    default: ModelRenderBody(m); break;
+    }
+    g_encvLast = 300;  // no sibling call: the call tree must see each wrapper as a callee of ModelRender
+}
+#define ENCV_TRANS_NOTE(m, s)                                                                                      \
+    if ((m) == g_encvTrans) re4dc_encv_trans_note((m), (s))
+#else
+#define ENCV_TRANS_NOTE(m, s)
+#endif
+
+// Transform pass of one enemy (skipped when its Disp_flg hide bit is set).
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+static void emTransBody(cModel* m)
+#else
+void emTrans(cModel* m)
+#endif
 {
     if (m == pPL) {
         if (pG->Disp_flg & 0x40000000) {
@@ -1077,6 +1176,7 @@ void emTrans(cModel* m)
         }
     } else {
         if ((s32) pG->Disp_flg < 0) {
+            ENCV_TRANS_NOTE(m, 1);
             return;
         }
 #if defined(RE4DC_ENC_SKIP_GANADO) && RE4DC_ENC_SKIP_GANADO
@@ -1133,12 +1233,15 @@ void ModelTrans(cModel* m)
     cModel* p;
 
     if ((pG->Status_flg[1] & 0x10000000) && !(m->be_flag & 0x800)) {
+        ENCV_TRANS_NOTE(m, 1);
         return;
     }
     if (!(m->be_flag & 2)) {
+        ENCV_TRANS_NOTE(m, 1);
         return;
     }
     if (!(m->be_flag & 4)) {
+        ENCV_TRANS_NOTE(m, 1);
         return;
     }
     li = &m->LightInfo;
@@ -1248,6 +1351,7 @@ void ModelTrans(cModel* m)
         ret = 0;
         ret |= 0xFFFF;
     }
+    ENCV_TRANS_NOTE(m, ret != 0xFFFF ? 9u : 2u);  // 9: reached the OT (the draw decides), 2: outside the view test
     if (ret != 0xFFFF) {
 #if RE4DC_SKIN_PALETTE_LAZY
         g_skinLazyArm = 1;  // this commonScreenMat may defer weight palettes (SKIN_PALETTE_LAZY)
@@ -1262,6 +1366,7 @@ void ModelTrans(cModel* m)
 #else
         if (commonScreenMat(m) == 0) {
 #endif
+            ENCV_TRANS_NOTE(m, 8);  // screen matrices failed: the OT entry is deleted
             DeleteOtData(ot, (u16) ret);
             if (m->ot_type == 7) {
                 DeleteOtData(ot2, (u16) ret2);
@@ -1992,13 +2097,20 @@ void Render()
     GXSetDrawSync(0xADEB);
     GXSetDrawSyncCallback(Render_DrawSyncCallback);
     pG->System_flg &= ~0x10000000;
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+    re4dc_encv_render_done();  // ENC_CENSUS=2: this image's Ganado states are final
+#endif
 }
 
 static const GXColor col64 = {0x40, 0x40, 0x40, 0x40};
 
 // OT callback for a model: z mode by z_mode (0 test+write, 1 test only, 2 off), the alpha-omit
 // compare, then commonModelTrans with the camera view; invisible models (invisible_factor 0) skip.
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+static void ModelRenderBody(cModel* m)
+#else
 void ModelRender(cModel* m)
+#endif
 {
     static int modeltransalphaupdate = 1;
 

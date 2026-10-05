@@ -1060,8 +1060,196 @@ extern "C" void re4dc_enc_note_actor(const void* model, int result)
     const float d2 = x * x + y * y + z * z;
     ++enc_band[d2 < 25e6f ? 0 : d2 < 144e6f ? 1 : d2 < 625e6f ? 2 : 3];
 }
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+// ENC_CENSUS=2 (game30.mk; diagnostic, lane iv 2026-10-05): every Ganado (ids 0x10..0x20, not Leon / the partner)
+// that emTrans walks gets one visibility state per drawn image:
+//   1 hidden (Disp_flg hide, event filter, be_flag 2 / 4 clear: ModelTrans returns at once)
+//   2 frustum (outside the game's own OT view test, AddOt*: no OT entry, no screen matrices or lights)
+//   3 off (reached the OT; the crowd policy culled it off-screen, CROWD_CULL reason 1)
+//   4 fog (reached the OT; CROWD_FOGSKIP, reason 4)
+//   5 empty (reached the OT and was submitted, owner or source path, but emitted no triangle)
+//   6 drawn (owner path, triangles emitted)   7 source (source path, triangles emitted)
+//   8 other (reached the OT without a draw: screen-matrix failure, ModelRender's early returns, a crowd cap)
+// trans.cpp runs the Ganado's emTrans inside re4dc_iv_t_<state> and its ModelRender inside re4dc_iv_r_<state>, the
+// state being the one of the previous drawn image (0 new: first sighting), so the hw model's call tree gives each
+// state's inclusive cost and calls. "ENCV" line per presented frame: images finalized, states, how many Ganados
+// changed state since their previous image (their wrapper named the old state), 5-info Ganados among off / empty /
+// drawn, the emitted triangles of drawn ones, and owner / source split of empty.
+extern "C" {
+unsigned re4dc_encv_crowd = 0xFFU;  // coarse_actor_transaction.inc: the crowd policy's reason this call (0xFF none)
+}
+extern "C" float re4dc_fog_gate_far() __attribute__((weak));   // ACTOR_FOG_GATE builds (native_static.cpp)
+namespace {
+// g: the first pass's geometry of the part origins (view depth range, NDC x / y range of those in front of the near
+// plane, how many lie behind it) and the triangles that pass fed the renderer: "ENCVE" lines (every 8th image of a
+// Ganado that reached the OT) say where off / fog / empty Ganados are relative to the frustum.
+struct EncvGeo { float d0, d1, x0, x1, y0, y1, nearz, farz, fog; unsigned short parts, behind; unsigned input; };
+struct EncvEntry { const void* m; unsigned char prev, trans, render, infos; unsigned emit, atd, diag; EncvGeo g; };
+constexpr unsigned kEncvMax = 64;
+EncvEntry encv[kEncvMax];
+unsigned encv_n, encv_images, encv_st[10], encv_mis, encv_x5[3], encv_tri, encv_empty_src, encv_full, encv_lines_e,
+    encv_fx[7];
+EncvEntry* encv_find(const void* m, bool add)
+{
+    for (unsigned i = 0; i < encv_n; ++i)
+        if (encv[i].m == m) return &encv[i];
+    if (!add) return nullptr;
+    if (encv_n == kEncvMax) { ++encv_full; return nullptr; }
+    EncvEntry& e = encv[encv_n++];
+    e = EncvEntry{};
+    e.m = m;
+    return &e;
+}
+void encv_geo(cModel* m, EncvGeo& g)
+{
+    float P[7];
+    GXGetProjectionv(P);
+    g.nearz = P[6] / (P[5] - 1.0f); g.farz = P[6] / P[5];
+    g.fog = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
+    g.d0 = g.x0 = g.y0 = 3.0e38f; g.d1 = g.x1 = g.y1 = -3.0e38f; g.parts = g.behind = 0;
+    const Mtx& v = pG->Cam.v_mat;
+    for (int i = 0; i < m->nParts; ++i) {
+        const cModel* p = m->getPartsPtr(i);
+        if (!p) continue;
+        const float wx = p->mat[0][3], wy = p->mat[1][3], wz = p->mat[2][3];
+        const float x = v[0][0] * wx + v[0][1] * wy + v[0][2] * wz + v[0][3];
+        const float y = v[1][0] * wx + v[1][1] * wy + v[1][2] * wz + v[1][3];
+        const float d = -(v[2][0] * wx + v[2][1] * wy + v[2][2] * wz + v[2][3]);
+        ++g.parts;
+        if (d < g.d0) g.d0 = d;
+        if (d > g.d1) g.d1 = d;
+        if (d < g.nearz) { ++g.behind; continue; }
+        const float nx = (P[1] * x - P[2] * d) / d, ny = (P[3] * y - P[4] * d) / d;
+        if (nx < g.x0) g.x0 = nx;
+        if (nx > g.x1) g.x1 = nx;
+        if (ny < g.y0) g.y0 = ny;
+        if (ny > g.y1) g.y1 = ny;
+    }
+}
+bool encv_ganado(const cModel* m)
+{
+    return m && m->kindid == 0 && m->id >= 0x10 && m->id <= 0x20 && m != (const cModel*) pPL && m != (const cModel*) pSUB;
+}
+}
+extern "C" unsigned re4dc_encv_trans_pick(cModel* m)
+{
+    if (!encv_ganado(m)) return ~0U;
+    EncvEntry* e = encv_find(m, true);
+    if (!e) return ~0U;
+    unsigned infos = 0;
+    for (const cModelInfo* i = m->pModelInfo; i && infos < 99; i = i->pList) ++infos;
+    e->infos = (unsigned char) infos;
+    e->trans = 1;  // emTrans reached it; ModelTrans refines (hidden unless it says otherwise)
+    e->render = 0; e->emit = 0; e->atd = 0;
+    return e->prev;
+}
+extern "C" void re4dc_encv_trans_note(cModel* m, unsigned state)
+{
+    if (EncvEntry* e = encv_find(m, false)) e->trans = (unsigned char) state;
+}
+extern "C" unsigned re4dc_encv_render_pick(cModel* m)
+{
+    if (!encv_ganado(m)) return ~0U;
+    EncvEntry* e = encv_find(m, false);
+    if (!e) return ~0U;
+    re4dc_encv_crowd = 0xFFU;
+    re4dc_enc_atd = 0xFFFFU;  // sentinel: the actor transaction did not run (ModelRender returned before it)
+    return e->prev;
+}
+extern "C" void re4dc_encv_render_note(cModel* m, unsigned emitted, unsigned input)
+{
+    EncvEntry* e = encv_find(m, false);
+    if (!e) return;
+    e->emit += emitted;
+    if (!e->render) {  // the first pass decides; a second (translucent) pass only adds triangles
+        const unsigned c = re4dc_encv_crowd, a = re4dc_enc_atd;
+        // 10: submitted (owner or source path), the outcome follows from the triangles emitted.
+        e->render = c == 1 ? 3 : c == 4 ? 4 : (c != 0xFFU && c != 0) ? 8 : a == 0xFFFFU ? 8 : 10;
+        e->atd = a;
+        encv_geo(m, e->g);
+        e->g.input = 0;
+    }
+    e->g.input += input;
+    re4dc_encv_crowd = 0xFFU;
+}
+extern "C" void re4dc_encv_render_done()
+{
+    bool any = false;
+    for (unsigned i = 0; i < encv_n; ++i) {
+        EncvEntry& e = encv[i];
+        if (!e.trans) continue;
+        any = true;
+        unsigned s = e.trans;
+        if (s == 9) {  // reached the OT
+            if (e.render == 10) {
+                const bool owner = e.atd >= 16 && e.atd <= 19;
+                s = !e.emit ? 5 : owner ? 6 : 7;
+                if (!e.emit && !owner) ++encv_empty_src;
+            } else {
+                s = e.render ? e.render : 8;
+            }
+        }
+        ++encv_st[s];
+        if (s >= 3 && s <= 7 && !(e.diag++ & 7U) && encv_lines_e < 6000) {
+            ++encv_lines_e;
+            const EncvGeo& g = e.g;
+            re4dc_log("ENCVE t=%u id=%02x s=%u atd=%u emit=%u in=%u parts=%u behind=%u d=%d..%d nx=%d..%d ny=%d..%d "
+                      "near=%d far=%d fog=%d\n", pG ? (unsigned) pG->Frame_cnt : 0U,
+                      (unsigned) static_cast<const cModel*>(e.m)->id, s, e.atd, e.emit, g.input, g.parts, g.behind,
+                      int(g.d0), int(g.d1), int(g.x0 * 100.0f), int(g.x1 * 100.0f), int(g.y0 * 100.0f),
+                      int(g.y1 * 100.0f), int(g.nearz), int(g.farz), int(g.fog));
+        }
+        if (s != e.prev) ++encv_mis;
+        if (e.infos >= 5 && (s == 3 || s == 5 || s == 6)) ++encv_x5[s == 3 ? 0 : s == 5 ? 1 : 2];
+        if (s == 6 || s == 7) encv_tri += e.emit;
+        e.prev = (unsigned char) s;
+        e.trans = 0;
+    }
+    if (any) ++encv_images;
+    // Live effects (cEsp pool) attached to a Ganado (m_pMod: follows its parts) or owned by one (Core_pEm), by the
+    // Ganado's state this image: invisible (hidden .. empty) / visible (drawn, source) / other.
+    if (any && g_pEspSys) {
+        cEspSystem* sys = g_pEspSys;
+        for (u32 i = 0; i < sys->nEsp; ++i) {
+            cEsp* esp = (cEsp*) (sys->pEspBuf + i * 0x150);
+            if (!ESP_IsActive(esp)) continue;
+            ++encv_fx[0];
+            for (unsigned k = 0; k < 2; ++k) {
+                const void* g = k ? (const void*) esp->info.Core_pEm : (const void*) esp->m_pMod;
+                const EncvEntry* o = g ? encv_find(g, false) : nullptr;
+                if (!o) continue;
+                const unsigned s = o->prev;
+                ++encv_fx[1 + k * 3 + (s >= 1 && s <= 5 ? 0 : (s == 6 || s == 7) ? 1 : 2)];
+            }
+        }
+    }
+}
+#endif
 extern "C" __attribute__((noinline)) void re4dc_enc_frame(unsigned frame)
 {
+#if defined(RE4DC_ENCV) && RE4DC_ENCV
+    re4dc_log("ENCV f=%u n=%u st=%u/%u/%u/%u/%u/%u/%u/%u/%u mis=%u x5=%u/%u/%u tri=%u esrc=%u full=%u t=%u "
+              "fx=%u/%u/%u/%u/%u/%u/%u\n", frame,
+              encv_images, encv_st[0], encv_st[1], encv_st[2], encv_st[3], encv_st[4], encv_st[5], encv_st[6], encv_st[7],
+              encv_st[8], encv_mis, encv_x5[0], encv_x5[1], encv_x5[2], encv_tri, encv_empty_src, encv_full,
+              pG ? (unsigned) pG->Frame_cnt : 0U, encv_fx[0], encv_fx[1], encv_fx[2], encv_fx[3], encv_fx[4], encv_fx[5],
+              encv_fx[6]);
+    encv_images = encv_mis = encv_tri = encv_empty_src = 0;
+    for (unsigned& v : encv_st) v = 0;
+    for (unsigned& v : encv_x5) v = 0;
+    for (unsigned& v : encv_fx) v = 0;
+    // Every 64th line: drop entries whose model left the enemy list (a freed work reused by another model starts
+    // as new; until then it inherits the old state, counted in mis).
+    static unsigned encv_lines;
+    if (!(++encv_lines & 63U)) {
+        for (unsigned i = 0; i < encv_n;) {
+            bool alive = false;
+            for (cEm* e = pG ? EmMgr.pAlive : nullptr; e && !alive; e = (cEm*) e->pNext) alive = (const void*) e == encv[i].m;
+            if (alive) { ++i; continue; }
+            encv[i] = encv[--encv_n];
+        }
+    }
+#endif
     unsigned ga = 0, oa = 0, ct[4] = {}, sig = 2166136261U;
     if (pG) {
         for (cEm* e = EmMgr.pAlive; e; e = (cEm*) e->pNext) {

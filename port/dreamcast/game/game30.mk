@@ -2204,6 +2204,17 @@ $(error ENC_CENSUS needs COARSE (coarse.cpp defines re4dc_enc_frame))
 endif
 $(OBJDIR)/coarse.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ENC_CENSUS=1
+# ENC_CENSUS=2 (diagnostic, lane iv 2026-10-05; measurement builds only): =1 plus the Ganados' visibility states
+#              ("ENCV" lines: hidden / outside the game's view test / crowd-culled off-screen / fog-skipped / submitted
+#              but emitted nothing / drawn / source path) and per-state wrappers (trans.cpp re4dc_iv_t_* around
+#              emTrans, re4dc_iv_r_* around ModelRender, picked by the Ganado's state in the previous drawn image), so
+#              the hw model's call tree prices each state; "ENCVE" lines (where off / fog / empty Ganados are against
+#              the frustum, every 8th image of each) and live effects attached to / owned by Ganados per state ("fx=").
+#              Changes the code layout: per-state costs only.
+ifeq ($(ENC_CENSUS),2)
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ENCV=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CROWD_OUTPUT=1 -DRE4DC_ENCV=1
+endif
 endif
 # ENC_SKIP_GANADO=1 (diagnostic A/B only, default 0, lane enc; NEVER a play build): trans.cpp emTrans gives Ganados
 #                  (kindid 0, ids 0x10..0x20) no transform pass (no OT entry, screen matrices, skinning, lights or
