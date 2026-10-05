@@ -28,6 +28,12 @@
 # r21v (user 2026-10-04): the supervisor's 82.65 ms knob set (the last line of the list; route doc "r21v"). Its disc needs
 # dc/native/r10{0,1,3}/registry.re4nmr, dc/native/pl08/leon_pl08.re4cp and the registry / pl08 textures in dc/tex.pak;
 # without them those actors keep the source path. Flycast: r100 24.3 -> 25.9 fps, r101 bell steady 27.1 -> 24.8 ms.
+# r21x (user 2026-10-04, first console play of r21v; the last line of the list): COARSE_SAT_SCENERY_ONLY=1 (no flat grey
+# collision walls over the PS2 world: the r100 bridge "tan block"), SS_BG_BLACK=1 (black, not the fog colour, while a
+# call / the inventory hides the room) and PACE_VMU=1 (the speed page on the VMU LCD: drawn fps, game speed, CPU ms per
+# tick; user: the VMU fps build is the main build). The sub screen guard in Trans (r21v console fault 0xE0) needs no
+# knob (SUBSCREEN=1). Its disc needs bgm/aica_str.dat with the radio call voices (tools/aica_banks.py disc
+# --call-voices, stage.sh AICA_CALL_VOICES=1); without them every call is silent.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -86,6 +92,7 @@ R21=(
   ACTOR_GANADO_SOURCE_LIGHT=1 ACTOR_LIGHT_N16=1 NATIVE_MODEL_REGISTRY=1 NATIVE_MODEL_REGISTRY_PACK=1
   NATIVE_MODEL_REGISTRY_TX=1 NATIVE_MODEL_REGISTRY_PALBOUND=1 ACTOR_PL08=1 ACTOR_PL08_PACK=1 SS_CERT=1
   MESH_VP_SCHED=1 ACTOR_PROOF_LEAN=1 MESH_STRIP_LEAN=1 ACTOR_MATERIAL_RECORD=1
+  COARSE_SAT_SCENERY_ONLY=1 SS_BG_BLACK=1 PACE_VMU=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
