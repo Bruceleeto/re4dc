@@ -48,6 +48,9 @@ extern f32 ZFAR;
 #ifndef RE4DC_EFFECT_SPRITES
 #define RE4DC_EFFECT_SPRITES 0
 #endif
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST && !(RE4DC_EFFECT_LEAN && RE4DC_EFFECT_SPRITES)
+#error ESP_SPRITE_FAST needs EFFECT_LEAN=1 and EFFECT_SPRITES=1
+#endif
 #if RE4DC_EFFECT_SPRITES
 // D367 EFFECT_SPRITES (effects30.mk): the approved effect classes as native PVR sprites. Reads
 // game state only (m_Mat, the texture work, ChannelSet's colour, the current GX projection).
@@ -171,6 +174,14 @@ extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE b
 // wide view cone (horizontal tan 1.2, vertical tan 0.9; radius twice the base size + 100): esp.cpp's
 // coarse pass does not queue it, so the common body never builds a matrix and colour only for
 // re4dc_effect_sprite to cull the sprite. Screen and direct-OT effects are always kept.
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+// ESP_SPRITE_FAST: the fogged View far is read once per sprite pass (esp.cpp EspTrans), not once per effect.
+static f32 s_vis_far;
+extern "C" void re4dc_esp_sprite_pass_begin()
+{
+    s_vis_far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
+}
+#endif
 extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
 {
     if (!(esp->m_Flg & 1) && esp->m_Col_a < 1.0f) {
@@ -193,7 +204,11 @@ extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
     if (d + r < 0.0f) {
         return 0;
     }
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    const f32 far = s_vis_far;
+#else
     const f32 far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
+#endif
     if (far > 0.0f && d - r > far) {
         return 0;
     }
@@ -274,6 +289,17 @@ void EspCommonTrans(cEsp* esp)
         EspCommonTransNega(esp, 2);
         return;
     }
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    // ESP_SPRITE_FAST (effects30.mk): under EFFECT_LEAN nothing draws a sprite the native path does not take
+    // (no GX draw follows): the body would only build m_Mat and GX state that no draw and no game logic
+    // reads. The cached projection / texture are forgotten, so a following sprite that trusts an OT run of
+    // sprites (OtGetPrevKind() == 8) sets them itself, as this one would have.
+    if (!EspSpriteEligible(esp)) {
+        s_proj_type = -1;
+        s_tex_no = -1;
+        return;
+    }
+#endif
 #if !RE4DC_EFFECT_LEAN
     GXSetBlendMode(esp->xA4, esp->xA5, esp->xA6, esp->xA7);
 #endif
@@ -456,7 +482,12 @@ void EspCommonTrans(cEsp* esp)
         PSMTXConcat(esp->parent->mat, esp->m_Mat, esp->m_Mat);
         PSMTXConcat(pG->Cam.v_mat, esp->m_Mat, esp->m_Mat);
     }
-#if RE4DC_EFFECT_SPRITES
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    // Eligible (tested above): the native sprite is the only output. The normal matrix (read by no sprite),
+    // the mask stage (ineligible) and the GX draw (EFFECT_LEAN) are skipped.
+    EspSpriteEmit(esp);
+    return;
+#elif RE4DC_EFFECT_SPRITES
     if (EspSpriteEligible(esp)) {
         EspSpriteEmit(esp);
     }

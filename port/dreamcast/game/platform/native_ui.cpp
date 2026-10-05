@@ -3773,8 +3773,34 @@ namespace {
 // (header + textured sprite body). The drain sends it in OT order between model parts.
 DeferredLighting* const kSpriteTag=reinterpret_cast<DeferredLighting*>(1);
 constexpr unsigned kSpriteNode=(sizeof(DeferredPart)+31)&~31U,kSpritePacket=sizeof(pvr_poly_hdr_t)+sizeof(pvr_sprite_txr_t);
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+// ESP_SPRITE_FAST: the compiled header is a pure function of the texture (format, size, VRAM address) and the
+// sprite's blend and screen flag; consecutive sprites mostly share them, so the last one is kept.
+struct FxHeaderKey{unsigned fmt,w,h;const void* txr;unsigned char src,dst,screen;};
+FxHeaderKey fx_hdr_key{~0U,0,0,nullptr,0,0,0};
+alignas(32) pvr_poly_hdr_t fx_hdr_cache;
+#endif
 void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     const auto& t=e->package.textures()[0];
+    auto* h=reinterpret_cast<pvr_poly_hdr_t*>(out);
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    const unsigned fmt=re4dc::texture::pvr_format(t);const void* txr=e->package.pvr_texture(0);
+    if(fx_hdr_key.fmt!=fmt || fx_hdr_key.w!=t.width || fx_hdr_key.h!=t.height || fx_hdr_key.txr!=txr ||
+       fx_hdr_key.src!=s.src || fx_hdr_key.dst!=s.dst || fx_hdr_key.screen!=s.screen){
+        pvr_sprite_cxt_t c;pvr_sprite_cxt_txr(&c,PVR_LIST_TR_POLY,fmt,t.width,t.height,
+                                              const_cast<void*>(txr),PVR_FILTER_BILINEAR);
+        c.gen.culling=PVR_CULLING_NONE;
+        c.depth.comparison=s.screen?PVR_DEPTHCMP_ALWAYS:PVR_DEPTHCMP_GEQUAL;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+        c.blend.src=(pvr_blend_mode_t)s.src;c.blend.dst=(pvr_blend_mode_t)s.dst;
+        c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.uv_clamp=PVR_UVCLAMP_UV;
+#if RE4DC_NATIVE_FOG
+        c.gen.fog_type=s.screen?PVR_FOG_DISABLE:PVR_FOG_TABLE; // table: native_static.cpp re4dc_fog_frame
+#endif
+        pvr_sprite_compile(&fx_hdr_cache,&c);
+        fx_hdr_key=FxHeaderKey{fmt,t.width,t.height,txr,(unsigned char)s.src,(unsigned char)s.dst,(unsigned char)s.screen};
+    }
+    *h=fx_hdr_cache;h->argb=s.color;h->oargb=0;
+#else
     pvr_sprite_cxt_t c;pvr_sprite_cxt_txr(&c,PVR_LIST_TR_POLY,re4dc::texture::pvr_format(t),t.width,t.height,
                                           e->package.pvr_texture(0),PVR_FILTER_BILINEAR);
     c.gen.culling=PVR_CULLING_NONE;
@@ -3784,8 +3810,8 @@ void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
 #if RE4DC_NATIVE_FOG
     c.gen.fog_type=s.screen?PVR_FOG_DISABLE:PVR_FOG_TABLE; // table: native_static.cpp re4dc_fog_frame
 #endif
-    auto* h=reinterpret_cast<pvr_poly_hdr_t*>(out);
     pvr_sprite_compile(h,&c);h->argb=s.color;h->oargb=0;
+#endif
     auto* b=reinterpret_cast<pvr_sprite_txr_t*>(out+sizeof(pvr_poly_hdr_t));
     const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
     b->flags=PVR_CMD_VERTEX_EOL;
@@ -3808,7 +3834,21 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 #endif
     }
     if((s->color>>24)==0){++fx_culled;return 0;}
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    {   // ESP_SPRITE_FAST: std::isfinite on the bits (UI_QUAD_LEAN's test): an all-ones exponent carries into bit
+        // 31 of (bits & 0x7f800000) + 0x00800000; no __unordsf2 call per coordinate.
+        typedef std::uint32_t fx_word __attribute__((may_alias));
+        const fx_word* xw=reinterpret_cast<const fx_word*>(s->x);
+        const fx_word* yw=reinterpret_cast<const fx_word*>(s->y);
+        const fx_word* zw=reinterpret_cast<const fx_word*>(s->z);
+        std::uint32_t top=0;
+        for(unsigned i=0;i<4;++i)
+            top|=((xw[i]&0x7f800000U)+0x00800000U)|((yw[i]&0x7f800000U)+0x00800000U)|((zw[i]&0x7f800000U)+0x00800000U);
+        if(top&0x80000000U){++fx_culled;return 0;}
+    }
+#else
     for(unsigned i=0;i<4;++i)if(!std::isfinite(s->x[i]) || !std::isfinite(s->y[i]) || !std::isfinite(s->z[i])){++fx_culled;return 0;}
+#endif
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     {   // EFFECT_ROOM: spend the cap and the queue only on sprites that can change a pixel. Off screen:
         // all four corners past one edge of the 640x480 frame. Beyond the fog: every corner deeper than

@@ -39,6 +39,9 @@ extern "C" int re4dc_esp_sprite_pass;
 int re4dc_esp_sprite_pass;
 extern "C" int re4dc_esp_sprite_class(cEsp* esp);
 extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp);
+#if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+extern "C" void re4dc_esp_sprite_pass_begin();   // esp_sub.cpp
+#endif
 #endif
 #endif
 EspCreateFunc EspCreateTbl[0xFF];
@@ -658,6 +661,11 @@ int EspTrans()
             return 1;
         }
     }
+#if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES && defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
+    if (spritePass) {
+        re4dc_esp_sprite_pass_begin();
+    }
+#endif
 #endif
     LightMgr.setEsp(&sys->lightList, 8);
     cam = &pG->Cam;

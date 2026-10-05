@@ -11,6 +11,16 @@
 #define SCR_H 448.0f
 #define SCR_L 32.0f
 
+#if defined(RE4DC_ESP47_SKIP_LEAN) && RE4DC_ESP47_SKIP_LEAN
+// ESP47_SKIP_LEAN (effects30.mk): on an iteration that draws nothing (pace.cpp re4dc_pace_skipping) the
+// logic-only effect pass still queues this trans for its m_Pos screen wrap; the wrap and the shifted m_Pos
+// round trips below run as before, only the sprite draws (EspCommonTrans, which writes no m_Pos) are left out.
+extern "C" int re4dc_pace_skipping;
+#define ESP47_DRAW(e) do { if (!re4dc_pace_skipping) { EspCommonTrans(e); } } while (0)
+#else
+#define ESP47_DRAW(e) EspCommonTrans(e)
+#endif
+
 // Screen-space sprite that wraps around the screen edges (drawn again on the opposite side).
 class cEsp47 : public cEsp {
 public:
@@ -81,56 +91,56 @@ void Esp47_Trans(cEsp* pEsp)
     }
 
     flag = 0;
-    EspCommonTrans(pEsp);
+    ESP47_DRAW(pEsp);
     if (pEsp->m_Pos.x + w < SCR_L) {
         flag = 1;
         pEsp->m_Pos.x += SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x -= SCR_H;
     }
     if (pEsp->m_Pos.x - w > SCR_W) {
         flag |= 2;
         pEsp->m_Pos.x -= SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x += SCR_H;
     }
     if (pEsp->m_Pos.y + h < 0.0f) {
         flag |= 4;
         pEsp->m_Pos.y += SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.y -= SCR_H;
     }
     if (pEsp->m_Pos.y - h > SCR_H) {
         flag |= 8;
         pEsp->m_Pos.y -= SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.y += SCR_H;
     }
     if (flag == 5) {
         pEsp->m_Pos.x += SCR_H;
         pEsp->m_Pos.y += SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x -= SCR_H;
         pEsp->m_Pos.y -= SCR_H;
     }
     if (flag == 9) {
         pEsp->m_Pos.x += SCR_H;
         pEsp->m_Pos.y -= SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x -= SCR_H;
         pEsp->m_Pos.y += SCR_H;
     }
     if (flag == 6) {
         pEsp->m_Pos.x -= SCR_H;
         pEsp->m_Pos.y += SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x += SCR_H;
         pEsp->m_Pos.y -= SCR_H;
     }
     if (flag == 10) {
         pEsp->m_Pos.x -= SCR_H;
         pEsp->m_Pos.y -= SCR_H;
-        EspCommonTrans(pEsp);
+        ESP47_DRAW(pEsp);
         pEsp->m_Pos.x += SCR_H;
         pEsp->m_Pos.y += SCR_H;
     }

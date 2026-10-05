@@ -39,6 +39,32 @@ $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/esp.o $(OBJDIR)/src/game/esp_sub.o
 endif
 EFFECT_SPRITE_MAX ?= 64
 EFFECT_ROOM ?= 0
+#   ESP_SPRITE_FAST=1 (needs EFFECT_LEAN=1 and EFFECT_SPRITES=1; lane fx 2026-10-04): the effect sprite pass without
+#                    work nothing reads. EspCommonTrans returns at once for a sprite the native path does not take
+#                    (under EFFECT_LEAN nothing draws it: only m_Mat and GX state were written), and after the native
+#                    sprite for one it does (no normal matrix inverse/load); the coarse sprite pass reads the fogged
+#                    View far once per pass; re4dc_effect_sprite tests finiteness on the bits and reuses the last
+#                    compiled sprite header when texture, blend and screen flag match. Render only, writes no game
+#                    state. (The lane's EspTrans dead-slot skip over GAME_FX_SCAN's live map measured neutral and
+#                    was left out at integration, 2026-10-05.)
+#   ESP47_SKIP_LEAN=1 (needs PACE_CATCHUP; lane fx 2026-10-04): on an iteration that draws nothing, Esp47 (screen
+#                    wrap overlays, queued by the logic-only effect pass for its m_Pos wrap) keeps the wrap and the
+#                    shifted m_Pos round trips and drops its sprite draws. Render only.
+ESP_SPRITE_FAST ?= 0
+ifneq ($(ESP_SPRITE_FAST),0)
+ifneq ($(EFFECT_LEAN)$(EFFECT_SPRITES),11)
+$(error ESP_SPRITE_FAST needs EFFECT_LEAN=1 and EFFECT_SPRITES=1)
+endif
+$(OBJDIR)/src/game/esp.o $(OBJDIR)/src/game/esp_sub.o: GAME_CPPFLAGS += -DRE4DC_ESP_SPRITE_FAST=$(ESP_SPRITE_FAST)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_ESP_SPRITE_FAST=$(ESP_SPRITE_FAST)
+endif
+ESP47_SKIP_LEAN ?= 0
+ifneq ($(ESP47_SKIP_LEAN),0)
+ifeq ($(PACE_CATCHUP),0)
+$(error ESP47_SKIP_LEAN needs PACE_CATCHUP (pace.cpp re4dc_pace_skipping))
+endif
+$(OBJDIR)/src/game/esp47.o: GAME_CPPFLAGS += -DRE4DC_ESP47_SKIP_LEAN=$(ESP47_SKIP_LEAN)
+endif
 .PHONY: effects30-force
 $(OBJDIR)/effects30.h: effects30-force
 	@mkdir -p $(dir $@)
