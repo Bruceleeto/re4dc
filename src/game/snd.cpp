@@ -1779,6 +1779,30 @@ int SndDoorSeLoad()
 
 // Room start: loads the BGM sequence blocks the room table names (bit15 set) for slots 0 / 1 that
 // are not already resident (waits for a fading previous BGM first).
+#if RE4DC_ROUTE_CH13
+// Route lane c13 (ROUTE_CH13, chapter 1-3; user 2026-10-04 "use a track already in memory for those two rooms"):
+// r108 and r10a name a second room track (BGM slot 1: bio4midi #9 / #4) whose block has no room in the frozen AICA
+// layout (BGM1 = 0 bytes), so loading it fell to runtime conversion, which does not fit. In those two rooms slot 1
+// is not loaded; its requests drive the room's slot-0 track (resident, prebuilt) instead: the track is audible while
+// either slot wants it. Sound only: pSnd's slot-1 work stays unused, the game sees the same return values.
+static u8 s_ch13Want[2];
+static u16 s_ch13LogRoom = 0xFFFF;
+
+static int ch13_bgm1_sub()
+{
+    u16 room = pG->room_id;
+    return (room == 0x108 || room == 0x10A) && ((pSnd->room_bgm_tbl[0] >> 16) & 0x8000);
+}
+
+static void ch13_bgm_apply(int time)
+{
+    SndPlayWork* w = &pSnd->bgm_work[0];
+    if (w->used == 1 && w->stat == 0) {
+        Snd_seq_req(w->id, 1, time ? time : 1, (s_ch13Want[0] | s_ch13Want[1]) ? w->vol_def : 1);
+    }
+}
+#endif
+
 void SndRoomBgmLoad()
 {
     int i;
@@ -1786,6 +1810,16 @@ void SndRoomBgmLoad()
     for (i = 0; i < 2; i++) {
         u16 b = (u16) (pSnd->room_bgm_tbl[0] >> (i * 16));
         if (b & 0x8000) {
+#if RE4DC_ROUTE_CH13
+            if (i == 1 && ch13_bgm1_sub()) {
+                if (s_ch13LogRoom != pG->room_id) {
+                    s_ch13LogRoom = pG->room_id;
+                    OSReport("route ch13: r%03x BGM1 bio4midi #%d not loaded, plays resident BGM0 #%d\n",
+                             (unsigned) pG->room_id, b & 0xFF, (int) (pSnd->room_bgm_tbl[0] & 0xFF));
+                }
+                continue;
+            }
+#endif
             SndPlayWork* w = &pSnd->bgm_work[i];
             while (w->stat != 0) {
                 SndWatcher();
@@ -1840,6 +1874,20 @@ int SndRoomBgmStart(u8 no, int vol)
     int ret = 0;
     SndPlayWork* w;
 
+#if RE4DC_ROUTE_CH13
+    if (ch13_bgm1_sub() && (b & 0x8000)) {
+        s_ch13Want[no] = vol == 0;
+        if (no == 1) {
+            if (pSnd->bgm_work[0].used == 0) {
+                u8 w0 = s_ch13Want[0];
+                SndRoomBgmStart(0, 0);      // the resident slot-0 track carries slot 1's request
+                s_ch13Want[0] = w0;
+            }
+            ch13_bgm_apply(1);
+            return 1;
+        }
+    }
+#endif
     if (b & 0x8000) {
         w = &pSnd->bgm_work[no];
         if (w->used == 0) {
@@ -1866,6 +1914,13 @@ void SndRoomBgmStop(u8 no, int time)
 {
     SndPlayWork* w = &pSnd->bgm_work[no];
 
+#if RE4DC_ROUTE_CH13
+    if (no == 1 && ch13_bgm1_sub()) {
+        s_ch13Want[1] = 0;
+        ch13_bgm_apply(time * 200);
+        return;
+    }
+#endif
     if (w->used != 1 || w->stat != 0) {
         return;
     }
@@ -1883,6 +1938,13 @@ int SndRoomBgmVolSet(u8 no, int vol, int time)
     SndPlayWork* w = &pSnd->bgm_work[no];
     int ret = 0;
 
+#if RE4DC_ROUTE_CH13
+    if (ch13_bgm1_sub()) {
+        s_ch13Want[no] = vol > 1;
+        ch13_bgm_apply(time);
+        return no == 0 ? (w->used == 1 && w->stat == 0) : 0;
+    }
+#endif
     if (w->used == 1 && w->stat == 0) {
         ret = Snd_seq_req(w->id, 1, time, vol) == 0;
     }
@@ -1895,6 +1957,13 @@ int SndRoomBgmVolReset(u8 no, int time)
     SndPlayWork* w = &pSnd->bgm_work[no];
     int ret = 0;
 
+#if RE4DC_ROUTE_CH13
+    if (ch13_bgm1_sub()) {
+        s_ch13Want[no] = 1;
+        ch13_bgm_apply(time);
+        return no == 0 ? (w->used == 1 && w->stat == 0) : 0;
+    }
+#endif
     if (w->used == 1 && w->stat == 0) {
         ret = Snd_seq_req(w->id, 1, time, w->vol_def) == 0;
     }

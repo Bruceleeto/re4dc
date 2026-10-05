@@ -90,6 +90,13 @@ LOWER_ORDER = (8, 5, 1, 6, 2, 7, 0, 3)
 # the frontier ESL audit, /root/probe/d367-agents/frontier/frontier-ledger.json).
 # em/pl08.drs: Leon without the jacket (costume 1, every room after r106; title.cpp) loads into the same player
 # area as pl00 and carries the identical PL bank (fnv 556f69f1), so it is resident like pl00 and adds no bytes.
+# Room music that loads into the resident BGM0 slot (route lane c13, chapter 1-3): bgm/bgmtbl.dat lists these
+# bio4midi entries for the room's first BGM track. They are prebuilt at the highest cap that fits the frozen BGM0
+# slot, so no room converts music at load time (runtime conversion into free AICA RAM failed: SND SEQ data error at
+# r109). A room's second-slot track (BGM1, 0 bytes in the frozen layout) is replaced at runtime by a resident one
+# (snd.cpp, ROUTE_CH13). Only rooms of the planned route add entries; r100..r107 output is unchanged.
+ROOM_BGM0 = {'r102': [1], 'r108': [5], 'r109': [3], 'r10a': [3]}
+
 RESIDENT = ['etc/core.das', 'em/pl00.drs', 'em/pl08.drs', 'em/wep02.drs', 'bgm/bio4midi.dat#0', 'bgm/doorse.dat#*']
 ROOMS = {
     'title': ['ss/cmn/title.snd'],                  # title / menu ROOM bank, on every boot
@@ -460,7 +467,18 @@ def plan(mirror, rooms, budget, fixed=()):
             raise SystemExit('route does not fit %d bytes even at %d Hz' % (budget, CAPS[-1]))
     slots, arena = layout()
     if fixed_slots is not None:
-        slots = dict(fixed_slots)   # the frozen layout, so every bank header stays byte-identical
+        slots = dict(fixed_slots)
+    bgm0 = slots.get(3, 0)
+    for r in rooms:
+        for n in ROOM_BGM0.get(r, ()):
+            for b in load_banks(mirror, ['bgm/bio4midi.dat#%d' % n], data):
+                if b.key in uniq:
+                    continue
+                fit = [c for c in CAPS if c <= pref_cap(b.t) and ((b.bytes_at(c) + 31) & ~31) <= bgm0]
+                if b.t != 3 or not fit:
+                    raise SystemExit('bio4midi #%d (%s) does not fit the BGM0 slot (%d bytes)' % (n, r, bgm0))
+                b.cap = fit[0]
+                uniq[b.key] = b   # the frozen layout, so every bank header stays byte-identical
     return res, per_room, uniq, slots, arena
 
 
@@ -495,7 +513,8 @@ def build(mirror, out, res, per_room, uniq, slots, cache_dir, check):
         with open(path, 'rb') as f:
             d = bytearray(f.read())
         rel = os.path.relpath(path, mirror)
-        spec_like = [s for s in RESIDENT + [x for r in ROOMS.values() for x in r] if s.partition('#')[0] == rel]
+        spec_like = [s for s in RESIDENT + [x for r in ROOMS.values() for x in r]
+                     + ['bgm/bio4midi.dat#%d' % n for r in per_room for n in ROOM_BGM0.get(r, ())] if s.partition('#')[0] == rel]
         bases = sorted({bb for s in spec_like for bb in archive_bases(mirror, s)[1]})
         n_conv = 0
         for base in bases:

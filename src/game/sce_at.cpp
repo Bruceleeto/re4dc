@@ -1006,6 +1006,10 @@ int CheckDoorJumpWithAshley()
 // its unlock bit clear) runs sceInLock; else hands the door function to SceSys and sets the next
 // room (NextPos / NextY, next_stage / next_room_no / next_point, door_no) and the game routine 4
 // (room change).
+#if RE4DC_ROUTE_CH13
+extern "C" int re4dc_route_room_built(u16 room);
+extern "C" void re4dc_route_coming_soon(u16 room);
+#endif
 static int sceAtFunc_door(SceAtWork* w, cModel* m)
 {
     u8 lt;
@@ -1030,6 +1034,15 @@ static int sceAtFunc_door(SceAtWork* w, cModel* m)
             return 1;
         }
     }
+#if RE4DC_ROUTE_CH13
+    // Play disc end (route_end.cpp): a door into a room this disc does not carry shows "Coming Soon" and holds;
+    // the door's stop state stays set and no room change starts.
+    if (!re4dc_route_room_built((u16) ((w->dstStage << 8) | (w->dstRoom & 0xFF)))) {
+        re4dc_route_coming_soon((u16) ((w->dstStage << 8) | (w->dstRoom & 0xFF)));
+        w->flag &= ~1;
+        return 1;
+    }
+#endif
     if (w->doorFunc != 0) {
         SceSys.pDoorFunc = (int) w->doorFunc;
         SceSys.pDoorParam = w->doorArg;

@@ -58,6 +58,10 @@ $(error ROUTE_CH13 must be 0 or 1)
 endif
 MODULES += em18 em17 em24
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
+# r108 / r10a play their resident BGM0 track for the second room track (src/game/snd.cpp; the BGM1 slot is 0 bytes).
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
+# A door into a room the disc does not carry shows "Coming Soon" and holds (route_end.cpp, src/game/sce_at.cpp).
+$(OBJDIR)/src/game/sce_at.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
 endif
 # WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
 # r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests
@@ -406,6 +410,12 @@ OBJS += $(OBJDIR)/quality_picker.o
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/quality.o,$(PLATFORM_OBJS))
 endif
+ifeq ($(ROUTE_CH13),1)
+OBJS += $(OBJDIR)/route_end.o
+endif
+$(OBJDIR)/route_end.o: route_end.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
 $(OBJDIR)/quality_picker.o: quality_picker.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
