@@ -26,6 +26,21 @@
   projection: house 96.7% 14.5 fps -> 98.3% 14.7, fight 65.7% 9.9 -> 66.5% 10.0. tools/d367/ordcheck.py reports
   stale rules and the placed share before each release (tools/d367/README.md). The warp rig's `god` and
   `alert <frame>` lines (DBG_WARP=1 only) landed with it for the benchmark presets.
+- **Landed 2026-10-05, lane crowd (docs/lanes/crowd.md):**
+  - No logic reads the Ganados' render side: CROWD_DRAW_MAX=2 and ENC_SKIP_GANADO=1 (no emTrans/ModelTrans at all)
+    are both STRICT on r100-h-fight (ACT_CAP=0, 5034 ticks). perf-20261004 REPORT.md's "hiding Ganados changed
+    logic" was a bucket.py attribution shift (LOGIC vs other); every logic function's hw ms in functions.tsv is
+    equal within 0.006 ms. Compare logic with functions.tsv, not the LOGIC bucket. A Ganado render cull is a look
+    question only.
+  - Cheaper Ganados that keep the look do not pay: the far tier on every Ganado saves 0.15 ms per drawn Ganado,
+    under cross-build noise; CROWD_EARLY_FOG and CROWD_CULL_EARLY were rejected. Next exact item: lazy source
+    weight palettes (REPORT #7; ~-0.6 ms fight, -1.1 square).
+  - Pacing knobs, default off: PACE_FORCE=T (test pattern: draw one, drop two) and PACE_CAP2_SPEED=N (with
+    PACE_CAP=2, the second consecutive skip only while one skip per image leaves the game below N% speed). A
+    second skip costs the same as a first; D S S is STRICT on the r101 square (4951 ticks). Console projection
+    with PACE_CAP=2: fight 66% 9.9 fps -> 78% 7.8 fps (86% 8.6 with the no-look set); house 97% 14.5 -> 100% 13.5
+    (unchanged at 97% 14.5 with PACE_CAP2_SPEED=90). Turning it on in the play recipe is the user's call (speed
+    vs fps).
 
 ## 2026-10-04: r21y, the camera crash fix (local session)
 
