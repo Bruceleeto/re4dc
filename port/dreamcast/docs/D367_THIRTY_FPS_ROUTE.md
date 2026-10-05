@@ -2,6 +2,24 @@
 
 ## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
 
+- **2026-10-05: GAME_ROT_FSCA adopted (user: "SWITCH THIS ON").** GAME_ROT_FSCA=1 joins build-r21.sh's perf-lanes line,
+  with LINK_ORDER regenerated for it: link-order/r22-fsca-c3-8k.ld (ordgen_c3.py `--skip-weight 1`, pacing waits
+  excluded, over fm's knob-on cost runs hwmodel-fm-cRL-{hq,hf,sq}; the kernel takes pmc_sh4.o's old slot, so the
+  derived-copy sed in game30.mk is a no-op). Order candidates on the same code, hw ms drawn / skipped (one run each,
+  pacing waits excluded): fm's derived r21z copy (fm-cRL) house 42.63 / 22.02, fight 57.87 / 22.27, square 71.04 / 25.32;
+  regenerated (fsl-cB) **42.50 / 21.95, 57.54 / 21.96, 70.75 / 25.08**, better on all six, so kept. Against r22
+  (43.61 / 23.24, 59.10 / 23.18, 72.39 / 26.15): house -1.11 / -1.29, fight -1.56 / -1.22, square -1.64 / -1.07; fight
+  pair 82.28 -> 79.50 model ms (projection: ~73% -> ~75.5%). .text now ends 7,440 bytes below the next 8 KiB step
+  (the knob already crossed r22's; the final cost / trace / play images all end there). Gates on clean builds of the
+  new recipe (fresh objdirs, missing.txt empty; evidence C:/Flycast-Evidence/re4-dreamcast/fsl-20261005, on C:
+  because D: is at its floor): H2 vs route-z-strict DISCRETE (float drift only, as expected for last-bit maths), and
+  decision_cmp vs fm-h2A MUST-IDENTICAL (enemy drift max 0.113, player 0; control int-h2F / fm-h2A identical); bell
+  MUST-IDENTICAL vs fm-bellA (drift 0.0078); r100-h-fight vs fm-pfA every decision field identical except the known
+  `es` 440 ticks from 775 (the dormant cEm25 entry), and vs fm-pfRL (same code, old placement) MUST-IDENTICAL with 0
+  drift; 0 MISALIGN (interpreter + HWTRACE_ALIGN, r100-h-fight 900 s, to frame 12000+); play image (`DBG_WARP=0
+  PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1`, ELF 50820b27) New Game on newgame-r22c.json: intros
+  1971 / 2360, r100s40 1175, r100 running at frame 6600, HALT 0 / MISSING 0. The console playtest comes with the
+  next test disc.
 - **Lane iv Step 1 (invisible Ganados, measurement only; ENC_CENSUS=2 on exp/iv-20261005, not landed):** hw ms per
   Ganado per drawn tick: hidden 0.001; failing the game's own view test 0.003-0.006; off screen / fogged, culled late
   at Render (CROWD_CULL / CROWD_FOGSKIP) 0.46-0.55; submitted but 0 triangles 1.33 (owner path) / ~2.2 (source path);
@@ -69,8 +87,8 @@
   words hold float data; every live enemy's inputs are identical. Look: skinned characters differ by sub-pixel
   amounts (fight 1703 px, 1675 of them one RGB565 step; scenery identical; same side by side). 0 MISALIGN. GAME_TRIG_FSCA
   (sinf/cosf from FSCA) FAILED the decision gate (line-query answers differ from tick 2003) and stays default 0 as a
-  negative result. Adoption needs the user: the automated checks above plus a console playtest (policy 2026-09-23 (3),
-  review 2026-10-05). When adopted, regenerate LINK_ORDER (the knob swaps pmc_sh4.o's slot in a derived order copy).
+  negative result. Adopted by the user later on 2026-10-05 (top bullet: in build-r21.sh with the regenerated
+  LINK_ORDER r22-fsca-c3-8k.ld); the console playtest comes with the next test disc (policy 2026-09-23 (3)).
   Trap: r22's .text ends 112 bytes below an 8 KiB step; code growth past it moves rodata/data/bss/heap up 8 KiB.
 - **Lane ln result (docs/lanes/ln.md): FAIL against its pre-set bar (>= 40% AND >= 1.5 hw ms of Leon's drawn-tick
   cost), landed default off as an ordinary exact optimisation.** LEON_NATIVE_PIPE (Leon's two owner passes without the

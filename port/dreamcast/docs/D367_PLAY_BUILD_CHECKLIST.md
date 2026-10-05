@@ -1,5 +1,11 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-05: GAME_ROT_FSCA in the recipe (next play build)
+
+GAME_ROT_FSCA=1 (user approval 2026-10-05) and LINK_ORDER link-order/r22-fsca-c3-8k.ld are in build-r21.sh, so the next
+play build includes them (same play flags and fixture as r22c). Play image New Game -> r100 checked in Flycast (HALT 0 /
+MISSING 0); route doc "GAME_ROT_FSCA adopted". The console playtest comes with the next test disc.
+
 ## 2026-10-05: r22c (current play build, released)
 
 r22c = r22 + chapter 1-3: 2bb24730, build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1
