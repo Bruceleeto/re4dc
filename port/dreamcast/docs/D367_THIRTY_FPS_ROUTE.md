@@ -1,5 +1,54 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: r21x, the first console fixes, the VMU speed page and the console calibration (local session)
+
+The user played r21v on the console (NTSC, GDEMU, S-Video) and ran the hardware calibration disc.
+- **Crash after the first radio call and on Y (fault 0xE0, Trans+0x166).** SubScreenExec swaps the 3 MiB window at
+  pG->pStFnt, which holds heap 4 and the demand pools' obj / em works; Trans() still walked ObjMgr / EmMgr's alive
+  lists and read sub screen bytes as pNext. Flycast reads on; the SH-4 raises an address error on an odd pointer.
+  Every Disp_flg hide bit is set during the swap, so the callbacks wrote nothing: Trans now skips both walks (and the
+  coarse plan) while re4dc_ss_ui_order() says the window is swapped. With SUBSCREEN=1 the hook is a strong reference
+  and tools/link.sh fails the link if it would become a generated stub (a stub returns 0 and silently re-opens the
+  fault). Any per-frame walk of a manager list during a sub screen is the same fault class (new rooms: check it).
+- **Bridge "tan block" (r100, after s20):** an invisible gameplay blocker (AEV wall area / sceAtSetScrAt piece) drawn by
+  the coarse image as a flat wall over the PS2 world. COARSE_SAT_SCENERY_ONLY=1 draws no collision piece when another
+  path draws the scenery.
+- **Tan frame before calls / the inventory:** FOG_BACKGROUND made the PVR background the fog colour while every
+  Disp_flg hide bit was set; the GameCube's copy clear is black. SS_BG_BLACK=1.
+- **Audio "lost" during calls:** the call screen ducks the BGM and pauses the SEs for the voice stream, and
+  aica_str.dat had no call voices. aica_banks.py CALL_VOICE_STREAMS (1:140, 141, 142, 144, 145, 152; ~4 MB).
+- **PACE_VMU=1:** the VMU LCD shows FPS (drawn), SPD (% of 30 ticks/s), CPU (ms per tick before the vblank wait) and
+  the pacing mode once a second; one queued maple write a second, pace state only. User: the VMU fps build is the main
+  build from now on.
+- **Gates (y builds of a0618068):** missing 0; New Game intros 1971/2360 + s40 1175 (27-30 fps); radio call with its voice (stream 1:141); inventory restore ok x2 with the Trans guard logging; no bridge wall; H2 STRICT 1450..1569 / to 740 / from 1218 (om only in the call window, as before); the GDEMU image boots to the VMU prompt; every run HALT 0, MISSING 0. The link.sh check refuses a stub for the hook when the guard is compiled (tested in isolation). ELF y-play fe7a3895; disc r21x-final-title disc.bin 81fc2d00, r21x-final-gdemu track03.bin d44fcb0e.
+- **Console calibration (D:/RE4DC-HWCAL-r21v; results /root/probe/hwcal-v/CONSOLE-RESULTS-20261004.md, private).**
+  The model stands: every window's drawn tick is inside PREDICTIONS.md's range.
+
+  | Window | LOGIC hw (model) | drawn tick hw: P99 / LOGIC + render cycles (model range) | PVR |
+  |---|---|---|---|
+  | 1 quiet | 12.7 (12.0) | 55.5 / 52.7 (44.5-61.0) | 52.5 (?) |
+  | 2 view | 12.7 (11.6) | 81.5 / 68.2 (61.2-82.5) | 21.3 |
+  | 3 4 Ganados | 15.9 (14.7) | 104.5 / 95.4 (77.3-107.2) | 21.9 |
+  | 4 6 Ganados | 18.3 (17.1) | 102.5 / 93.3 (75.7-105.4) | 21.3 |
+  | 5 8 Ganados | 20.3 (18.9) | 94.5 / 89.8 (73.0-101.6) | 23.3 |
+
+  Logic x1.06-1.09 against the model, drawn render x0.95-1.06. FENCE 0.1 (CPU-bound); render I-cache stalls 8.5-18.7
+  ms per drawn frame. Door r100 -> r100 4.9 s / 50 frames (Flycast 4.2 s / 41). Caveats: the PMC events rotate by
+  frame % 6 while fast pacing alternates drawn / skipped ticks, so the render-side events split by phase (IPCR,
+  D-REND and DSTLR are not comparable); P50 sits at the drawn / skip boundary; TA-KB read 0 (sampled after the TA
+  reset); the VMU write failed (-7), so the photos are the record.
+- **Open console crash on r21x (user photo, ui frame 27786, r100, as Leon jumps out of the house window; A pressed):**
+  FAULT 0xE0 in CameraControl::checkAttachCamera's `delete extra`: extra points at m_Free whose vtable word is
+  0x09090909, the fill roomInit writes AFTER its init-time Check()/Move() (Check can create a CameraLookAt there when
+  the player's hip is <= 500 above his feet). Suspected: the window jump's attach camera deletes an extra wiped at r100's room start (the low pose
+  before the player is posed), which r0 had left without clearing.
+  Fix in progress (fill before the init-time camera calls); not in r21x.
+- **VMU readings (user, r21x on the console):** the r100 house 15 fps / 97% / CPU 34 ms; the fight after the window
+  jump 9 fps / 66% / 50-60 ms. CPU is ms per tick (all ticks): >33.3 means the CPU is saturated even with skipped draws.
+  The next build shows it as a percentage.
+- **Decision (user 2026-10-04):** next is performance work on drawing. Logic fits its 24 ms budget on the console
+  and stays parked.
+
 ## 2026-10-04: r21v, the performance knobs in the play recipe (local session)
 
 User 2026-10-04: "turn on all of the performant features", cut r21v, release it in place of r21t, and test it on a
@@ -188,7 +237,7 @@ host tests, a trial merge; no SH-4 build (cloud session).
 ## 2026-10-04: r21t public play downloads
 
 User-authorized public release:
-[play-r21t-inventory-fix-20261004](https://github.com/lamb2k/re4dc/releases/tag/play-r21t-inventory-fix-20261004).
+play-r21t-inventory-fix-20261004 (release removed 2026-10-04 with the other pre-r21v releases; the tag stays).
 Windows, SteamOS, CachyOS and GDEMU archives package the already verified r21t images. Every archived
 file is read back and hash-checked; GitHub asset digests and sizes match the local release manifest.
 SHA256SUMS.txt and inline release-note hashes support manual and existing scripted downloads.

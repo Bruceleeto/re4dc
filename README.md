@@ -21,29 +21,32 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 ## Status
 
 Updated **2026-10-04**. The newest public play build is
-**[r21v (performance)](https://github.com/lamb2k/re4dc/releases/tag/play-r21v-performance-20261004)**,
-which supersedes r21t. Downloads are available for Windows, SteamOS / Steam Deck, CachyOS / Arch, and
-GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`. This is a prerelease test build.
+**[r21x (VMU speed readout)](https://github.com/lamb2k/re4dc/releases/tag/play-r21x-vmu-20261004)**, which supersedes r21v. Downloads are available for Windows,
+SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`.
+This is a prerelease test build.
 
-**r21v turns on the performance features measured on the experimental branch**: native drawing for the
-stage-1 animals and the no-jacket Leon, a leaner world-mesh walk and vertex scheduling, and cheaper
-character lighting and proofs. It keeps r21t's fixes (inventory, SH-4 alignment fixes, on-screen crash
-report, wall seams, texture pack, radio-call and cliff-movie memory fixes).
+**r21v has now run on a real NTSC Dreamcast (GDEMU, S-Video).** r21x fixes what that first console test found:
 
-Checked in [Flycast](https://github.com/flyinghead/flycast) for r21v (emulator figures, not console results):
+- **Crash right after the first radio call and when opening the inventory (Y).** While a call or the inventory has
+  the room's memory swapped out, the game still walked the room's object lists. Flycast reads past this; the
+  Dreamcast's SH-4 stops with an address error. Those walks are now skipped while the memory is swapped.
+- **Invisible blocker drawn as a tan wall in front of the r100 bridge.** Collision-only pieces were drawn as flat
+  walls over the PS2 world; they are no longer drawn.
+- **Tan frame before each radio call and the inventory.** The screen behind the menu showed the fog colour; it is
+  now black, as on the GameCube.
+- **Silent radio calls.** The call voices were missing from the disc; they are added.
 
-- **Faster than r21t's code:** r100 gameplay 24.3 -> 25.9 fps; the r101 bell fight's busy moments
-  +1 to +1.7 fps and its steady scene 27.1 -> 24.8 ms per frame; r103 3-7% faster.
-- The normal title / New Game sequence completes the opening movies and reaches r100 gameplay.
-- Inventory open/close in r100 and r104 restores the saved game-memory area correctly.
-- A test starting near the end of r106 reaches the chapter 1-1 results, saves to the VMU, enters r104
-  and reaches Continue after the scripted missed QTE.
-- r100 radio calls, the r101 bell fight and r103 entry play as before. Gameplay traces match a
-  timing-matched control (the new features are render-only).
-- The GDEMU image boots in Flycast to the game's VMU prompt.
+**The VMU shows the speed.** Once a second the VMU in the first controller shows FPS (drawn frames per second),
+SPD (game speed, % of full speed), CPU (ms of work per game tick) and the pacing mode.
 
-These are separate checks. **A continuous title-to-chapter-end playthrough remains pending, and r21v
-has not yet run on a GDEMU or a physical console** (a first console test is under way).
+**First console measurements** (a self-running calibration disc on r21v's code, r100): one game-logic tick takes
+12.7 ms with Leon alone and 20.3 ms with eight Ganados, inside the 24 ms budget for 30 fps. A drawn frame takes about
+53 ms in a quiet view and 90-95 ms with four to eight Ganados, so **drawing is what keeps the game below 30 fps on
+the console**, and it is the next work. These figures fell inside the ranges the PC-side hardware model predicted
+before the run.
+
+Checked in [Flycast](https://github.com/flyinghead/flycast) for r21x: the title / New Game sequence plays the three opening movies in full and reaches r100 gameplay; the radio call plays its voice; inventory open/close restores the saved game-memory area; no wall in front of the r100 bridge; gameplay traces match the previous build (the fixes change drawing only); the GDEMU image boots to the game's VMU prompt. These are separate checks; a continuous title-to-chapter-end playthrough remains pending.
+
 See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) for source revisions,
 test scope and earlier build history.
 
@@ -51,8 +54,8 @@ The staged play data covers the following route; it is not the full game:
 
 | Chapter | Rooms | Verification scope |
 | --- | --- | --- |
-| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21v playthrough pending |
-| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21v run remain unchecked |
+| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21x playthrough pending |
+| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21x run remain unchecked |
 | 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene tested in earlier builds; the onward route remains unfinished |
 
 The target remains **30 fps at full game speed on a real NTSC Dreamcast**. Flycast checks and hardware
@@ -60,11 +63,13 @@ estimates do not establish physical-console performance or compatibility.
 
 ## Backlog
 
-1. Complete the continuous first-chapter playthrough, including combat, inventory, transitions and retry.
-2. Fix remaining scene/model/effect rendering gaps and improve the slow combat and room views toward 30 fps.
-3. Check normal chapter 1-2 emblem/key-item pickups and loading a save made inside r106.
-4. Complete the chapter 1-3 route.
-5. Qualify the current GDEMU image and complete the first physical Dreamcast test after the route checks.
+1. Make drawing faster: on the console a drawn frame takes about 53 ms in a quiet view and 90-95 ms with
+   Ganados, against about 13-21 ms of game logic per tick.
+2. Complete the continuous first-chapter playthrough, including combat, inventory, transitions and retry.
+3. Fix remaining scene/model/effect rendering gaps.
+4. Check normal chapter 1-2 emblem/key-item pickups and loading a save made inside r106.
+5. Complete the chapter 1-3 route.
+6. Keep testing each build on the console (GDEMU), where crashes Flycast hides show up.
 
 ## Known issues
 
@@ -73,23 +78,25 @@ estimates do not establish physical-console performance or compatibility.
 - **Untested pickups and saved-game reload.** Normal emblem and key-item pickups remain unchecked. A dedicated
   reload of a save made inside r106 is still needed. The earlier direct-start disc-open failure was fixed by
   serialized texture/disc reads; that test alone does not establish saved-game reload acceptance.
-- **Performance is below target in demanding views.** Earlier r21m Flycast measurements with Fast pacing were
-  about 12 fps / 80% game speed in the r101 fight, 12.5 fps / 84% in r106, 14 fps / 90-99% in r103, and 11 fps /
-  74% in r105 after the chapter 1-3 opening. r21v is a few fps faster (Status), but these are emulator
-  figures, not real-Dreamcast results. Fast pacing can look choppy; hold R and press START to cycle the pacing mode.
+- **Performance is below target on the console.** On a real Dreamcast a drawn frame takes about 53 ms in a quiet
+  r100 view and 90-95 ms with four to eight Ganados (r21v code, calibration disc); Fast pacing skips drawing frames
+  to keep the game speed up, so it can look choppy. The VMU shows the live numbers. Hold R and press START to cycle
+  the pacing mode.
 - **Room-entry pauses remain.** Texture packing reduced earlier measured Flycast entry loads to about 3 s;
   loading is still visible. Radio calls no longer require the earlier full room-texture reload in the tested case.
 - **Cutscene playback can still drop frames.** The r104 arrival has shown dropped pictures. During the
   chapter-end checks, an early r104 world preload failed before the subsequent room-entry load succeeded.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
-- **Physical hardware is untested.** r21m predates the SH-4 alignment fixes included in later builds.
-  The r21v GDEMU package is content-verified and boots in Flycast; console acceptance is still pending. Its new
-  render features have never run on a console: a crash there should show the on-screen crash report.
+- **Console testing has started.** r21v ran on a real NTSC Dreamcast with GDEMU; r21x fixes the two crashes and
+  the drawing and sound problems found there. A full console playthrough of r21x is still pending. **Known console
+  crash:** the camera code can stop the game as Leon jumps out of the r100 house window (seen on r21x;
+  very likely in r21v too); a fix is being tested for the next build. A crash should show the on-screen crash report; please send a
+  photo of it.
 
 ## Playing
 
-Download **[r21v](https://github.com/lamb2k/re4dc/releases/tag/play-r21v-performance-20261004)** and follow
+Download **[r21x](https://github.com/lamb2k/re4dc/releases/tag/play-r21x-vmu-20261004)** and follow
 the instructions for your system below. The release includes a checksum file and test notes. No BIOS or
 personal VMU saves are included; game data is not committed to this source repository.
 
@@ -98,7 +105,8 @@ personal VMU saves are included; game data is not committed to this source repos
   Flycast from Flathub if needed.
 - **CachyOS / Arch:** extract `RE4DC-<build>-CachyOS.tar.gz`, run `./play.sh`.
 - **Dreamcast with GDEMU (test image):** copy `disc.gdi`, `track01.bin`, `track02.raw` and
-  `track03.bin` into a new numbered folder on the SD card. The current image has not been tested on hardware.
+  `track03.bin` into a new numbered folder on the SD card. Put a VMU in the first controller slot to see
+  the speed readout.
 
 | Action | Dreamcast pad |
 | --- | --- |
@@ -110,6 +118,7 @@ personal VMU saves are included; game data is not committed to this source repos
 | Inventory | Y |
 | Pause / options | START |
 | Frame pacing (Smooth → Fast → Off) | Hold R, press START |
+| Speed readout (FPS / speed / CPU ms / pacing) | VMU in controller slot 1 |
 
 ## Development
 

@@ -72,6 +72,14 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
 - LANDED default-off (route doc "supervisor code landed default-off"): experiment/supervisor-20261004's code (r101
   square 90.08 -> 82.65 ms modeled with its knob set, SUPERVISOR_BASELINE_20261004.md). 038d1c59 is split into
   one commit per feature. MESH_STRIP_LEAN now feeds TA_HASH. Not in the play recipe (a separate user decision).
+- r21x (a0618068; route doc "r21x"): the first console fixes + the VMU speed page, the main build from now on (user).
+  Trans skips the room list walks while the sub screen window is swapped (r21v console fault 0xE0 after the radio
+  call / on Y; a strong hook + a link.sh check when SUBSCREEN=1); COARSE_SAT_SCENERY_ONLY=1 (bridge blocker),
+  SS_BG_BLACK=1 (tan frame), PACE_VMU=1 (VMU page) in build-r21.sh; the disc needs the call voices in
+  bgm/aica_str.dat (aica_banks.py --call-voices). Released play-r21x-vmu-20261004 (supersedes r21v).
+- Console calibration 2026-10-04 (route doc "r21x"): the hw model stands; logic x1.07, drawn render x0.95-1.06. On
+  the console G is 12.7-20.3 ms (fits 24) and a drawn frame ~53 ms quiet / 90-95 ms with Ganados: the work is
+  drawing (user: performance work on the drawing problem next; logic stays parked).
 - lamb2k/re4dc is public: every push publishes (AGENTS.md).
 - User decisions 2026-10-04: the supervisor branch's code lands default-off, after the cleanup above and after r21u
   (local session; turning any of it on in play builds stays a separate decision). Gameplay-logic cost (G, ~29 ms in
