@@ -34,6 +34,12 @@
 # tick; user: the VMU fps build is the main build). The sub screen guard in Trans (r21v console fault 0xE0) needs no
 # knob (SUBSCREEN=1). Its disc needs bgm/aica_str.dat with the radio call voices (tools/aica_banks.py disc
 # --call-voices, stage.sh AICA_CALL_VOICES=1); without them every call is silent.
+# Perf lanes 2026-10-04/05 (integration perf/int-20261005; the last line of the list; render-only or exact, logic STRICT):
+# SKIN_PALETTE_LAZY=1 (sk), ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 (fx), MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1
+# ACTOR_BIND_REUSE=1 (cl; =2 check build 0 bad on r100-h-fight + perf-r101sq), PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1
+# PS2_PASS_MASK=1 (wd; PS2_FOLIAGE_FAR stays off: a pending user look decision), GAME_HF_REG=1 GAME_CLOTH_SPRING=1
+# GAME_SND_WALL_ALT=1 (logic; SE wall occlusion every other frame: audio only), with LINK_ORDER regenerated for them
+# (r21z-perf-c3-8k.ld). Route doc "2026-10-05: integrated perf lanes".
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -67,7 +73,7 @@ R21=(
   GAME_PWC_KERNEL=3 GAME_PWC_PF=1 GAME_PWC_SCHED=1 GAME_ROTVEC_MEMO=1 GAME_ROT_CACHE=1 GAME_SCEAT_LIST=1
   GAME_SINCOS=1 GAME_SKEL_FTRV=1 GAME_SPHERE_WALK=1 GAME_TRIG=1 GAME_TRIG_LEAN=1 GAME_VEC_INLINE=1
   GAME_VEC_NORM_INLINE=1 GAME_WORKAT_INLINE=1 GROUND_LIGHT_FIX=0 HW_LEAN=1
-  LINK_ORDER=$ROOT/port/dreamcast/game/link-order/r21y-house-fight-square-c3-8k.ld LOGIC_TRACE=1 LOGIC_TRACE_MASK_RENDER=1
+  LINK_ORDER=$ROOT/port/dreamcast/game/link-order/r21z-perf-c3-8k.ld LOGIC_TRACE=1 LOGIC_TRACE_MASK_RENDER=1
   MESH_DIRECT=1 MESH_LOD=1 MESH_LOD_PX=3 MESH_TEXTURES=1 MODELINFO_DEMAND=1 MODEL_DRAW_PLANS=1
   MODEL_POSITION_CACHE=1 MODEL_ROOM_STRIPS=1 MODEL_SLAB_LATCH=1 MOTION_FAST_READ=1
   MOTION_LEASE_LEAN=0 NATIVE_ACTOR=1 NATIVE_ACTOR_DIRECT=1 NATIVE_ACTOR_FAST=1 NATIVE_ACTOR_LOD=1
@@ -93,6 +99,8 @@ R21=(
   NATIVE_MODEL_REGISTRY_TX=1 NATIVE_MODEL_REGISTRY_PALBOUND=1 ACTOR_PL08=1 ACTOR_PL08_PACK=1 SS_CERT=1
   MESH_VP_SCHED=1 ACTOR_PROOF_LEAN=1 MESH_STRIP_LEAN=1 ACTOR_MATERIAL_RECORD=1
   COARSE_SAT_SCENERY_ONLY=1 SS_BG_BLACK=1 PACE_VMU=1
+  SKIN_PALETTE_LAZY=1 ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1 ACTOR_BIND_REUSE=1
+  PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
