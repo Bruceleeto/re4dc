@@ -1,5 +1,21 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: r21y, the camera crash fix (local session)
+
+- **Cause (confirmed in Flycast):** every cCamera destructor does `memset(this, 9, 0x200)` (our GCC drops the base
+  vtable store, so a destroyed extra's vtable word is 0x09090909), and EndLookDownEm, endPushObject, endScope and
+  LowerBinocular deleted `extra` without clearing it. The user's path: after s20, A on the dead s03 Ganado runs
+  r100_MesGanado (StartLookDownEm / EndLookDownEm), then the window jump registers an attach camera and
+  checkAttachCamera's `delete extra` loads @(4,0x09090909): FAULT 0xE0 on the console, a silent guest reset in Flycast
+  (every pass, at the window jump). roomInit was refuted (extra 0, hip 1082 above the feet at every entry), but its
+  m_Free fill now runs before the init-time Check()/Move() too.
+- **Fix (dd995a7b, port-side, `#if defined(RE4DC_GAME) && !defined(__PPC__)`):** the four end* paths set extra = NULL
+  after the delete, as Move case 5 already did. Non-crashing paths are unchanged: every reader of extra runs after a
+  start* / MotionSet built a new object; `if (extra) delete extra` now skips instead of faulting.
+- **Also:** PACE_VMU's CPU line is now % of a 30 Hz tick (564f5168), after the user read "CPU 34" (ms) as idle.
+- **Gates:** builds z-play / z-warp / z-tr missing 0; z-window (the user's path) plays past the jump with no reset (the r21x twin resets there every pass); New Game intros 1971/2360 + s40 1175; radio call; inventory restore ok x2; H2 STRICT vs r21x's y-strict (1450..1569, to 740, from 1218; om only in the call window); GDI boot to the VMU prompt; every run HALT 0, MISSING 0. ELF z-play f6a82e3f; disc r21y-title disc.bin 6808dc0b, r21y-gdemu track03.bin 7a37f37a.
+- **Lesson:** a Flycast "log head decreased: reset" can be a console fault (a wild jump); check old runs with it.
+
 ## 2026-10-04: r21x, the first console fixes, the VMU speed page and the console calibration (local session)
 
 The user played r21v on the console (NTSC, GDEMU, S-Video) and ran the hardware calibration disc.
@@ -42,7 +58,7 @@ The user played r21v on the console (NTSC, GDEMU, S-Video) and ran the hardware 
   0x09090909, the fill roomInit writes AFTER its init-time Check()/Move() (Check can create a CameraLookAt there when
   the player's hip is <= 500 above his feet). Suspected: the window jump's attach camera deletes an extra wiped at r100's room start (the low pose
   before the player is posed), which r0 had left without clearing.
-  Fix in progress (fill before the init-time camera calls); not in r21x.
+  Fixed in r21y (see "r21y": the cause was four end* paths leaving a destroyed extra, not roomInit).
 - **VMU readings (user, r21x on the console):** the r100 house 15 fps / 97% / CPU 34 ms; the fight after the window
   jump 9 fps / 66% / 50-60 ms. CPU is ms per tick (all ticks): >33.3 means the CPU is saturated even with skipped draws.
   The next build shows it as a percentage.

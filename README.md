@@ -21,11 +21,15 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 ## Status
 
 Updated **2026-10-04**. The newest public play build is
-**[r21x (VMU speed readout)](https://github.com/lamb2k/re4dc/releases/tag/play-r21x-vmu-20261004)**, which supersedes r21v. Downloads are available for Windows,
+**[r21y (camera crash fix)](https://github.com/lamb2k/re4dc/releases/tag/play-r21y-camera-fix-20261004)**, which supersedes r21x. Downloads are available for Windows,
 SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`.
 This is a prerelease test build.
 
-**r21v has now run on a real NTSC Dreamcast (GDEMU, S-Video).** r21x fixes what that first console test found:
+**r21y fixes the console crash when Leon jumps out of the r100 house window.** The camera code deleted a special
+camera (left over from examining the dead Ganado, a rifle scope, the binoculars or pushing an object) a second time;
+Flycast resets there, the Dreamcast stops with an address error. r21y also shows the VMU's CPU line as a percentage.
+
+**r21v has now run on a real NTSC Dreamcast (GDEMU, S-Video).** r21x fixed what that first console test found:
 
 - **Crash right after the first radio call and when opening the inventory (Y).** While a call or the inventory has
   the room's memory swapped out, the game still walked the room's object lists. Flycast reads past this; the
@@ -37,7 +41,8 @@ This is a prerelease test build.
 - **Silent radio calls.** The call voices were missing from the disc; they are added.
 
 **The VMU shows the speed.** Once a second the VMU in the first controller shows FPS (drawn frames per second),
-SPD (game speed, % of full speed), CPU (ms of work per game tick) and the pacing mode.
+SPD (game speed, % of full speed), CPU (work per game tick as % of the time a tick has; above 100% the console is
+fully busy) and the pacing mode.
 
 **First console measurements** (a self-running calibration disc on r21v's code, r100): one game-logic tick takes
 12.7 ms with Leon alone and 20.3 ms with eight Ganados, inside the 24 ms budget for 30 fps. A drawn frame takes about
@@ -45,7 +50,7 @@ SPD (game speed, % of full speed), CPU (ms of work per game tick) and the pacing
 the console**, and it is the next work. These figures fell inside the ranges the PC-side hardware model predicted
 before the run.
 
-Checked in [Flycast](https://github.com/flyinghead/flycast) for r21x: the title / New Game sequence plays the three opening movies in full and reaches r100 gameplay; the radio call plays its voice; inventory open/close restores the saved game-memory area; no wall in front of the r100 bridge; gameplay traces match the previous build (the fixes change drawing only); the GDEMU image boots to the game's VMU prompt. These are separate checks; a continuous title-to-chapter-end playthrough remains pending.
+Checked in [Flycast](https://github.com/flyinghead/flycast) for r21y: examining the dead Ganado after s20 and then jumping out of the house window plays on (r21x resets there in Flycast and stops on the console); New Game, the radio call, inventory and the gameplay trace pass as for r21x. For r21x: the title / New Game sequence plays the three opening movies in full and reaches r100 gameplay; the radio call plays its voice; inventory open/close restores the saved game-memory area; no wall in front of the r100 bridge; gameplay traces match the previous build (the fixes change drawing only); the GDEMU image boots to the game's VMU prompt. These are separate checks; a continuous title-to-chapter-end playthrough remains pending.
 
 See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) for source revisions,
 test scope and earlier build history.
@@ -54,8 +59,8 @@ The staged play data covers the following route; it is not the full game:
 
 | Chapter | Rooms | Verification scope |
 | --- | --- | --- |
-| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21x playthrough pending |
-| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21x run remain unchecked |
+| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21y playthrough pending |
+| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21y run remain unchecked |
 | 1-3 | r105, r101, r102, r108, r109, r10a, r10b | Opening cutscene tested in earlier builds; the onward route remains unfinished |
 
 The target remains **30 fps at full game speed on a real NTSC Dreamcast**. Flycast checks and hardware
@@ -89,14 +94,13 @@ estimates do not establish physical-console performance or compatibility.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
 - **Console testing has started.** r21v ran on a real NTSC Dreamcast with GDEMU; r21x fixes the two crashes and
-  the drawing and sound problems found there. A full console playthrough of r21x is still pending. **Known console
-  crash:** the camera code can stop the game as Leon jumps out of the r100 house window (seen on r21x;
-  very likely in r21v too); a fix is being tested for the next build. A crash should show the on-screen crash report; please send a
+  the drawing and sound problems found there. A full console playthrough of r21y is still pending. r21y fixes the camera
+  crash at the r100 house window found on r21x. A crash should show the on-screen crash report; please send a
   photo of it.
 
 ## Playing
 
-Download **[r21x](https://github.com/lamb2k/re4dc/releases/tag/play-r21x-vmu-20261004)** and follow
+Download **[r21y](https://github.com/lamb2k/re4dc/releases/tag/play-r21y-camera-fix-20261004)** and follow
 the instructions for your system below. The release includes a checksum file and test notes. No BIOS or
 personal VMU saves are included; game data is not committed to this source repository.
 

@@ -80,6 +80,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
 - Console calibration 2026-10-04 (route doc "r21x"): the hw model stands; logic x1.07, drawn render x0.95-1.06. On
   the console G is 12.7-20.3 ms (fits 24) and a drawn frame ~53 ms quiet / 90-95 ms with Ganados: the work is
   drawing (user: performance work on the drawing problem next; logic stays parked).
+- r21y (564f5168; route doc "r21y"): r21x + the camera fix (cCamera destructors memset(this, 9, 0x200) and four
+  end* paths left `extra` set -> the next `delete extra` faulted on the console at the r100 window jump; Flycast resets
+  silently: treat "log head decreased: reset" as a possible console fault) + the VMU CPU line as %. Released play-r21y-camera-fix-20261004.
 - lamb2k/re4dc is public: every push publishes (AGENTS.md).
 - User decisions 2026-10-04: the supervisor branch's code lands default-off, after the cleanup above and after r21u
   (local session; turning any of it on in play builds stays a separate decision). Gameplay-logic cost (G, ~29 ms in
