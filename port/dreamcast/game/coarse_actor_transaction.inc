@@ -26,6 +26,9 @@ void actor_lean_report(const char* why) {
 }
 #endif
 #endif
+#if RE4DC_ACTOR_BIND_REUSE
+extern "C" { unsigned re4dc_actor_tx_serial; }  // re4dc_actor_transaction_draw calls (ACTOR_BIND_REUSE, crowd.mk)
+#endif
 namespace {
 using re4dc_source::FrameIdentity;
 using re4dc_source::ModelIdentity;
@@ -502,6 +505,9 @@ static int enc_transaction_draw(cModel* m) {
 extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #endif
     ATD(m,0,0,0);
+#if RE4DC_ACTOR_BIND_REUSE
+    ++re4dc_actor_tx_serial;  // this call: the Ganado plan's binding token names it (coarse_actor_owner_ganado.inc)
+#endif
 #if RE4DC_ACTOR_PROOF_LEAN
     // The lifetime serial right after THIS call's admitting actor_semantics (0: this call admitted nothing).
     unsigned lean_serial=0;

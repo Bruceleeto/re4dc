@@ -355,6 +355,17 @@ extern "C" unsigned re4dc_actor_binding_revision(cModel* m) {
     }
     if(!free)return 0;*free={m,m->pParts,m->serial,next(),epoch};return free->revision;
 }
+#if RE4DC_ACTOR_BIND_REUSE
+// ACTOR_BIND_REUSE (crowd.mk): re4dc_actor_binding_revision without its refresh: the model's live binding revision
+// when that binding is current (the value the full call would return without calling next()), else 0. A binding
+// cleared by re4dc_actor_model_retire (no epoch move) reads 0.
+extern "C" unsigned re4dc_actor_binding_peek(cModel* m) {
+    using namespace re4dc_material::life;
+    if(!m || exhausted)return 0;
+    for(const auto& b:bindings)if(b.model==m)return b.serial==m->serial && b.parts==m->pParts && b.epoch==epoch?b.revision:0u;
+    return 0;
+}
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX
 // NATIVE_MODEL_REGISTRY_TX: row r can match an info only when info_current(i,r), whose first clause is the info's role
 // bit r; so a registry appearance's role scans visit just the info's set bits below the row count, in ascending order

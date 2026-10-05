@@ -155,6 +155,22 @@ endif
 ifeq ($(CROWD_READOPT_MEMO)$(CROWD_READOPT),10)
 $(error CROWD_READOPT_MEMO=1 needs CROWD_READOPT=1 or 2)
 endif
+# ACTOR_BIND_REUSE=1 (perf-20261004 candidate 11, the 2026-10-04 actor-preparation handover's POC; render only, exact):
+#              a Ganado's palette build reuses its plan's owner binding (role search, source BINs) within the same
+#              actor transaction when the token, the lifetime serial, the Ganado slot, the live info list and the
+#              lifetime binding (read-only) all still match; the finite-matrix scan runs live; any miss runs the full
+#              bind (coarse_actor_owner_ganado.inc). =2 check build: the full bind decides, "ABR" lines count hits whose
+#              reuse would have differed (bad must be 0).
+ACTOR_BIND_REUSE ?= 0
+ifeq ($(filter $(ACTOR_BIND_REUSE),0 1 2),)
+$(error ACTOR_BIND_REUSE must be 0, 1 or 2)
+endif
+ifneq ($(ACTOR_BIND_REUSE),0)
+ifneq ($(ACTOR_TRANSACTION)$(COARSE_GANADO_CAST),11)
+$(error ACTOR_BIND_REUSE acts on the ACTOR_TRANSACTION Ganado cast owner path (ACTOR_TRANSACTION=1 COARSE_GANADO_CAST=1))
+endif
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_BIND_REUSE=$(ACTOR_BIND_REUSE)
+endif
 CROWD_FOGSKIP ?= 0
 CROWD_FAR_M ?= 0
 CROWD_NEAR_MAX ?= -1

@@ -75,13 +75,80 @@ bool owner_ganado_bind(cModel* m) {
            !coarse_finite((&bound->parts[i]->mat[0][0])[j]))return false;
     owner_current_slot=slot;return true;
 }
+#if RE4DC_ACTOR_BIND_REUSE
+}
+// ACTOR_BIND_REUSE (crowd.mk; render only, exact; perf-20261004 candidate 11, handover-actor-preparation-20261004):
+// the palette build reuses the structural part of the plan's owner_ganado_bind in the SAME actor transaction, as
+// NATIVE_MODEL_REGISTRY_TX does for registry actors. The plan leaves a token naming the transaction call, the model,
+// its Ganado slot, that slot's binding revision and the lifetime serial right after its bind; the palette build
+// consumes it once. Between the two only native code runs (layout, semantics, the crowd policy, the leases, the
+// palette arena: the ACTOR_PROOF_LEAN audit), and every lifetime record change takes life::next(). On a token hit
+// the class / skeleton prerequisites, the live info list, the slot's identity and the lifetime binding (read-only,
+// re4dc_actor_binding_peek: model_retire clears it without an epoch move) are checked again; the role search
+// (re4dc_actor_role_bindings, re4dc_actor_role_source_bin) is skipped; the finite-matrix scan runs live as in the
+// full bind. Any miss runs the full bind. =2 (check build): the full bind always runs and decides; "ABR" lines count
+// token hits whose reuse verdict or slot differed from it (bad must stay 0).
+extern "C" unsigned re4dc_actor_tx_serial;              // coarse_actor_transaction.inc
+extern "C" unsigned re4dc_actor_binding_peek(cModel*);  // actor_lifetime.inc
+namespace re4dc_material { namespace life { extern unsigned serial; extern bool exhausted; } }
+#if RE4DC_ACTOR_BIND_REUSE == 2
+extern "C" void re4dc_log(const char*,...);
+#endif
+namespace {
+struct OwnerBindToken { const cModel* m;unsigned tx,life_serial,revision,slot; };
+OwnerBindToken owner_bind_token{};
+#if RE4DC_ACTOR_BIND_REUSE == 2
+unsigned abr_calls,abr_hits,abr_bad;
+#endif
+bool owner_ganado_bind_tx(cModel* m) {
+    using namespace re4dc_material;
+    const OwnerBindToken t=owner_bind_token;owner_bind_token.m=nullptr;  // one use
+    bool reuse=t.m==m && m && t.tx==re4dc_actor_tx_serial && !life::exhausted && t.life_serial==life::serial && t.slot<32;
+    unsigned count=0;
+    if(reuse)reuse=m->id>=0x10 && m->id<=0x20 && m->nParts==kBones && m->pList && !(m->be_flag&0x4000);
+    if(reuse) {
+        const auto& b=bindings[t.slot];
+        reuse=b.owner==m && b.serial==m->serial && b.list==m->pList && owner_binding_revision[t.slot]==t.revision;
+        for(auto* i=m->pModelInfo;reuse && i;i=i->pList) {
+            if(count>=owner_info_count[t.slot]){reuse=false;break;}
+            reuse=i==(count<4?b.infos[count]:owner_extra_info[t.slot]);++count;
+        }
+        reuse=reuse && count==owner_info_count[t.slot] && count>=4 && re4dc_actor_binding_peek(m)==t.revision;
+    }
+#if RE4DC_ACTOR_BIND_REUSE == 2
+    const bool full=owner_ganado_bind(m);
+    ++abr_calls;if(reuse){++abr_hits;if(!full || owner_current_slot!=t.slot || bound!=&bindings[t.slot])++abr_bad;}
+    if(abr_calls%600==0)re4dc_log("ABR calls=%u hits=%u bad=%u\n",abr_calls,abr_hits,abr_bad);
+    return full;
+#else
+    if(!reuse)return owner_ganado_bind(m);
+    bound=&bindings[t.slot];
+    // The full bind's finite scan, same words, as one exact whole-array test (registry_all_finite's form): bit 31 of
+    // (exponent field + 0x00800000) is set iff the exponent is all ones (inf / NaN), i.e. iff !coarse_finite.
+    typedef unsigned __attribute__((may_alias)) Word;
+    unsigned bad=0;
+    for(unsigned i=0;i<kBones;++i) {
+        const Word* a=reinterpret_cast<const Word*>(&bound->parts[i]->lt_inv_mat[0][0]);
+        const Word* c=reinterpret_cast<const Word*>(&bound->parts[i]->mat[0][0]);
+        for(unsigned j=0;j<12;++j)bad|=((a[j]&0x7f800000u)+0x00800000u)|((c[j]&0x7f800000u)+0x00800000u);
+    }
+    if(bad&0x80000000u)return false;
+    owner_current_slot=t.slot;return true;
+#endif
+}
+#endif
 const ganado_extra::Chunk* owner_original_chunk(unsigned role) {
     const unsigned bin=owner_source_bin[owner_current_slot][role];
     if((role==2 && bin==451) || (role==3 && bin==456) || role==4)return ganado_extra::find(bin);
     return nullptr;
 }
 int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
-    if(!owner_ganado_bind(m) || bound->appearance!=p.appearance || p.count!=owner_info_count[owner_current_slot] || !skin_init(owner_tier_app(p)))return 0;
+#if RE4DC_ACTOR_BIND_REUSE
+    if(!owner_ganado_bind_tx(m) ||
+#else
+    if(!owner_ganado_bind(m) ||
+#endif
+       bound->appearance!=p.appearance || p.count!=owner_info_count[owner_current_slot] || !skin_init(owner_tier_app(p)))return 0;
     for(unsigned i=0;i<p.count;++i)
         if(p.info[i]!=(i<4?bound->infos[i]:owner_extra_info[owner_current_slot]) || !output[i])return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
@@ -163,7 +230,13 @@ extern "C" int re4dc_crowd_offscreen(cModel* m) {
 }
 #endif
 extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
+#if RE4DC_ACTOR_BIND_REUSE
+    owner_bind_token.m=nullptr;
     if(!out || !owner_ganado_bind(m))return 0;
+    const unsigned bind_life_serial=re4dc_material::life::serial;  // right after the bind (its refresh included)
+#else
+    if(!out || !owner_ganado_bind(m))return 0;
+#endif
     Re4dcActorPlan p{};const unsigned a=bound->appearance,t=gc::appearance_texture[a];
     p.count=owner_info_count[owner_current_slot];p.appearance=a;p.image=image_of(t);p.crc=gc::textures[t].crc;p.fnv=gc::textures[t].fnv;p.palettes=owner_ganado_palettes;
 #define RE4DC_GANADO_ROLE(app,role,prefix) re4dc_actor::plan_chunk(p,role,bound->infos[role],gc::chunks[app][role],RE4DC_OWNER_INPUT(ganadocast,prefix,gc::chunks[app][role],34))
@@ -205,6 +278,10 @@ extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
     }
     // One optional six-entry source accessory adds at most288 palette bytes.
     if(p.palette_bytes>7776 || p.workspace_bytes>13696)return 0;
+#if RE4DC_ACTOR_BIND_REUSE
+    if(!re4dc_material::life::exhausted)
+        owner_bind_token={m,re4dc_actor_tx_serial,bind_life_serial,owner_binding_revision[owner_current_slot],owner_current_slot};
+#endif
     *out=p;return 1;
 }
 #endif
