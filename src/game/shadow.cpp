@@ -23,6 +23,9 @@
 
 extern cEm* pPL;   // game/em.cpp
 extern cEm* pSUB;  // game/em.cpp
+#if RE4DC_LEON_FACE_LAZY
+extern "C" void re4dc_face_lazy_resolve(const void* info);  // game/trans.cpp (game30.mk LEON_FACE_LAZY)
+#endif
 // game/trans.cpp
 extern GXTexObj IndTex[2];
 int commonScreenMat(cModel* m);
@@ -1559,6 +1562,9 @@ void shadowModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, ShadowMng** tbl,
         } else {
             GXSetVtxAttrFmt(0, 13, 1, 2, 15);
         }
+#if RE4DC_LEON_FACE_LAZY
+        re4dc_face_lazy_resolve(info);
+#endif
         GXSetArray(9, info->pPosBuf[pG->vtx_buf_no], 6);
         if (d->flags & 0x20000000) {
             GXSetArray(10, info->pNrmBuf[pG->vtx_buf_no], 3);
@@ -1633,6 +1639,9 @@ void shadowModelTrans2(cModel* m, cModelInfo* info, Mtx viewMat)
         } else {
             GXSetVtxAttrFmt(0, 13, 1, 2, 15);
         }
+#if RE4DC_LEON_FACE_LAZY
+        re4dc_face_lazy_resolve(info);
+#endif
         GXSetArray(9, info->pPosBuf[pG->vtx_buf_no], 6);
         GXSetArray(10, info->pNrmBuf[pG->vtx_buf_no], 6);
         GXSetArray(13, texArr, 4);

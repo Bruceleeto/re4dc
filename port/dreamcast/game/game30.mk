@@ -174,6 +174,22 @@ endif
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_SKIN_PALETTE_LAZY=$(SKIN_PALETTE_LAZY)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_SKIN_PALETTE_LAZY=$(SKIN_PALETTE_LAZY)
 endif
+# LEON_FACE_LAZY=1 (lane ln 2026-10-05; trans.cpp + model_bridge.cpp + shadow.cpp + mirror.cpp, render only, exact,
+#                default 0; needs SKIN_PALETTE_LAZY=1): ModelTrans's CPU skin of Leon's morphed face info (be_flag 2)
+#                keeps its arrays and morph but defers calcWeightMat + MakeWeightPalette + CalcSk1_x / CalcSk1_x2 to
+#                the first render read of those arrays (a source draw of Leon, its shadow or mirror model): same frame,
+#                same functions, same words. When the owner path draws Leon nothing reads them (~0.55 hw ms a tick).
+LEON_FACE_LAZY ?= 0
+ifeq ($(filter $(LEON_FACE_LAZY),0 1),)
+$(error LEON_FACE_LAZY must be 0 or 1)
+endif
+ifneq ($(LEON_FACE_LAZY),0)
+ifneq ($(SKIN_PALETTE_LAZY),1)
+$(error LEON_FACE_LAZY needs SKIN_PALETTE_LAZY=1)
+endif
+LEON_FACE_LAZY_OBJS = $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/shadow.o $(OBJDIR)/src/game/mirror.o $(OBJDIR)/model_bridge.o
+$(LEON_FACE_LAZY_OBJS): GAME_CPPFLAGS += -DRE4DC_LEON_FACE_LAZY=1
+endif
 GAME_WPAL_FAST ?= 0
 ifneq ($(GAME_WPAL_FAST),0)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_WPAL_FAST=$(GAME_WPAL_FAST)

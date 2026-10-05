@@ -17,6 +17,9 @@ static_assert(offsetof(ModelData,pParts)==0x1c && offsetof(ModelData,nVtx)==0x38
 static_assert(sizeof(void*)==4 && sizeof(GXTexObj)==32);
 extern "C" void GXGetProjectionv(float*);
 extern "C" void GXGetViewportv(float*);
+#if RE4DC_LEON_FACE_LAZY
+extern "C" void re4dc_face_lazy_resolve(const void* info);  // trans.cpp (game30.mk LEON_FACE_LAZY)
+#endif
 #if RE4DC_NATIVE_ACTOR
 #include "native_actor.hpp"
 #if RE4DC_ACTOR_TRANSACTION
@@ -105,6 +108,9 @@ extern "C" int re4dc_actor_model_source(const void* info_ptr,Re4dcActorSource* o
 // deferred info its arrays, the part view takes them as this bridge would.
 extern "C" int re4dc_actor_model_buffers(Re4dcModelPart* p){
     auto* info=(const cModelInfo*)p->info;
+#if RE4DC_LEON_FACE_LAZY
+    re4dc_face_lazy_resolve(info);  // LEON_FACE_LAZY (trans.cpp): a deferred face info's arrays, before they are read
+#endif
     p->positions=(const unsigned char*)info->pPosBuf[pG->vtx_buf_no];
     p->normals=(const unsigned char*)info->pNrmBuf[pG->vtx_buf_no];
     return p->positions && p->normals;
@@ -272,6 +278,9 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
     Re4dcModelPart p{};p.model=m;p.info=info;p.part=part;
     const bool rigid=(m->be_flag&0x4000) ||
       (d->weight_palette_num<=1 && d->weight_ext_num<=0xff && !(info->be_flag&2) && d->nParts==1);
+#if RE4DC_LEON_FACE_LAZY
+    if(!rigid)re4dc_face_lazy_resolve(info);  // LEON_FACE_LAZY (trans.cpp): a deferred face info's arrays first
+#endif
     p.positions=(const unsigned char*)(rigid?d->vtxOrig:info->pPosBuf[pG->vtx_buf_no]);
     p.normals=(const unsigned char*)(rigid?d->nrmOrig:info->pNrmBuf[pG->vtx_buf_no]);
     p.position_stride=rigid?8:6;p.position_count=d->nVtx;p.normal_count=d->nNrm;

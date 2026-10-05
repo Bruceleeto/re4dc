@@ -213,6 +213,22 @@ static int skinDeferPending(cModel* m, cModelInfo* info, ModelData* d, int* mtxB
         (built) = 1;                  \
     }
 #endif
+// D367 LEON_FACE_LAZY (game30.mk, lane ln; default off = previous image; render only, exact; needs
+// SKIN_PALETTE_LAZY=1). ModelTrans's commonScreenMatSub for Leon's (id 0) morphed face info (be_flag 2) allocates
+// its arrays and runs its morph (ResetShape + CalculateShape_new: the same calls at the same time, so the motion lease
+// and the morphed source in pPosBuf are as before) but defers calcWeightMat + MakeWeightPalette + CalcSk1_x (positions,
+// in place) + CalcSk1_x2 / CalcSk1_x (normals) to re4dc_face_lazy_resolve: the first render read of those arrays
+// (model_bridge.cpp re4dc_draw_model_part / re4dc_actor_model_buffers, shadow.cpp, mirror.cpp; the only readers of
+// pPosBuf / pNrmBuf), same game frame, same parts matrices (SKIN_PALETTE_LAZY's calcWeightMat memo), same functions
+// and GQR6 values: the same words. GQR6 ends as the eager pass leaves it; render-time GQR6 is restored. When the
+// owner path draws Leon nothing reads them. One pending job (16 bytes of .bss); a job not resolved in its frame is
+// dropped by the next ModelTrans of the info.
+#if RE4DC_LEON_FACE_LAZY
+#if !RE4DC_SKIN_PALETTE_LAZY || RE4DC_SKIN_PALETTE_LAZY == 2
+#error "LEON_FACE_LAZY needs SKIN_PALETTE_LAZY=1"
+#endif
+static int faceLazyDefer(cModel* m, cModelInfo* info, ModelData* d);
+#endif
 // D367 frontend30 FRONT_NATIVE (obj/frontend30.h; default off = previous image). On Dreamcast the
 // GX calls of the model draw are stubs: only the texture objects, the channel / light / normal
 // matrix state (g_lighting, material alpha), the final colour-stage scale and the projection /
@@ -1518,6 +1534,17 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
             return 0;
         }
         info->pNrmBuf[pG->vtx_buf_no] = buf;
+#if RE4DC_LEON_FACE_LAZY
+        if (info->be_flag & 2) {
+            const int face = faceLazyDefer(m, info, d);
+            if (face < 0) {
+                return 0;  // the eager pass's PTR ERR (logged there)
+            }
+            if (face) {
+                continue;
+            }
+        }
+#endif
 #if RE4DC_NATIVE_ACTOR_SKIN_LAZY
         if (!dc_palette_built) {
 #endif
@@ -4607,6 +4634,93 @@ extern "C" void re4dc_skin_palette_resolve(const float* palette)
     skinLazyBuild(h.w, h.n_ext & 0xFFFF, h.n_ext >> 16, (void*) palette);
 #endif
 }
+#if RE4DC_LEON_FACE_LAZY
+// LEON_FACE_LAZY's pending job (see the knob note at the top of this file).
+static struct {
+    cModelInfo* info;  // the deferred face info (0: none)
+    cModel* m;         // its model: calcWeightMat's parts matrices
+    void* pos;         // its pPosBuf at the deferral (the morphed source until resolved)
+    u32 frame;         // pG->Frame_cnt at the deferral
+} g_faceLazy;
+
+// commonScreenMatSub, right after the info's two arrays were allocated: 1 = morphed and deferred (GQR6 as the eager
+// pass leaves it), 0 = not deferred (the eager pass runs), -1 = the eager pass's PTR ERR return (logged as there).
+static int faceLazyDefer(cModel* m, cModelInfo* info, ModelData* d)
+{
+    if (g_faceLazy.info == info) {
+        g_faceLazy.info = 0;  // an unresolved job of this info's previous ModelTrans: its arrays are not current
+    }
+    if (!g_skinLazyNow || m->id != 0 || (g_faceLazy.info && g_faceLazy.frame == pG->Frame_cnt)) {
+        return 0;
+    }
+    void* src = info->pPosBuf[pG->vtx_buf_no];
+    for (int i = 0; i < 5; i++) {
+        if (i == 0) {
+            ResetShape(info, src);
+        }
+        if (info->shape[i].data) {
+            CalculateShape_new(info, info->shape[i].data, info->shape[i].rate, (u8*) src);
+        }
+    }
+    if (PTR_INVALID(info->pPosBuf[pG->vtx_buf_no]) || PTR_INVALID(src)) {
+        pLog->err(0, 0, "ComnScreenMatSub() PTR ERR");
+        return -1;
+    }
+    g_faceLazy.info = info;
+    g_faceLazy.m = m;
+    g_faceLazy.pos = src;
+    g_faceLazy.frame = pG->Frame_cnt;
+#if defined(__sh__) && RE4DC_D349_RENDERER_STACK
+    re4dc_model_skipped_writeback(d->nVtx * 6);
+    re4dc_model_skipped_writeback(d->nNrm * 6);
+#endif
+    setupGQR6(0x32073207);
+    if (d->flags & 0x20000000) {
+        setupGQR6(0x20062006);
+    }
+    return 1;
+}
+
+// A render read of info's pPosBuf / pNrmBuf follows: build them now if they are the pending face job's (the eager
+// pass's palette, positions and normals; GQR6 restored).
+extern "C" void re4dc_face_lazy_resolve(const void* info_ptr)
+{
+    cModelInfo* info = (cModelInfo*) info_ptr;
+    if (!info || info != g_faceLazy.info || g_faceLazy.pos != info->pPosBuf[pG->vtx_buf_no]) {
+        return;
+    }
+    g_faceLazy.info = 0;
+    cModel* m = g_faceLazy.m;
+    ModelData* d = info->pData;
+    const u32 saved = g_gqr6;
+    if (g_skinLazyMtx != m || g_skinLazyMtxFrame != pG->Frame_cnt) {
+        calcWeightMat(m);
+        g_skinLazyMtx = m;
+        g_skinLazyMtxFrame = pG->Frame_cnt;
+    }
+    if (d->weight_ext_num > 0xFF) {
+        MakeWeightPaletteExt((WeightExt*) d->pWeight, d->weight_ext_num);
+    } else {
+        MakeWeightPalette((Weight*) d->pWeight, d->weight_palette_num);
+    }
+    setupGQR6(((d->shift << 24) | (d->shift << 8)) | 0x00070007);
+    CalcSk1_x(info->pPosBuf[pG->vtx_buf_no], info->pPosBuf[pG->vtx_buf_no], d->nVtx);
+#if !defined(__sh__) || !RE4DC_D349_RENDERER_STACK
+    DCStoreRangeNoSync(info->pPosBuf[pG->vtx_buf_no], d->nVtx * 6);
+#endif
+    setupGQR6(0x32073207);
+    if (d->flags & 0x20000000) {
+        setupGQR6(0x20062006);
+        CalcSk1_x2(info->pNrmBuf[pG->vtx_buf_no], d->nrmOrig, d->nNrm);
+    } else {
+        CalcSk1_x(info->pNrmBuf[pG->vtx_buf_no], d->nrmOrig, d->nNrm);
+    }
+#if !defined(__sh__) || !RE4DC_D349_RENDERER_STACK
+    DCStoreRangeNoSync(info->pNrmBuf[pG->vtx_buf_no], d->nNrm * 6);
+#endif
+    g_gqr6 = saved;
+}
+#endif
 #endif
 #endif
 

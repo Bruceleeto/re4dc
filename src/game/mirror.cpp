@@ -10,6 +10,9 @@
 
 // game/trans.cpp
 int commonScreenMat(cModel* m);
+#if RE4DC_LEON_FACE_LAZY
+extern "C" void re4dc_face_lazy_resolve(const void* info);  // game30.mk LEON_FACE_LAZY
+#endif
 
 static void mirrorModelTrans2(cModel* m, cModelInfo* info, Mtx viewMat);
 
@@ -77,6 +80,9 @@ static void mirrorModelTrans2(cModel* m, cModelInfo* info, Mtx viewMat)
         } else {
             GXSetVtxAttrFmt(0, 13, 1, 2, 15);
         }
+#if RE4DC_LEON_FACE_LAZY
+        re4dc_face_lazy_resolve(info);
+#endif
         GXSetArray(9, info->pPosBuf[pG->vtx_buf_no], 6);
         GXSetArray(10, info->pNrmBuf[pG->vtx_buf_no], 6);
         GXSetArray(13, texArr, 4);
