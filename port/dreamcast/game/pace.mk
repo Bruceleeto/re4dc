@@ -34,9 +34,10 @@
 #                    33.4 ms tick; >100 = saturated). One
 #                    queued maple LCD write a second (vmu_draw_lcd does not wait); reads pace state only.
 # Test instrumentation (never in a product image):
-#   PACE_FORCE=3|N|R|A  forced skip pattern, a pure function of the eligible-tick index (timing,
+#   PACE_FORCE=3|N|R|A|T  forced skip pattern, a pure function of the eligible-tick index (timing,
 #                    cap and floor ignored): every Nth image (3 = every 3rd), R = p 0.5 from a
-#                    platform xorshift seeded by PACE_SEED (never the game RNG), A = every image.
+#                    platform xorshift seeded by PACE_SEED (never the game RNG), A = every image,
+#                    T = two of every three (one drawn, two skipped: PACE_CAP=2's saturated pattern).
 #                    iTaskScheduler runs on every iteration. For the forced-skip STRICT gate.
 #   PACE_SEED=N      xorshift seed for PACE_FORCE=R (default 1).
 #   PACE_TEST_DRAW_US=N  busy-wait N us on drawn iterations only (the skippable half).
@@ -60,7 +61,7 @@ PACE_DEBUG ?= $(or $(QUALITY_DEBUG),0)
 PACE_MODE ?= $(if $(filter 0,$(PACE_FLOOR_FPS)),fast,smooth)
 ifneq ($(PACE_CATCHUP),0)
 PACE_MODE_NUM = $(if $(filter off,$(PACE_MODE)),2,$(if $(filter fast,$(PACE_MODE)),1,$(if $(filter smooth,$(PACE_MODE)),0,$(error PACE_MODE=smooth|fast|off))))
-PACE_FORCE_NUM = $(if $(filter R,$(PACE_FORCE)),-1,$(if $(filter A,$(PACE_FORCE)),1,$(PACE_FORCE)))
+PACE_FORCE_NUM = $(if $(filter R,$(PACE_FORCE)),-1,$(if $(filter T,$(PACE_FORCE)),-2,$(if $(filter A,$(PACE_FORCE)),1,$(PACE_FORCE))))
 ifneq ($(PACE_CHECK),0)
 ifneq ($(LOGIC_TRACE),1)
 $(error PACE_CHECK=2 hashes the logic-trace fields and needs LOGIC_TRACE=1)

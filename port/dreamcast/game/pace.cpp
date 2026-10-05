@@ -126,6 +126,8 @@ int forced()
 #if RE4DC_PACE_FORCE == 1
     (void) i;
     return 1;
+#elif RE4DC_PACE_FORCE == -2
+    return i % 3 != 0;   // PACE_FORCE=T: one image drawn, two dropped (the PACE_CAP=2 saturated pattern)
 #elif RE4DC_PACE_FORCE < 0
     (void) i;
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
