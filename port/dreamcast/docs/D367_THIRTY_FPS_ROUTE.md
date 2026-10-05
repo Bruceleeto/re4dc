@@ -1,6 +1,32 @@
 # D367: 30 fps on real hardware, three-room route
 
-## 2026-10-05: integrated perf lanes (branch perf/int-20261005, local commits, not pushed)
+## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
+
+- **r22 (local test disc, not released):** the 3f4b599d recipe below; C:/RE4DC-Play-Discs/r22-title + r22-gdemu (ELF
+  8bb30322), GDEMU SD folder 154. Its 73% fight speed is a PROJECTION: 59.10 + 23.18 = 82.28 model ms per pair x 1.107
+  = ~91.1 console ms; full speed needs ~22 model ms (~24.4 console ms if the calibration holds) off the pair. Not yet
+  measured on the console.
+- **PACE_VMU_GPU=1 (88890b4e, test knob, default 0; needs PACE_VMU=1):** a fourth VMU line `GPU <mean>/<max>` = PVR
+  render ms per scene over the page's 60-field window (KOS rnd_last_time's interval: ISP_START to the TSP render-done
+  interrupt; a render waiting for the previous one is not included; interrupt latency is). Counted once per render by
+  wrapping pvr_sync_stats at link time (only with the knob). The RAM log's "PACE vmu" line adds the scene-to-render
+  queue wait (the direct sign of the GPU holding the CPU up). tools/flycast-harness/read_vmu_lcd.py saves the page out
+  of a running Flycast. Gates: knob-off identity, H2 STRICT, 0 MISALIGN (1800 s), New Game -> r100. Reading it: the
+  GPU limits fps only when the mean approaches 1000/fps (66.7 ms at 15 fps). Console test disc r22g = r22 + this line.
+- **Round-2 experiments (exp/<lane>-20261005 on 3f4b599d; brief /root/probe/lanes-20261005/LANE-BRIEF.md), savings are
+  hypotheses until measured:**
+  - fm, gameplay-equivalent logic maths under the 2026-09-23 (3) policy (precedent GAME_SKEL_FTRV): first an r22
+    logic cost breakdown with an upper bound per candidate; only candidates >= 0.3 ms per tick are built. PASS if the
+    kept knobs save >= 1.0 hw ms per tick in the fight with clean automated decision comparisons (AI decisions,
+    hits/damage, collision and grounding, area/event, RNG, progression) against run-to-run control pairs on H2, the
+    r101 bell run and r100-h-fight; playtests are added on top, not instead (user review 2026-10-05). GAME_SH4_MATH,
+    GAME_FDLIBM and GAME_PS_ALIAS are already 1 in r22 (makefile defaults: read resolved-knobs.txt, not only
+    build-r21.sh's list).
+  - ln, a native Leon rendering pipeline proof of concept (gameplay skeleton preserved, render-only): Leon's real r22
+    cost first; PASS if it cuts Leon's attributable drawn-tick cost by >= 40% and >= 1.5 hw ms in the fight, look
+    identical, logic STRICT, 0 MISALIGN; then a written plan for Ganados.
+
+## 2026-10-05: integrated perf lanes (pushed 3f4b599d)
 
 - **What landed (lane doc docs/lanes/perf-int-20261005.md):** the 2026-10-04/05 fight-plan lanes, each behind its own
   default-off knob, now all in build-r21.sh: sk SKIN_PALETTE_LAZY (lazy source weight palettes); fx ESP_SPRITE_FAST +

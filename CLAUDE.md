@@ -2,7 +2,7 @@
 
 Updated 2026-10-05. Project rules: [AGENTS.md](AGENTS.md).
 
-2026-10-05 (branch perf/int-20261005, local): the perf lanes sk / fx / cl / wd / logic are integrated and their 12 knobs
+2026-10-05 (pushed 3f4b599d; test disc r22, not released; fight 73% is a projection): the perf lanes sk / fx / cl / wd / logic are integrated and their 12 knobs
 are in build-r21.sh with LINK_ORDER link-order/r21z-perf-c3-8k.ld (route doc "2026-10-05: integrated perf lanes"):
 hw ms drawn house 47.80 -> 43.61, fight 66.03 -> 59.10, square 78.03 -> 72.39; console projection fight 66.6% 10.0 fps
 -> 73.2% 11.0, house 100% 15.0. Logic STRICT (H2, bell, PACE_FORCE=2 pair). PS2_FOLIAGE_FAR stays off (user look call).
@@ -92,6 +92,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 awaits the user's console play.
 - User 2026-10-04 "Pursue All": logic speed-ups are unparked (exact, STRICT), alongside the drawing lanes, cheaper
   Ganados (gameplay-gated: the AI reads visibility) and PACE_CAP=2. Route doc "chapter 1-3 ... fight plan".
+- 2026-10-05: PACE_VMU_GPU=1 (test knob) adds `GPU <mean>/<max>` PVR render ms to the VMU page (console disc r22g).
+  Round-2 experiments fm (logic maths, bounded, automated decision checks + playtests) and ln (native Leon renderer
+  PoC) run with pass/fail thresholds (route doc "r22 test disc, the VMU GPU line and the round-2 experiments").
 - 2026-10-05: LINK_ORDER in build-r21.sh is link-order/r21y-house-fight-square-c3-8k.ld (~-1 hw ms drawn, -0.2
   skipped; STRICT). Run tools/d367/ordcheck.py before each release; regenerate when the placed share drops.
 - 2026-10-05 lane crowd: no logic reads the Ganados' render side (CROWD_DRAW_MAX=2 and ENC_SKIP_GANADO=1 STRICT);
