@@ -96,6 +96,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   11-15 indoors; slowest = inside before the window jump (67%), no preset yet (lane ms). Lane fm: GAME_ROT_FSCA
   (last-bit FSCA local matrices, -1.18 hw ms per tick in the fight) landed default off; adoption awaits the user +
   a console playtest. GAME_TRIG_FSCA failed its decision gate.
+- 2026-10-05 lane ln: LEON_NATIVE_PIPE + LEON_FACE_LAZY landed default off (exact, -2.19 hw ms per drawn fight tick,
+  28% of Leon's cost: FAIL against the 40% rewrite bar, so no Ganado rewrite). The r21z-c13 disc lacks most textures
+  (pack-fixture.sh replaced tex.pak): compare pack keys with the last good disc and boot the real disc before the SD.
 - 2026-10-05: PACE_VMU_GPU=1 (test knob) adds `GPU <mean>/<max>` PVR render ms to the VMU page (console disc r22g).
   Round-2 experiments fm (logic maths, bounded, automated decision checks + playtests) and ln (native Leon renderer
   PoC) run with pass/fail thresholds (route doc "r22 test disc, the VMU GPU line and the round-2 experiments").

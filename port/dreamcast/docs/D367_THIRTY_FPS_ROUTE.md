@@ -48,6 +48,21 @@
   negative result. Adoption needs the user: the automated checks above plus a console playtest (policy 2026-09-23 (3),
   review 2026-10-05). When adopted, regenerate LINK_ORDER (the knob swaps pmc_sh4.o's slot in a derived order copy).
   Trap: r22's .text ends 112 bytes below an 8 KiB step; code growth past it moves rodata/data/bss/heap up 8 KiB.
+- **Lane ln result (docs/lanes/ln.md): FAIL against its pre-set bar (>= 40% AND >= 1.5 hw ms of Leon's drawn-tick
+  cost), landed default off as an ordinary exact optimisation.** LEON_NATIVE_PIPE (Leon's two owner passes without the
+  work they repeated: bind sweep and plan once per binding, fixed semantics proved once, palette bound test, lighter
+  preflight, pass-2 hair in one store-queue window) + LEON_FACE_LAZY (Leon's morphed-face CPU skin deferred to its
+  first render read; needs SKIN_PALETTE_LAZY): Leon 7.711 -> 5.525 hw ms per drawn r100-h-fight tick (-2.19, 28.3%;
+  house 27.6%, square 28.9%); drawn tick 59.10 -> 56.68 (fight), 43.61 -> 41.45 (house). TA streams identical to
+  knobs off on every compared frame (polygon header words 4-7 masked: KOS leaves them as cache-line padding), look
+  equal, 0 MISALIGN, knob-off image identical. H2: each knob alone STRICT; both together end the radio call one tick
+  later because the faster build reaches the call's wall-timed end sooner; with LOGIC_TRACE_DELAY_US (timing-matched)
+  STRICT. Verdict on the strategy: the native-pipeline rewrite does not reach the 40% bar on Leon (the rest is the
+  vertex kernel, emission and per-meshlet work the exact image needs), so it is not extended to Ganados as a rewrite
+  (their owner passes still pay ~0.9 ms of similar proof/lease work per drawn fight tick: a smaller follow-up).
+- **Disc fault found:** the 2026-10-04 chapter 1-3 test disc r21z-c13 ships 639 of r22's 3,249 texture packages
+  (pack-fixture.sh replaced the fixture's existing dc/tex.pak, dropping its contents; the disc was never booted). Not
+  for play. The r22c disc (r22 + ROUTE_CH13=1) uses a corrected fixture and a pack/file superset check against r22.
 
 ## 2026-10-05: integrated perf lanes (pushed 3f4b599d)
 
