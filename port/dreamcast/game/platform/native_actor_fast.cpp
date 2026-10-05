@@ -3752,9 +3752,15 @@ extern "C" int re4dc_actor_skin_register(unsigned frame, const void* info, const
 #if RE4DC_ACTOR_CENSUS
 namespace { unsigned* census_mat_row; }  // ACTOR_CENSUS: the current part's row "mat" counter
 #endif
+#if RE4DC_SKIN_PALETTE_LAZY
+extern "C" void re4dc_skin_palette_resolve(const float* palette);  // trans.cpp SKIN_PALETTE_LAZY
+#endif
 extern "C" const float* re4dc_actor_skin_palette(const void* info, const void* position_buffer, unsigned* entries) {
     const SkinEntry* e = find_skin(info, position_buffer);
     if (!e || e->materialized) { *entries = 0; return nullptr; }
+#if RE4DC_SKIN_PALETTE_LAZY
+    re4dc_skin_palette_resolve(e->palette);  // the caller reads it (prepare_frame's skin Frame)
+#endif
     *entries = e->entries;
     return e->palette;
 }
@@ -4314,6 +4320,9 @@ Frame& one_frame(const Re4dcModelPart& p, float near_distance, float far_distanc
     f.q = pow2(-int(p.shift));
     f.position_count = p.position_count; f.normal_count = p.normal_count;
     f.small_normals = p.normal_shift == 6; f.nq = pow2(-int(p.normal_shift));
+#if RE4DC_SKIN_PALETTE_LAZY
+    re4dc_skin_palette_resolve(se.palette);  // the new skin Frame reads it (a source entry pending since Trans())
+#endif
     f.mode = kSkin; f.palette = se.palette; f.palette_entries = se.entries;
     f.positions = src.positions; f.position_stride = 8;
     f.normals = src.normals; f.normal_stride = src.small_normals ? 4U : 8U;

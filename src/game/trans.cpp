@@ -186,6 +186,33 @@ static int frontLean(cModel* m)
     return FRONT_LEAN_LIGHTS | (rigidAll ? FRONT_LEAN_WEIGHTS : 0);
 }
 #endif
+// D367 SKIN_PALETTE_LAZY (game30.mk; default off = previous image; render only, exact). ModelTrans's
+// commonScreenMatSub registers a lazily skinned info (NATIVE_ACTOR_SKIN_LAZY) with its palette copy reserved
+// (same prim-tail allocation) but not built: calcWeightMat + MakeWeightPalette run only when a render consumer
+// first reads that palette (re4dc_skin_palette_resolve: native_actor_fast.cpp prepare_frame / one_frame,
+// re4dc_skin_materialize), in the same game frame, from the same parts matrices and weights, through the same
+// functions: the same words. Owner-drawn (ACTOR_TRANSACTION) and culled actors never read it. Consumer census:
+// pG->mtxPalette and the locked-cache palette are read only by MakeWeightPalette* / CalcSk1_x right after this
+// file writes them (and by NATIVE_MODEL_REGISTRY=2, refused below); no logic reads either. =2 (check build): the
+// palette is also built eagerly and drawn; the lazy build compares against it ("SKLAZY ... bad=" lines).
+#if RE4DC_SKIN_PALETTE_LAZY
+#if !RE4DC_NATIVE_ACTOR_SKIN_LAZY || RE4DC_SKIN_CENSUS || RE4DC_NATIVE_MODEL_REGISTRY == 2 || defined(__PPC__)
+#error "SKIN_PALETTE_LAZY needs NATIVE_ACTOR_SKIN_LAZY=1, SKIN_CENSUS=0 and NATIVE_MODEL_REGISTRY != 2"
+#endif
+// Four words of .bss (=1): the pending state lives in each reserved copy itself (skinDeferPending), so no table
+// shifts the data layout.
+static int g_skinLazyArm;       // ModelTrans -> commonScreenMat: this call may defer palettes
+static int g_skinLazyNow;       // commonScreenMat -> commonScreenMatSub
+static cModel* g_skinLazyMtx;   // the model whose calcWeightMat pG->mtxPalette holds for render-time resolves
+static u32 g_skinLazyMtxFrame;  // ... in this game frame
+static int skinDeferPending(cModel* m, cModelInfo* info, ModelData* d, int* mtxBuilt);
+#define SKIN_LAZY_MTX(m, built)       \
+    if (!(built)) {                   \
+        calcWeightMat(m);             \
+        g_skinLazyMtx = 0;            \
+        (built) = 1;                  \
+    }
+#endif
 // D367 frontend30 FRONT_NATIVE (obj/frontend30.h; default off = previous image). On Dreamcast the
 // GX calls of the model draw are stubs: only the texture objects, the channel / light / normal
 // matrix state (g_lighting, material alpha), the final colour-stage scale and the projection /
@@ -1206,6 +1233,9 @@ void ModelTrans(cModel* m)
         ret |= 0xFFFF;
     }
     if (ret != 0xFFFF) {
+#if RE4DC_SKIN_PALETTE_LAZY
+        g_skinLazyArm = 1;  // this commonScreenMat may defer weight palettes (SKIN_PALETTE_LAZY)
+#endif
 #if RE4DC_FRONT_LEAN && defined(__sh__)
         const int lean = frontLean(m);
         int screen;
@@ -1250,6 +1280,11 @@ void ModelTrans(cModel* m)
 // off / hidden or a buffer could not be had.
 int commonScreenMat(cModel* m)
 {
+#if RE4DC_SKIN_PALETTE_LAZY
+    // Only ModelTrans's call (armed just before it) defers; mirror / shadow / TexRender calls build eagerly.
+    g_skinLazyNow = g_skinLazyArm;
+    g_skinLazyArm = 0;
+#endif
     int off = !(m->be_flag & 1);
 
     if (off) {
@@ -1309,11 +1344,27 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
 #if defined(__sh__)
     unsigned dc_stamp=re4dc_model_source_stamp();
 #endif
+#if RE4DC_SKIN_PALETTE_LAZY
+    // ModelTrans's call: the parts matrices are built only when an info needs its palette now (SKIN_LAZY_MTX).
+    int dc_mtx_built = 1;
+#if RE4DC_FRONT_LEAN && defined(__sh__)
+    if (!g_leanWeights)
+#endif
+    {
+        if (g_skinLazyNow) {
+            dc_mtx_built = 0;
+        } else {
+            calcWeightMat(m);
+            g_skinLazyMtx = 0;
+        }
+    }
+#else
 #if RE4DC_FRONT_LEAN && defined(__sh__)
     // Every info of this model takes the rigid 'continue' below: nothing reads the palette.
     if (!g_leanWeights)
 #endif
     calcWeightMat(m);
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
     {
         // NATIVE_MODEL_REGISTRY=2 (compare): the palette this frame's source skinning used, for the registry's
@@ -1379,6 +1430,21 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
         int dc_palette_built = 0;
         if (!(info->be_flag & 2)) {
             int re4dc_skin_defer_lazy(cModelInfo* info, ModelData* d);
+#if RE4DC_SKIN_PALETTE_LAZY
+            if (g_skinLazyNow) {
+                // SKIN_PALETTE_LAZY: registered with its copy reserved, built at the first render read.
+                if (skinDeferPending(m, info, d, &dc_mtx_built)) {
+                    info->pPosBuf[pG->vtx_buf_no] = 0;
+                    info->pNrmBuf[pG->vtx_buf_no] = 0;
+                    setupGQR6(0x32073207);
+                    if (d->flags & 0x20000000) {
+                        setupGQR6(0x20062006);
+                    }
+                    continue;
+                }
+                goto dc_skin_cpu;  // not deferred: the CPU pass below builds the palette (dc_palette_built 0)
+            }
+#endif
 #if defined(__sh__)
             dc_stamp=re4dc_model_source_stamp();
 #endif
@@ -1419,6 +1485,9 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
                 continue;
             }
         }
+#if RE4DC_SKIN_PALETTE_LAZY
+    dc_skin_cpu:
+#endif
 #endif
         size = d->nVtx * 6;
         asize = size + 31;
@@ -1451,6 +1520,9 @@ int commonScreenMatSub(cModel* m, cModelInfo* info)
         info->pNrmBuf[pG->vtx_buf_no] = buf;
 #if RE4DC_NATIVE_ACTOR_SKIN_LAZY
         if (!dc_palette_built) {
+#endif
+#if RE4DC_SKIN_PALETTE_LAZY
+        SKIN_LAZY_MTX(m, dc_mtx_built)
 #endif
 #if defined(__sh__)
         dc_stamp=re4dc_model_source_stamp();
@@ -4377,6 +4449,165 @@ int re4dc_skin_defer_lazy(cModelInfo* info, ModelData* d)
     memcpy(copy, (const void*) RE4DC_LC_PALETTE, n * 0x30);
     return re4dc_actor_skin_register(pG->Frame_cnt, info, 0, (const float*) copy, n);
 }
+
+#if RE4DC_SKIN_PALETTE_LAZY
+// SKIN_PALETTE_LAZY: a reserved, not yet built copy starts with this header (the copy is n * 0x30 >= 48 bytes and
+// nothing reads it before re4dc_skin_palette_resolve, whose build overwrites the header). The magic is a NaN: no
+// built palette (source, owner or coarse; their matrices are finite) starts with it. A resolve in a later game frame
+// than its deferral would build from moved matrices (=2 counts such "stale" resolves: 0 in every run).
+struct SkinLazyHead {
+    u32 magic;   // kSkinLazyMagic
+    u32 frame;   // pG->Frame_cnt at the deferral
+    cModel* m;   // whose parts matrices (calcWeightMat) the palette is built from
+    void* w;     // ModelData::pWeight
+    u32 n_ext;   // entries | 0x10000 for a WeightExt table (weight_ext_num > 0xFF)
+};
+static const u32 kSkinLazyMagic = 0x7FA5E1A5u;
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+// Check build: the copy holds the eager palette (drawn); this frame's deferrals are kept in a table instead.
+extern "C" void re4dc_log(const char* fmt, ...);
+struct SkinLazyChk {
+    const void* palette;
+    SkinLazyHead h;
+    u32 open;
+};
+static SkinLazyChk g_sklzTab[128];
+static u32 g_sklzNum, g_sklzOpen, g_sklzFrame;
+static u32 sklz_reg, sklz_res, sklz_never, sklz_bad, sklz_badw, sklz_stale, sklz_full, sklz_mtx, sklz_f0;
+#endif
+
+// Trans()'s palette of weights w (n entries) from the parts matrices in pG->mtxPalette, into dst: the same
+// MakeWeightPalette* (GAME_WPAL_FAST=3: its re4dc_wpal_sh4 straight into dst; otherwise the locked cache + copy).
+static void skinLazyBuild(void* w, u32 n, int ext, void* dst)
+{
+    if (ext) {
+        MakeWeightPaletteExt((WeightExt*) w, n);
+    } else {
+#if RE4DC_WPAL_FAST == 3
+        if (!PTR_INVALID(w)) {
+            re4dc_wpal_sh4((const Weight*) w, n, (const f32*) GXWORK()->mtx, (f32*) dst);
+            return;
+        }
+#endif
+        MakeWeightPalette((Weight*) w, n);
+    }
+    if (dst != (void*) RE4DC_LC_PALETTE) {
+        memcpy(dst, (const void*) RE4DC_LC_PALETTE, n * 0x30);
+    }
+}
+
+// re4dc_skin_defer_lazy's checks, allocation and registration, without the build (the copy holds a SkinLazyHead
+// until re4dc_skin_palette_resolve). 0: not deferred (nothing built; the caller's CPU pass builds the palette).
+static int skinDeferPending(cModel* m, cModelInfo* info, ModelData* d, int* mtxBuilt)
+{
+    const u32 n = d->weight_ext_num > 0xFF ? d->weight_ext_num : d->weight_palette_num;
+    if (!n || !re4dc_model_diagnostic_enabled()) {
+        return 0;
+    }
+    void* copy = re4dc_prim_tail(n * 0x30, 16 * 1024);
+    if (!copy) {
+        return 0;
+    }
+    SkinLazyHead h;
+    h.magic = kSkinLazyMagic;
+    h.frame = pG->Frame_cnt;
+    h.m = m;
+    h.w = d->pWeight;
+    h.n_ext = n | (d->weight_ext_num > 0xFF ? 0x10000u : 0u);
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+    SKIN_LAZY_MTX(m, *mtxBuilt)
+    skinLazyBuild(d->pWeight, n, h.n_ext >> 16, copy);
+    if (g_sklzFrame != pG->Frame_cnt + 1) {
+        sklz_never += g_sklzOpen;
+        if (pG->Frame_cnt - sklz_f0 >= 600) {
+            re4dc_log("SKLAZY frame=%u reg=%u resolved=%u never=%u bad=%u badw=%u stale=%u full=%u mtx=%u\n",
+                      pG->Frame_cnt, sklz_reg, sklz_res, sklz_never, sklz_bad, sklz_badw, sklz_stale, sklz_full,
+                      sklz_mtx);
+            sklz_f0 = pG->Frame_cnt;
+        }
+        g_sklzFrame = pG->Frame_cnt + 1;
+        g_sklzNum = 0;
+        g_sklzOpen = 0;
+    }
+#else
+    (void) mtxBuilt;
+    memcpy(copy, &h, sizeof(h));
+#endif
+    if (!re4dc_actor_skin_register(pG->Frame_cnt, info, 0, (const float*) copy, n)) {
+        return 0;
+    }
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+    ++sklz_reg;
+    if (g_sklzNum < sizeof(g_sklzTab) / sizeof(g_sklzTab[0])) {
+        SkinLazyChk* e = &g_sklzTab[g_sklzNum++];
+        e->palette = copy;
+        e->h = h;
+        e->open = 1;
+        ++g_sklzOpen;
+    } else {
+        ++sklz_full;
+    }
+#endif
+    return 1;
+}
+
+// A render consumer is about to read `palette`: build it now if it is a pending SKIN_PALETTE_LAZY copy. The parts
+// matrices of one model are built once per game frame for its resolves; any other calcWeightMat clears the memo.
+extern "C" void re4dc_skin_palette_resolve(const float* palette)
+{
+    SkinLazyHead h;
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+    SkinLazyChk* e = 0;
+    if (!g_sklzOpen) {
+        return;
+    }
+    for (u32 i = 0; i < g_sklzNum; i++) {
+        if (g_sklzTab[i].palette == (const void*) palette && g_sklzTab[i].open) {
+            e = &g_sklzTab[i];
+            break;
+        }
+    }
+    if (!e) {
+        return;
+    }
+    e->open = 0;
+    --g_sklzOpen;
+    h = e->h;
+    ++sklz_res;
+    if (h.frame != pG->Frame_cnt) {
+        ++sklz_stale;
+    }
+#else
+    if (!palette || *(const u32*) palette != kSkinLazyMagic) {
+        return;
+    }
+    memcpy(&h, palette, sizeof(h));  // a header of another frame (=2: stale=0) is built too, never read raw
+#endif
+    if (g_skinLazyMtx != h.m || g_skinLazyMtxFrame != pG->Frame_cnt) {
+        calcWeightMat(h.m);
+        g_skinLazyMtx = h.m;
+        g_skinLazyMtxFrame = pG->Frame_cnt;
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+        ++sklz_mtx;
+#endif
+    }
+#if RE4DC_SKIN_PALETTE_LAZY == 2
+    skinLazyBuild(h.w, h.n_ext & 0xFFFF, h.n_ext >> 16, (void*) RE4DC_LC_PALETTE);
+    {
+        const u32* a = (const u32*) RE4DC_LC_PALETTE;
+        const u32* b = (const u32*) palette;
+        u32 bad = 0;
+        for (u32 k = 0; k < (h.n_ext & 0xFFFF) * 12; k++) {
+            bad += a[k] != b[k];
+        }
+        sklz_badw += bad;
+        sklz_bad += bad != 0;
+    }
+#else
+    skinLazyBuild(h.w, h.n_ext & 0xFFFF, h.n_ext >> 16, (void*) palette);
+#endif
+}
+#endif
 #endif
 
 // Render(): the generic path needs this info's pPosBuf/pNrmBuf after all.
@@ -4388,6 +4619,9 @@ extern "C" int re4dc_skin_materialize(const void* info_ptr, const float* palette
 {
     cModelInfo* info = (cModelInfo*) info_ptr;
     ModelData* d = info->pData;
+#if RE4DC_SKIN_PALETTE_LAZY
+    re4dc_skin_palette_resolve(palette);
+#endif
 #if RE4DC_NATIVE_ACTOR_SKIN_LAZY
     if (!info->pPosBuf[pG->vtx_buf_no]) {
         const u32 nb = (d->flags & 0x20000000) ? d->nNrm * 3 : d->nNrm * 6;

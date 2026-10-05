@@ -152,6 +152,23 @@ ACTOR_STATS_LEAN ?= 0
 ifneq ($(ACTOR_STATS_LEAN),0)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_STATS_LEAN=1
 endif
+# SKIN_PALETTE_LAZY=1 (trans.cpp + native_actor_fast.cpp, render only, exact, default 0; needs
+#                   NATIVE_ACTOR_SKIN_LAZY=1): ModelTrans registers a lazily skinned info with its palette copy
+#                   reserved but not built; calcWeightMat + MakeWeightPalette run when a render consumer first reads
+#                   it (prepare_frame / one_frame / re4dc_skin_materialize), same frame, same functions, same words.
+#                   Owner-drawn and culled actors (Ganados, Leon) never build source palettes. =2 (check build): the
+#                   eager palette is built and drawn, the lazy build compares ("SKLAZY ... bad= badw= stale=" lines).
+SKIN_PALETTE_LAZY ?= 0
+ifeq ($(filter $(SKIN_PALETTE_LAZY),0 1 2),)
+$(error SKIN_PALETTE_LAZY must be 0, 1 or 2)
+endif
+ifneq ($(SKIN_PALETTE_LAZY),0)
+ifneq ($(NATIVE_ACTOR_SKIN_LAZY),1)
+$(error SKIN_PALETTE_LAZY needs NATIVE_ACTOR_SKIN_LAZY=1)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_SKIN_PALETTE_LAZY=$(SKIN_PALETTE_LAZY)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_SKIN_PALETTE_LAZY=$(SKIN_PALETTE_LAZY)
+endif
 GAME_WPAL_FAST ?= 0
 ifneq ($(GAME_WPAL_FAST),0)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_WPAL_FAST=$(GAME_WPAL_FAST)
