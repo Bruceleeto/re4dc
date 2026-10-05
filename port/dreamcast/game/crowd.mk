@@ -208,7 +208,7 @@ endif
 #              Ganado (everything that test writes is kept), asks re4dc_invis_decide (coarse_actor_owner_ganado.inc)
 #              before the screen matrices. An owner-path Ganado (its last draw admitted the cast plan) is skipped
 #              when the crowd policy would cull it anyway (CROWD_FOGSKIP's root test, CROWD_CULL's pregate balls with
-#              the fog far plane) or when every ball lies behind the near plane. A Ganado whose last draw the owner
+#              the fog far plane); the CROWD_LOD ranking then sees the same models. A Ganado whose last draw the owner
 #              plan declined (source path) is skipped when every per-bone sphere of its source mesh (all drawn infos,
 #              built once from vtxOrig / weights / bind matrices) lies outside one screen edge or the near plane.
 #              A skipped Ganado keeps commonScreenMat's texture animation / UV scroll advance; an owner-path one

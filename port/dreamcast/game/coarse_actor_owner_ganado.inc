@@ -217,8 +217,10 @@ extern "C" float re4dc_fog_gate_far();
 // nothing of. Render notes each Ganado's path (re4dc_invis_note: the transaction's start, the owner admission inside
 // the crowd policy, the plan's decline) with its info chain; Trans (re4dc_invis_begin, re4dc_invis_decide) predicts
 // the same path for the same structure under the next Render's view and returns
-//   1: owner path admitted last time and either the crowd policy's own skips (CROWD_FOGSKIP's root test, CROWD_CULL's
-//      pregate balls with the fog far plane) or the near plane culls every visible chunk;
+//   1: owner path admitted last time and the crowd policy would skip it anyway (CROWD_FOGSKIP's root test, CROWD_CULL's
+//      pregate balls with the fog far plane): exactly the Ganados the crowd policy keeps out of the actor path, so the
+//      CROWD_LOD ranking (native_actor_fast.cpp crowd_rank: the models submitted last frame) sees the same models. A
+//      near-plane test was dropped: a submitted Ganado that emits nothing still holds a near rank;
 //   2: source path (the plan declined last time) and every drawn info's source-mesh balls lie outside one screen
 //      edge or the near plane (bound below; skinned positions are convex combinations of the bones' balls);
 //   0: anything else. =2 marks instead and re4dc_invis_check counts emitted triangles and path / view mismatches.
@@ -443,7 +445,7 @@ inline unsigned invis_ball_out(const float (*G)[4], const float* norm, const flo
     return planes & out;
 }
 // Owner path: the crowd policy's tests on the next Render's view (crowd_policy: re4dc_crowd_offscreen, then
-// CROWD_FOGSKIP), with the near plane added to the pregate balls.
+// CROWD_FOGSKIP).
 bool invis_owner(cModel* m, const InvisRec& r) {
     const InvisView& iv = invis_view;
 #if RE4DC_CROWD_FOGSKIP
@@ -475,7 +477,7 @@ bool invis_owner(cModel* m, const InvisRec& r) {
         if (!n) continue;  // gate_cull_once: a chunk without balls counts as culled
         float G[5][4], norm[5];
         gate_matrix(iv.rows, mv[i], inv, G, norm);
-        unsigned planes = 63;
+        unsigned planes = 31;  // re4dc_crowd_offscreen's planes (no near plane)
         for (unsigned j = 0; j < n && planes; ++j) {
             const GateBall& g = gate_ball[first + j];
             const float (*A)[4] = parts[gate_bone[first + j]]->mat;

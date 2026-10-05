@@ -5,6 +5,8 @@
 # Two builds that must submit the same geometry compare these lines frame by frame.
 # TA_HASH=2: the same with polygon / sprite header words 4..7 left out (KOS leaves them as stack garbage), so
 # two different builds' lines compare.
+# TA_HASH=3: as 2, and a header counts only once a vertex follows it (header-only polygons, which draw nothing,
+# are left out).
 TA_HASH ?= 0
 .PHONY: tahash-force
 $(OBJDIR)/tahash.h: tahash-force

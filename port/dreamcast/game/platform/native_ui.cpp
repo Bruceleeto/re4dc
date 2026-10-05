@@ -737,7 +737,13 @@ pvr_list_t desired_list=PVR_LIST_OP_POLY;
 // switch folds a marker into the list being opened, so order and list membership both count.
 std::uint32_t ta_hash_h[5];
 unsigned ta_hash_words[5];
+#if RE4DC_TA_HASH == 3
+std::uint32_t ta_hash_pend[5][4];  // TA_HASH=3: a header's words 0..3, hashed once a vertex follows it
+bool ta_hash_pending[5];
+void ta_hash_reset(){for(unsigned i=0;i<5;++i){ta_hash_h[i]=2166136261u;ta_hash_words[i]=0;ta_hash_pending[i]=false;}}
+#else
 void ta_hash_reset(){for(unsigned i=0;i<5;++i){ta_hash_h[i]=2166136261u;ta_hash_words[i]=0;}}
+#endif
 void ta_hash_marker(pvr_list_t list){const std::uint32_t w=0xF00D0000u|(unsigned)list;re4dc_ta_hash(&w,4);}
 #endif
 #if RE4DC_TA_DOUBLEBUF
@@ -3387,7 +3393,26 @@ extern "C" void re4dc_ta_hash(const void* data,unsigned bytes){
     const unsigned l=(unsigned)stream_list<5?(unsigned)stream_list:2;
     const auto* w=static_cast<const std::uint32_t*>(data);
     std::uint32_t h=ta_hash_h[l];
-#if RE4DC_TA_HASH == 2
+#if RE4DC_TA_HASH == 3
+    // TA_HASH=3 (lane iv): as 2, and a header counts only once a vertex (para type 7) follows it in its list: polygons
+    // with no vertex, which draw nothing, are left out (the words count counts hashed words only).
+    if(bytes<32){
+        for(unsigned i=0;i<bytes/4;++i)h=(h^w[i])*16777619u;
+        ta_hash_words[l]+=bytes/4;
+    } else for(unsigned b=0;b<bytes/32;++b){
+        const std::uint32_t* q=w+b*8;
+        const unsigned t=q[0]>>29;
+        if(t==4u || t==5u){for(unsigned k=0;k<4;++k)ta_hash_pend[l][k]=q[k];ta_hash_pending[l]=true;continue;}
+        if(t==7u && ta_hash_pending[l]){
+            for(unsigned k=0;k<4;++k)h=(h^ta_hash_pend[l][k])*16777619u;
+            ta_hash_words[l]+=4;ta_hash_pending[l]=false;
+        }
+        for(unsigned k=0;k<8;++k)h=(h^q[k])*16777619u;
+        ta_hash_words[l]+=8;
+    }
+    ta_hash_h[l]=h;
+    return;
+#elif RE4DC_TA_HASH == 2
     // TA_HASH=2 (lane iv): comparable across builds: a 32-byte block whose first word is a polygon / sprite header
     // (PCW para type 4 / 5) hashes words 0..3 only (KOS leaves header words 4..7 as stack garbage).
     for(unsigned i=0;i<bytes/4;++i){
