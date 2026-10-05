@@ -39,7 +39,8 @@
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
 //   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
-//   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n>
+//   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n> |
+//   god (Leon's life refilled every frame) | alert <frame> (the crowd hunts Leon from that frame of its entry)
 //  - Later rooms: `entry <n>` (n >= 2) scopes the `act` / `goto` lines after it to the n-th room entry of the run
 //    (their frames count in that room; the door that leads there is the source's). Without it every act / goto
 //    belongs to the first room, as before. A fixture with entries also logs Leon's placement in those rooms.
@@ -119,6 +120,11 @@ struct Warp {
     bool has_late, late_logged;
     u32 late_mask, late_tick;
     u16 late_room;
+    // god: Leon's life refilled every frame (benchmark fixtures; hwcal's invuln). alert <frame>: the room-forced
+    // alert + the "Ganado hurt" alarm at Leon once at that room frame of its entry (hwcal's alert): the crowd hunts him.
+    bool god, has_alert, alert_done;
+    u32 alert_frame;
+    u8 alert_entry;
 };
 Warp wp;
 
@@ -239,6 +245,13 @@ void load()
 #endif
         } else if (!strcmp(k, "dump")) {
             wp.dump = true;
+        } else if (!strcmp(k, "god")) {
+            wp.god = true;
+            re4dc_log("warp: god (Leon's life refilled every frame)\n");
+        } else if (!strcmp(k, "alert") && n >= 2) {
+            wp.has_alert = true;
+            wp.alert_frame = num(tok[1]);
+            wp.alert_entry = wp.parse_entry;
         } else if (!strcmp(k, "late") && n >= 2) {
             wp.has_late = true;
             wp.late_mask = num(tok[1]);
@@ -364,6 +377,22 @@ void goto_poll()
         // padscript presses can wait for the move ("goto=<n>", n = goto index + 1; c13 door walks)
         re4dc_fixture_state("goto", int(i + 1), -1);
     }
+}
+// `god` / `alert` (benchmark fixtures, the hwcal disc's invuln / alert): every frame / once at the room frame.
+void god_alert_poll()
+{
+    if (wp.god && pG) pG->pl_life = pG->pl_life_max;
+    if (!wp.has_alert || wp.alert_done || wp.rooms != wp.alert_entry || wp.room_frames < wp.alert_frame || !pPL ||
+        (pG->Status_flg[1] & 0x10000000)) return;
+    wp.alert_done = true;
+    pG->Status_flg[0] |= 0x00800000;
+    pG->Status_flg[1] |= 0x20000000;
+    pG->bell_pos = pPL->pos;
+    pG->bell_stat = 0;
+    char what[64];
+    snprintf(what, sizeof(what), "alert at room frame %u (entry %u) pl=%d,%d,%d", (unsigned) wp.room_frames,
+             (unsigned) wp.rooms, (int) pPL->pos.x, (int) pPL->pos.y, (int) pPL->pos.z);
+    stamp(what);
 }
 #if RE4DC_WARP_JUMP
 // `jump` (WARP_JUMP=1, diagnostic room change; not a source door/event route): in room `from`, at or after its
@@ -498,6 +527,7 @@ void re4dc_warp_poll(void)
 {
     if (!wp.active) return;
     ++wp.room_frames;
+    god_alert_poll();
     kill_poll();
 #if RE4DC_WARP_JUMP
     jump_poll();
