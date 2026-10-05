@@ -29,6 +29,9 @@
 #                    cycles Smooth -> Fast -> Off with a 2 s on-screen note; the game never sees
 #                    that START (pad.cpp, like the L+START debug chord).
 #   PACE_LOG=N      one "PACE" telemetry line every N ticks (default 300 = 10 s).
+#   PACE_VMU=1      (default 0) a speed page on the first VMU LCD, rewritten once a second: drawn fps,
+#                    game speed (% of 30 ticks/s) and CPU ms per tick (work before the vblank wait). One
+#                    queued maple LCD write a second (vmu_draw_lcd does not wait); reads pace state only.
 # Test instrumentation (never in a product image):
 #   PACE_FORCE=3|N|R|A  forced skip pattern, a pure function of the eligible-tick index (timing,
 #                    cap and floor ignored): every Nth image (3 = every 3rd), R = p 0.5 from a
@@ -51,6 +54,7 @@ PACE_TEST_DRAW_US ?= 0
 PACE_TEST_TICK_US ?= 0
 PACE_CHECK ?= 0
 PACE_TEST_TOGGLE_S ?= 0
+PACE_VMU ?= 0
 PACE_DEBUG ?= $(or $(QUALITY_DEBUG),0)
 PACE_MODE ?= $(if $(filter 0,$(PACE_FLOOR_FPS)),fast,smooth)
 ifneq ($(PACE_CATCHUP),0)
@@ -67,7 +71,7 @@ endif
 .PHONY: pace-force
 $(OBJDIR)/pace.h: pace-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' > $@.tmp
+	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 PLATFORM_OBJS += $(OBJDIR)/pace.o

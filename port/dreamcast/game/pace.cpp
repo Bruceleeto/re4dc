@@ -42,6 +42,15 @@
 #define RE4DC_PACE_MODE 0
 #endif
 #include "warp_late.h"
+#ifndef RE4DC_PACE_VMU
+#define RE4DC_PACE_VMU 0
+#endif
+#if RE4DC_PACE_VMU
+#include <dc/maple.h>
+#include <dc/maple/vmu.h>
+#include <dc/vmu_fb.h>
+#include <stdio.h>
+#endif
 
 extern "C" u32 re4dc_vi_retrace_count(void);
 extern "C" void* re4dc_ui_movie_texture() __attribute__((weak));   // ROUTE_MOVIES builds
@@ -164,6 +173,49 @@ void report(u32 now)
     w_vb0 = now;
     w_ticks = w_drawn = w_skip = w_lagmax = w_dropped = w_reanchor = w_floor = w_cap = w_ctx = w_starve = 0;
 }
+
+#if RE4DC_PACE_VMU
+// PACE_VMU: the speed page on the VMU LCD, one second per window (60 vblanks), console tests
+// without a serial link. Reads the window counters only; the write is queued (maple, next vblank)
+// and retried on the following iterations while the maple frame is busy.
+u32 v_vb0;
+unsigned v_ticks, v_drawn, v_tries;
+unsigned long long v_cost_us;
+vmufb_t v_lcd;
+
+void vmu_try()
+{
+    maple_device_t* dev = maple_enum_type(0, MAPLE_FUNC_LCD);
+    if (!dev) { v_tries = 0; return; }
+    // vmufb_present's orientation rule (dbgslot_bridge.cpp), keeping the return code.
+    maple_device_t* cont = maple_enum_dev(dev->port, 0);
+    const int rc = (cont && (cont->info.functions & MAPLE_FUNC_CONTROLLER) &&
+                    cont->info.connector_direction != dev->info.connector_direction)
+                       ? vmu_draw_lcd(dev, v_lcd.data)
+                       : vmu_draw_lcd_rotated(dev, v_lcd.data);
+    v_tries = rc == MAPLE_EAGAIN ? v_tries - 1 : 0;
+}
+
+void vmu_window(unsigned cost, u32 now)
+{
+    if (v_tries) vmu_try();
+    if (!v_vb0) { v_vb0 = now; return; }
+    ++v_ticks; v_cost_us += cost;
+    const u32 dvb = now - v_vb0;
+    if (dvb < 60) return;
+    const unsigned fps10 = unsigned(v_drawn * 59940ULL / 100 / dvb);   // 0.1 fps
+    const unsigned speed = unsigned((v_ticks * 2000ULL / dvb + 5) / 10);   // %
+    const unsigned cpu10 = unsigned(v_cost_us / v_ticks / 100);         // 0.1 ms per tick
+    char text[64];
+    snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u.%u\nMODE %s", fps10 / 10, fps10 % 10, speed,
+             cpu10 / 10, cpu10 % 10, kModeName[re4dc_pace_mode % 3]);
+    vmufb_clear(&v_lcd);
+    vmufb_print_string(&v_lcd, nullptr, text);
+    v_tries = 30;
+    vmu_try();
+    v_vb0 = now; v_ticks = v_drawn = 0; v_cost_us = 0;
+}
+#endif
 
 #if RE4DC_PACE_TEST_TOGGLE_S
 // Test knob: cycle the mode every N seconds of wall time (the STRICT toggle gate).
@@ -316,12 +368,18 @@ extern "C" int re4dc_pace_end(void)
         skip_ema = ema(skip_ema, cost); ++w_skip; since_skip = 0;
     } else {
         draw_ema = ema(draw_ema, cost); ++w_drawn; last_present_us = us;
+#if RE4DC_PACE_VMU
+        ++v_drawn;
+#endif
         if (++since_skip > 32) skip_ema = 0;
     }
 #if RE4DC_PACE_CATCHUP >= 2
     rest_ema = ema(rest_ema, unsigned(us - decide_us));
 #endif
     ++w_ticks;
+#if RE4DC_PACE_VMU
+    vmu_window(cost, re4dc_vi_retrace_count());
+#endif
     int waited = 0;
     if (active) {
         ++ticks;
