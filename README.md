@@ -21,15 +21,27 @@ rebuilt for the Dreamcast's 16 MB of RAM and its PowerVR graphics chip.
 ## Status
 
 Updated **2026-10-05**. The newest public play build is
-**[r21y (camera crash fix)](https://github.com/lamb2k/re4dc/releases/tag/play-r21y-camera-fix-20261004)**, which supersedes r21x. Downloads are available for Windows,
-SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, with SHA-256 checksums. Its source is on `dreamcast-port`.
-This is a prerelease test build.
+**[r22c (chapter 1-3 test)](https://github.com/lamb2k/re4dc/releases/tag/play-r22c-chapter-1-3-20261005)**, with downloads for Windows,
+SteamOS / Steam Deck, CachyOS / Arch, and GDEMU, plus SHA-256 checksums. This is an experimental
+prerelease test build, not the complete game.
+
+**r22c combines the r22 performance changes with chapter 1-3 rooms through r10a.** The door into the
+unfinished r10b room shows "Coming Soon". Its corrected texture pack keeps all 3,249 r22 packages
+and adds 498 chapter 1-3 packages. Some chapter 1-3 rooms use substitute music.
+
+For this exact r22c image, the GDEMU boot check reached the VMU prompt in Flycast, and content checks
+confirmed that the r22 files and textures were preserved apart from the documented chapter additions.
+Every file in the four release archives was read back and checked against its packaged source.
+A continuous r22c playthrough and physical-console acceptance remain pending. Earlier chapter 1-3
+route checks used separate builds. Build source:
+[`2bb24730`](https://github.com/lamb2k/re4dc/commit/2bb24730ccfae533d8ce89addaa098bd2232e751),
+with `ROUTE_CH13=1`.
 
 **r21y fixes the console crash when Leon jumps out of the r100 house window.** The camera code deleted a special
 camera (left over from examining the dead Ganado, a rifle scope, the binoculars or pushing an object) a second time;
 Flycast resets there, the Dreamcast stops with an address error. r21y also shows the VMU's CPU line as a percentage.
 
-**r22 (2026-10-05, source on `dreamcast-port`; not a public download)** adds the next round of performance work:
+**r22 performance changes (included in r22c)** add:
 lazy skinning palettes, a faster effect-sprite path, actor and world preparation reused across frames, faster
 animation-curve and cloth maths, and a regenerated code layout. Each change was checked to leave gameplay unchanged
 (identical logic traces) and the picture identical. On a real NTSC Dreamcast, one r100 playthrough of the r22g test
@@ -77,9 +89,9 @@ The staged play data covers the following route; it is not the full game:
 
 | Chapter | Rooms | Verification scope |
 | --- | --- | --- |
-| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested; continuous r21y playthrough pending |
-| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r21y run remain unchecked |
-| 1-3 | r105, r101, r102, r108, r109, r10a | In the code but switched off in play builds: the rooms through r10a pass Flycast route checks, and doors into rooms not on the disc show "Coming Soon"; a console test of r22 with chapter 1-3 is next |
+| 1-1 | intro, r100 forest, r101 village, r103 farm, r106 woods | Room and chapter-end/save checkpoints tested in earlier builds; continuous r22c playthrough pending |
+| 1-2 | r104, r107, r105 | Route and chapter-end/save checkpoints tested in r21m; normal emblem/key-item pickups and a full r22c run remain unchecked |
+| 1-3 | r105, r101, r102, r108, r109, r10a | Enabled in r22c through r10a; the r10b door shows "Coming Soon". Earlier builds passed separate Flycast route checks; continuous r22c and console checks remain pending |
 
 The target remains **30 fps at full game speed on a real NTSC Dreamcast**. Flycast checks and hardware
 estimates do not establish physical-console performance or compatibility.
@@ -113,24 +125,30 @@ estimates do not establish physical-console performance or compatibility.
 - **Over-bright colours in r100.** Parts of the PS2 world, including the hedge by the gate after the radio call,
   remain flat and bright.
 - **Console testing has started.** r21v ran on a real NTSC Dreamcast with GDEMU; r21x fixes the two crashes and
-  the drawing and sound problems found there. A full console playthrough of r21y is still pending. r21y fixes the camera
+  the drawing and sound problems found there. A full console playthrough of r22c is still pending. r21y fixes the camera
   crash at the r100 house window found on r21x. The r22g test disc played r100 through the
   fight after the window jump on the console without a crash. A crash should show the on-screen crash report; please send a
   photo of it.
 
 ## Playing
 
-Download **[r21y](https://github.com/lamb2k/re4dc/releases/tag/play-r21y-camera-fix-20261004)** and follow
-the instructions for your system below. The release includes a checksum file and test notes. No BIOS or
-personal VMU saves are included; game data is not committed to this source repository.
+Download **[r22c](https://github.com/lamb2k/re4dc/releases/tag/play-r22c-chapter-1-3-20261005)** for your system:
 
-- **Windows:** unzip `RE4DC-<build>.zip`, double-click `Play-<build>.cmd`.
-- **Steam Deck / SteamOS:** extract `RE4DC-<build>-SteamOS.tar.gz` and run `play.sh`. It installs
-  Flycast from Flathub if needed.
-- **CachyOS / Arch:** extract `RE4DC-<build>-CachyOS.tar.gz`, run `./play.sh`.
-- **Dreamcast with GDEMU (test image):** copy `disc.gdi`, `track01.bin`, `track02.raw` and
-  `track03.bin` into a new numbered folder on the SD card. Put a VMU in the first controller slot to see
-  the speed readout.
+| System | Download | Start playing |
+| --- | --- | --- |
+| Windows | [RE4DC-r22c.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c.zip) | Extract the whole archive and double-click `Play-r22c.cmd`. Includes Flycast and the keyboard/DualSense launcher. |
+| Steam Deck / SteamOS | [RE4DC-r22c-SteamOS.tar.gz](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-SteamOS.tar.gz) | Extract in Desktop Mode and run `play.sh`; uses Flathub Flycast. |
+| CachyOS / Arch | [RE4DC-r22c-CachyOS.tar.gz](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-CachyOS.tar.gz) | Extract and run `./play.sh`; uses native Flycast or Flathub Flycast. |
+| Dreamcast / GDEMU | [RE4DC-r22c-GDEMU.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-GDEMU.zip) | Copy `disc.gdi`, `track01.bin`, `track02.raw` and `track03.bin` together into a new numbered SD-card folder. |
+
+[SHA-256 checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/SHA256SUMS.txt) and test notes accompany the release.
+The emulator packages contain the title disc as `disc/disc.cue` and `disc/disc.bin`; open the `.cue`
+in an existing Flycast installation if preferred. Keep both files together.
+
+For GDEMU, keep all four filenames unchanged. If using a card manager, save its changes before safely
+ejecting the card. Put a VMU in the first controller slot for the speed readout.
+No BIOS or personal VMU saves are included; keep your existing saves separately. Game data is not
+committed to this source repository.
 
 | Action | Dreamcast pad |
 | --- | --- |
@@ -142,7 +160,7 @@ personal VMU saves are included; game data is not committed to this source repos
 | Inventory | Y |
 | Pause / options | START |
 | Frame pacing (Smooth → Fast → Off) | Hold R, press START |
-| Speed readout (FPS / speed / CPU ms / pacing) | VMU in controller slot 1 |
+| Speed readout (FPS / speed / CPU % / pacing) | VMU in controller slot 1 |
 
 ## Development
 
@@ -233,7 +251,7 @@ To contribute:
 
 Open an issue with the **Game bug** form ([Issues](https://github.com/lamb2k/re4dc/issues/new/choose)); any
 GitHub account can file one. Check [Known issues](#known-issues) first. Please include:
-- the exact build (e.g. r21t);
+- the exact build (e.g. r22c);
 - where it happened (chapter and room, or what was on screen);
 - what you did and what happened;
 - whether it was Flycast (and on which system) or a real Dreamcast;
