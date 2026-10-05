@@ -135,3 +135,31 @@ c0 view e profile: actors 11.97 ms (re4dc_actor_submit 3.16, Part::whole 1.24, b
   platform/native_ui.cpp (export under RE4DC_CROWD_OUTPUT only), tools/d367/crowd/*. Every knob default 0/-1 (no
   -D, image byte-identical: identity.sh). STRICT: tg / t1 / t2 above. Landing it changes nothing until the user picks
   knobs; then add them to build-r21.sh.
+
+## 2026-10-04: crowd + pacing lane (perf/crowd-20261004, worktree /root/probe/lanes-20261004/crowd/tree)
+
+Presets and cost arms: /root/probe/perf-20261004 (REPORT.md, kit). Evidence: C:\Flycast-Evidence\re4-dreamcast\crowd-20261004
+(hwmodel-cw4-*, dyn-cw4-*) and D:\...\perf-20261004\{hwmodel,dyn}-cw4-*.
+
+- **No logic reads the Ganados' render side.** Trace A/B on r100-h-fight (PACE_MODE=off, 5034 ticks, LT/LU and LX/LP):
+  CROWD_DRAW_MAX=2 STRICT, ENC_SKIP_GANADO=1 (no emTrans/ModelTrans at all for Ganados) STRICT. REPORT.md's "logic
+  changed" (-2.0 / -1.2 ms LOGIC) is a bucket.py attribution artifact: every logic function's total hw ms is equal to
+  +-0.006 ms between the arms (functions.tsv); the time moves between the LOGIC bucket and "other(kos/irq/root)"
+  (LOGIC + other: 21.69 / 21.94 / 21.84 on skipped ticks). A rebuild of the same code moves it too (cw4-hf-c0: LOGIC
+  20.08 + other 6.17 vs perfc 20.64 + 1.73). Compare logic by functions.tsv, not by the LOGIC bucket.
+- Per drawn Ganado (owner path, hw ms): r100-h-fight 1.71, r101 square 1.84; planned-not-drawn (CROWD_CULL reason 1,
+  bones off-screen) 0.41 (r101 square: 2.5 per drawn tick); source emTrans per Ganado ~0.27 (weight palettes 0.2 of it).
+- Far tier (CROWD_NEAR_MAX=0, all Ganados on ganado_far_runtime.h from crowd-20261001/far-header): per drawn Ganado
+  -0.15 (1.71 -> 1.56, 1.84 -> 1.67) but the drawn tick +0.06 / +0.05 (cross-build noise ~+-0.5): does not pay.
+- Rejected (patches in /root/probe/lanes-20261004/crowd/logs): CROWD_EARLY_FOG (FOGSKIP's rule before ModelTrans): no
+  fog-skipped Ganado in either preset, 0 ms. CROWD_CULL_EARLY (the off-screen test before actor_semantics; =2 check:
+  0 semantics declines in 335 culls): -0.036 per culled Ganado, -0.09 per r101 square tick.
+- Pacing: PACE_FORCE=T (8c88b305) prices the PACE_CAP=2 cycle; PACE_CAP2_SPEED (9fdab035) gates the second skip.
+  Second skips cost as first ones (fight 24.31 vs 24.64, house 24.01 vs 24.75). D S S trace STRICT vs the unpaced
+  control: r101 square 4951 ticks; r100-h-fight ticks 0..740 (then the radio call's wall-timed sub screen).
+  Console projection: fight 66% 9.9 fps -> 78% 7.8 fps (no-look set: 74% 11.0 -> 86% 8.6); house 97% 14.5 ->
+  100% 13.5 (with PACE_CAP2_SPEED=90: stays 97% 14.5).
+- Next exact item (REPORT #7, ~0.6 ms fight / ~1.1 ms square): build source weight palettes lazily (owner-drawn and
+  crowd-culled Ganados never read them): commonScreenMatSub registers a pending SkinEntry; find_skin consumers
+  (lazy_skin, re4dc_actor_skin_palette, materialize) resolve it with calcWeightMat + MakeWeightPalette at render
+  (pG->mtxPalette saved/restored). Touches trans.cpp + platform/native_actor_fast.cpp.
