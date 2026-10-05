@@ -41,6 +41,20 @@
 #                    game speed (% of 30 ticks/s) and CPU load (work per tick before the vblank wait, % of a
 #                    33.4 ms tick; >100 = saturated). One
 #                    queued maple LCD write a second (vmu_draw_lcd does not wait); reads pace state only.
+#   PACE_VMU_GPU=1  (default 0; test builds, needs PACE_VMU=1) a fourth line "GPU <mean>/<max>" on the speed page
+#                    (FPS / SPD / CPU / GPU / MODE: the 4x6 font fits five lines): the graphics chip's render time
+#                    per scene in ms (rounded), mean and max over the renders that completed in the same window
+#                    ("GPU -" if none). The interval is KOS's rnd_last_time: from the render start (KOS writes
+#                    ISP_START, then stamps PVR_SYNC_RNDSTART) to the TSP render-done interrupt (PVR_SYNC_RNDDONE).
+#                    KOS starts a render only after its lists are in, the previous render is done and the previous
+#                    picture was flipped or discarded, so a render's wait for the previous one is NOT included; the
+#                    render-done interrupt latency is. Every render counts once: pvr_sync_stats is wrapped at link
+#                    time (-Wl,--wrap=pvr_sync_stats, this knob only; KOS's own statistics run unchanged first) and
+#                    pace.cpp stamps the same events (integers, interrupt context). Also logs "PACE vmu ..." per
+#                    window: renders, mean/max us, PVR busy %, the queue wait of a finished scene (last list in ->
+#                    its render start: ~0 while the CPU is the bottleneck) and KOS's reg interval (pvr_scene_begin ->
+#                    last list in: mostly CPU submission time in this pipeline, so it stays off the LCD). Render-side
+#                    observation only: logic untouched.
 # Test instrumentation (never in a product image):
 #   PACE_FORCE=3|N|R|A|T  forced skip pattern, a pure function of the eligible-tick index (timing,
 #                    cap and floor ignored): every Nth image (3 = every 3rd), R = p 0.5 from a
@@ -66,6 +80,7 @@ PACE_TEST_TICK_US ?= 0
 PACE_CHECK ?= 0
 PACE_TEST_TOGGLE_S ?= 0
 PACE_VMU ?= 0
+PACE_VMU_GPU ?= 0
 PACE_DEBUG ?= $(or $(QUALITY_DEBUG),0)
 PACE_MODE ?= $(if $(filter 0,$(PACE_FLOOR_FPS)),fast,smooth)
 ifneq ($(PACE_CATCHUP),0)
@@ -75,6 +90,13 @@ ifneq ($(PACE_CAP2_SPEED),0)
 ifneq ($(filter 0 1,$(PACE_CAP)),)
 $(error PACE_CAP2_SPEED gates the second consecutive skip (PACE_CAP >= 2))
 endif
+endif
+ifneq ($(PACE_VMU_GPU),0)
+ifneq ($(PACE_VMU),1)
+$(error PACE_VMU_GPU=1 adds the GPU line to the PACE_VMU speed page and needs PACE_VMU=1)
+endif
+# pace.cpp __wrap_pvr_sync_stats: KOS's PVR statistics hook, its render start / render done stamped for every render.
+GAME_LDFLAGS += -Wl,--wrap=pvr_sync_stats
 endif
 ifneq ($(PACE_CHECK),0)
 ifneq ($(LOGIC_TRACE),1)
@@ -87,7 +109,7 @@ endif
 .PHONY: pace-force
 $(OBJDIR)/pace.h: pace-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n#define RE4DC_PACE_CAP2_SPEED %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' '$(PACE_CAP2_SPEED)' > $@.tmp
+	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n#define RE4DC_PACE_CAP2_SPEED %s\n#define RE4DC_PACE_VMU_GPU %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' '$(PACE_CAP2_SPEED)' '$(PACE_VMU_GPU)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 PLATFORM_OBJS += $(OBJDIR)/pace.o

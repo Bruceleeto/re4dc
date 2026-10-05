@@ -13,6 +13,9 @@ Setup for a new evidence dir `<dir>` (Windows):
 3. Copy `re4dc-game.elf` and `syms.txt` from the build (`tools/d367/syms.sh`).
 4. Run `python capture-run.py 360 "120"` from PowerShell. It writes `run-output.txt`,
    `boot.log`, `run.pcs` (when the sampler is linked) and `shot-120s/frames/*.png`.
+5. Optional, PACE_VMU=1 builds: `python read_vmu_lcd.py <dir> [seconds] [period]` alongside the run saves the VMU
+   speed page as the game drew it (pace.cpp v_lcd read from guest RAM; PACE_VMU_GPU=1 adds the GPU line) to
+   `<dir>/vmu/*.png` and `vmu.txt`.
 
 Frame times are guest time. If an A/B delta looks surprising, rerun that pair alone,
 since host load has shifted results before. Never overwrite an accepted evidence dir;

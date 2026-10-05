@@ -48,11 +48,17 @@
 #ifndef RE4DC_PACE_VMU
 #define RE4DC_PACE_VMU 0
 #endif
+#ifndef RE4DC_PACE_VMU_GPU
+#define RE4DC_PACE_VMU_GPU 0
+#endif
 #if RE4DC_PACE_VMU
 #include <dc/maple.h>
 #include <dc/maple/vmu.h>
 #include <dc/vmu_fb.h>
 #include <stdio.h>
+#if RE4DC_PACE_VMU_GPU
+#include <arch/irq.h>
+#endif
 #endif
 
 extern "C" u32 re4dc_vi_retrace_count(void);
@@ -196,6 +202,76 @@ unsigned v_ticks, v_drawn, v_tries;
 unsigned long long v_cost_us;
 vmufb_t v_lcd;
 
+#if RE4DC_PACE_VMU_GPU
+// PACE_VMU_GPU: the graphics chip's (PVR) render time per scene: the interval of KOS's rnd_last_time statistic, taken
+// for every render. KOS (pvr_irq.c) stamps PVR_SYNC_RNDSTART in pvr_render_lists right after pvr_begin_queued_render
+// wrote ISP_START, and PVR_SYNC_RNDDONE in the TSP render-done interrupt (ASIC_EVT_PVR_RENDERDONE_TSP). KOS starts a
+// render only once the scene's lists are all in the TA, the previous render is done and the previous picture was
+// flipped or discarded, so no wait for the previous render (nor for a flip or a present decision) is inside the
+// interval; the latency of the render-done interrupt is. pvr_sync_stats is wrapped at link time (pace.mk) and the
+// same events are stamped right after KOS's own (integers only, interrupt context), so each render counts once in
+// the window in which its render-done interrupt arrives. (Sampling pvr_get_stats once per iteration and counting
+// changed values missed renders whenever two in a row had the same length: Flycast's fixed ~7.5 ms showed 27 renders
+// for 30 drawn frames. The hwcal disc, 2026-10-04, read the statistic once per tick: P50 over 600 ticks, each tick
+// repeating the last render.) The log also gets two intervals that stay off the LCD: wait = the scene's last list in
+// (PVR_SYNC_REGDONE) to its render start, the time a finished scene queued behind the previous render and its flip
+// (~0 while the CPU is the bottleneck); reg = pvr_scene_begin to the last list in (KOS reg_last_time: here the scene
+// opens at the frame's first PVR packet and closes at Render_swap, so it is mostly CPU time, not the TA's own).
+// pvr_sync_stats events (KOS kernel/arch/dreamcast/hardware/pvr/pvr_internal.h; the toolchain is pinned).
+constexpr int kSyncRegStart = 4, kSyncRegDone = 5, kSyncRndStart = 6, kSyncRndDone = 7;
+struct GpuAcc {
+    unsigned long long rnd_sum, rnd_max, wait_sum, wait_max, reg_sum;   // ns
+    unsigned rnd_n, wait_n, reg_n;
+};
+GpuAcc g_gpu;                                      // interrupt side; vmu_window takes it with interrupts off
+unsigned long long g_reg_t0, g_regdone_t, g_rnd_t0;
+}  // namespace
+
+extern "C" void __real_pvr_sync_stats(int event);
+extern "C" void __wrap_pvr_sync_stats(int event)
+{
+    __real_pvr_sync_stats(event);                  // KOS's own statistics first, unchanged
+    if (event < kSyncRegStart || event > kSyncRndDone) return;
+    const auto irq = irq_disable();                // REGSTART comes from pvr_scene_begin (thread context)
+    const unsigned long long t = timer_ns_gettime64();
+    switch (event) {
+    case kSyncRegStart:
+        g_reg_t0 = t;
+        break;
+    case kSyncRegDone:
+        if (g_reg_t0) {
+            g_gpu.reg_sum += t - g_reg_t0;
+            ++g_gpu.reg_n;
+            g_reg_t0 = 0;
+        }
+        g_regdone_t = t;
+        break;
+    case kSyncRndStart:
+        if (g_regdone_t) {
+            const unsigned long long w = t - g_regdone_t;
+            g_gpu.wait_sum += w;
+            ++g_gpu.wait_n;
+            if (w > g_gpu.wait_max) g_gpu.wait_max = w;
+            g_regdone_t = 0;
+        }
+        g_rnd_t0 = t;
+        break;
+    default:                                       // kSyncRndDone
+        if (g_rnd_t0) {
+            const unsigned long long d = t - g_rnd_t0;
+            g_gpu.rnd_sum += d;
+            ++g_gpu.rnd_n;
+            if (d > g_gpu.rnd_max) g_gpu.rnd_max = d;
+            g_rnd_t0 = 0;
+        }
+        break;
+    }
+    irq_restore(irq);
+}
+
+namespace {
+#endif
+
 void vmu_try()
 {
     maple_device_t* dev = maple_enum_type(0, MAPLE_FUNC_LCD);
@@ -222,8 +298,40 @@ void vmu_window(unsigned cost, u32 now)
     // console is saturated even when it skips drawing (user's console readings, 2026-10-04).
     const unsigned cpu = unsigned((v_cost_us * 100ULL / v_ticks + 16683) / 33367);
     char text[64];
+#if RE4DC_PACE_VMU_GPU
+    GpuAcc a;   // the renders whose render-done interrupt arrived in this window
+    {
+        const auto irq = irq_disable();
+        a = g_gpu;
+        g_gpu = GpuAcc{};
+        irq_restore(irq);
+    }
+    // GPU <mean>/<max>: ms per render (rounded, capped at 999) over the renders completed in this window.
+    char gpu[16];
+    if (a.rnd_n) {
+        const unsigned long long mean = (a.rnd_sum / a.rnd_n + 500000) / 1000000, peak = (a.rnd_max + 500000) / 1000000;
+        snprintf(gpu, sizeof(gpu), "GPU %u/%u", unsigned(mean < 999 ? mean : 999), unsigned(peak < 999 ? peak : 999));
+    } else {
+        snprintf(gpu, sizeof(gpu), "GPU -");
+    }
+    snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%%\n%s\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
+             gpu, kModeName[re4dc_pace_mode % 3]);
+    // busy: the window's summed render time as % of its wall time (dvb fields of 16,683 us)
+    const unsigned busy = unsigned(a.rnd_sum / (dvb * 166830ULL));
+    char page[sizeof(text)];
+    unsigned i = 0;
+    for (; text[i]; ++i) page[i] = text[i] == '\n' ? '|' : text[i];
+    page[i] = 0;
+    re4dc_log("PACE vmu t=%u win_vb=%u drawn=%u gpu_n=%u gpu_avg_us=%u gpu_max_us=%u gpu_busy=%u%% wait_n=%u "
+              "wait_avg_us=%u wait_max_us=%u reg_n=%u reg_avg_us=%u page=%s\n",
+              pG ? (unsigned) pG->Frame_cnt : 0, (unsigned) dvb, v_drawn, a.rnd_n,
+              a.rnd_n ? unsigned(a.rnd_sum / a.rnd_n / 1000) : 0, unsigned(a.rnd_max / 1000), busy, a.wait_n,
+              a.wait_n ? unsigned(a.wait_sum / a.wait_n / 1000) : 0, unsigned(a.wait_max / 1000), a.reg_n,
+              a.reg_n ? unsigned(a.reg_sum / a.reg_n / 1000) : 0, page);
+#else
     snprintf(text, sizeof(text), "FPS %u.%u\nSPD %u%%\nCPU %u%%\nMODE %s", fps10 / 10, fps10 % 10, speed, cpu,
              kModeName[re4dc_pace_mode % 3]);
+#endif
     vmufb_clear(&v_lcd);
     vmufb_print_string(&v_lcd, nullptr, text);
     v_tries = 30;
