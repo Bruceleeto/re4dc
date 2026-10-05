@@ -60,6 +60,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <arch/timer.h>
+#include <kos/thread.h>
 
 extern "C" {
 u32 re4dc_vi_retrace_count(void);
@@ -125,6 +126,10 @@ struct Warp {
     bool god, has_alert, alert_done;
     u32 alert_frame;
     u8 alert_entry;
+    // freeze <tick>: the game thread stops at the top of that global tick (look checks: the last presented image
+    // stays on screen, the same image in two arms whose logic is STRICT).
+    bool has_freeze;
+    u32 freeze_tick;
 };
 Warp wp;
 
@@ -252,6 +257,9 @@ void load()
             wp.has_alert = true;
             wp.alert_frame = num(tok[1]);
             wp.alert_entry = wp.parse_entry;
+        } else if (!strcmp(k, "freeze") && n >= 2) {
+            wp.has_freeze = true;
+            wp.freeze_tick = num(tok[1]);
         } else if (!strcmp(k, "late") && n >= 2) {
             wp.has_late = true;
             wp.late_mask = num(tok[1]);
@@ -526,6 +534,10 @@ void re4dc_warp_room_enter(void)
 void re4dc_warp_poll(void)
 {
     if (!wp.active) return;
+    if (wp.has_freeze && pG && (u32) pG->Frame_cnt >= wp.freeze_tick) {
+        re4dc_log("warp: frozen at tick %u\n", (unsigned) pG->Frame_cnt);
+        for (;;) thd_sleep(1000);
+    }
     ++wp.room_frames;
     god_alert_poll();
     kill_poll();
