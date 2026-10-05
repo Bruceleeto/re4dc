@@ -1,5 +1,25 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-04: chapter 1-3 behind ROUTE_CH13 (default off) and the fight plan (local session)
+
+- **Chapter 1-3 (b877ae7f, c4ec84e9; ROUTE_CH13=1, not in the play recipe):** the r101 1-3 state, r102, r108, r109 and
+  r10a. Second-slot room music (r108 bio4midi #9, r10a #4) is not resident, so those rooms play a track already in
+  the BGM0 slot (#5, #3; user: cheapest option, music differs from the original). A door into a room whose
+  dc/native/rXXX/ps2-world.r4pw is not on the disc shows "Coming Soon" in the system font and holds (user: not a
+  fade back to the title).
+- **Gates:** knob-off identity (c-off vs z-play: .text/.data/overlay equal, .rodata 4 `__TIME__` bytes); c-ch13a
+  r105 -> r101 -> r102; c-hw3b r108 -> r109 -> r10a -> "Coming Soon" at the r10b door (screenshot); c-newgame
+  (ROUTE_CH13=1 play image) intros 1971/2360 then r100; missing 0, halt 0 in all three.
+- **Test disc (local, not released):** C:/RE4DC-Play-Discs/r21z-c13-title + r21z-c13-gdemu (ELF dda038cd). ROUTE_CH13
+  joins build-r21.sh only after the user plays it on the console.
+- **Fight plan (user: "Pursue All"):** logic work is unparked. Lanes: fx (effects sprite fast path, Esp47 skipped
+  ticks), cl (owner plan cache, model-prepare plans, ACTOR_BIND_REUSE), wd (packet headers, near clip, foliage cull
+  measured), build (LINK_ORDER from r100 house + fight), logic (exact: hermite, pwc, line queries, cloth, cEsp move,
+  sound occlusion), crowd (what the AI reads from a render cull, cheaper Ganados, PACE_CAP=2). Model (perf-20261004
+  REPORT.md): no-look set -> fight ~74%; + logic -5 ms -> ~86%; + PACE_CAP=2 -> ~100% at ~10 fps. 15 fps at full
+  speed in the fight needs drawing ~25 ms and logic ~19 per pair; 30 fps needs drawing <= ~18 and logic <= ~15.
+- **Releases:** the r21v and r21x release pages are deleted (tags kept); r21y is the only release.
+
 ## 2026-10-04: r21y, the camera crash fix (local session)
 
 - **Cause (confirmed in Flycast):** every cCamera destructor does `memset(this, 9, 0x200)` (our GCC drops the base

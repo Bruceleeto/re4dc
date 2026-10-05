@@ -67,7 +67,7 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   D:/RE4DC-Play/Play-r21u-Review-Fixes.cmd; GDI boot, New Game, chapter end, inventory r100/r104 all pass. Not released.
 - r21v (fe50a85a; route doc "r21v"): the supervisor performance knobs are now IN the play recipe (build-r21.sh);
   r100 24.3 -> 25.9 fps, r101 bell steady 27.1 -> 24.8 ms (Flycast). Disc needs registry/pl08 packages + tex.pak
-  (fixtures-v/title-v-pak.json). Released play-r21v-performance-20261004 (supersedes r21t); console test pending.
+  (fixtures-v/title-v-pak.json). Released play-r21v-performance-20261004 (page removed 2026-10-04); console test pending.
   H2 STRICT across the radio call needs equal frame times (compare against a LOGIC_TRACE_DELAY_US control).
 - LANDED default-off (route doc "supervisor code landed default-off"): experiment/supervisor-20261004's code (r101
   square 90.08 -> 82.65 ms modeled with its knob set, SUPERVISOR_BASELINE_20261004.md). 038d1c59 is split into
@@ -76,13 +76,17 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   Trans skips the room list walks while the sub screen window is swapped (r21v console fault 0xE0 after the radio
   call / on Y; a strong hook + a link.sh check when SUBSCREEN=1); COARSE_SAT_SCENERY_ONLY=1 (bridge blocker),
   SS_BG_BLACK=1 (tan frame), PACE_VMU=1 (VMU page) in build-r21.sh; the disc needs the call voices in
-  bgm/aica_str.dat (aica_banks.py --call-voices). Released play-r21x-vmu-20261004 (supersedes r21v).
+  bgm/aica_str.dat (aica_banks.py --call-voices). Released play-r21x-vmu-20261004 (page removed 2026-10-04).
 - Console calibration 2026-10-04 (route doc "r21x"): the hw model stands; logic x1.07, drawn render x0.95-1.06. On
   the console G is 12.7-20.3 ms (fits 24) and a drawn frame ~53 ms quiet / 90-95 ms with Ganados: the work is
-  drawing (user: performance work on the drawing problem next; logic stays parked).
+  drawing (user: performance work on the drawing problem next; logic unparked later the same day).
 - r21y (564f5168; route doc "r21y"): r21x + the camera fix (cCamera destructors memset(this, 9, 0x200) and four
   end* paths left `extra` set -> the next `delete extra` faulted on the console at the r100 window jump; Flycast resets
-  silently: treat "log head decreased: reset" as a possible console fault) + the VMU CPU line as %. Released play-r21y-camera-fix-20261004.
+  silently: treat "log head decreased: reset" as a possible console fault) + the VMU CPU line as %. Released play-r21y-camera-fix-20261004 (the only release page now).
+- Chapter 1-3 (c4ec84e9; route doc "chapter 1-3"): ROUTE_CH13=1, default off; resident-track music in r108/r10a;
+  "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 awaits the user's console play.
+- User 2026-10-04 "Pursue All": logic speed-ups are unparked (exact, STRICT), alongside the drawing lanes, cheaper
+  Ganados (gameplay-gated: the AI reads visibility) and PACE_CAP=2. Route doc "chapter 1-3 ... fight plan".
 - lamb2k/re4dc is public: every push publishes (AGENTS.md).
 - User decisions 2026-10-04: the supervisor branch's code lands default-off, after the cleanup above and after r21u
   (local session; turning any of it on in play builds stays a separate decision). Gameplay-logic cost (G, ~29 ms in

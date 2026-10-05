@@ -1,5 +1,11 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-04: chapter 1-3 (ROUTE_CH13, default off)
+
+Landed default-off (route doc "chapter 1-3"): r101 1-3 state, r102, r108, r109, r10a; resident BGM0 tracks for the
+second-slot music; "Coming Soon" at doors into rooms not on the disc. Test disc r21z-c13 (local, not released) waits
+for the user's console play before ROUTE_CH13=1 goes into build-r21.sh.
+
 ## 2026-10-04: r21y (current play build)
 
 r21y = r21x + the camera crash fix (dd995a7b) + the VMU CPU line as a percentage (564f5168); route doc "r21y". Same
@@ -11,7 +17,7 @@ r21x = r21v + the fixes from the first console play of r21v (route doc "r21x"): 
 the radio call / on Y), COARSE_SAT_SCENERY_ONLY=1 (r100 bridge blocker), SS_BG_BLACK=1 (tan frame), PACE_VMU=1 (speed
 page on the VMU LCD; user: the main build from now on), all in build-r21.sh (a0618068). Play discs also need the radio
 call voices in bgm/aica_str.dat (tools/aica_banks.py disc --call-voices, or stage.sh AICA_CALL_VOICES=1; fixture
-/root/probe/main-20261004/fixtures-x/title-x-pak.json). Disc and checks in step 6. Public release play-r21x-vmu-20261004 supersedes
+/root/probe/main-20261004/fixtures-x/title-x-pak.json). Disc and checks in step 6. Public release play-r21x-vmu-20261004 (page removed 2026-10-04, tag kept) superseded
 r21v.
 
 ## 2026-10-04: r21v (previous play build)
@@ -19,7 +25,7 @@ r21v.
 r21v = the play recipe + the supervisor performance knobs (build-r21.sh, fe50a85a); disc and checks in step 6, details
 in the route doc "r21v". Play discs now also need the registry packages, the pl08 pack and their textures in
 tex.pak (fixture /root/probe/main-20261004/fixtures-v/title-v-pak.json). Public release
-play-r21v-performance-20261004 supersedes r21t. The first console test is the user's.
+play-r21v-performance-20261004 (page removed 2026-10-04, tag kept) superseded r21t. The first console test is the user's.
 
 ## 2026-10-04: review follow-ups for the next play disc
 
