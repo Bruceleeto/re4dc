@@ -1,5 +1,40 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-06: r22f, the issue #2 crash screen and the issue #3 fixes
+
+- r22f = r22e (7cdec176) + the crash screen rework (575b9970, 6cac28d8; issue lamb2k/re4dc#2), PS2_WORLD_DYNAMIC
+  (98ef215d, recipe e9e036f7; issue #3) and the r105 emblem check fix (a64cef05). Gates: D367_PLAY_BUILD_CHECKLIST.md
+  "r22f".
+- Crash screen (CRASH_SCREEN=1, already in the recipe): every KOS thread from thd_each with its wait message, wait
+  object and "ever" for an untimed wait; a tasks row (slot:status/tid, Y/R = the slot whose yield/resume semaphore the
+  main thread waits on); return address rows for up to three untimed waiters. Test hook crashtest.txt "block" (test
+  discs only) blocks the next game task forever: the screen names it ("t8 re4-task sem_wait ... ever", "0:02/8Y").
+- Issue #3, drawing: the PS2 world package was static, so scenery the room code moves or hides (the r105 emblem, its
+  sliding door, gates, dials, shelves) kept its baked look. PS2_WORLD_DYNAMIC=1 follows each placement's SMD scroll id
+  (dc/native/rXXX/ps2-world.ids, tools/ps2_room_ids.py): hidden ids are skipped, moved ids drawn with the object's
+  matrix. Part animation (chest lids) is not followed.
+- Issue #3, logic (root cause found 2026-10-06): r105_markOpenCk copies only the 3x3 of the emblem's matrix into a
+  local Mtx and PSMTXMultVec adds the translation column, which stayed uninitialised stack. On the GameCube that slot
+  held zeros by chance; on the Dreamcast it held whatever the stack had, so the check failed and the door never opened
+  after the correct turns (Up, Left). A debug print in the function changed the stack and hid the bug, which is why
+  the first repro "worked". a64cef05 zeroes m[0..2][3] in Dreamcast builds only. Lesson: a port result that changes
+  when a print is added points at uninitialised memory.
+- Heap 4 at r100 s30 (warp build, final fixture, heap_before / s30 frames):
+
+  | build | heap_before | s30 |
+  |---|---|---|
+  | r22e | 92,640 | 340/340 |
+  | crash screen + pc2 cull | 92,640 | 340/340 |
+  | issue #3 + pc2 cull | 87,456 | 340/340 |
+  | crash screen + issue #3 (r22f) | 87,456 | 340/340 |
+  | r22f, scoped rifle armed | 56,576 | 340/340 |
+  | all three | 79,264 | FAILS (0/340) |
+  | all three, scoped rifle armed | 75,008 | 340/340 |
+
+- So the pc2 owner-path interior cull (PS2_INTERIOR_ACTORS=2, branch land/r22f-pc2-20261006) waits: with all three
+  the s30 movie does not start. It comes back once MOVIE_STAGE_ORDER (25c4cd0f, the next build) gives route movies
+  their heap 4 room.
+
 ## 2026-10-06: r22e, the PS2 haze in the play recipe
 
 - User 2026-10-06 ("I really want the haze sorted out PS2 style"): EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2 in

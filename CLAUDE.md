@@ -109,6 +109,9 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   while held, equip reverts when heap 4 is short); r107 has ~100-109 KB heap 4 left with one held (scoped rifle reverts there).
 - 2026-10-06 PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1 in the recipe: scoped rifle fits in r107 with 360-367 KB heap 4 left (no revert);
   em2a fails in the r100 ambush with the scoped rifle held (warp/cheat only, accepted); r22e fixture uses the prepared em13.
+- 2026-10-06 r22f = the play build (a64cef05 + ROUTE_CH13=1): r22e + issue #2 crash screen (all threads, tasks row,
+  backtraces) + issue #3 (PS2_WORLD_DYNAMIC=1 with ps2-world.ids fixture files; r105_markOpenCk uninitialised translation
+  fixed, the puzzle door opens). pc2 owner-path cull waits for MOVIE_STAGE_ORDER (all three fail s30). Checklist "r22f".
 - 2026-10-06 r22e = the play build candidate (d3a36242 + ROUTE_CH13=1): r22d + WEAPON_HEAP4, PRIM_CAP_R107 /
   WEAPON_HEAP4_TOP, prepared em13, PS2_INTERIOR_CULL, EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2, prebuilt weapon sound
   banks (AICA_WEAPONS=1 fixture files); all gates and the issue #1 exact steps pass; checklist "r22e". Known: no

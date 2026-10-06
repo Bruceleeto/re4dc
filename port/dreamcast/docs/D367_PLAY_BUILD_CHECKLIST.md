@@ -9,6 +9,21 @@ The play fixtures' em/em13.drs never loads in r104 (route doc "Pre-existing r104
 the native-scene lane's prepared em13 (6,829,984 B, MRAM 1,231,776 B). PRIM_CAP_R107=327680
 WEAPON_HEAP4_TOP=1 (recipe): the scoped rifle no longer reverts in r107 (360-367 KB heap 4 left).
 
+## 2026-10-06: r22f (play build)
+
+r22f = r22e + the issue #2 crash screen (575b9970, 6cac28d8), PS2_WORLD_DYNAMIC=1 (98ef215d, recipe e9e036f7) and the
+r105 emblem check fix (a64cef05). Not in it: the pc2 owner-path interior cull (s30 heap 4, route doc "r22f").
+Source a64cef05 + build-r21.sh `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1`. **The play fixture
+must stage dc/native/rXXX/ps2-world.ids** for every PS2 world room (private store 81efcf2, tools/ps2_room_ids.py); without
+them the rooms draw as before (the emblem does not turn). Fixture: the r22e fixture plus the 11 ids files.
+Gates on the combined tree: knob-off image and overlay byte-identical for CRASH_SCREEN and PS2_WORLD_DYNAMIC; H2 STRICT
+1450..1569 / ..740 / 1218.., whole room om only, decision_cmp MUST-IDENTICAL (7,028 ticks); r101 bell STRICT +
+MUST-IDENTICAL (5,133 ticks); 0 MISALIGN (interpreter, r105 puzzle); missing.txt empty; r100 s30 340/340 (heap_before
+87,456; 56,576 with the scoped rifle armed). Checks: New Game 1971 / 2360 / 1175; r105 emblem turns and the door opens
+(Room_flg bit 0); crashtest.txt "block" shows the new screen naming the blocked task; issue #1 exact steps (shotgun
+loaded, life 600 to 1200, no REJECTED); shotgun fire with no weapon-bank "does not fit". Disc hashes: READY.txt in each
+disc folder.
+
 ## 2026-10-06: r22e (play build candidate)
 
 r22e = r22d + WEAPON_HEAP4 (merchant rifle, TMP and rocket launcher load into heap 4), PRIM_CAP_R107=327680
