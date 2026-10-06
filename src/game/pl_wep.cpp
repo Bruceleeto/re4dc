@@ -177,11 +177,26 @@ void cPlayer::weaponRelease()
 }
 
 // Sets weapon_no / weapon_type and reads the weapon module's data (ReadWepData).
+#if RE4DC_WEAPON_HEAP4
+extern int re4dc_wep_heap4_failed;   // read.cpp (WEAPON_HEAP4)
+extern int re4dc_wep_reverted;
+void re4dc_weapon_revert(int oldNo, int oldType, int no, int type);
+#endif
 void cPlayer::weaponLoad(int no, int type)
 {
+#if RE4DC_WEAPON_HEAP4
+    const int oldNo = pG->weapon_no;
+    const int oldType = pG->weapon_type;
+    re4dc_wep_reverted = 0;
+#endif
     U8Set(pG->weapon_no, no);
     U8Set(pG->weapon_type, type);
     ReadWepData(no, type);
+#if RE4DC_WEAPON_HEAP4
+    if (re4dc_wep_heap4_failed) {
+        re4dc_weapon_revert(oldNo, oldType, no, type);
+    }
+#endif
 }
 
 // Clears the weapon part of the motion table (0..0x5E) and lets the loaded weapon module fill it

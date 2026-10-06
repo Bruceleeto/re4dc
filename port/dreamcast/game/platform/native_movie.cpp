@@ -114,6 +114,9 @@ struct Movie {
 #endif
 #if RE4DC_MOVIE_HEAP_EVICT
 extern "C" unsigned re4dc_motion_evict_one();   // native_motion.cpp
+#if RE4DC_WEAPON_HEAP4
+extern "C" int re4dc_weapon_heap4_movie_release();   // read.cpp
+#endif
 extern "C" unsigned re4dc_heap_largest_current(unsigned* free_bytes);   // sscrn_bridge.cpp (SS_PACK)
 extern "C" unsigned re4dc_heap_largest_current(unsigned*) __attribute__((weak));
 extern "C" void re4dc_heap4_free_map() __attribute__((weak));   // ui_bridge.cpp (diagnostic)
@@ -162,6 +165,13 @@ void* stage_alloc(size_t n){
         if(re4dc_heap_largest_current)largest=re4dc_heap_largest_current(&free_bytes);
         re4dc_log("route movie heap: need=%u evicted=%u motion keys (%u B) %s free=%u largest=%u\n",(unsigned)n,
                   evicted,freed,p?"ok":"FAILED",free_bytes,largest);
+#if RE4DC_WEAPON_HEAP4
+        // WEAPON_HEAP4: a heap-4 weapon body is lent to the movie and loaded again after it (read.cpp).
+        if(!p && re4dc_weapon_heap4_movie_release()){
+            p=re4dc_ui_stage_alloc((unsigned)n);
+            re4dc_log("route movie heap: need=%u heap-4 weapon body lent %s\n",(unsigned)n,p?"ok":"FAILED");
+        }
+#endif
         if(!p && re4dc_heap4_free_map)re4dc_heap4_free_map();
     }
 #endif

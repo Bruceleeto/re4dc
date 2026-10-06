@@ -1414,8 +1414,14 @@ void gameDoordemo()
 // Frees the room heap: in the shooting-range mode swaps a 0x188000 block with ARAM and creates
 // heap 10, otherwise replaces heap 3/4; clears the room part of the global work (pad_16C..) and
 // the debug/status flags.
+#if RE4DC_WEAPON_HEAP4
+void re4dc_weapon_heap4_room_reset();   // read.cpp
+#endif
 void gameRoomMemInit()
 {
+#if RE4DC_WEAPON_HEAP4
+    re4dc_weapon_heap4_room_reset();
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__)
     re4dc_motion_retire_all();
     re4dc_effect_retire_room();

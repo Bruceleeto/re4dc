@@ -162,6 +162,35 @@ static s32 fileSize(const char* rel)
     return size;
 }
 
+#if RE4DC_WEAPON_HEAP4
+// WEAPON_HEAP4: the MRAM bytes a DRS read places (type-0 parts, each rounded to 32, as cDvdQueue sizes an
+// allocated destination), from the part table after the 32-byte file header; 0 when unreadable.
+extern "C" unsigned re4dc_dvd_mram_parts(const char* rel)
+{
+    Re4dcIoScope io;
+    char full[96];
+    static unsigned char head[2048] __attribute__((aligned(32)));
+    snprintf(full, sizeof(full), "%s%s", g_root, rel);
+    file_t f = fs_open(full, O_RDONLY);
+    if (f < 0) {
+        return 0;
+    }
+    const ssize_t got = fs_read(f, head, sizeof(head));
+    fs_close(f);
+    unsigned total = 0;
+    for (unsigned at = 32; got > 0 && at + 32 <= (unsigned) got; at += 32) {
+        const unsigned* h = (const unsigned*) (head + at);
+        if (h[0] == 0xFFFFFFFFu) {
+            return total;
+        }
+        if (h[0] == 0) {
+            total += (h[1] + 31) & ~31u;
+        }
+    }
+    return 0;
+}
+#endif
+
 extern "C" {
 
 void re4dc_dvd_set_root(const char* root) { g_root = root; }

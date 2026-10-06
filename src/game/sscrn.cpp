@@ -740,6 +740,14 @@ void SubScreenExit()
                 SndBlkStop(2);
                 pl->weaponRelease();
                 pl->weaponLoad(wepNo, wepType);
+#if RE4DC_WEAPON_HEAP4
+                {
+                    extern int re4dc_wep_reverted;   // read.cpp: the equip was reverted (heap 4 short)
+                    if (re4dc_wep_reverted) {
+                        wepLv = pG->bullet_type;
+                    }
+                }
+#endif
                 pG->bullet_type = wepLv;
                 pl->weaponInit();
                 wk->scope_flag = 0;

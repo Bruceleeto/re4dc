@@ -26,6 +26,9 @@
 #include "eprintf.h"
 #include "player.h"
 #include "read.h"
+#if RE4DC_WEAPON_HEAP4
+#include "item.h"
+#endif
 #if !defined(__PPC__)
 #include "re4dc_platform.h"
 #endif
@@ -877,6 +880,46 @@ void ReleasePlData()
 }
 
 // Frees the weapon module slot and forgets the loaded weapon (weapon_no_old = 0xFF).
+#if RE4DC_WEAPON_HEAP4
+// WEAPON_HEAP4 (option 3 of issue lamb2k/re4dc#1): a weapon body whose MRAM parts exceed the resident
+// weapon block (the r104 merchant's rifle, TMP + stock and rocket launcher) is read into heap 4, the room
+// heap, as Krauser's body is read to Game.pWepBuf. Bodies that fit keep the resident block exactly as
+// before. gameRoomMemInit releases a heap-4 body before the room heap is rebuilt and the next room's
+// player constructor (weaponRelease / weaponLoad / weaponInit) reads it again. When heap 4 cannot hold
+// it after one pass of motion-key eviction, nothing is loaded and re4dc_wep_heap4_failed is set:
+// cPlayer::weaponLoad then reverts the equip (re4dc_weapon_revert) so the item state matches the body.
+// A route movie short of heap 4 may borrow the body (re4dc_weapon_heap4_movie_release) and gets it
+// back when it ends (re4dc_weapon_heap4_movie_restore).
+extern "C" unsigned re4dc_dvd_mram_parts(const char* name);  // platform/dvd.cpp
+extern "C" unsigned re4dc_motion_evict_one();                // platform/native_motion.cpp
+extern "C" void OSFreeToHeap(int heap, void* p);
+static void* wepHeap4;
+static u8 wepMovieReleased;
+int re4dc_wep_heap4_failed;
+int re4dc_wep_reverted;
+
+static void* wepHeap4Alloc(u32 need)
+{
+    void* p = 0;
+    u32 evicted = 0;
+
+#if !RE4DC_WEAPON_HEAP4_FAILTEST
+    if (!memCheckHeapActive(4) || Heap[4].handle < 0) {
+        return 0;
+    }
+    p = mem_alloc(need, 0, 0, 1, 4);
+    while (p == 0 && re4dc_motion_evict_one()) {
+        evicted++;
+        p = mem_alloc(need, 0, 0, 1, 4);
+    }
+#endif
+    if (evicted) {
+        OSReport("weapon heap4: evicted %u motion keys for %u B: %s\n", evicted, need, p ? "ok" : "short");
+    }
+    return p;
+}
+#endif
+
 void ReleaseWepData()
 {
     if (pG->weapon_no_old != 0xFF) {
@@ -887,7 +930,87 @@ void ReleaseWepData()
 #if defined(RE4DC_GAME) && !defined(__PPC__)
     re4dc_ui_unbind_weapon();
 #endif
+#if RE4DC_WEAPON_HEAP4
+    if (wepHeap4) {
+        OSFreeToHeap(Heap[4].handle, wepHeap4);
+        wepHeap4 = 0;
+        oldWepId = 0xFF;
+    }
+#endif
 }
+
+#if RE4DC_WEAPON_HEAP4
+// gameRoomMemInit, before heap 4 is rebuilt: a heap-4 body is released so the next room reloads it.
+void re4dc_weapon_heap4_room_reset()
+{
+    if (wepHeap4) {
+        OSReport("weapon heap4: room reset releases weapon %x\n", pG->weapon_no);
+        ReleaseWepData();
+    }
+}
+
+// The equipped weapon could not be loaded (heap 4 short): equip the previously loaded weapon again
+// (the inventory slot holding it), or bare hands when it is gone or does not fit either, so pArm /
+// m_wep_id / weapon_no / weapon_type / bullet_type all describe the body that is actually loaded.
+void re4dc_weapon_revert(int oldNo, int oldType, int no, int type)
+{
+    ItemWork* p;
+    int i;
+
+    re4dc_wep_reverted = 1;
+    if (oldNo != no || oldType != type) {
+        p = ItemMgr.pItems;
+        for (i = 0; i < ItemMgr.nItems; i++, p++) {
+            if (p->num != 0 && p->id != 0 && WeaponId2WeaponNo(ItemMgr.weaponId(p)) == oldNo &&
+                WeaponId2WeaponType(ItemMgr.weaponId(p)) == oldType && ItemMgr.arm(p)) {
+                pG->weapon_no = oldNo;
+                pG->weapon_type = oldType;
+                ReadWepData(oldNo, oldType);
+                if (!re4dc_wep_heap4_failed) {
+                    pG->bullet_type = ItemMgr.pArm ? ItemMgr.pArm->bullet >> 13 : 0;
+                    OSReport("weapon heap4 alloc failed: weapon %x/%x not equipped, reverted to %x/%x (item %x)\n", no,
+                             type, oldNo, oldType, p->id);
+                    return;
+                }
+                break;
+            }
+        }
+    }
+    ItemMgr.arm(0);
+    pG->weapon_no = WeaponId2WeaponNo(ItemMgr.m_wep_id);
+    pG->weapon_type = WeaponId2WeaponType(ItemMgr.m_wep_id);
+    ReadWepData(pG->weapon_no, pG->weapon_type);
+    pG->bullet_type = 0;
+    OSReport("weapon heap4 alloc failed: weapon %x/%x not equipped, reverted to bare hands (%x/%x)%s\n", no, type,
+             pG->weapon_no, pG->weapon_type, re4dc_wep_heap4_failed ? " FAILED" : "");
+}
+
+// native_movie.cpp stage_alloc, after the model cache loan and motion eviction: a movie short of heap 4
+// takes the heap-4 weapon body (no game frame runs while a route movie owns the frame).
+extern "C" int re4dc_weapon_heap4_movie_release()
+{
+    if (!wepHeap4 || pPL == 0) {
+        return 0;
+    }
+    pPL->weaponRelease();
+    ReleaseWepData();
+    wepMovieReleased = 1;
+    OSReport("weapon heap4: weapon %x released for a movie\n", pG->weapon_no);
+    return 1;
+}
+
+// route_movie_bridge.cpp, after the movie: the weapon a movie took is loaded and initialised again.
+extern "C" void re4dc_weapon_heap4_movie_restore()
+{
+    if (!wepMovieReleased) {
+        return;
+    }
+    wepMovieReleased = 0;
+    pPL->weaponLoad(pG->weapon_no, pG->weapon_type);
+    pPL->weaponInit();
+    OSReport("weapon heap4: weapon %x restored after the movie%s\n", pG->weapon_no, re4dc_wep_reverted ? " (reverted)" : "");
+}
+#endif
 
 ReadFile wep_data_leon[46] = {
     { 0xA1, 0xA2, 0 }, { 0x07, 0x08, 0 }, { 0x09, 0x0A, 0 }, { 0x81, 0x0A, 0 },
@@ -1086,6 +1209,25 @@ void ReadWepData(u32 no, u32 type)
         name = (char*) FileTbl[e->file].name;
         SET_DRS_NAME(name);
     }
+#if RE4DC_WEAPON_HEAP4
+    re4dc_wep_heap4_failed = 0;
+    if (pG->pl_type != 4) {
+        const u32 need = re4dc_dvd_mram_parts(FileTbl[e->file].name);
+        const u32 cap = re4dc_mem.heap - re4dc_mem.weapon;
+        if (need > cap) {
+            data = (u8*) wepHeap4Alloc(need);
+            if (data == 0) {
+                OSReport("weapon heap4 alloc failed: weapon %x needs %u B (resident %u)\n", no, need, cap);
+                re4dc_wep_heap4_failed = 1;
+                oldWepId = 0xFF;
+                pG->weapon_no_old = 0xFF;
+                return;
+            }
+            wepHeap4 = data;
+            OSReport("weapon heap4: weapon %x %u B at %08x (resident %u)\n", no, need, (u32) data, cap);
+        }
+    }
+#endif
 #line 1538 "D:/Bio4/Prog/read.cpp"
     req = DVD_READ_N(FileTbl[e->file].name, data, 0, 0, 0, 0x8001);
     while ((ret = Dvd.ReadCheckInfo(req, &info)) != 1) {

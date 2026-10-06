@@ -78,6 +78,28 @@ endif
 MODULES += wep01 wep07 wep09 wep11 wep13 wep19
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_WEAPON_MODULES=1
 endif
+# WEAPON_HEAP4=1 (option 3 of issue lamb2k/re4dc#1, default 0: no effect): a weapon body larger than the resident
+# weapon block (WEAPON_RESIDENT_BYTES; the r104 merchant's rifle 398,144 / with scope 404,608, rocket launcher
+# 382,688, TMP 289,248 / with stock 299,200) is read into heap 4, the room heap, as Krauser's body goes to
+# Game.pWepBuf (read.cpp ReadWepData); bodies that fit keep the resident block. Released before each room heap
+# rebuild and read again by the next room's player constructor (one extra GD read per door while it is equipped).
+# Heap 4 short after one motion-key eviction pass: the equip is reverted to the previously loaded weapon (or bare
+# hands), item state included ("weapon heap4 alloc failed"). A route movie short of heap 4 borrows the body and
+# returns it after the movie. WEAPON_HEAP4_FAILTEST=1 (test only): every heap-4 weapon allocation fails.
+WEAPON_HEAP4 ?= 0
+WEAPON_HEAP4_FAILTEST ?= 0
+ifneq ($(WEAPON_HEAP4),0)
+ifneq ($(WEAPON_HEAP4),1)
+$(error WEAPON_HEAP4 must be 0 or 1)
+endif
+WEAPON_HEAP4_OBJS := $(OBJDIR)/src/game/read.o $(OBJDIR)/src/game/pl_wep.o $(OBJDIR)/src/game/sscrn.o \
+    $(OBJDIR)/src/game/game.o $(OBJDIR)/route_movie_bridge.o
+$(WEAPON_HEAP4_OBJS): GAME_CPPFLAGS += -DRE4DC_WEAPON_HEAP4=1
+$(OBJDIR)/route_movie_bridge.o $(OBJDIR)/platform/dvd.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_WEAPON_HEAP4=1
+ifeq ($(WEAPON_HEAP4_FAILTEST),1)
+$(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_WEAPON_HEAP4_FAILTEST=1
+endif
+endif
 # WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
 # r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests
 # (platform/modules.cpp MODULE(75, st2_0) / MODULE(96, st4_0)). Their porting-trap lint is clean (assets.sh discover
