@@ -7,7 +7,7 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download r22c](https://github.com/lamb2k/re4dc/releases/tag/play-r22c-chapter-1-3-20261005)** ·
+**[Download r22f](https://github.com/lamb2k/re4dc/releases/tag/play-r22f-puzzle-fix-20261006)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Decompilation](docs/DECOMPILATION.md)
 
@@ -17,12 +17,12 @@ Extract the complete package for your system:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Windows | [RE4DC-r22c.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c.zip) | Double-click `Play-r22c.cmd`. Includes Flycast and keyboard/DualSense support. |
-| Steam Deck / SteamOS | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
-| CachyOS / Arch | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
-| Dreamcast / GDEMU | [GDEMU image](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/RE4DC-r22c-GDEMU.zip) | Copy `disc.gdi` and all three track files into a new numbered SD-card folder. |
+| Windows | [RE4DC-r22f.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22f-puzzle-fix-20261006/RE4DC-r22f.zip) | Double-click `Play-r22f.cmd`. Includes Flycast and keyboard/DualSense support. |
+| Steam Deck / SteamOS | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22f-puzzle-fix-20261006/RE4DC-r22f-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
+| CachyOS / Arch | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22f-puzzle-fix-20261006/RE4DC-r22f-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
+| Dreamcast / GDEMU | [GDEMU image](https://github.com/lamb2k/re4dc/releases/download/play-r22f-puzzle-fix-20261006/RE4DC-r22f-GDEMU.zip) | Copy `disc.gdi` and all three track files into a new numbered SD-card folder. |
 
-[SHA-256 checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22c-chapter-1-3-20261005/SHA256SUMS.txt) · [Release notes and verification](https://github.com/lamb2k/re4dc/releases/tag/play-r22c-chapter-1-3-20261005)
+[SHA-256 checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22f-puzzle-fix-20261006/SHA256SUMS.txt) · [Release notes and verification](https://github.com/lamb2k/re4dc/releases/tag/play-r22f-puzzle-fix-20261006)
 
 Already have Flycast? Open `disc/disc.cue` from an emulator package and keep its `disc.bin` beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -43,18 +43,22 @@ Fast pacing is the default. A VMU in controller slot 1 shows FPS, game speed, CP
 
 ## Status and limitations
 
-**r22c — October 5, 2026:** includes the r22 performance improvements, chapter 1-1/1-2 data and
-chapter 1-3 rooms through r10a. The unfinished r10b door shows **Coming Soon**. This is a prerelease,
+**r22f, October 6, 2026:** fixes the chief's house puzzle and moving scenery, adds a more useful freeze
+report, and includes the weapon fixes, PS2 haze, window light and faster first house stairs since r22c.
+The route extends through r10a; the unfinished r10b door shows **Coming Soon**. This is a prerelease,
 not the complete game.
 
-The r22c GDEMU image booted to the VMU prompt in Flycast, and the release files passed hash checks.
-A continuous r22c playthrough and physical-console acceptance remain pending. Earlier builds have
-separate room, chapter-end and save checks; see the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md).
+The r22f GDEMU image booted to the VMU prompt in Flycast. New Game, the puzzle door, movie completion and
+gameplay comparisons passed the recorded checks; every release archive member was hash checked.
+A continuous r22f playthrough and physical Dreamcast acceptance remain pending. See the
+[build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md).
 
 - **Performance:** below the 30 fps/full-speed target. The separate r22g console test ran the r100
-  outdoor fight at about 10 fps and 70% speed; this is not an r22c measurement.
-- **Presentation:** some models/effects and textures need work; cutscenes can drop frames and some
-  chapter 1-3 rooms use substitute music.
+  outdoor fight at about 10 fps and 70% speed; this is not an r22f measurement.
+- **Presentation and sound:** some models/effects and textures need work. Chest lids do not animate in
+  PS2 world rooms; r104/r107 have no room music, and rifle sound is lower quality.
+- **Stability:** the r103 hang remains under investigation. If the freeze report appears, attach a photo
+  to a bug report.
 - **Loading and saves:** room-entry pauses remain. Normal chapter 1-2 key-item pickups and reloading
   a save made inside r106 still need checking.
 
