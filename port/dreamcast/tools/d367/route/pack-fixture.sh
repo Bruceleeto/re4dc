@@ -5,7 +5,7 @@
 # <fixture>'s replacements minus its dc/tex/ entries, plus dc/tex.pak, removing every base dc/tex/ package except the
 # media overlay's (stage-scenario.py writes those itself; they stay loose and are also in the pack). The arm only
 # picks the staging program: the pack holds disc data, not code. Re-run whenever the fixture or the base disc's
-# textures change.
+# textures change. A fixture staging the r100 PS2 world also gets dc/native/r100/interior.cell (PS2_INTERIOR_CULL).
 # Ownership (architect review 2026-10-03): the run stages in its own scenarios/packstage-<name>-<pid>-<time> (the
 # path is checked before it is removed); an existing <out fixture> is refused unless --replace; the pack is written
 # once as the immutable texpack-20261003/<name>.<sha16>.pak, validated (texpack.py --verify), with
@@ -63,6 +63,10 @@ fdir = os.path.dirname(os.path.abspath(fix)); odir = os.path.dirname(os.path.abs
 # replacement sources are relative to the fixture's own directory
 rep = {k: os.path.relpath(os.path.join(fdir, v), odir) for k, v in d['replace'].items() if not k.startswith('dc/tex/')}
 rep['dc/tex.pak'] = os.path.relpath(pk, odir)
+# PS2_INTERIOR_CULL's cell travels with the r100 PS2 world (ps2world/interior/add_cell.py; harmless with the knob off)
+cell = os.path.join(os.path.dirname(os.path.abspath(tool)), 'ps2world', 'interior', 'interior-r100.cell')
+if 'dc/native/r100/ps2-world.re4mesh' in rep and 'dc/native/r100/interior.cell' not in rep:
+    rep['dc/native/r100/interior.cell'] = os.path.relpath(cell, odir)
 media_json = os.path.abspath('../integration-source-r11/MEDIA.json')
 media = {e['eventual_disc_destination'] for e in json.load(open(media_json))['assets']}
 rem = list(d.get('remove', []))
