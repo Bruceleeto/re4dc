@@ -200,6 +200,10 @@ static volatile unsigned ps2_mask_select=1U+RE4DC_PS2_PASS_MASK_SELECT;
 #endif
 #include "ta_direct.hpp"
 #endif
+#if defined(RE4DC_PS2_INTERIOR_CULL) && RE4DC_PS2_INTERIOR_CULL==2
+// PS2_INTERIOR_CULL=2: set around the check run; native_ui.cpp then strips texturing and fog from the direct header.
+extern "C" { unsigned re4dc_ps2_check_header=0; }
+#endif
 #if RE4DC_COPY_LEAN
 #include <new>
 // native_ui.cpp: the translucent queue without a lighting snapshot.
@@ -1276,10 +1280,133 @@ static std::uint32_t strip_lean_buf[2][kStripLeanVertices*8] __attribute__((alig
 static volatile unsigned strip_lean_select=1U+RE4DC_MESH_STRIP_LEAN_SELECT;
 #endif
 
+#if RE4DC_PS2_INTERIOR_CULL
+#if !RE4DC_PS2_WORLD_MESH || !RE4DC_PS2_WORLD_ROOMS || !RE4DC_MESH_LOD
+#error "PS2_INTERIOR_CULL needs PS2_WORLD_MESH=1, PS2_WORLD_ROOMS and MESH_LOD"
+#endif
+// PS2_INTERIOR_CULL (game30.mk, render only): the r100 house interior cell. Built offline
+// (tools/d367/ps2world/interior/build_cell.py) from the PS2 package's own opaque triangles: sub-cells (eye
+// regions inside the house, inset past the near plane from every wall) and, per sub-cell, portal rectangles on the
+// faces of the house hull where any view ray from the sub-cell first leaves the hull unoccluded. A box wholly outside
+// the house box kPcOuter can only be seen along such a ray, so it is drawn only if it meets the frustum from the eye
+// through one of the sub-cell's portals (each frustum is the intersection of five half-spaces: past the portal's
+// plane and inside its four edge planes; a box outside any one of them cannot meet it).
+namespace pc {
+struct Cell { float lo[3],hi[3]; std::uint16_t first,count; };
+struct Portal { std::uint32_t axis; float plane,u0,u1,v0,v1; }; // u = axis+1, v = axis+2 (mod 3)
+#include "include/ps2_interior_cell.inc"
+constexpr float kSlack=64.0f; // mm added to every tested box (float rounding of the box and plane maths)
+#if RE4DC_PS2_INTERIOR_CULL==3
+#ifndef RE4DC_PS2_INTERIOR_CULL_SELECT
+#define RE4DC_PS2_INTERIOR_CULL_SELECT 0
+#endif
+static volatile unsigned select_word=1U+RE4DC_PS2_INTERIOR_CULL_SELECT; // =3: 1 off, 2 on (one .data word)
+#endif
+struct Plane { float n[3]; };
+struct Frustum { std::uint32_t axis; float plane; bool beyond_high; Plane edge[4]; float an[4][3]; }; // an: |edge normal|
+struct State {
+    bool ok=false;           // the open package is the one the cell was built from
+    bool active=false;       // this frame's eye is in a sub-cell
+    float eye[3]{};
+    int cell=-1; unsigned nfr=0; Frustum fr[24];
+    unsigned frame=~0U,setup_frame=~0U;float corner=0;
+    unsigned placements=0,clusters=0,meshlets=0,tests=0,active_frames=0,frames=0; // culled (=1/=3) or checked (=2)
+} st;
+// The eye from a 3x4 row-major view matrix: the inverse's translation.
+inline bool eye_of(const float* v,float e[3]){
+    float inv[12];if(!inverse(v,inv))return false;
+    e[0]=inv[3];e[1]=inv[7];e[2]=inv[11];
+    return std::isfinite(e[0]) && std::isfinite(e[1]) && std::isfinite(e[2]);
+}
+// Per frame (each pass call): the sub-cell holding the eye and its portal frustums, relative to the eye.
+inline void setup(const float* view,const float* P,float near){
+    st.active=false;st.cell=-1;st.nfr=0;
+#if RE4DC_PS2_INTERIOR_CULL==3
+    if(select_word!=2U)return;
+#endif
+    if(!st.ok)return;
+    // the near plane's corners must lie within the cell's near margin of the eye (the sub-cells are inset by it)
+    const float tx=(1.0f+std::fabs(P[2]))/std::fabs(P[1]),ty=(1.0f+std::fabs(P[4]))/std::fabs(P[3]);
+    const float corner=near*std::sqrt(1.0f+tx*tx+ty*ty);
+    st.corner=corner;
+    if(!(corner<=kPcNearMax))return;
+    float e[3];if(!eye_of(view,e))return;
+    for(unsigned i=0;i<sizeof(kPcCells)/sizeof(kPcCells[0]);++i){
+        const Cell& c=kPcCells[i];
+        if(e[0]>=c.lo[0] && e[0]<=c.hi[0] && e[1]>=c.lo[1] && e[1]<=c.hi[1] && e[2]>=c.lo[2] && e[2]<=c.hi[2]){st.cell=int(i);break;}
+    }
+    if(st.cell<0)return;
+    const Cell& c=kPcCells[st.cell];
+    if(c.count>sizeof(st.fr)/sizeof(st.fr[0]))return;
+    for(unsigned k=0;k<3;++k)st.eye[k]=e[k];
+    for(unsigned i=0;i<c.count;++i){
+        const Portal& p=kPcPortals[c.first+i];
+        const unsigned ax=p.axis,ua=(ax+1U)%3U,va=(ax+2U)%3U;
+        Frustum& f=st.fr[st.nfr++];
+        f.axis=ax;f.plane=p.plane;f.beyond_high=p.plane>e[ax];
+        float q[4][3];const float uu[4]={p.u0,p.u1,p.u1,p.u0},vv[4]={p.v0,p.v0,p.v1,p.v1};
+        float cen[3]={0,0,0};
+        for(unsigned k=0;k<4;++k){q[k][ax]=p.plane-e[ax];q[k][ua]=uu[k]-e[ua];q[k][va]=vv[k]-e[va];
+            for(unsigned a=0;a<3;++a)cen[a]+=q[k][a];}
+        for(unsigned k=0;k<4;++k){
+            const float* a=q[k];const float* b=q[(k+1)&3];
+            float n[3]={a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+            if(n[0]*cen[0]+n[1]*cen[1]+n[2]*cen[2]<0)for(auto& x:n)x=-x;
+            const float l=std::sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);
+            if(!(l>0)){st.nfr=0;return;} // degenerate: no cull this frame
+            for(unsigned a=0;a<3;++a){f.edge[k].n[a]=n[a]/l;f.an[k][a]=std::fabs(n[a]/l);}
+        }
+    }
+    st.active=true;st.setup_frame=re4dc_ui_frame();
+}
+// World box (centre / half extents): 1 hidden, 0 drawn (seen through a portal), -1 meets the house box.
+inline int hidden(const float c[3],const float h[3]){
+    ++st.tests;
+    float lo[3],hi[3];
+    for(unsigned a=0;a<3;++a){lo[a]=c[a]-h[a]-kSlack;hi[a]=c[a]+h[a]+kSlack;}
+    if(hi[0]>kPcOuter[0] && lo[0]<kPcOuter[3] && hi[1]>kPcOuter[1] && lo[1]<kPcOuter[4] && hi[2]>kPcOuter[2] && lo[2]<kPcOuter[5])return -1;
+    const float rc[3]={c[0]-st.eye[0],c[1]-st.eye[1],c[2]-st.eye[2]},rh[3]={h[0]+kSlack,h[1]+kSlack,h[2]+kSlack};
+    for(unsigned i=0;i<st.nfr;++i){
+        const Frustum& f=st.fr[i];
+        if(f.beyond_high?!(hi[f.axis]>f.plane):!(lo[f.axis]<f.plane))continue;
+        bool in=true;
+        for(unsigned k=0;k<4 && in;++k){
+            const float* n=f.edge[k].n;const float* an=f.an[k];
+            in=n[0]*rc[0]+n[1]*rc[1]+n[2]*rc[2]+an[0]*rh[0]+an[1]*rh[1]+an[2]*rh[2]>=0.0f;
+        }
+        if(in)return 0;
+    }
+    return 1;
+}
+// A box in a 3x4 matrix's input space (model or grid units) -> world centre / half extents.
+inline void world_box(const float* m,const float lo[3],const float hi[3],float c[3],float h[3]){
+    for(unsigned r=0;r<3;++r){
+        c[r]=m[4*r+3];h[r]=0;
+        for(unsigned k=0;k<3;++k){const float mc=(lo[k]+hi[k])*0.5f,mh=(hi[k]-lo[k])*0.5f;c[r]+=m[4*r+k]*mc;h[r]+=std::fabs(m[4*r+k])*mh;}
+    }
+}
+// wq: 3x4 placement affine x grid, then its 3x3 absolute values (wq[12..20], set by abs_rows).
+inline void abs_rows(float* wq){for(unsigned r=0;r<3;++r)for(unsigned k=0;k<3;++k)wq[12+3*r+k]=std::fabs(wq[4*r+k]);}
+inline int grid_hidden(const float* wq,const std::uint16_t lo[3],const std::uint16_t hi[3]){
+    float mc[3],mh[3],c[3],h[3];
+    for(unsigned k=0;k<3;++k){mc[k]=(float(lo[k])+float(hi[k]))*0.5f;mh[k]=(float(hi[k])-float(lo[k]))*0.5f;}
+    for(unsigned r=0;r<3;++r){
+        const float* m=wq+4*r;const float* a=wq+12+3*r;
+        c[r]=m[3]+m[0]*mc[0]+m[1]*mc[1]+m[2]*mc[2];h[r]=a[0]*mh[0]+a[1]*mh[1]+a[2]*mh[2];
+    }
+    return hidden(c,h);
+}
+} // namespace pc
+#endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
     const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
     re4dc::room::CompactVertex12* gather_pool; // mesh view's v3 gather buffer (nullptr: v1/v2)
+#if RE4DC_PS2_INTERIOR_CULL
+    // PS2_INTERIOR_CULL: pc_mode 0 no test, 1 skip hidden geometry, 2 draw only hidden geometry (the =2 check run);
+    // pc_wq: placement affine x grid (world box of a cluster / meshlet); pc_all: the whole placement is hidden.
+    unsigned pc_mode=0; const float* pc_wq=nullptr; bool pc_all=false,pc_check=false;
+#endif
     // Cluster/meshlet rejection distance: min(projection far, source View far)
     // with RE4DC_NATIVE_FOG, else the projection far. Vertices still clip
     // against the projection far, so a straddling strip is drawn whole (fully
@@ -1336,6 +1463,9 @@ struct MeshDraw : Emitter {
         k={part.uv_scale[0],part.uv_bias[0],p.uv_offset[0],packet.u_scale,
            part.uv_scale[1],part.uv_bias[1],p.uv_offset[1],packet.v_scale,near,far,
            vertex_alpha?~0U:0x00ffffffU,vertex_alpha?0U:alpha,lut,{}};
+#if RE4DC_PS2_INTERIOR_CULL==2
+        if(pc_check){k.and_mask=0;k.or_bits=0xffff00ffU;} // the check run: every corner opaque magenta
+#endif
         k.finish();
         return true;
     }
@@ -1547,6 +1677,12 @@ struct MeshDraw : Emitter {
             for(unsigned a=0;a<3;++a){lo[a]=float(cl.bounds_min[a]);hi[a]=float(cl.bounds_max[a]);}
             const re4dc::render::DrawBounds bounds{{lo[0],lo[1],lo[2]},{hi[0],hi[1],hi[2]}};
             if(!re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)){++stats.clusters_culled;continue;}
+#if RE4DC_PS2_INTERIOR_CULL
+            // 1 the cluster is hidden, 0 seen (or not tested), -1 it meets the house box: each meshlet is tested.
+            const int pc_state=!pc_mode?0:pc_all?1:pc::grid_hidden(pc_wq,cl.bounds_min,cl.bounds_max);
+            if(pc_state>0 && pc_mode==1){++pc::st.clusters;continue;}
+            if(!pc_state && pc_mode==2)continue;
+#endif
             ++stats.clusters_visible;
             float depth=-mvq[11],radius=0;
             for(unsigned a=0;a<3;++a){
@@ -1561,6 +1697,12 @@ struct MeshDraw : Emitter {
             const auto& lv=levels[cl.first_level+level];
             const auto* lets=package.meshlets()+lv.first_meshlet;
             for(unsigned i=0;i<lv.meshlet_count;++i){
+#if RE4DC_PS2_INTERIOR_CULL
+                if(pc_state<0){
+                    const bool hid=pc::grid_hidden(pc_wq,lets[i].bounds_min,lets[i].bounds_max)>0;
+                    if(hid==(pc_mode==1)){if(hid)++pc::st.meshlets;continue;} // =1: skip hidden; check run: skip seen
+                }
+#endif
                 const int result=draw(lets[i]);
                 if(result<=0)return result;
             }
@@ -1582,6 +1724,9 @@ struct MeshDraw : Emitter {
         clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,static_cast<Emitter*>(this)};
 #endif
         palette=nullptr; // lit ARGB1555 corners (light_part)
+#if RE4DC_PS2_INTERIOR_CULL
+        if(pc_mode==2 && !package.lod())return 1; // the check run needs cluster tables (=1 draws a v1 part whole)
+#endif
         batch.uv_bias[0]=part.uv_bias[0];batch.uv_bias[1]=part.uv_bias[1];
         batch.uv_scale[0]=part.uv_scale[0];batch.uv_scale[1]=part.uv_scale[1];
 #if RE4DC_MESH_LOD
@@ -2600,6 +2745,13 @@ bool ps2_open(){
 #endif
     ps2w.gather=reinterpret_cast<re4dc::room::CompactVertex12*>(s+mbytes+pbytes+kLutBytes);
     const auto& mh=ps2w.package.header();
+#if RE4DC_PS2_INTERIOR_CULL
+    // The cell's portals hold for the package it was built from only.
+    pc::st.ok=ps2w.room==pc::kPcRoom && mh.crc==pc::kPcMeshCrc && h.crc==pc::kPcSidecarCrc && mh.bytes==pc::kPcMeshBytes;
+    re4dc_log("PCCULL cell room=%03x mesh_crc=%08x sidecar_crc=%08x %s cells=%u portals=%u mode=%d\n",ps2w.room,unsigned(mh.crc),unsigned(h.crc),
+        pc::st.ok?"adopted":"not this package",unsigned(sizeof(pc::kPcCells)/sizeof(pc::kPcCells[0])),
+        unsigned(sizeof(pc::kPcPortals)/sizeof(pc::kPcPortals[0])),int(RE4DC_PS2_INTERIOR_CULL));
+#endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
     return true;
@@ -2624,6 +2776,30 @@ int ps2_pass(unsigned pass,float zfar){
     if(pass){const float f=foliage_far;if(f>near && f<cull_far)cull_far=f;}
 #endif
     c.near=near;c.far=far;c.cull_far=cull_far;
+#if RE4DC_PS2_INTERIOR_CULL
+    pc::setup(ps2w.view,P,near);
+    if(!pass){
+        const unsigned frame=re4dc_ui_frame();
+        ++pc::st.frames;if(pc::st.active)++pc::st.active_frames;
+        if(!(frame%120) || frame-pc::st.frame>=120U){
+            pc::st.frame=frame;
+            float e[3]={0,0,0};pc::eye_of(ps2w.view,e);
+            re4dc_log("PCCULL frame=%u active=%d cell=%d eye=%d,%d,%d corner=%d portals=%u frames=%u/%u placements=%u clusters=%u meshlets=%u tests=%u\n",
+                frame,int(pc::st.active),pc::st.cell,int(e[0]),int(e[1]),int(e[2]),int(pc::st.corner),pc::st.nfr,pc::st.active_frames,pc::st.frames,
+                pc::st.placements,pc::st.clusters,pc::st.meshlets,pc::st.tests);
+        }
+#if RE4DC_PS2_INTERIOR_CULL==2
+        else {
+            // =2: every frame's eye (coverage of the sub-cells along a walk)
+            float e[3]={0,0,0};pc::eye_of(ps2w.view,e);
+            const float* v=ps2w.view;
+            re4dc_log("PCEYE frame=%u active=%d cell=%d eye=%d,%d,%d corner=%d view=%d,%d,%d,%d,%d,%d,%d,%d,%d P=%d,%d,%d,%d\n",frame,int(pc::st.active),pc::st.cell,
+                int(e[0]),int(e[1]),int(e[2]),int(pc::st.corner),int(v[0]*1e4f),int(v[1]*1e4f),int(v[2]*1e4f),int(v[4]*1e4f),int(v[5]*1e4f),int(v[6]*1e4f),
+                int(v[8]*1e4f),int(v[9]*1e4f),int(v[10]*1e4f),int(P[1]*1e4f),int(P[2]*1e4f),int(P[3]*1e4f),int(P[4]*1e4f));
+        }
+#endif
+    }
+#endif
     Re4dcModelPart part{};
     std::memcpy(part.projection,P,sizeof(part.projection));std::memcpy(part.viewport,ps2w.viewport,sizeof(part.viewport));
     part.alpha_state=255;part.source_key[2]=1;
@@ -2665,6 +2841,24 @@ int ps2_pass(unsigned pass,float zfar){
                                                {mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]}};
         if(!re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)){++c.culled;continue;}
         const float grid[12]={mesh.step[0],0,0,mesh.origin[0], 0,mesh.step[1],0,mesh.origin[1], 0,0,mesh.step[2],mesh.origin[2]};
+#if RE4DC_PS2_INTERIOR_CULL
+        // 0 no test (no cell, or the placement is inside the house box), 1 test its clusters, 2 wholly hidden.
+        unsigned pc_state=0;float pc_wq[21];
+        if(pc::st.active){
+            float wc[3],wh[3];
+            const float blo[3]={mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},bhi[3]={mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]};
+            pc::world_box(pl.affine,blo,bhi,wc,wh);
+            bool inside=true; // the placement box inside the house box: nothing in it can be outside
+            for(unsigned a=0;a<3;++a)inside=inside && wc[a]-wh[a]>=pc::kPcOuter[a] && wc[a]+wh[a]<=pc::kPcOuter[3+a];
+            if(!inside){
+                pc_state=pc::hidden(wc,wh)>0?2U:1U;
+                concat(pl.affine,grid,pc_wq);pc::abs_rows(pc_wq);
+            }
+#if RE4DC_PS2_INTERIOR_CULL!=2
+            if(pc_state==2){++pc::st.placements;continue;}
+#endif
+        }
+#endif
         float mvq[12];concat(mv,grid,mvq);
         float scale=0;
         for(unsigned r=0;r<3;++r){
@@ -2681,11 +2875,39 @@ int ps2_pass(unsigned pass,float zfar){
             d.part_index=index;d.lod_scale=lod_scale;
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
+#if RE4DC_PS2_INTERIOR_CULL
+            d.pc_mode=pc_state?1U:0U;d.pc_wq=pc_wq;
+#if RE4DC_PS2_INTERIOR_CULL==2
+            if(pc_state==2)d.pc_mode=0;
+            const int result=pc_state==2?1:d.run(); // =2: the hidden placement is drawn by the check run only
+            if(pc_state!=2)d.end_direct();
+#else
             const int result=d.run();
             d.end_direct(); // before any abort: releases the store queues
+#endif
+#else
+            const int result=d.run();
+            d.end_direct(); // before any abort: releases the store queues
+#endif
             if(result>0)++c.native;
             else if(result<0){re4dc_model_packet_abort();++c.aborts;return -1;}
             else ++c.fallback;
+#if RE4DC_PS2_INTERIOR_CULL==2
+            if(pc_state){
+                // The check run: only the hidden clusters / meshlets, opaque magenta, untextured and unfogged.
+                MeshDraw k{{part,{},near,far},pk,pk.parts()[index],ps2w.lut,ps2w.gather};
+                k.alpha=0xff000000U;k.vertex_alpha=false;k.cull_far=cull_far;k.direct=true;
+                k.part_index=index;k.lod_scale=lod_scale;
+                std::memcpy(k.mvq,mvq,sizeof(mvq));std::memcpy(k.mv,mvq,sizeof(mvq));
+                k.ps2=key;k.pc_mode=2;k.pc_wq=pc_wq;k.pc_all=pc_state==2;k.pc_check=true;
+                re4dc_ps2_check_header=1;
+                const int checked=k.run();
+                k.end_direct();
+                re4dc_ps2_check_header=0;
+                if(checked<0){re4dc_model_packet_abort();++c.aborts;return -1;}
+                if(pc_state==2)++pc::st.placements;
+            }
+#endif
         }
     }
     return c.fallback?0:1;
@@ -2697,10 +2919,46 @@ extern "C" void re4dc_ps2_mesh_camera(const float* view,const float* projection,
     std::memcpy(ps2w.viewport,viewport,sizeof(ps2w.viewport));
     ps2w.camera=true;
 }
+#if RE4DC_PS2_INTERIOR_CULL==2
+// =2: count the check colour (RGB565 magenta, any dither of green) in the displayed framebuffer: the image the PVR
+// finished last, i.e. one of the previous frames. Each nonzero count is a pixel =1 would have lost.
+namespace {
+unsigned pc_scan_frames=0,pc_scan_hits=0,pc_scan_max=0,pc_scan_last=~0U,pc_scan_pixels=0;
+void pc_scan(unsigned frame){
+    if(frame==pc_scan_last)return;
+    pc_scan_last=frame;
+    const std::uint32_t base=PVR_GET(PVR_FB_ADDR)&0x7fffffU;
+    const unsigned w=vid_mode->width,h=vid_mode->height;
+    const auto* fb=reinterpret_cast<const volatile std::uint16_t*>(PVR_RAM_BASE|base);
+    unsigned n=0,x0=~0U,y0=~0U,x1=0,y1=0;
+    for(unsigned i=0;i<w*h;++i){const unsigned px=fb[i];if((px&0xf81fU)==0xf81fU && ((px>>5)&63U)<=2U){
+        ++n;const unsigned x=i%w,y=i/w;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}}
+    ++pc_scan_frames;pc_scan_pixels+=n;
+    if(n){++pc_scan_hits;if(n>pc_scan_max)pc_scan_max=n;}
+    if(n || !(frame%120))re4dc_log("PCCHECK frame=%u magenta=%u active=%d cell=%d scanned=%u hit_frames=%u max=%u pixels=%u fb=%06x %ux%u box=%u,%u-%u,%u\n",
+        frame,n,int(pc::st.active),pc::st.cell,pc_scan_frames,pc_scan_hits,pc_scan_max,pc_scan_pixels,unsigned(base),w,h,
+        n?x0:0U,n?y0:0U,x1,y1);
+}
+}
+#endif
 extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
+#if RE4DC_PS2_INTERIOR_CULL==2
+    if(!pass)pc_scan(re4dc_ui_frame());
+#endif
     if(pass>2 || !ps2w.camera || !ps2_open())return 0;
     return ps2_pass(pass,zfar)>0;
 }
+#if RE4DC_PS2_INTERIOR_CULL
+// The cell's test for any world box, e.g. an actor's (lane iv's CROWD_INVIS_SKIP could call it after the game's own
+// view test): 1 when this frame's cell hides the box. 0 unless the PS2 world's pass 0 set the cell up in this same
+// frame (the camera is then this frame's), and 0 for a box touching the house box.
+extern "C" int re4dc_ps2_interior_hidden(const float lo[3],const float hi[3]){
+    if(!pc::st.active || pc::st.setup_frame!=re4dc_ui_frame())return 0;
+    float c[3],h[3];
+    for(unsigned a=0;a<3;++a){c[a]=(lo[a]+hi[a])*0.5f;h[a]=std::fabs(hi[a]-lo[a])*0.5f;}
+    return pc::hidden(c,h)>0;
+}
+#endif
 extern "C" void re4dc_ps2_mesh_log(unsigned frame){
     for(unsigned p=0;p<3;++p){
         const auto& c=ps2w.count[p];
@@ -2725,6 +2983,9 @@ extern "C" void re4dc_ps2_mesh_retire(){
     ps2w.lut=nullptr;ps2w.gather=nullptr;ps2w.attempted=false;
 #if RE4DC_PS2_PASS_MASK
     ps2w.masked=false;
+#endif
+#if RE4DC_PS2_INTERIOR_CULL
+    pc::st.ok=false;pc::st.active=false;
 #endif
 }
 #if RE4DC_PS2_WORLD_ROOMS

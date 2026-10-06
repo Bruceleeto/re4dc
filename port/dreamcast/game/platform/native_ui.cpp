@@ -4278,6 +4278,18 @@ volatile unsigned ps2_hdr_select=1U+RE4DC_PS2_WORLD_HDR_CACHE_SELECT;
 // PS2_WORLD_MESH (native_static.cpp): re4dc_ps2_world_packet's texture bind and pass header, with the
 // part's cull (0 none, 1 CCW, 2 CW, as re4dc_model_packet_begin maps a part's cull), sent by store queue
 // as re4dc_model_direct_begin does. key: crc, fnv, width, height, pass, cull.
+#if RE4DC_PS2_INTERIOR_CULL==2 && RE4DC_TA_DIRECT
+// PS2_INTERIOR_CULL=2 (game30.mk): the check run's header is the part's own with texturing and fog off, so every
+// pixel takes the corners' colour (native_static.cpp sets it to opaque magenta). The vertex words are unchanged:
+// an untextured packed-colour vertex reads the same 32-byte layout (colour in word 6, UV ignored).
+extern "C" unsigned re4dc_ps2_check_header; // native_static.cpp: set around the check run
+static void ps2_check_header(pvr_poly_hdr_t& header){
+    auto* hw=reinterpret_cast<std::uint32_t*>(&header);
+    hw[0]&=~std::uint32_t(PVR_TA_CMD_TXRENABLE|PVR_TA_CMD_SPECULAR);
+    hw[1]&=~std::uint32_t(PVR_TA_PM1_TXRENABLE);
+    hw[2]=(hw[2]&~std::uint32_t(PVR_TA_PM2_FOG))|FIELD_PREP(PVR_TA_PM2_FOG,PVR_FOG_DISABLE);
+}
+#endif
 extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* out){
 #if RE4DC_TA_DIRECT
     if(direct_open){re4dc_missing("native direct part nested");return 0;}
@@ -4350,6 +4362,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
                 frame,k[0],k[1],pass,k[5],int(handle-entries),ref_handle?int(ref_handle-entries):-1);
         }
 #endif
+#if RE4DC_PS2_INTERIOR_CULL==2
+        if(re4dc_ps2_check_header)ps2_check_header(header);
+#endif
         std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
         model_pending=model_used+count;model_handle=handle;
         if(!stream_scene)stream_open();
@@ -4404,6 +4419,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         for(unsigned i=0;i<4;++i)slot.words[i]=hw[i];
         ++ps2_hdr_fills;
     }
+#endif
+#if RE4DC_PS2_INTERIOR_CULL==2
+    if(re4dc_ps2_check_header)ps2_check_header(header);
 #endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;

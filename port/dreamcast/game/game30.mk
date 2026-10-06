@@ -1981,6 +1981,36 @@ PS2_PASS_MASK_SELECT ?= 0
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PASS_MASK_SELECT=$(PS2_PASS_MASK_SELECT)
 endif
 endif
+# PS2_INTERIOR_CULL=1 (native_static.cpp, render only, meant image-identical (see =2), default 0; needs PS2_WORLD_MESH=1,
+# PS2_WORLD_ROOMS and MESH_LOD): an offline-built interior cell for the r100 house (include/ps2_interior_cell.inc, from
+# tools/d367/ps2world/interior/build_cell.py). While the camera eye is inside one of the cell's sub-cells (and the
+# near-plane corners are within the cell's near margin), a PS2 world placement, cluster or meshlet whose world box
+# lies wholly outside the house box is drawn only if the box can be seen through one of that sub-cell's portals
+# (conservative frustum test from the eye through each portal rectangle). Anything touching the house box always draws.
+# Active only on the r100 package the cell was built from (mesh + sidecar CRCs).
+# =2 (check build): nothing is lost: the hidden geometry is drawn again in a check pass in flat magenta (untextured,
+# unfogged; native_ui.cpp patches the direct header), and each frame the displayed framebuffer is scanned for magenta
+# pixels (PCCHECK log lines): any such pixel is a pixel =1 would lose. Known: a 1 px raster crack on a shared edge of
+# the east wall (tris 1673/1765 of the cell build, screen column 3-5) at the stair foot shows the outdoors for 2-4 frames
+# of a whole-house walk in some runs (view-timing dependent); ray sampling cannot see raster cracks.
+# =3 (layout control, diagnostic): =1's code with PS2_INTERIOR_CULL_SELECT=0|1 (one .data word) off / on.
+PS2_INTERIOR_CULL ?= 0
+ifneq ($(PS2_INTERIOR_CULL),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_INTERIOR_CULL needs PS2_WORLD_MESH=1)
+endif
+ifneq ($(filter-out 1 2 3,$(PS2_INTERIOR_CULL)),)
+$(error PS2_INTERIOR_CULL must be 0, 1, 2 or 3)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=$(PS2_INTERIOR_CULL)
+ifeq ($(PS2_INTERIOR_CULL),2)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=2
+endif
+ifeq ($(PS2_INTERIOR_CULL),3)
+PS2_INTERIOR_CULL_SELECT ?= 0
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL_SELECT=$(PS2_INTERIOR_CULL_SELECT)
+endif
+endif
 # PS2_FOLIAGE_FAR=<source units, mm> (native_static.cpp, render only, CHANGES THE LOOK, default 0 = off; needs
 # PS2_WORLD_MESH=1): the PS2 world's punch-through / translucent passes (ps2_pass 1 and 2: foliage, fences, alpha
 # cards) reject placements, clusters and meshlets whose nearest depth is past this distance (the opaque pass keeps the

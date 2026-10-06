@@ -1,0 +1,131 @@
+{
+ "comment": "PS2_INTERIOR_CULL cell for the r100 house (lane pc 2026-10-05). Boxes are world mm [lo, hi]. Inner wall faces (area-weighted, from the package's opaque triangles): ground floor north -40690, south -30470, west -85410, east -72190, right-wing south -32470/-32650, notch east face -75850, floor 820, ceiling 3310-3610 (open over the stairwell); upstairs room west -75360, north -38920, south -32480, east -72190, floor 3380-3400, ceiling 7870. Every eye box is inset 160 mm (> near_max 150; the measured near-plane corner distance is 116-126 mm) from those faces. The stairwell box crosses the ceiling opening.",
+ "room": 256,
+ "package": {
+  "mesh": "ps2-world.re4mesh",
+  "sidecar": "ps2-world.r4pw",
+  "mesh_sha256": "508e5ba2dd1fe9fd14042ecd5acf4c9b3641bec9ec40ec1ac9226ec1d099787c",
+  "sidecar_sha256": "bea1ade4c3bebe4d483c7ab191c39dbe901d66daa35f350fd5a44a092d179e22"
+ },
+ "occluder_box": [
+  [
+   -87000,
+   -1500,
+   -42500
+  ],
+  [
+   -71000,
+   9000,
+   -29500
+  ]
+ ],
+ "outer": [
+  [
+   -86300,
+   400,
+   -41400
+  ],
+  [
+   -71600,
+   8100,
+   -29900
+  ]
+ ],
+ "eye_boxes": [
+  [
+   [
+    -85250,
+    980,
+    -40530
+   ],
+   [
+    -76010,
+    3150,
+    -30630
+   ]
+  ],
+  [
+   [
+    -76010,
+    980,
+    -40530
+   ],
+   [
+    -72350,
+    3150,
+    -32810
+   ]
+  ],
+  [
+   [
+    -73900,
+    3150,
+    -38900
+   ],
+   [
+    -72350,
+    3900,
+    -34600
+   ]
+  ],
+  [
+   [
+    -75200,
+    3560,
+    -38760
+   ],
+   [
+    -72350,
+    6800,
+    -32640
+   ]
+  ]
+ ],
+ "hull": [
+  [
+   [
+    -85700,
+    500,
+    -41100
+   ],
+   [
+    -75400,
+    3800,
+    -30200
+   ]
+  ],
+  [
+   [
+    -75400,
+    500,
+    -41100
+   ],
+   [
+    -71900,
+    3800,
+    -32250
+   ]
+  ],
+  [
+   [
+    -75450,
+    3800,
+    -40400
+   ],
+   [
+    -71900,
+    7950,
+    -32250
+   ]
+  ]
+ ],
+ "near_max": 150,
+ "subcell_size": 1500,
+ "camera_step": 350,
+ "target_step": 150,
+ "exit_cell": 100,
+ "dilate_cells": 2,
+ "margin": 200,
+ "edge_step": 40,
+ "edge_eps": 2.0
+}
