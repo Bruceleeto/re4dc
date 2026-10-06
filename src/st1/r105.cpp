@@ -440,6 +440,15 @@ extern "C" int r105_markOpenCk()
     Vec vz = {0.0f, 0.0f, 1.0f};
     Mtx m;
 
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    // r105_markMtxCopy fills only the 3x3 rotation, and PSMTXMultVec adds column 3: the source leaves the
+    // translation as stale stack (issue #3). The GC's stale words were evidently below 0.5 (the puzzle always
+    // solves there); on the DC they are other frames' data and fail the 0.5 tests. Any |t| < 0.5 gives the
+    // GC's verdict for every snapped rotation, so zero them.
+    m[0][3] = 0.0f;
+    m[1][3] = 0.0f;
+    m[2][3] = 0.0f;
+#endif
     if (mk->obj[0].obj) {
         r105_markMtxCopy(m, mk->obj[0].obj->mat);
     }
