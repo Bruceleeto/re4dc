@@ -53,12 +53,15 @@
     console; **r22h** is a local test disc only (r22c content + EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2
     EFFECT_FADE_CLAMP=1 EFFECT_PS2_TOGGLE=1, not released): hold **X + START** to step GC -> GF -> PH -> PS (the VMU
     speed page names the look).
-- **Lane pc: PS2_INTERIOR_CULL + PS2_INTERIOR_ACTORS (in the play recipe, coordinator 2026-10-06; render-only).**
-  An offline r100 house cell (170 sub-cells, 1186 portals, tools/d367/ps2world/interior) culls the outdoor PS2 world
-  and the source-path Ganados (via CROWD_INVIS_SKIP) hidden behind the house walls; the cell is set up once per frame.
-  hw ms per drawn tick: stair foot -7.06 (~68% -> ~74% projected, factor 1.15), climb -1.73, upstairs +0.22, h-out /
-  fight ~0. Look caveats accepted: a 1 px wall-seam crack at the stair foot is no longer drawn; 4 px of one RGB565 step
-  (replica noise). Owner-path actors not covered (follow-up). docs/lanes/pc-20261005.md.
+- **Lane pc: PS2_INTERIOR_CULL + PS2_INTERIOR_ACTORS (landed default off 2026-10-06; render-only).** An offline r100
+  house cell (170 sub-cells, 1186 portals, tools/d367/ps2world/interior) culls the outdoor PS2 world and the source-path
+  Ganados (via CROWD_INVIS_SKIP) hidden behind the house walls; the cell is set up once per frame. hw ms per drawn tick
+  on the landed tree: stair foot -7.56, h-quiet +0.76 (+0.31 cell tests with nothing culled), fight +0.48, square +0.92
+  (inactive there: ps2_pass +0.12 plus layout drift). **Not in the recipe:** the cell costs 47,200 B static (portals
+  28.5 KB, cells 4.7 KB, two 2.6 KB State blocks, 5.5 KB code), taken from heap 4; with the knobs on the r100 s30 movie
+  fails (terminal=3, 0/340, heap_before 78,368) and H2 diverges at the skipped movie. Next: the tables and State become an
+  r100-only heap-4 allocation loaded from disc and lent to route movies. docs/lanes/pc-20261005.md.
+- **Heap-4 gate (coordinator 2026-10-06): every landing that grows .text, .rodata or .bss, or uses more heap 4, runs H2 through r100 s30 with its knobs on, confirms s30 plays 340/340 and reports heap_before at s30; the New Game gate stops before s30 and does not count.**
 - **Landing gates (el + iv + ph, recipe + CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1; clean builds, fresh objdirs,
   missing.txt empty; evidence C:/Flycast-Evidence/re4-dreamcast/land-20261005):** knob-off image + overlay
   byte-identical to 348bfd23 (SOURCE_DATE_EPOCH pinned) on the play image and the cost image. Knobs on vs the knob-off
