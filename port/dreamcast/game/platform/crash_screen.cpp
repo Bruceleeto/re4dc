@@ -26,6 +26,7 @@ extern "C" char re4dc_logbuf[];
 extern "C" unsigned re4dc_ui_frame();
 extern "C" int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
 extern "C" void re4dc_halt(const char* file, int line);
+extern "C" void re4dc_task_brief(char* out, unsigned size, const void* wait);  // scheduler.cpp
 static const unsigned kLogSize = 0x10000;  // mem.cpp RE4DC_LOG_SIZE
 
 namespace {
@@ -101,33 +102,44 @@ void show(const char* kind, const char* detail, bool wait_render)
         }
     kthread_t* waiters[3];
     int nwait = 0;
+    const void* mainwait = nullptr;
     for (int i = 0; i < g_nthreads && row < kRows - 5; ++i) {
         kthread_t* t = g_threads[i];
         const unsigned long pc = t->context.pc, pr = t->context.pr;
         int n = snprintf(line, sizeof(line), "t%d %.8s s%d %08lx%s", (int) t->tid, t->label, (int) t->state, pc,
                          t == thd_current ? "*" : "");
-        if (pr != pc && n < (int) sizeof(line)) n += snprintf(line + n, sizeof(line) - n, " pr %08lx", pr);
         const bool wait = t->state == STATE_WAIT;
+        if (!wait && pr != pc && n < (int) sizeof(line)) n += snprintf(line + n, sizeof(line) - n, " pr %08lx", pr);
         if (wait && n < (int) sizeof(line))
             snprintf(line + n, sizeof(line) - n, " %.12s %08lx%s", t->wait_msg ? t->wait_msg : "-",
                      (unsigned long) t->wait_obj, t->wait_timeout ? "" : " ever");
         put_text(0, row++, line, 0x07FF);
         if (wait && !t->wait_timeout && nwait < 3 && strcmp(t->label, "[reaper]")) waiters[nwait++] = t;
+        if (wait && !strcmp(t->label, "[kernel]")) mainwait = t->wait_obj;
+    }
+    // The game's task slots (scheduler.cpp): "slot:status/tid", x = thread finished; Y / R marks the slot
+    // whose yield / resume semaphore the main thread waits on.
+    {
+        char tb[160];
+        re4dc_task_brief(tb, sizeof(tb), mainwait);
+        snprintf(line, sizeof(line), "tasks%s", tb);
+        put_text(0, row++, line, 0xFFFF);
+        if (strlen(line) > (size_t) kCols && row < kRows - 3) put_text(0, row++, line + kCols, 0xFFFF);
     }
     // Untimed waiters: return-address candidates on the saved stack (words pointing just past a
-    // jsr / bsr / bsrf), newest first; symbolize with syms.txt or addr2line.
+    // jsr / bsr / bsrf), newest first, as the low 24 bits of 8cXXXXXX; symbolize with addr2line.
     for (int i = 0; i < nwait && row < kRows - 2; ++i) {
         kthread_t* t = waiters[i];
         const unsigned long* sp = (const unsigned long*) (t->context.r[15] & ~3ul);
         int n = snprintf(line, sizeof(line), "bt%d", (int) t->tid), found = 0;
-        for (int w = 0; w < 192 && found < 5; ++w) {
+        for (int w = 0; w < 256 && found < 7; ++w) {
             const unsigned long a = (unsigned long) (sp + w);
             if (a < 0x8c010000ul || a >= 0x8d000000ul) break;
             const unsigned long v = sp[w];
             if ((v & 1) || v < 0x8c010004ul || v >= 0x8d000000ul) continue;
             const unsigned op = *(const unsigned short*) (v - 4);
             if ((op & 0xF0FF) != 0x400B && (op & 0xF000) != 0xB000 && (op & 0xF0FF) != 0x0003) continue;
-            n += snprintf(line + n, sizeof(line) - n, " %08lx", v);
+            n += snprintf(line + n, sizeof(line) - n, " %06lx", v & 0xFFFFFFul);
             ++found;
         }
         put_text(0, row++, line, 0xFFE0);
@@ -183,9 +195,14 @@ void* watchdog(void*)
     return nullptr;
 }
 
-// Test hook: /cd/dc/crashtest.txt ("fault", "halt" or "hang") stops the game that way 20 s after boot,
+// Test hook: /cd/dc/crashtest.txt ("fault", "halt", "hang" or "block") stops the game that way 20 s after boot,
 // so the report can be checked in Flycast. The file is never on a play disc.
 int g_test;
+}  // namespace
+extern "C" {
+volatile int re4dc_crashtest_block;  // read by os.cpp OSSignalSemaphore
+}
+namespace {
 void* crash_test(void*)
 {
     thd_sleep(20000);
@@ -198,6 +215,9 @@ void* crash_test(void*)
     } else if (g_test == 3) {
         for (;;) {
         }  // above the game's priority: no frame is drawn again
+    } else if (g_test == 4) {
+        re4dc_log("CRASH_SCREEN test: block\n");
+        re4dc_crashtest_block = 1;  // the next game task to signal blocks forever; main waits on it
     }
     return nullptr;
 }
@@ -228,7 +248,8 @@ extern "C" void re4dc_crash_screen_init(void)
     re4dc_log("CRASH_SCREEN: ready (fault, halt, 30 s hang)\n");
     char t[16] = {0};
     if (re4dc_fixture_read("/cd/dc/crashtest.txt", t, sizeof(t) - 1) > 0) {
-        g_test = !strncmp(t, "fault", 5) ? 1 : !strncmp(t, "halt", 4) ? 2 : !strncmp(t, "hang", 4) ? 3 : 0;
+        g_test = !strncmp(t, "fault", 5) ? 1 : !strncmp(t, "halt", 4) ? 2 : !strncmp(t, "hang", 4) ? 3
+                 : !strncmp(t, "block", 5) ? 4 : 0;
         kthread_attr_t b = {};
         b.stack_size = 4096;
         b.prio = 9;

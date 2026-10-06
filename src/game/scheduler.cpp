@@ -544,4 +544,27 @@ extern "C" void re4dc_task_dump(void)
                   (int) t->SleepCtr, (int) t->Priority, (void*) &t->Thread);
     }
 }
+#if RE4DC_CRASH_SCREEN
+// Crash screen (issue #2): one "slot:status/tid" item per busy slot; tid "x" = its thread has finished,
+// "-" = none. The slot whose yield (Y) or resume (R) semaphore is `wait` (the main thread's wait object)
+// is marked. A task that ended without TaskExit / TaskSleep shows here even though its thread is gone.
+#include <stdio.h>
+extern "C" int re4dc_os_thread_kstate(const void* thread, int* tid);
+extern "C" void re4dc_task_brief(char* out, unsigned size, const void* wait)
+{
+    unsigned n = 0;
+    out[0] = 0;
+    for (u32 i = 0; i < TASK_NUM && n + 16 < size; ++i) {
+        TASK* t = &Task[i];
+        const char* mark = wait == &nativeTaskYielded[i] ? "Y" : wait == &nativeTaskResume[i] ? "R" : "";
+        if (t->Status == TASK_NONE && !*mark) continue;
+        int tid;
+        const int st = re4dc_os_thread_kstate(&t->Thread, &tid);
+        if (st < 0) n += snprintf(out + n, size - n, " %lu:%02x/-%s", (unsigned long) i, (unsigned) t->Status, mark);
+        else if (st == 0 || st == 5)  // STATE_ZOMBIE / STATE_FINISHED
+            n += snprintf(out + n, size - n, " %lu:%02x/x%s", (unsigned long) i, (unsigned) t->Status, mark);
+        else n += snprintf(out + n, size - n, " %lu:%02x/%d%s", (unsigned long) i, (unsigned) t->Status, tid, mark);
+    }
+}
+#endif
 #endif

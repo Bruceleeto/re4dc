@@ -552,8 +552,32 @@ s32 OSWaitSemaphore(OSSemaphore* sem)
     return c;
 }
 
+#if RE4DC_CRASH_SCREEN
+extern "C" volatile int re4dc_crashtest_block;
+
+// Crash screen (scheduler.cpp re4dc_task_brief): the KOS state of an OSThread's thread, -1 without one;
+// *tid its KOS tid.
+extern "C" int re4dc_os_thread_kstate(const void* thread, int* tid)
+{
+    const kthread_t* kt = ((const OSThread*) thread)->kt;
+    *tid = kt ? (int) kt->tid : 0;
+    return kt ? (int) kt->state : -1;
+}
+#endif
+
 s32 OSSignalSemaphore(OSSemaphore* sem)
 {
+#if RE4DC_CRASH_SCREEN
+    // crashtest.txt "block" (test discs only): the next game task that signals blocks forever instead,
+    // so the main thread hangs in its os-sema wait for that task (the issue #2 shape).
+    if (re4dc_crashtest_block && threadOf(thd_current) != &g_mainThread) {
+        re4dc_crashtest_block = 0;
+        re4dc_log("CRASH_SCREEN test: task tid %d blocks\n", (int) thd_current->tid);
+        semaphore_t never;
+        sem_init(&never, 0);
+        sem_wait(&never);
+    }
+#endif
     int old = irq_disable();
     s32 c = sem->count++;
     genwait_wake_one(sem);
