@@ -61,6 +61,14 @@ MODULE(em18)
 MODULE(em17)
 MODULE(em24)
 #endif
+#if defined(RE4DC_WEAPON_MODULES) && RE4DC_WEAPON_MODULES
+MODULE(wep01)
+MODULE(wep07)
+MODULE(wep09)
+MODULE(wep11)
+MODULE(wep13)
+MODULE(wep19)
+#endif
 #if RE4DC_SUBSCREEN && !RE4DC_SUBSCREEN_OVL
 MODULE(Sscrn)
 #endif
@@ -117,6 +125,14 @@ static const Re4dcModule g_modules[] = {
     MODULE(22, em18),  // ROUTE_CH13: r102 (the merchant): enabled-later,script-load
     MODULE(21, em17),  // ROUTE_CH13: r108: enabled-later,entry,script-load
     MODULE(8, em24),   // ROUTE_CH13: r108 (room entry) / r10a: entry
+#endif
+#if defined(RE4DC_WEAPON_MODULES) && RE4DC_WEAPON_MODULES
+    MODULE(3, wep01),  // WEAPON_MODULES: Punisher
+    MODULE(54, wep07), // WEAPON_MODULES: shotgun
+    MODULE(62, wep09), // WEAPON_MODULES: rifle (+ the scope archives wep21 / wep24)
+    MODULE(52, wep11), // WEAPON_MODULES: TMP (+ the stock archive wep20)
+    MODULE(59, wep13), // WEAPON_MODULES: rocket launcher
+    MODULE(53, wep19), // WEAPON_MODULES: hand / incendiary / flash grenades
 #endif
 #if RE4DC_SUBSCREEN_OVL
     {71, "Sscrn", 0, 0, 0, 0, 0, 0, 0},  // sub screen overlay (entry points set per load)

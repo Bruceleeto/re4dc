@@ -562,7 +562,11 @@ u32 PADRead(PADStatus* status)
         p->triggerLeft = mapped.triggerLeft;
         p->triggerRight = mapped.triggerRight;
 #if RE4DC_DBG_WARP
-        if (i == 0) re4dc_warp_pad(&p->button, &p->stickY);  // test warp rig: boot card screen, door test
+        if (i == 0) {
+            re4dc_warp_pad(&p->button, &p->stickY);  // test warp rig: boot card screen, door test
+            // A warp `act` mask with R (0x0020) also gives the analog trigger the aim reads.
+            if ((p->button & PAD_TRIGGER_R) && !p->triggerRight) p->triggerRight = 0xC0;
+        }
 #endif
         p->err = PAD_ERR_NONE;
     }

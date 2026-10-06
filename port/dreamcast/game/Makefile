@@ -63,6 +63,21 @@ $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
 # A door into a room the disc does not carry shows "Coming Soon" and holds (route_end.cpp, src/game/sce_at.cpp).
 $(OBJDIR)/src/game/sce_at.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH13=1
 endif
+# WEAPON_MODULES=1 (issue #1 2026-10-05, default 0: no effect): Leon's other stage-1 weapons, so equipping one in the
+# inventory (SubScreenExit -> ReadWepData -> DLL_Link) finds its module instead of halting "DLL link/unlink failed":
+# wep01 (module 3, Punisher; the merchant's medallion reward), wep07 (54, shotgun; r101 house), wep09 (62, rifle; its
+# scope variants wep21 / wep24 load the same REL), wep11 (52, TMP; TMP + stock = wep20, same REL), wep13 (59, rocket
+# launcher) and wep19 (53, hand / incendiary / flash grenades). Red9 and its stock variant use wep02's REL. Lint
+# (assetpipe wiring): no slot-math; their cObj placement value-init is safe (cObjMgr::construct sets serial / id after
+# the constructor, as for wep02). The archives need WEAPON_RESIDENT_BYTES >= 404608 (wep21, the largest; build-r21.sh).
+WEAPON_MODULES ?= 0
+ifneq ($(WEAPON_MODULES),0)
+ifneq ($(WEAPON_MODULES),1)
+$(error WEAPON_MODULES must be 0 or 1)
+endif
+MODULES += wep01 wep07 wep09 wep11 wep13 wep19
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_WEAPON_MODULES=1
+endif
 # WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
 # r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests
 # (platform/modules.cpp MODULE(75, st2_0) / MODULE(96, st4_0)). Their porting-trap lint is clean (assets.sh discover
@@ -265,6 +280,12 @@ endif
 HEAP_CENSUS ?= 0
 ifeq ($(HEAP_CENSUS),1)
 $(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_HEAP_CENSUS=1
+endif
+# HEAP4_WATER=1 (test only, issue #1 2026-10-05): heap 4's free total / largest cell after every heap-4 allocation;
+# logs each new per-room low-water mark ("heap4 water:" lines) to price a resident reservation raise.
+HEAP4_WATER ?= 0
+ifeq ($(HEAP4_WATER),1)
+$(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_HEAP4_WATER=1
 endif
 .PHONY: motion-read-force
 $(OBJDIR)/motion-read.h: motion-read-force
@@ -633,7 +654,7 @@ ENEMY_DEMAND ?= 0
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 wep01 wep07 wep09 wep11 wep13 wep19,$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif

@@ -560,6 +560,30 @@ void* mem_alloc(u32 size, const char* file, int line, int flag, int heap)
         }
     }
 #endif
+#if defined(RE4DC_HEAP4_WATER) && RE4DC_HEAP4_WATER
+    // Test only (HEAP4_WATER=1): heap 4's low-water mark per room. After every heap-4 allocation, the free list's
+    // total and largest cell; a new room minimum at least 8 KB below the last one logged is reported with the
+    // allocation that made it (the last line of a room is its low-water mark; a failure always logs).
+    if (heap == 4 && Heap[heap].handle >= 0) {
+        static u32 room, low, logged;
+        OSHeapDescriptor* d = HeapHead + Heap[heap].handle;
+        u32 free_total = 0, free_max = 0;
+        for (OSHeapCell* c = d->free; c != NULL; c = c->next) {
+            free_total += c->size;
+            if ((u32) c->size > free_max) free_max = c->size;
+        }
+        if (pG && room != (u32) pG->room_id) {
+            room = pG->room_id;
+            low = logged = 0xFFFFFFFFu;
+        }
+        if (free_total < low) low = free_total;
+        if (p == NULL || low + 8192 <= logged) {
+            logged = low;
+            re4dc_log("heap4 water: room %03x free %u largest %u span %u after %u at %s%s\n", (unsigned) room, free_total,
+                      free_max, (u32) d->size, size, file ? str : "untagged", p ? "" : " FAILED");
+        }
+    }
+#endif
     return p;
 }
 

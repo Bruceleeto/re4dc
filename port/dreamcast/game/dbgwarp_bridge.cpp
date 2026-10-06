@@ -38,7 +38,7 @@
 // /cd/dc/warp.txt (tools/d367/warp.py writes it from a named preset):
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
-//   act <frame> <a|b|x|y|start|fwd|back|none> <hold> | trg <no> <frame> [room] | kill <id> <frame> [room] |
+//   act <frame> <a|b|x|y|start|fwd|back|none|0xMASK> <hold> | arm <frame> <item id> | trg <no> <frame> [room] | kill <id> <frame> [room] |
 //   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n> |
 //   god (Leon's life refilled every frame) | alert <frame> (the crowd hunts Leon from that frame of its entry)
 //   fxmode <flags> (EFFECT_PS2_TOGGLE builds: the effect look at load; 1 fade clamp, 2 PS2 haze, 4 PS2 streak)
@@ -56,6 +56,8 @@
 #include "em_set.h"
 #include "em.h"
 #include "em_sub.h"
+#include "item.h"
+#include "snd.h"
 #include "re4dc_platform.h"
 #include <string.h>
 #include <stdio.h>
@@ -104,6 +106,11 @@ struct Warp {
     u32 kill_watch; // after the kill: state lines left
     struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; u8 entry; } go[4];
     unsigned n_go;
+    // arm <room frame> <item id>: once at that frame of the first room, ItemMgr.debugWeapon(id) (the case's armed
+    // weapon) and the weapon reload SubScreenExit does when a new weapon was equipped in the inventory (SndBlkStop(2),
+    // weaponRelease / weaponLoad / weaponInit: ReadWepData's DVD read, as on the inventory exit).
+    struct ArmItem { u32 frame; u16 id; bool done; } arm[8];
+    unsigned n_arm;
     bool act_source_clock;  // opt-in fixture holds count source pad ticks, not wall-time stalls
     u8 parse_entry, max_entry;  // `entry <n>`: the room entry later act / goto lines belong to (1 = first room)
 #if RE4DC_WARP_JUMP
@@ -224,6 +231,12 @@ void load()
             else if (!strcmp(b, "start")) a.buttons = 0x1000;
             else if (!strcmp(b, "fwd")) a.stick = 80;
             else if (!strcmp(b, "back")) a.stick = -80;
+            else if (b[0] == '0' && b[1] == 'x') a.buttons = (u16) num(b);  // a raw button mask (R 0x0020 + A: 0x0120)
+        } else if (!strcmp(k, "arm") && n >= 3 && wp.n_arm < 8) {
+            Warp::ArmItem& a = wp.arm[wp.n_arm++];
+            a.frame = num(tok[1]);
+            a.id = (u16) num(tok[2]);
+            a.done = false;
         } else if (!strcmp(k, "trg") && n >= 3) {
             wp.has_trg = true;
             wp.trg_no = (int) num(tok[1]);
@@ -564,6 +577,26 @@ void re4dc_warp_poll(void)
         return;
     }
     goto_poll();
+    for (unsigned i = 0; i < wp.n_arm; ++i) {
+        Warp::ArmItem& a = wp.arm[i];
+        if (a.done || wp.room_frames < a.frame) continue;
+        a.done = true;
+        ItemMgr.debugWeapon(a.id);
+        const int no = WeaponId2WeaponNo(a.id), type = WeaponId2WeaponType(a.id);
+        re4dc_log("warp: arm item 0x%02x at room frame %u: weapon %u/%u -> %u/%u\n", (unsigned) a.id,
+                  (unsigned) wp.room_frames, (unsigned) pG->weapon_no, (unsigned) pG->weapon_type, (unsigned) no,
+                  (unsigned) type);
+        if (pPL && pG->pl_type != 1 && (pG->weapon_no != no || pG->weapon_type != type)) {
+            // SubScreenExit step 4 (sscrn.cpp), as when the weapon is equipped in the inventory and the case closes.
+            SndBlkStop(2);
+            pPL->weaponRelease();
+            pPL->weaponLoad(no, type);
+            pG->bullet_type = 0;
+            pPL->weaponInit();
+            re4dc_log("warp: arm item 0x%02x loaded: weapon %u/%u pWep=%08x\n", (unsigned) a.id, (unsigned) pG->weapon_no,
+                      (unsigned) pG->weapon_type, (unsigned) (uintptr_t) pG->pWep);
+        }
+    }
     if (wp.room_frames == 1) {
         if (wp.has_area && pPL) {
             Vec c = {0.0f, 0.0f, 0.0f};
