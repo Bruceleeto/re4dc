@@ -1318,8 +1318,12 @@ inline bool eye_of(const float* v,float e[3]){
     e[0]=inv[3];e[1]=inv[7];e[2]=inv[11];
     return std::isfinite(e[0]) && std::isfinite(e[1]) && std::isfinite(e[2]);
 }
-// Per frame (each pass call): the sub-cell holding the eye and its portal frustums, relative to the eye.
-inline void setup(const float* view,const float* P,float near){
+#if RE4DC_PS2_INTERIOR_ACTORS
+State st_trans; // PS2_INTERIOR_ACTORS: the cell for the next Render's camera, set up at Trans start (ModelTrans)
+#endif
+// Per frame (each pass call): the sub-cell holding the eye and its portal frustums, relative to the eye. st: the
+// render state (pc::st) or the Trans-time actor state.
+inline void setup_state(State& st,const float* view,const float* P,float near){
     st.active=false;st.cell=-1;st.nfr=0;
 #if RE4DC_PS2_INTERIOR_CULL==3
     if(select_word!=2U)return;
@@ -1359,8 +1363,9 @@ inline void setup(const float* view,const float* P,float near){
     }
     st.active=true;st.setup_frame=re4dc_ui_frame();
 }
+inline void setup(const float* view,const float* P,float near){setup_state(st,view,P,near);}
 // World box (centre / half extents): 1 hidden, 0 drawn (seen through a portal), -1 meets the house box.
-inline int hidden(const float c[3],const float h[3]){
+inline int hidden_state(State& st,const float c[3],const float h[3]){
     ++st.tests;
     float lo[3],hi[3];
     for(unsigned a=0;a<3;++a){lo[a]=c[a]-h[a]-kSlack;hi[a]=c[a]+h[a]+kSlack;}
@@ -1378,6 +1383,7 @@ inline int hidden(const float c[3],const float h[3]){
     }
     return 1;
 }
+inline int hidden(const float c[3],const float h[3]){return hidden_state(st,c,h);}
 // A box in a 3x4 matrix's input space (model or grid units) -> world centre / half extents.
 inline void world_box(const float* m,const float lo[3],const float hi[3],float c[3],float h[3]){
     for(unsigned r=0;r<3;++r){
@@ -1397,6 +1403,18 @@ inline int grid_hidden(const float* wq,const std::uint16_t lo[3],const std::uint
     return hidden(c,h);
 }
 } // namespace pc
+#if RE4DC_PS2_INTERIOR_ACTORS
+namespace pcact {
+float view[12];bool have=false;
+unsigned trans_frames=0,active=0,tests=0,hid=0,view_checked=0,view_mis=0;
+#if RE4DC_PS2_INTERIOR_CULL==2
+struct Box{float lo[3],hi[3];};
+constexpr unsigned kBoxes=32;
+Box box[kBoxes];unsigned nbox=0,boxes=0,drawn=0,unchecked=0,overflow=0;
+unsigned key[6];bool have_key=false;
+#endif
+}
+#endif
 #endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
@@ -2780,6 +2798,22 @@ int ps2_pass(unsigned pass,float zfar){
     pc::setup(ps2w.view,P,near);
     if(!pass){
         const unsigned frame=re4dc_ui_frame();
+#if RE4DC_PS2_INTERIOR_ACTORS
+        if(pcact::have){
+            pcact::have=false;++pcact::view_checked;
+            if(std::memcmp(pcact::view,ps2w.view,sizeof(pcact::view)))++pcact::view_mis;
+        }
+        if(!(frame%120))
+            re4dc_log("PCACT frame=%u trans=%u active=%u tests=%u hidden=%u view=%u/%u"
+#if RE4DC_PS2_INTERIOR_CULL==2
+                " boxes=%u drawn=%u unchecked=%u overflow=%u"
+#endif
+                "\n",frame,pcact::trans_frames,pcact::active,pcact::tests,pcact::hid,pcact::view_mis,pcact::view_checked
+#if RE4DC_PS2_INTERIOR_CULL==2
+                ,pcact::boxes,pcact::drawn,pcact::unchecked,pcact::overflow
+#endif
+                );
+#endif
         ++pc::st.frames;if(pc::st.active)++pc::st.active_frames;
         if(!(frame%120) || frame-pc::st.frame>=120U){
             pc::st.frame=frame;
@@ -2875,6 +2909,9 @@ int ps2_pass(unsigned pass,float zfar){
             d.part_index=index;d.lod_scale=lod_scale;
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
+#if RE4DC_PS2_INTERIOR_ACTORS && RE4DC_PS2_INTERIOR_CULL==2
+            if(!pass && !pcact::have_key){std::memcpy(pcact::key,key,sizeof(key));pcact::key[5]=0;pcact::have_key=true;}
+#endif
 #if RE4DC_PS2_INTERIOR_CULL
             d.pc_mode=pc_state?1U:0U;d.pc_wq=pc_wq;
 #if RE4DC_PS2_INTERIOR_CULL==2
@@ -2910,6 +2947,48 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
         }
     }
+#if RE4DC_PS2_INTERIOR_ACTORS && RE4DC_PS2_INTERIOR_CULL==2
+    if(!pass && pcact::nbox && pcact::have_key){
+        // The actor check: each queued box (an actor the cell would have skipped) as six opaque magenta quads.
+        const float* v=ps2w.view;const float* V=ps2w.viewport;
+        Re4dcModelDirect out{};
+        re4dc_ps2_check_header=1;
+        const bool bound=re4dc_ps2_world_direct_begin(pcact::key,&out)!=0;
+        re4dc_ps2_check_header=0;
+        if(bound){
+            std::uint32_t* sq=out.sq;unsigned slots=0;
+            auto* buf=static_cast<pvr_vertex_t*>(out.scratch);
+            for(unsigned b=0;b<pcact::nbox;++b){
+                const auto& bx=pcact::box[b];
+                float s[8][3];bool ok=true;
+                for(unsigned k=0;k<8 && ok;++k){
+                    const float w[3]={(k&1)?bx.hi[0]:bx.lo[0],(k&2)?bx.hi[1]:bx.lo[1],(k&4)?bx.hi[2]:bx.lo[2]};
+                    const float x=v[0]*w[0]+v[1]*w[1]+v[2]*w[2]+v[3],y=v[4]*w[0]+v[5]*w[1]+v[6]*w[2]+v[7],
+                                z=v[8]*w[0]+v[9]*w[1]+v[10]*w[2]+v[11];
+                    if(!(-z>near*1.01f)){ok=false;break;}
+                    const float inv=1.0f/(-z);
+                    s[k][0]=(V[2]*.5f*(P[1]*x+P[2]*z)*inv+V[0]+V[2]*.5f)*RE4DC_SCREEN_WF/V[2];
+                    s[k][1]=(-V[3]*.5f*(P[3]*y+P[4]*z)*inv+V[1]+V[3]*.5f)*RE4DC_SCREEN_HF/V[3];
+                    s[k][2]=inv;
+                }
+                if(!ok || out.scratch_capacity<24){++pcact::unchecked;continue;}
+                // faces as strips a,b,c,d (corner bits: x 1, y 2, z 4)
+                static const unsigned char face[6][4]={{0,2,1,3},{4,5,6,7},{0,1,4,5},{2,6,3,7},{0,4,2,6},{1,3,5,7}};
+                for(unsigned f=0;f<6;++f){
+                    for(unsigned k=0;k<4;++k){
+                        pvr_vertex_t& o=buf[k];const float* q=s[face[f][k]];
+                        o.flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;o.x=q[0];o.y=q[1];o.z=q[2];
+                        o.u=0;o.v=0;o.argb=0xffff00ffU;o.oargb=0;
+                    }
+                    sq=re4dc_ta_put(sq,buf,4);slots+=4;
+                }
+                ++pcact::drawn;
+            }
+            re4dc_model_direct_end(slots);
+        } else pcact::unchecked+=pcact::nbox;
+        pcact::nbox=0;
+    }
+#endif
     return c.fallback?0:1;
 }
 }
@@ -2957,6 +3036,48 @@ extern "C" int re4dc_ps2_interior_hidden(const float lo[3],const float hi[3]){
     float c[3],h[3];
     for(unsigned a=0;a<3;++a){c[a]=(lo[a]+hi[a])*0.5f;h[a]=std::fabs(hi[a]-lo[a])*0.5f;}
     return pc::hidden(c,h)>0;
+}
+#endif
+#if RE4DC_PS2_INTERIOR_ACTORS
+// PS2_INTERIOR_ACTORS (game30.mk; lane pc): the cell for actors. ModelTrans runs before Render's PS2 pass 0, so the
+// cell is set up again at Trans start (re4dc_invis_begin -> re4dc_ps2_interior_trans) from the camera Trans sees
+// (pG->Cam.v_mat, the projection CameraSetProjection(1) will load), in its own state (pc::st_trans). Render's pass 0
+// compares that view with the one it draws with (PCACT view_mis: must stay 0). =2 (check build, with
+// PS2_INTERIOR_CULL=2): nothing is skipped; each box the cell would have hidden is drawn as an opaque magenta box in
+// pass 0 (depth tested, the world check's header), so the framebuffer scan covers the actors too.
+extern "C" void re4dc_ps2_interior_trans(const float* view,const float* P){
+    pc::State& s=pc::st_trans;
+    s.ok=pc::st.ok;s.active=false;pcact::have=false;
+#if RE4DC_PS2_INTERIOR_CULL==2
+    pcact::nbox=0;
+#endif
+    if(!view || !P || P[0]!=0.0f)return;
+    const float near=P[6]/(P[5]-1.0f);
+    if(!(near>0.0f) || !re4dc::render::is_finite(near))return;
+    pc::setup_state(s,view,P,near);
+    std::memcpy(pcact::view,view,sizeof(pcact::view));pcact::have=true;
+    ++pcact::trans_frames;if(s.active)++pcact::active;
+}
+// 1: the Trans-time cell hides the world box (lo / hi) and the actor may be skipped; 0 otherwise (and always at =2,
+// which queues the box for the magenta check instead).
+extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3],const float hi[3]){
+    pc::State& s=pc::st_trans;
+    if(!s.active || s.setup_frame!=re4dc_ui_frame())return 0;
+    float c[3],h[3];
+    for(unsigned a=0;a<3;++a){c[a]=(lo[a]+hi[a])*0.5f;h[a]=std::fabs(hi[a]-lo[a])*0.5f;}
+    ++pcact::tests;
+    if(!(pc::hidden_state(s,c,h)>0))return 0;
+    ++pcact::hid;
+#if RE4DC_PS2_INTERIOR_CULL==2
+    if(pcact::nbox<pcact::kBoxes){
+        auto& b=pcact::box[pcact::nbox++];
+        for(unsigned a=0;a<3;++a){b.lo[a]=lo[a];b.hi[a]=hi[a];}
+        ++pcact::boxes;
+    } else ++pcact::overflow;
+    return 0;
+#else
+    return 1;
+#endif
 }
 #endif
 extern "C" void re4dc_ps2_mesh_log(unsigned frame){

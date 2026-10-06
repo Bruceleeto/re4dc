@@ -247,6 +247,9 @@ unsigned invis_marked, invis_checked, invis_violations, invis_violation_tris, in
     invis_fog_mis, invis_logs, invis_crowd_checked, invis_crowd_mis;
 #endif
 unsigned invis_builds, invis_build_fail;
+#if RE4DC_PS2_INTERIOR_ACTORS
+unsigned invis_pc_tests, invis_pc_hidden;  // PS2_INTERIOR_ACTORS: source-path Ganados tested / hidden by the cell
+#endif
 InvisRec* invis_find(const cModel* m, bool create) {
     for (unsigned k = 0; k < kInvisRecs; ++k) if (invis_rec[k].m == m) return &invis_rec[k];
     if (!create) return nullptr;
@@ -598,8 +601,15 @@ extern "C" void re4dc_invis_note(cModel* m, unsigned outcome) {
 }
 // Trans: the next Render's projection (pG->Cam.ProjMat as CameraSetProjection(1) loads it; P null: not perspective)
 // and its fogged View far as LightEnv predicts it, believed only when the last Render saw the same value.
+#if RE4DC_PS2_INTERIOR_ACTORS
+extern "C" void re4dc_ps2_interior_trans(const float* view, const float* P);  // native_static.cpp
+#endif
 extern "C" void re4dc_invis_begin(const float* P, float fog_pred) {
     ++invis_gen;
+#if RE4DC_PS2_INTERIOR_ACTORS
+    re4dc_ps2_interior_trans(&pG->Cam.v_mat[0][0], P);
+    if (!(invis_gen % 600)) re4dc_log("INVISPC t=%u tests=%u hidden=%u\n", unsigned(pG->Frame_cnt), invis_pc_tests, invis_pc_hidden);
+#endif
     InvisView& iv = invis_view;
     iv.ok = false;
     if (!P || !invis_obs_valid) return;
@@ -655,6 +665,76 @@ static bool invis_settled(cModel* m) {
     }
     return true;
 }
+#if RE4DC_PS2_INTERIOR_ACTORS
+// PS2_INTERIOR_ACTORS (game30.mk; lane pc): a source-path Ganado the game's view test and invis_source keep is still
+// skipped when the world box of its source-mesh balls (invis_source's balls, radii and margins, as world points)
+// lies wholly outside the r100 house box and the Trans-time interior cell hides it (native_static.cpp
+// re4dc_ps2_interior_actor_hidden). The skip is the source path's (invisReplayRender: TPL / texture-object step and
+// the CROWD_LOD note kept) under the same settled-parts rule. Owner-path Ganados are not taken: their crowd ranking
+// entries come from the cast chunks the pregate keeps, which this test does not reproduce.
+extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3], const float hi[3]);  // native_static.cpp
+static inline void invis_acc(float* lo, float* hi, const float* w, float rho) {
+    for (unsigned a = 0; a < 3; ++a) { if (w[a] - rho < lo[a]) lo[a] = w[a] - rho; if (w[a] + rho > hi[a]) hi[a] = w[a] + rho; }
+}
+static bool invis_interior(cModel* m, const InvisRec& r) {
+    if (!r.bindkey) return false;
+    cParts* parts[64];
+    const unsigned np = invis_parts(m, parts);
+    if (!np || np != r.nparts) return false;
+    float (*root)[4] = m->pParts->mat;
+    Mtx inv;
+    if (!PSMTXInverse(root, inv)) return false;
+    float lo[3] = {3.0e38f, 3.0e38f, 3.0e38f}, hi[3] = {-3.0e38f, -3.0e38f, -3.0e38f};
+    unsigned any = 0;
+    for (unsigned k = 0; k < r.count; ++k) {
+        cModelInfo* info = r.info[k];
+        if (!(info->be_flag & 8)) continue;
+        const ModelData* d = info->pData;
+        if ((info->be_flag & 2) || d->nTex > 0xF7) return false;
+        const InvisMesh* e = invis_mesh_for(d, r.bindkey, parts, np);
+        if (!e) return false;
+        if (invis_rigid(d)) {
+            const unsigned no = d->pHead->partsNo;
+            if (no >= np) return false;
+            const cParts* p = (m->be_flag & 0x2000) ? reinterpret_cast<const cParts*>(m->pParts) + no : parts[no];
+            Mtx W;
+            PSMTXConcat(p->mat, info->mat, W);
+            const InvisBall& b = invis_ball[e->first];
+            float w[3];
+            invis_xf(W, b.c, w);
+            invis_acc(lo, hi, w, b.r * gate_scale_sym(W) * 1.002f + 4.0f);
+            ++any;
+        } else {
+            static const float I[3][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};
+            const bool ident = !std::memcmp(info->mat, I, sizeof(I));
+            Mtx T;
+            float sT = 1.0f;
+            if (!ident) {
+                Mtx t;
+                PSMTXConcat(root, info->mat, t);
+                PSMTXConcat(t, inv, T);
+                sT = gate_scale_sym(T);
+            }
+            for (unsigned j = 0; j < e->n; ++j) {
+                const InvisBall& b = invis_ball[e->first + j];
+                const float (*A)[4] = parts[invis_ball_bone[e->first + j]]->mat;
+                float w[3];
+                invis_xf(A, b.c, w);
+                float rho = b.r * gate_scale_sym(A) * 1.002f;
+                if (!ident) { float u[3]; invis_xf(T, w, u); w[0] = u[0]; w[1] = u[1]; w[2] = u[2]; rho *= sT * 1.002f; }
+                invis_acc(lo, hi, w, rho + 4.0f);
+                ++any;
+            }
+        }
+    }
+    if (!any) return false;
+    for (unsigned a = 0; a < 3; ++a) if (!coarse_finite(lo[a]) || !coarse_finite(hi[a])) return false;
+    ++invis_pc_tests;
+    if (!re4dc_ps2_interior_actor_hidden(lo, hi)) return false;
+    ++invis_pc_hidden;
+    return true;
+}
+#endif
 extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (m->id < 0x10 || m->id > 0x20) return 0;
     if (!invis_view.ok) { ++invis_n[6]; return 0; }
@@ -665,6 +745,9 @@ extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (r->outcome == 1) k = invis_owner(m, *r) ? 1u : 0u;
     else if (r->outcome == 2) {
         k = invis_source(m, *r) ? 2u : 0u;
+#if RE4DC_PS2_INTERIOR_ACTORS
+        if (!k && invis_interior(m, *r)) k = 2u;
+#endif
         if (k && !invis_settled(m)) { ++invis_unsettled; k = 0; }
     }
     else { ++invis_n[5]; return 0; }

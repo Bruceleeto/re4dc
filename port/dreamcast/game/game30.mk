@@ -2006,6 +2006,25 @@ $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CU
 ifeq ($(PS2_INTERIOR_CULL),2)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=2
 endif
+# PS2_INTERIOR_ACTORS=1 (lane pc; render only; default 0; needs PS2_INTERIOR_CULL 1/2/3 and CROWD_INVIS_SKIP=1): the
+# cell for Ganados too. CROWD_INVIS_SKIP's Trans decision (coarse_actor_owner_ganado.inc re4dc_invis_decide) also
+# skips a source-path Ganado whose source-mesh ball box lies wholly outside the house box and is hidden by the cell
+# set up at Trans start from the camera Trans sees (native_static.cpp re4dc_ps2_interior_trans; Render's pass 0
+# counts any view change, PCACT view=mismatches/checked). Same skip path, settled-parts rule and CROWD_LOD note as
+# CROWD_INVIS_SKIP's source path; owner-path Ganados are not taken. With PS2_INTERIOR_CULL=2 nothing is skipped and
+# each such box is drawn as an opaque magenta box (PCACT boxes / drawn / unchecked), covered by the framebuffer scan.
+# With =3 the actor part follows PS2_INTERIOR_CULL_SELECT.
+PS2_INTERIOR_ACTORS ?= 0
+ifneq ($(PS2_INTERIOR_ACTORS),0)
+ifneq ($(PS2_INTERIOR_ACTORS),1)
+$(error PS2_INTERIOR_ACTORS must be 0 or 1)
+endif
+ifneq ($(CROWD_INVIS_SKIP),1)
+$(error PS2_INTERIOR_ACTORS needs CROWD_INVIS_SKIP=1)
+endif
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_PS2_INTERIOR_ACTORS=1
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_ACTORS=1
+endif
 ifeq ($(PS2_INTERIOR_CULL),3)
 PS2_INTERIOR_CULL_SELECT ?= 0
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL_SELECT=$(PS2_INTERIOR_CULL_SELECT)
