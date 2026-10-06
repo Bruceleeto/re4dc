@@ -127,6 +127,9 @@ extern "C" int re4dc_model_return_retained(unsigned* bytes,unsigned* requests) _
 unsigned loan_test_id;   // test only: the movie that lent the cache at its first staging allocation (+1)
 #endif
 #endif
+#if RE4DC_PS2_INTERIOR_CULL
+extern "C" unsigned re4dc_ps2_interior_movie_release();   // native_static.cpp: the r100 cell block
+#endif
 void* stage_alloc(size_t n){
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
@@ -307,6 +310,11 @@ int finish(int status){
     return status;
 }
 bool open(unsigned id){
+#if RE4DC_PS2_INTERIOR_CULL
+    // PS2_INTERIOR_CULL: no world is drawn during a route movie, so it borrows the r100 cell block (read again by
+    // route_movie_bridge.cpp after the movie); taken before heap_before so the movie sees the knob-off heap.
+    re4dc_ps2_interior_movie_release();
+#endif
     m.id=id;m.entered=timer_us_gettime64();m.heap_before=re4dc_ui_heap_free();m.vram_before=pvr_mem_available();
     path_for(id,m.path,sizeof(m.path));
     movie_state(0,(int)(id&0xffff));

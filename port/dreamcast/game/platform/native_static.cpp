@@ -1291,11 +1291,17 @@ static volatile unsigned strip_lean_select=1U+RE4DC_MESH_STRIP_LEAN_SELECT;
 // the house box kPcOuter can only be seen along such a ray, so it is drawn only if it meets the frustum from the eye
 // through one of the sub-cell's portals (each frustum is the intersection of five half-spaces: past the portal's
 // plane and inside its four edge planes; a box outside any one of them cannot meet it).
+// The sub-cells and portals are not in the image: the r100 package's open reads them from the disc file
+// /cd/dc/native/r100/interior.cell (tools/d367/ps2world/interior/cell_file.py) into one heap-4 block with both states'
+// frustum arrays, freed with the package. A route movie borrows the block (native_movie.cpp open, before heap_before:
+// no world is drawn during a route movie) and route_movie_bridge.cpp reads it again after the movie. Without the block
+// (file missing, heap 4 short, lent) nothing is culled.
 namespace pc {
 struct Cell { float lo[3],hi[3]; std::uint16_t first,count; };
 struct Portal { std::uint32_t axis; float plane,u0,u1,v0,v1; }; // u = axis+1, v = axis+2 (mod 3)
 #include "include/ps2_interior_cell.inc"
 constexpr float kSlack=64.0f; // mm added to every tested box (float rounding of the box and plane maths)
+constexpr unsigned kMaxFr=24; // portals per sub-cell the runtime takes
 #if RE4DC_PS2_INTERIOR_CULL==3
 #ifndef RE4DC_PS2_INTERIOR_CULL_SELECT
 #define RE4DC_PS2_INTERIOR_CULL_SELECT 0
@@ -1308,10 +1314,16 @@ struct State {
     bool ok=false;           // the open package is the one the cell was built from
     bool active=false;       // this frame's eye is in a sub-cell
     float eye[3]{};
-    int cell=-1; unsigned nfr=0; Frustum fr[24];
+    int cell=-1; unsigned nfr=0; Frustum* fr=nullptr; // kMaxFr frustums in the cell block (null: not loaded)
     unsigned frame=~0U,setup_frame=~0U,done_frame=~0U;float corner=0; // done_frame: the frame the cell was last set up for
     unsigned placements=0,clusters=0,meshlets=0,tests=0,active_frames=0,frames=0; // culled (=1/=3) or checked (=2)
 } st;
+// The disc cell (r100 only): one heap-4 block = file (header, cells, portals) + both states' frustum arrays.
+struct Data {
+    void* block=nullptr;const Cell* cells=nullptr;const Portal* portals=nullptr;
+    bool lent=false; unsigned loads=0,fails=0,lends=0;
+} data;
+constexpr unsigned kFrBytes=kMaxFr*unsigned(sizeof(Frustum));
 // The eye from a 3x4 row-major view matrix: the inverse's translation.
 inline bool eye_of(const float* v,float e[3]){
     float inv[12];if(!inverse(v,inv))return false;
@@ -1320,6 +1332,9 @@ inline bool eye_of(const float* v,float e[3]){
 }
 #if RE4DC_PS2_INTERIOR_ACTORS
 State st_trans; // PS2_INTERIOR_ACTORS: the cell for the next Render's camera, set up at Trans start (ModelTrans)
+inline State& trans_state(){return st_trans;}
+#else
+inline State& trans_state(){static State none;return none;}
 #endif
 // Per frame (each pass call): the sub-cell holding the eye and its portal frustums, relative to the eye. st: the
 // render state (pc::st) or the Trans-time actor state.
@@ -1328,23 +1343,23 @@ inline void setup_state(State& st,const float* view,const float* P,float near){
 #if RE4DC_PS2_INTERIOR_CULL==3
     if(select_word!=2U)return;
 #endif
-    if(!st.ok)return;
+    if(!st.ok || !st.fr || !data.cells)return;
     // the near plane's corners must lie within the cell's near margin of the eye (the sub-cells are inset by it)
     const float tx=(1.0f+std::fabs(P[2]))/std::fabs(P[1]),ty=(1.0f+std::fabs(P[4]))/std::fabs(P[3]);
     const float corner=near*std::sqrt(1.0f+tx*tx+ty*ty);
     st.corner=corner;
     if(!(corner<=kPcNearMax))return;
     float e[3];if(!eye_of(view,e))return;
-    for(unsigned i=0;i<sizeof(kPcCells)/sizeof(kPcCells[0]);++i){
-        const Cell& c=kPcCells[i];
+    for(unsigned i=0;i<kPcCellCount;++i){
+        const Cell& c=data.cells[i];
         if(e[0]>=c.lo[0] && e[0]<=c.hi[0] && e[1]>=c.lo[1] && e[1]<=c.hi[1] && e[2]>=c.lo[2] && e[2]<=c.hi[2]){st.cell=int(i);break;}
     }
     if(st.cell<0)return;
-    const Cell& c=kPcCells[st.cell];
-    if(c.count>sizeof(st.fr)/sizeof(st.fr[0]))return;
+    const Cell& c=data.cells[st.cell];
+    if(c.count>kMaxFr)return;
     for(unsigned k=0;k<3;++k)st.eye[k]=e[k];
     for(unsigned i=0;i<c.count;++i){
-        const Portal& p=kPcPortals[c.first+i];
+        const Portal& p=data.portals[c.first+i];
         const unsigned ax=p.axis,ua=(ax+1U)%3U,va=(ax+2U)%3U;
         Frustum& f=st.fr[st.nfr++];
         f.axis=ax;f.plane=p.plane;f.beyond_high=p.plane>e[ax];
@@ -1401,6 +1416,52 @@ inline int grid_hidden(const float* wq,const std::uint16_t lo[3],const std::uint
         c[r]=m[3]+m[0]*mc[0]+m[1]*mc[1]+m[2]*mc[2];h[r]=a[0]*mh[0]+a[1]*mh[1]+a[2]*mh[2];
     }
     return hidden(c,h);
+}
+State& trans_state();
+// Frees the cell block (both states inactive: nothing is culled until it is read again).
+inline unsigned unload(){
+    if(!data.block)return 0;
+    re4dc_static_free(data.block);
+    data.block=nullptr;data.cells=nullptr;data.portals=nullptr;
+    st.fr=nullptr;st.active=false;st.nfr=0;
+    State& t=trans_state();t.fr=nullptr;t.active=false;t.nfr=0;
+    return kPcFileBytes+2U*kFrBytes;
+}
+// Reads /cd/dc/native/r100/interior.cell into a heap-4 block (the r100 package open, and after a route movie).
+inline bool load(){
+    if(data.block)return true;
+    if(!st.ok)return false;
+    const int before=re4dc_static_heap_free();
+    const char* why=nullptr;
+    const file_t file=fs_open("/cd/dc/native/r100/interior.cell",O_RDONLY);
+    unsigned char* b=nullptr;
+    if(file==FILEHND_INVALID)why="missing";
+    else{
+        if(unsigned(fs_total(file))!=kPcFileBytes)why="size";
+        else if(!(b=static_cast<unsigned char*>(re4dc_static_alloc(kPcFileBytes+2U*kFrBytes))))why="heap4";
+        else if(fs_read(file,b,kPcFileBytes)!=ssize_t(kPcFileBytes))why="read";
+        fs_close(file);
+    }
+    if(!why){
+        std::uint32_t w[8];std::memcpy(w,b,sizeof(w));
+        if(std::memcmp(b,"PCL1",4) || w[1]!=kPcRoom || w[2]!=kPcMeshCrc || w[3]!=kPcSidecarCrc || w[4]!=kPcMeshBytes ||
+           w[5]!=kPcCellCount || w[6]!=kPcPortalCount)why="header";
+    }
+    const Cell* cells=b?reinterpret_cast<const Cell*>(b+32):nullptr;
+    for(unsigned i=0;!why && i<kPcCellCount;++i)
+        if(cells[i].count>kMaxFr || unsigned(cells[i].first)+cells[i].count>kPcPortalCount)why="cells";
+    if(why){
+        if(b)re4dc_static_free(b);
+        ++data.fails;
+        re4dc_log("PCCULL cell file %s: not culling (heap4=%d)\n",why,before);
+        return false;
+    }
+    data.block=b;data.cells=cells;data.portals=reinterpret_cast<const Portal*>(b+32+kPcCellCount*sizeof(Cell));
+    st.fr=reinterpret_cast<Frustum*>(b+kPcFileBytes);trans_state().fr=reinterpret_cast<Frustum*>(b+kPcFileBytes+kFrBytes);
+    ++data.loads;
+    re4dc_log("PCCULL cell file loaded %u B (+%u B states) heap4=%d->%d loads=%u lends=%u\n",kPcFileBytes,2U*kFrBytes,before,
+              re4dc_static_heap_free(),data.loads,data.lends);
+    return true;
 }
 } // namespace pc
 #if RE4DC_PS2_INTERIOR_ACTORS
@@ -2767,8 +2828,9 @@ bool ps2_open(){
     // The cell's portals hold for the package it was built from only.
     pc::st.ok=ps2w.room==pc::kPcRoom && mh.crc==pc::kPcMeshCrc && h.crc==pc::kPcSidecarCrc && mh.bytes==pc::kPcMeshBytes;
     re4dc_log("PCCULL cell room=%03x mesh_crc=%08x sidecar_crc=%08x %s cells=%u portals=%u mode=%d\n",ps2w.room,unsigned(mh.crc),unsigned(h.crc),
-        pc::st.ok?"adopted":"not this package",unsigned(sizeof(pc::kPcCells)/sizeof(pc::kPcCells[0])),
-        unsigned(sizeof(pc::kPcPortals)/sizeof(pc::kPcPortals[0])),int(RE4DC_PS2_INTERIOR_CULL));
+        pc::st.ok?"adopted":"not this package",pc::kPcCellCount,pc::kPcPortalCount,int(RE4DC_PS2_INTERIOR_CULL));
+    pc::data.lent=false;
+    if(pc::st.ok)pc::load();
 #endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
@@ -2807,7 +2869,7 @@ int ps2_pass(unsigned pass,float zfar){
                 const pc::State& t=pc::st_trans;pc::State& s=pc::st;
                 s.active=t.active;s.cell=t.cell;s.nfr=t.nfr;s.corner=t.corner;
                 for(unsigned a=0;a<3;++a)s.eye[a]=t.eye[a];
-                for(unsigned i=0;i<t.nfr;++i)s.fr[i]=t.fr[i];
+                if(s.fr && t.fr)for(unsigned i=0;i<t.nfr;++i)s.fr[i]=t.fr[i];else s.active=false;
                 if(s.active)s.setup_frame=sf;
                 reused=true;++pcact::reused;
             }
@@ -3048,6 +3110,19 @@ extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
     return ps2_pass(pass,zfar)>0;
 }
 #if RE4DC_PS2_INTERIOR_CULL
+// native_movie.cpp open (before heap_before): a route movie borrows the cell block. Returns the bytes freed.
+extern "C" unsigned re4dc_ps2_interior_movie_release(){
+    const unsigned freed=pc::unload();
+    if(freed){pc::data.lent=true;++pc::data.lends;re4dc_log("PCCULL cell lent to a movie (%u B)\n",freed);}
+    return freed;
+}
+// route_movie_bridge.cpp after RouteMoviePlay / RouteMoviePlayQte: the block a movie borrowed is read again (the r100
+// package still open; a room change in between retires it with the package).
+extern "C" void re4dc_ps2_interior_movie_restore(){
+    if(!pc::data.lent)return;
+    pc::data.lent=false;
+    if(pc::st.ok)pc::load();
+}
 // The cell's test for any world box, e.g. an actor's (lane iv's CROWD_INVIS_SKIP could call it after the game's own
 // view test): 1 when this frame's cell hides the box. 0 unless the PS2 world's pass 0 set the cell up in this same
 // frame (the camera is then this frame's), and 0 for a box touching the house box.
@@ -3126,6 +3201,7 @@ extern "C" void re4dc_ps2_mesh_retire(){
     ps2w.masked=false;
 #endif
 #if RE4DC_PS2_INTERIOR_CULL
+    pc::unload();pc::data.lent=false;
     pc::st.ok=false;pc::st.active=false;
 #endif
 }

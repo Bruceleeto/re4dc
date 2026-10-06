@@ -36,6 +36,11 @@ extern "C" void re4dc_weapon_heap4_movie_restore();   // read.cpp: a weapon body
 #else
 static inline void re4dc_weapon_heap4_movie_restore() {}
 #endif
+#if RE4DC_PS2_INTERIOR_CULL
+extern "C" void re4dc_ps2_interior_movie_restore();   // native_static.cpp: the r100 cell block a movie borrowed
+#else
+static inline void re4dc_ps2_interior_movie_restore() {}
+#endif
 
 // Event::ExeBeginEvt, lasting part: scenario event nesting, event-running status, begin func.
 static void routeBegin(unsigned flags, RouteEvtFunc func)
@@ -134,6 +139,7 @@ int RouteMoviePlayQte(unsigned id, unsigned flags, RouteEvtFunc func, unsigned q
     re4dc_ui_movie_background(0);
     const int end = open ? re4dc_movie_end() : st;
     re4dc_weapon_heap4_movie_restore();
+    re4dc_ps2_interior_movie_restore();
     pG->Disp_flg = disp;
     routeEnd(id, flags, func, end);
     return end == RE4DC_MOVIE_UNHANDLED ? RE4DC_MOVIE_ERROR : end;
@@ -163,6 +169,7 @@ int RouteMoviePlay(unsigned id, unsigned flags, RouteEvtFunc func, RouteMovieTic
     // game frame runs); skip is the event cancel key, Key bit 29 = PAD START.
     int st = re4dc_movie_play(id, 0x1000, tick);
     re4dc_weapon_heap4_movie_restore();
+    re4dc_ps2_interior_movie_restore();
     pG->System_flg &= ~0x400;  // Event::Run releases the held picture after frame 0
     pG->Disp_flg = disp;
     if (st == RE4DC_MOVIE_UNHANDLED) {

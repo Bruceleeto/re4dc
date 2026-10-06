@@ -8,7 +8,8 @@
 Writes <name>.json and <name>-warp.txt. The fixture is <base> (its padscript, debug config and shared textures)
 plus the room's released container (<rel>/stN/rXXX.{arc,dar}; the .dar from <aica> when given, the banked copy
 aica_banks.py writes), its scenery package (<scenery>/MAINSCENARIO.re4mesh -> dc/native/rXXX/), its room textures
-(<room-tex>/*.re4tex -> dc/tex/<c>/), and with --ps2 the PS2 world package (ps2-world.{re4mesh,r4pw} + tex/).
+(<room-tex>/*.re4tex -> dc/tex/<c>/), and with --ps2 the PS2 world package (ps2-world.{re4mesh,r4pw} + tex/; for
+r100 also interior.cell, the PS2_INTERIOR_CULL cell).
 --no-ps2 leaves dc/native/rXXX/ps2-world.* off the disc (and removes them if <base> stages them): a registry-listed
 room whose package is absent must open its own scenery (PS2MESH fallback), which is what that arm tests.
 --tex / --file stage what the room's actors need besides the room. St2/St4 Leon is costume 1 (pl08, title.cpp): the
@@ -84,6 +85,8 @@ def main(argv=None):
         own[pw[0]] = a.ps2 / 'ps2-world.re4mesh'
         own[pw[1]] = a.ps2 / 'ps2-world.r4pw'
         tex.update(tex_entries(a.ps2 / 'tex'))
+        if room == 'r100':  # PS2_INTERIOR_CULL's cell (interior/add_cell.py); harmless when the knob is off
+            own['dc/native/r100/interior.cell'] = HERE / 'interior' / 'interior-r100.cell'
     else:
         for k in pw:
             rep.pop(k, None)

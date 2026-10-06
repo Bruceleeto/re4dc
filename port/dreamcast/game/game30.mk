@@ -2003,6 +2003,10 @@ ifneq ($(filter-out 1 2 3,$(PS2_INTERIOR_CULL)),)
 $(error PS2_INTERIOR_CULL must be 0, 1, 2 or 3)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=$(PS2_INTERIOR_CULL)
+# The cell tables are the disc file dc/native/r100/interior.cell (tools/d367/ps2world/interior/interior-r100.cell; a
+# fixture without it simply does not cull), read into an r100-only heap-4 block that route movies borrow.
+$(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=$(PS2_INTERIOR_CULL)
+$(OBJDIR)/route_movie_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=$(PS2_INTERIOR_CULL)
 ifeq ($(PS2_INTERIOR_CULL),2)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_CULL=2
 endif
