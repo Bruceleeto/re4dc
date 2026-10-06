@@ -250,6 +250,13 @@ AICA_STREAMS ?= 1
 ifeq ($(AICA_AUDIO)$(AICA_STREAMS),11)
 $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_AICA_STREAMS=1
 endif
+# AICA_WEP_LOG=1 (test only, default 0: no effect): logs every SE voice start from the WEP block (blk 2) and every
+# unmapped SE start (a sample in no loaded bank: silent), uncapped, so weapon-sound gates (issue lamb2k/re4dc#1) can
+# show each shot's keyon. Audio state only; the game never reads it.
+AICA_WEP_LOG ?= 0
+ifneq ($(AICA_WEP_LOG),0)
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_AICA_WEP_LOG=1
+endif
 .PHONY: aica-audio-force
 $(OBJDIR)/aica-audio.h: aica-audio-force
 	@mkdir -p $(dir $@)

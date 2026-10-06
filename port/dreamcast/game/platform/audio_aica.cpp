@@ -873,8 +873,19 @@ void note_on(Synth* s, u32 chm, u32 key, u32 vel)
     const WTREGION& r = ((const WTREGION*) (wt + h->rgn_ofs))[ri];
     const WTART& art = ((const WTART*) (wt + h->art_ofs))[r.articulationIndex];
     int t = s->blk >= 0 ? s->blk : synth_block(s);
-    if (t < 0) { ++S.se_unmapped; return; }
+    if (t < 0) {
+        ++S.se_unmapped;
+#if defined(RE4DC_AICA_WEP_LOG) && RE4DC_AICA_WEP_LOG
+        re4dc_log("aica: t=%u wep-log note UNMAPPED key=%u (silent)\n", (unsigned) g_nowMs, (unsigned) key);
+#endif
+        return;
+    }
     s->blk = t;
+#if defined(RE4DC_AICA_WEP_LOG) && RE4DC_AICA_WEP_LOG
+    if (t == 2)
+        re4dc_log("aica: t=%u wep-log note blk=2 key=%u sample=%u cap=%u Hz\n", (unsigned) g_nowMs, (unsigned) key,
+                  (unsigned) r.sampleIndex, (unsigned) g_blk[t].rate_cap);
+#endif
     const Blk& b = g_blk[t];
     if (r.sampleIndex >= b.count) return;
     const MapEnt& e = g_map[b.first + r.sampleIndex];
@@ -1688,9 +1699,17 @@ void AXSetVoiceState(void* vp, u16 st)
         v.loop = p->addr.loopFlag;
         if (!v.loop) v.gc_len = end > cur ? nib_to_sample(end, cur - 2) : 0;
         ++S.se_unmapped;
+#if defined(RE4DC_AICA_WEP_LOG) && RE4DC_AICA_WEP_LOG
+        re4dc_log("aica: t=%u wep-log se start UNMAPPED gc_nib=%07x (silent)\n", (unsigned) g_nowMs, (unsigned) cur);
+#endif
         return;
     }
     const Blk& b = g_blk[t];
+#if defined(RE4DC_AICA_WEP_LOG) && RE4DC_AICA_WEP_LOG
+    if (t == 2)
+        re4dc_log("aica: t=%u wep-log se start blk=2 sample=%d cap=%u Hz gc_bytes=%u\n", (unsigned) g_nowMs,
+                  (int) (e - &g_map[b.first]), (unsigned) b.rate_cap, (unsigned) b.gc_size);
+#endif
     u32 start = b.gc_base * 2 + e->gc_nib;
     v.blk = (s8) t;
     v.mapped = 1;
