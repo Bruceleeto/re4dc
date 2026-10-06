@@ -2709,6 +2709,56 @@ struct Ps2World {
 #if RE4DC_PS2_PASS_MASK==2
 unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
 #endif
+#if RE4DC_PS2_WORLD_DYNAMIC
+// PS2_WORLD_DYNAMIC (game30.mk; render only): the PS2 world package is baked at each SMD row's rest pose, so a
+// scenery object the room code moves, turns or hides (SmdGetObjPtr / SmdSetTrans: r105's emblem puzzle and door,
+// r100's gate swaps, r101's ladder, doors and dials) kept its baked look. The optional dc/native/r%03x/ps2-world.ids
+// (tools/ps2_room_ids.py) gives each placement its scroll object id. scroll.cpp setObj reports each id's game object
+// and its rest matrix (re4dc_ps2_dyn_bind); a placement whose id is unique in the package is then skipped while that
+// object is hidden (be_flag bit 1 clear) and drawn through mat * inverse(rest) once its matrix left the rest pose.
+// Ids shared by several placements and ids the game has no object for keep the baked draw.
+namespace dyn {
+constexpr unsigned kIds=250,kMoved=16,kNone=0xFF;
+struct Head { char magic[4]; std::uint32_t version,count,crc; };
+struct Slot { const unsigned char* obj; std::uint32_t serial; float rest[12]; };
+unsigned char* block=nullptr;                      // heap-4 block: the ids file
+const std::uint8_t* ids=nullptr; unsigned nids=0; // placement field -> id
+Slot* slots=nullptr; unsigned nslots=0;
+std::uint8_t slot_of[kIds];                        // id -> slot (kNone: baked)
+unsigned off_flag=0,off_serial=0,off_mat=0;        // cObj field offsets (from the first bind)
+unsigned frame=~0U,nmoved=0;
+std::uint8_t state[kIds];                          // this frame: 0 unknown, 1 baked, 2 hidden, 3 moved
+std::uint8_t moved_of[kIds];
+float delta[kMoved][12];
+unsigned binds=0,hidden=0,moved=0,overflow=0,logged_frame=0;
+void reset(){
+    if(block)re4dc_static_free(block);
+    if(slots)re4dc_static_free(slots);
+    block=nullptr;ids=nullptr;nids=0;slots=nullptr;nslots=0;std::memset(slot_of,kNone,sizeof(slot_of));frame=~0U;
+}
+// 0 baked, 1 hidden, 2 moved (delta[moved_of[id]] = mat * inverse(rest))
+unsigned query(unsigned id){
+    const unsigned f=re4dc_ui_frame();
+    if(f!=frame){frame=f;nmoved=0;std::memset(state,0,sizeof(state));}
+    if(state[id])return state[id]-1U;
+    unsigned r=0;
+    const Slot& s=slots[slot_of[id]];
+    std::uint32_t flag=0,serial=0;
+    if(s.obj){std::memcpy(&flag,s.obj+off_flag,4);std::memcpy(&serial,s.obj+off_serial,4);}
+    if(s.obj && (flag&1U) && serial==s.serial){
+        const float* m=reinterpret_cast<const float*>(s.obj+off_mat);
+        if(!(flag&2U)){r=1;++hidden;}
+        else if(std::memcmp(m,s.rest,sizeof(s.rest))){
+            float inv[12];
+            if(nmoved<kMoved && inverse(s.rest,inv)){concat(m,inv,delta[nmoved]);moved_of[id]=std::uint8_t(nmoved++);r=2;++moved;}
+            else ++overflow;
+        }
+    }
+    state[id]=std::uint8_t(r+1U);
+    return r;
+}
+}
+#endif
 std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
     std::uint32_t c=~0U;
     for(unsigned i=0;i<n;++i){c^=p[i];for(unsigned b=0;b<8;++b)c=(c>>1)^(0xedb88320U&(0U-(c&1U)));}
@@ -2807,6 +2857,50 @@ bool ps2_open(){
         return false;
     }
     ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_WORLD_DYNAMIC && RE4DC_PS2_WORLD_ROOMS
+    {
+        // The id sidecar of this package (optional; a mismatched or absent file leaves every placement baked): the
+        // whole file in one heap-4 block (32-byte padded, read as the package is), then a slot (object, serial, rest
+        // matrix) per id unique in the package in a second block.
+        dyn::reset();
+        char ipath[48];snprintf(ipath,sizeof(ipath),"/cd/dc/native/r%03x/ps2-world.ids",ps2w.room);
+        const file_t fi=fs_open(ipath,O_RDONLY);
+        const unsigned isize=fi!=FILEHND_INVALID?unsigned(fs_total(fi)):0U;
+        const char* iwhy="absent";
+        auto* ib=isize>=sizeof(dyn::Head) && isize<=4096U && !(isize&31U)?static_cast<unsigned char*>(re4dc_static_alloc(isize)):nullptr;
+        if(fi!=FILEHND_INVALID && !ib)iwhy="size or heap";
+#if RE4DC_IO_ALIGNED
+        const bool iread=ib && read_package(fi,ib,isize,0);
+#else
+        const bool iread=ib && fs_read(fi,ib,isize)==ssize_t(isize);
+#endif
+        if(fi!=FILEHND_INVALID)fs_close(fi);
+        dyn::Head ih{};
+        if(iread){
+            std::memcpy(&ih,ib,sizeof(ih));
+            iwhy="header";
+            if(!std::memcmp(ih.magic,"R4ID",4) && ih.version==1 && ih.crc==h.crc && ih.count==h.placements &&
+               ih.count<=isize-sizeof(ih)){
+                const std::uint8_t* idv=ib+sizeof(ih);
+                std::uint8_t count[dyn::kIds]={};
+                for(unsigned i=0;i<ih.count;++i)if(idv[i]<dyn::kIds && count[idv[i]]<2)++count[idv[i]];
+                unsigned n=0;
+                for(unsigned id=0;id<dyn::kIds;++id)if(count[id]==1)++n;
+                auto* sb=n?static_cast<dyn::Slot*>(re4dc_static_alloc(n*sizeof(dyn::Slot))):nullptr;
+                iwhy="no heap";
+                if(sb){
+                    unsigned k=0;
+                    for(unsigned id=0;id<dyn::kIds;++id)if(count[id]==1)dyn::slot_of[id]=std::uint8_t(k++);
+                    std::memset(static_cast<void*>(sb),0,n*sizeof(dyn::Slot));
+                    dyn::block=ib;dyn::ids=idv;dyn::nids=ih.count;dyn::slots=sb;dyn::nslots=n;ib=nullptr;
+                    iwhy=nullptr;
+                }
+            }
+        } else if(ib)iwhy="read";
+        if(ib)re4dc_static_free(ib);
+        re4dc_log("PS2DYN room=%03x ids=%s placements=%u unique=%u heap=%d\n",ps2w.room,iwhy?iwhy:"ok",dyn::nids,dyn::nslots,re4dc_static_heap_free());
+    }
+#endif
 #if RE4DC_PS2_PASS_MASK
     // ps2_pass then skips a placement with no part in the pass on one byte, without reading its placement and mesh
     // records and scanning the mesh's parts (three passes x every placement, every drawn image). More placements
@@ -2856,6 +2950,15 @@ int ps2_pass(unsigned pass,float zfar){
     if(pass){const float f=foliage_far;if(f>near && f<cull_far)cull_far=f;}
 #endif
     c.near=near;c.far=far;c.cull_far=cull_far;
+#if RE4DC_PS2_WORLD_DYNAMIC
+    if(!pass && dyn::ids){
+        const unsigned f=re4dc_ui_frame();
+        if(f-dyn::logged_frame>=120U){
+            dyn::logged_frame=f;
+            re4dc_log("PS2DYN frame=%u room=%03x binds=%u hidden=%u moved=%u overflow=%u\n",f,ps2w.room,dyn::binds,dyn::hidden,dyn::moved,dyn::overflow);
+        }
+    }
+#endif
 #if RE4DC_PS2_INTERIOR_CULL
     {
         // Once per frame (pass 0, or the first pass of a frame): passes 1 / 2 reuse it. With PS2_INTERIOR_ACTORS the
@@ -2951,8 +3054,24 @@ int ps2_pass(unsigned pass,float zfar){
         for(unsigned k=0;k<mesh.part_count && !any;++k)any=ps2w.parts[mesh.first_part+k].pass==pass;
         if(!any)continue;
         }
+#if RE4DC_PS2_WORLD_DYNAMIC
+        const float* affine=pl.affine;float moved_affine[12];
+        if(dyn::ids && pl.placement<dyn::nids){
+            const unsigned id=dyn::ids[pl.placement];
+            if(id<dyn::kIds && dyn::slot_of[id]!=dyn::kNone){
+                const unsigned st=dyn::query(id);
+                if(st==1)continue;   // the game hides it
+                if(st==2){concat(dyn::delta[dyn::moved_of[id]],pl.affine,moved_affine);affine=moved_affine;}
+            }
+        }
+        ++c.placements;
+        float mv[12];concat(ps2w.view,affine,mv);
+#define RE4DC_PS2_AFFINE affine
+#else
         ++c.placements;
         float mv[12];concat(ps2w.view,pl.affine,mv);
+#define RE4DC_PS2_AFFINE pl.affine
+#endif
         const re4dc::render::DrawBounds bounds{{mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},
                                                {mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]}};
         if(!re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)){++c.culled;continue;}
@@ -2963,12 +3082,12 @@ int ps2_pass(unsigned pass,float zfar){
         if(pc::st.active){
             float wc[3],wh[3];
             const float blo[3]={mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},bhi[3]={mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]};
-            pc::world_box(pl.affine,blo,bhi,wc,wh);
+            pc::world_box(RE4DC_PS2_AFFINE,blo,bhi,wc,wh);
             bool inside=true; // the placement box inside the house box: nothing in it can be outside
             for(unsigned a=0;a<3;++a)inside=inside && wc[a]-wh[a]>=pc::kPcOuter[a] && wc[a]+wh[a]<=pc::kPcOuter[3+a];
             if(!inside){
                 pc_state=pc::hidden(wc,wh)>0?2U:1U;
-                concat(pl.affine,grid,pc_wq);pc::abs_rows(pc_wq);
+                concat(RE4DC_PS2_AFFINE,grid,pc_wq);pc::abs_rows(pc_wq);
             }
 #if RE4DC_PS2_INTERIOR_CULL!=2
             if(pc_state==2){++pc::st.placements;continue;}
@@ -3200,11 +3319,29 @@ extern "C" void re4dc_ps2_mesh_retire(){
 #if RE4DC_PS2_PASS_MASK
     ps2w.masked=false;
 #endif
+#if RE4DC_PS2_WORLD_DYNAMIC
+    dyn::reset();
+#endif
 #if RE4DC_PS2_INTERIOR_CULL
     pc::unload();pc::data.lent=false;
     pc::st.ok=false;pc::st.active=false;
 #endif
 }
+#if RE4DC_PS2_WORLD_DYNAMIC
+// scroll.cpp setObj, after the object's matUpdate and re4dc_static_bind (which opens this room's PS2 world): the
+// game object registered under scroll id `id`, its be_flag / serial / mat fields and its rest matrix.
+extern "C" void re4dc_ps2_dyn_bind(unsigned room,unsigned id,const void* object,const void* flag,const void* serial,
+                                   const float* mat){
+    if(!dyn::ids || ps2w.room!=room || id>=dyn::kIds || dyn::slot_of[id]==dyn::kNone)return;
+    const auto* o=static_cast<const unsigned char*>(object);
+    dyn::off_flag=unsigned(static_cast<const unsigned char*>(flag)-o);
+    dyn::off_serial=unsigned(static_cast<const unsigned char*>(serial)-o);
+    dyn::off_mat=unsigned(reinterpret_cast<const unsigned char*>(mat)-o);
+    dyn::Slot& s=dyn::slots[dyn::slot_of[id]];
+    s.obj=o;std::memcpy(&s.serial,serial,4);std::memcpy(s.rest,mat,sizeof(s.rest));
+    ++dyn::binds;
+}
+#endif
 #if RE4DC_PS2_WORLD_ROOMS
 namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }
 // The rooms that have a PS2 world package (tools/ps2_room_r4im.py, dc/native/r%03x/ps2-world.*): the one list

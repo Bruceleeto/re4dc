@@ -501,6 +501,10 @@ def main():
     side = struct.pack('<4s7I', b'R4PW', 1, len(placements), len(parts_meta), len(meshes), zlib.crc32(body), 0, 0) + body
     (a.out / 'ps2-world.re4mesh').write_bytes(blob)
     (a.out / 'ps2-world.r4pw').write_bytes(side)
+    # the scroll id of each placement (PS2_WORLD_DYNAMIC: the runtime follows the objects the room code moves / hides)
+    sys.path.insert(0, str(HERE))
+    import ps2_room_ids
+    ps2_room_ids.write(a.src / f'{a.room}_004.scenario.obj', a.out / 'ps2-world.r4pw', a.out / 'ps2-world.ids')
     summary.pop('meshes_detail', None)
     tri = collections.Counter()
     for g in groups:

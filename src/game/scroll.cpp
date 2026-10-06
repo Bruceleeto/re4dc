@@ -23,6 +23,10 @@ extern "C" void re4dc_static_bind(const void*, unsigned, int, unsigned, unsigned
                                   const float*);
 extern "C" void re4dc_static_retire_owner(int);
 #endif
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_DYNAMIC
+extern "C" void re4dc_ps2_dyn_bind(unsigned room, unsigned id, const void* object, const void* flag, const void* serial,
+                                   const float* mat);
+#endif
 int MotionSetCore(cModel* m, void* work, void* mot, int a, int b, int c, int d);
 void slideModelAddr(u32 addr, int ofs);
 void slideTplAddr(void* tpl, int ofs);
@@ -173,6 +177,14 @@ int setObj(int blk)
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_NATIVE_STATIC
         re4dc_static_bind(obj, ((unsigned) pG->stage_no << 8) | pG->room_no, blk, i, w->binNo,
                           (w->flags & 0x10) != 0, obj->serial, &obj->mat[0][0]);
+#endif
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_DYNAMIC
+        // PS2_WORLD_DYNAMIC (render only): the object registered under this id and its rest matrix, so the PS2
+        // world follows the room code's moves and hides of it (native_static.cpp dyn).
+        if (w->id < 250 && scrObjTbl[w->id] == obj) {
+            re4dc_ps2_dyn_bind(((unsigned) pG->stage_no << 8) | pG->room_no, w->id, obj, &obj->be_flag, &obj->serial,
+                               &obj->mat[0][0]);
+        }
 #endif
     }
     return 0;
