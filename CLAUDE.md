@@ -103,6 +103,8 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
 - 2026-10-05 lane ln: LEON_NATIVE_PIPE + LEON_FACE_LAZY landed default off (exact, -2.19 hw ms per drawn fight tick,
   28% of Leon's cost: FAIL against the 40% rewrite bar, so no Ganado rewrite). The r21z-c13 disc lacks most textures
   (pack-fixture.sh replaced tex.pak): compare pack keys with the last good disc and boot the real disc before the SD.
+- 2026-10-06 r22d (console test disc, not released): issue #1 fix landed (89035a54 + d72fd6a4, WEAPON_RESIDENT_BYTES=275424
+  WEAPON_MODULES=1): shotgun / Punisher / grenades equip without halting; merchant rifle / rocket / TMP still halt, non-handgun weapons silent.
 - 2026-10-05 r22c = the play build (user released play-r22c-chapter-1-3-20261005): 2bb24730 + ROUTE_CH13=1 on the
   play flags, fixture lanes-20261005/r22c/fixtures/title-r22c-pak.json; Flycast checks pass, console play pending; GD
   97% full. ROUTE_CH13=1 goes into build-r21.sh after the running lanes land (H2 STRICT on the new base).

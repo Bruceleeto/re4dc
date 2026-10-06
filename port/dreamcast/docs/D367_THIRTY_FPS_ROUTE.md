@@ -91,6 +91,25 @@
   370-520 m out pass the game's 10 km far test; camera-straddling ones: no near plane). Step 2 (CROWD_INVIS_SKIP:
   decide in ModelTrans after the game's view test; fog depth, bone balls + near plane, mesh bound for source-path
   actors; =2 asserts 0 triangles) re-scoped to the fight, bar -1.0 hw ms drawn at function level, logic STRICT.
+- **Issue lamb2k/re4dc#1 (r22c console halt, 2026-10-05) and option C (landed 89035a54 + d72fd6a4):** equipping the
+  r101 shotgun and leaving the inventory halted with "asset exceeds selected resident budget". Three layers: (1) the
+  weapon resident block (WEAPON_RESIDENT_BYTES=247776) held only the compact handgun (wep02), so ReadWepData /
+  SubScreenExit's weaponLoad rejected every bigger body; (2) only wep02 was a natively linked weapon module, so the
+  other weapons' REL link would halt in DLL_Link ("DLL link/unlink failed"); (3) em/wep20, wep21 and wep24 were
+  missing from the disc (now converted from the GC files by le_mirror, which reproduces the shipped wep07 / wep09
+  byte for byte). Option C (user 2026-10-05): WEAPON_RESIDENT_BYTES=275424 (the largest chapter 1-1 weapon) and
+  WEAPON_MODULES=1 (wep01 / 07 / 09 / 11 / 13 / 19 linked; knob off is byte-identical to 348bfd23). Weapon body sizes:
+  wep07 shotgun 275,424; wep09 Punisher 261,344; Red9 uses wep02; wep19 grenades 173,408; the r104 merchant's rifle
+  with scope 404,608, rocket launcher 382,688, TMP with stock 299,200, TMP 289,248. The full stage-1 value 404,608
+  shrank heap 4 enough that the r100 s30 cliff movie failed (terminal=3), so it was not taken; 275,424 costs heap 4
+  67 KB and s30 still plays (MOVIE_HEAP_EVICT). Still open: **buying the rifle, rocket launcher or TMP at the
+  merchant still halts** (option 3, a heap-4 body allocation like Krauser's pWepBuf, is the follow-up), and
+  **non-handgun weapons are silent** (the AICA WEP sound slot is prebuilt only for wep02). Gates (warp + play
+  images, Flycast vsync off): H2 decision_cmp MUST-IDENTICAL vs the knob-0 control (om pointer noise only); 0 MISALIGN
+  (interpreter + HWTRACE_ALIGN, r100-h-fight 900 s and the shotgun arm + fire repro); New Game intros 1971 / 2360,
+  r100s40 1175, HALT 0, MISSING 0; shotgun and grenades equip in r101 with no halt, the shotgun fires at the r100 gate;
+  chapter 1-3 to "Coming Soon" at r10b; r101 bell HALT 0. Warp test commands (`arm <frame> <item>`, raw button masks
+  in `act`) are in tools/d367/README.md.
 - **r22c = the play build (released by the user as play-r22c-chapter-1-3-20261005, prerelease):** 2bb24730 built
   with build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1` (ELF 0f428379; warp image
   for checks: `DBG_WARP=1 PC_SAMPLER=1 PACE_DEBUG=1 ROUTE_CH13=1`, 3cd1cead). resolved-knobs.txt vs r22-play: only

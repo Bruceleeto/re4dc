@@ -1,5 +1,17 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-06: r22d (console test disc, not released)
+
+r22d = r22c + the issue #1 fix: d72fd6a4 (recipe WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1, plus GAME_ROT_FSCA,
+CROWD_INVIS_SKIP and EFFECT_FADE_CLAMP since r22c), build-r21.sh + `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast
+PACE_DEBUG=1 ROUTE_CH13=1` (ELF 2d70fb22), fixture /root/probe/lanes-20261005/i1/fixtures/title-r22d-candidate-pak.json
+(the r22c pack fixture plus em/wep20, wep21, wep24). Disc check against r22c: tex.pak identical (3,747 packages); only
+1ST_READ.BIN and dc/sscrn.ovl change; only em/wep20 / 21 / 24 are new. Flycast (vsync off): GDI boots to the VMU
+system-info prompt; New Game intros 1971 / 2360, r100s40 1175, HALT 0 / MISSING 0; shotgun and grenades equip in r101
+with no halt; chapter 1-3 to "Coming Soon" at r10b; r101 bell HALT 0; 0 MISALIGN. Local discs r22d-title + r22d-gdemu
+(Play-r22d.cmd); not on the SD card, not released. Known: the r104 merchant's rifle, rocket launcher and TMP still halt
+when bought; non-handgun weapons are silent (route doc "Issue lamb2k/re4dc#1").
+
 ## 2026-10-05: CROWD_INVIS_SKIP and EFFECT_FADE_CLAMP in the recipe (next play build)
 
 CROWD_INVIS_SKIP=1 (lane iv, render-only) and EFFECT_FADE_CLAMP=1 (lane ph, the near-fade wrap fix: no white
