@@ -109,6 +109,10 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   while held, equip reverts when heap 4 is short); r107 has ~100-109 KB heap 4 left with one held (scoped rifle reverts there).
 - 2026-10-06 PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1 in the recipe: scoped rifle fits in r107 with 360-367 KB heap 4 left (no revert);
   em2a fails in the r100 ambush with the scoped rifle held (warp/cheat only, accepted); r22e fixture uses the prepared em13.
+- 2026-10-06 r22e = the play build candidate (d3a36242 + ROUTE_CH13=1): r22d + WEAPON_HEAP4, PRIM_CAP_R107 /
+  WEAPON_HEAP4_TOP, prepared em13, PS2_INTERIOR_CULL, EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2, prebuilt weapon sound
+  banks (AICA_WEAPONS=1 fixture files); all gates and the issue #1 exact steps pass; checklist "r22e". Known: no
+  r104 / r107 room music. Next: r22f (issue #2 crash screen, issue #3 PS2_WORLD_DYNAMIC, owner-path interior cull).
 - 2026-10-06 r22d (console test disc, not released): issue #1 fix landed (89035a54 + d72fd6a4, WEAPON_RESIDENT_BYTES=275424
   WEAPON_MODULES=1): shotgun / Punisher / grenades equip without halting; merchant rifle / rocket / TMP still halt, non-handgun weapons silent.
 - 2026-10-05 r22c = the play build (user released play-r22c-chapter-1-3-20261005): 2bb24730 + ROUTE_CH13=1 on the

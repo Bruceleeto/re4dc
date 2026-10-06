@@ -9,6 +9,25 @@ The play fixtures' em/em13.drs never loads in r104 (route doc "Pre-existing r104
 the native-scene lane's prepared em13 (6,829,984 B, MRAM 1,231,776 B). PRIM_CAP_R107=327680
 WEAPON_HEAP4_TOP=1 (recipe): the scoped rifle no longer reverts in r107 (360-367 KB heap 4 left).
 
+## 2026-10-06: r22e (play build candidate)
+
+r22e = r22d + WEAPON_HEAP4 (merchant rifle, TMP and rocket launcher load into heap 4), PRIM_CAP_R107=327680
+WEAPON_HEAP4_TOP=1 (scoped rifle stays equipped in r107), the prepared em13 (r104 enemies spawn), PS2_INTERIOR_CULL
+(r100 house cell, dc/native/r100/interior.cell), EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2 (PS2 haze and light shaft) and
+the prebuilt weapon sound banks (stage knob AICA_WEAPONS=1: em/wep01, 07, 09, 11, 13, 19, 20, 21, 24 in the fixture).
+Source d3a36242 + build-r21.sh `DBG_WARP=0 PC_SAMPLER=0 PACE_MODE=fast PACE_DEBUG=1 ROUTE_CH13=1` (ELF 3022bd3b).
+Disc check against r22d: tex.pak identical (3,747 packages); changed 1ST_READ.BIN, dc/sscrn.ovl, em/em13.drs and the
+nine weapon files; new: 10 em13 motion files and interior.cell. GD high-density area 97% (1,006 of 1,032 MB).
+Flycast checks on the shipped contents, HALT 0 / MISSING 0 everywhere: GDI boot from the high-density TOC; New Game
+1971 / 2360 / 1175; issue #1 exact steps through the real case (combine R+G, equip the shotgun, use the herb, close:
+r22c halts with "asset exceeds selected resident budget", r22e loads the shotgun and heals); shotgun fire with no
+weapon-bank "does not fit"; every weapon in r104 and r107; r104 em13 loads; r100 s30 340/340 (heap_before 92,640 on
+the play fixture, 102,944 in the H2 run); chapter 1-3 to "Coming Soon"; r101 bell; 0 MISALIGN. Gates: H2 STRICT
+1450..1569 / ..740 / 1218.., decision_cmp MUST-IDENTICAL, bell STRICT, missing.txt empty.
+GDEMU tracks: disc.gdi 1bac5c9d, track01 fc82b979, track02 9c97e0db, track03 d366bfd3; copied to the SD card (folder
+152) and hash-checked there. Known: r104 and r107 have no room music (aica blk 3 does not fit; no ROOM_BGM0 entry in
+aica_banks.py); the rifle's weapon bank is 8 kHz (user 2026-10-06: keep). Release: the user publishes.
+
 ## 2026-10-06: r22d (console test disc, not released)
 
 r22d = r22c + the issue #1 fix: d72fd6a4 (recipe WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1, plus GAME_ROT_FSCA,

@@ -1,5 +1,14 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-06: r22e, the PS2 haze in the play recipe
+
+- User 2026-10-06 ("I really want the haze sorted out PS2 style"): EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2 in
+  build-r21.sh (no toggle). r100 s30 heap_before 102,944 with the r22e knobs (115,232 knobs off); the haze is ~12 KB.
+- r22e also carries WEAPON_HEAP4 + PRIM_CAP_R107 / WEAPON_HEAP4_TOP (issue #1 and the merchant weapons), the prepared
+  em13, PS2_INTERIOR_CULL and the prebuilt weapon sound banks. Gates and checks: D367_PLAY_BUILD_CHECKLIST.md "r22e".
+- Heap 4 at s30 is the tightest budget for r22f: crash screen ~8 KB, PS2_WORLD_DYNAMIC ~9 KB, PS2_INTERIOR_ACTORS=2
+  ~8 KB, each measured alone; gate the combined tree through s30, also with the scoped rifle armed.
+
 ## 2026-10-05: r22 test disc, the VMU GPU line and the round-2 experiments (local session)
 
 - **Lane ms (measurement; tools on local exp/ms-20261005 ffbc8ade + 72a474ec; evidence ms-20261005):** presets
