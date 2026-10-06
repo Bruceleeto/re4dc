@@ -26,9 +26,44 @@
   animations change skeletons every tick; crows never repeat). GAME_LQ_MEMO=1 (wallAdjust's second line query reuses
   the first when pos is bit-identical) is exact, -0.20..-0.27 per tick, gates pass; to land default off. Trap: the
   house look-freeze fixture changes when a build gets faster; compare against a timing control.
+  **Landed 2f13c092** (GAME_LQ_MEMO and EL_CENSUS, default 0; not in the recipe, off by policy).
 - **Lane iv Step 2: CROWD_INVIS_SKIP** (exp/iv-20261005, local): fight -2.19 hw ms per drawn tick (source-path body
   off screen); H2 STRICT, bell STRICT, =2 0 violations, 0 MISALIGN; TA streams equal except 2 of 2166 fight frames
   (CROWD_LOD near-rank bookkeeping): being made exact with a crowd_tier note hook before landing.
+  **Landed f58d93ea..5d5f8f6c** (ENC_CENSUS=2, CROWD_INVIS_SKIP + TA_HASH=2/3, tools/d367/iv; the final commits keep a
+  skipped Ganado's CROWD_LOD entry and skip only settled parts: TA streams identical). **CROWD_INVIS_SKIP=1 is in the
+  play recipe (user 2026-10-05)**, about -2.0 hw ms per drawn fight tick.
+- **Lane ph (PS2 haze / streak / near fade; landed 88f30aaf, knobs default 0).** Source: PS2 SLUS_211.34 r100.dat EFF
+  against GC r100_008.EFF (private notes /root/probe/lanes-20261005/ps2mist/NOTES.md). The DC "mist" is the camera
+  haze Esp 0x15 (tex 0x1f): GC r100 60 sprites, 1283 mm (~2.7 m steady), alpha 70, near fade 3.5 -> 1.0 m; PS2 11
+  sprites, 2000 mm (~4 m), alpha 34, near fade 3.0 -> 0.5 m; r101 GC 39 / alpha 25 vs PS2 8 / alpha 35; r103 PS2 11. The
+  PS2 removed every r100 mist sheet / puff and the house window streaks (Esp0a, the staircase glare), replacing the
+  stairs one with a static e9 light shaft; the cut is in the data (Espgen SetFreeWork copies num unclamped).
+  - **Fade-wrap bug (port):** ChannelSet's near-fade rate goes negative inside m_Del_near; the GC stores the u8 with
+    psq_st through GQR2 (saturating to 0), SH-4 ftrc + extu.b wrapped it to ~254, so sprites within ~1 m drew almost
+    opaque: the white upstairs-window glare. **EFFECT_FADE_CLAMP=1 is in the play recipe (user 2026-10-05).**
+  - In GC haze mode the native sprite queue's 64-sprite cap fills with haze (peak 54-58 haze sprites), dropping blood
+    and other late sprites; the PS2 haze leaves room.
+  - GPU proxy (lane ph tatab.json, model GPU ms per preset, GC / GC+clamp / PS2 haze / PS2 haze+streak): house outside
+    42.8 / 39.3 / 21.1 / 21.1; fight 53.2 / 52.3 / 24.5 / 24.5; shoot 59.1 / 57.7 / 33.2 / 33.2; call 12.6 (all);
+    stairs foot 17.3 / 17.3 / 17.3 / 13.4; stairs climb 52.9 / 42.7 / 42.7 / 19.0; stairs top 63.6 / 44.9 / 44.9 /
+    20.4; r101 square 16.1 / 16.0 / 10.4 / 10.4; **r103 14.1 / 11.3 / 16.7 / 16.7 (the PS2 haze is heavier in r103:
+    bigger, more opaque sprites).**
+  - EFFECT_PS2_HAZE=1, EFFECT_PS2_STREAK=1 (=2 draws the PS2 light shafts) wait for the user's look decision on the
+    console; **r22h** is a local test disc only (r22c content + EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2
+    EFFECT_FADE_CLAMP=1 EFFECT_PS2_TOGGLE=1, not released): hold **X + START** to step GC -> GF -> PH -> PS (the VMU
+    speed page names the look).
+- **Landing gates (el + iv + ph, recipe + CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1; clean builds, fresh objdirs,
+  missing.txt empty; evidence C:/Flycast-Evidence/re4-dreamcast/land-20261005):** knob-off image + overlay
+  byte-identical to 348bfd23 (SOURCE_DATE_EPOCH pinned) on the play image and the cost image. Knobs on vs the knob-off
+  control: H2 decision_cmp MUST-IDENTICAL (7012 ticks, drift 0), logic_trace_diff STRICT 1450..1569, ..740, 1218..
+  (whole room om-only, the known pointer-word noise); bell MUST-IDENTICAL + STRICT (4836 ticks); 0 MISALIGN
+  (interpreter + HWTRACE_ALIGN, r100-h-fight to frame 14100); play image New Game on newgame-r22c.json: intros 1971 /
+  2360, r100s40 1175, HALT 0, MISSING 0. hw ms drawn / skipped (pacing waits excluded, one run each, cost image) vs
+  4a5e5651: house 42.03 / 22.02 (42.50 / 21.95), fight 54.37 / 22.13 (57.54 / 21.96), square 70.69 / 25.04 (70.75 /
+  25.08). .text grows 10,176 bytes and now crosses one 8 KiB step (ends 0x8c242cb0 play, 0x8c242a90 cost; 4,944 / 5,488
+  bytes below the next step), so everything above .text moves by 8 KiB (layout drift in the totals); LINK_ORDER stays
+  r22-fsca-c3-8k.ld.
 - **2026-10-05: GAME_ROT_FSCA adopted (user: "SWITCH THIS ON").** GAME_ROT_FSCA=1 joins build-r21.sh's perf-lanes line,
   with LINK_ORDER regenerated for it: link-order/r22-fsca-c3-8k.ld (ordgen_c3.py `--skip-weight 1`, pacing waits
   excluded, over fm's knob-on cost runs hwmodel-fm-cRL-{hq,hf,sq}; the kernel takes pmc_sh4.o's old slot, so the

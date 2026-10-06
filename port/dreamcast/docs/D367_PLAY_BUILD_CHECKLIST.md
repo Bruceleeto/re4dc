@@ -1,5 +1,13 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-05: CROWD_INVIS_SKIP and EFFECT_FADE_CLAMP in the recipe (next play build)
+
+CROWD_INVIS_SKIP=1 (lane iv, render-only) and EFFECT_FADE_CLAMP=1 (lane ph, the near-fade wrap fix: no white
+upstairs-window glare) are in build-r21.sh (user approval 2026-10-05), so the next play build includes them, with the
+same play flags and fixture as r22c. EFFECT_PS2_HAZE / EFFECT_PS2_STREAK stay off: the haze look waits for the user's
+r22h console session (local test disc, X + START steps the looks). GAME_LQ_MEMO (lane el) stays off. Route doc lane
+ph / iv bullets.
+
 ## 2026-10-05: GAME_ROT_FSCA in the recipe (next play build)
 
 GAME_ROT_FSCA=1 (user approval 2026-10-05) and LINK_ORDER link-order/r22-fsca-c3-8k.ld are in build-r21.sh, so the next

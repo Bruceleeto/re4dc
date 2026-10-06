@@ -44,6 +44,11 @@
 # cModel::partsMatCalc (one hand-scheduled SH-4 loop), -1.18 hw ms per tick in the fight (function level, drawn and
 # skipped); decisions identical on H2, the bell and r100-h-fight. LINK_ORDER regenerated for it (r22-fsca-c3-8k.ld).
 # Route doc "2026-10-05: GAME_ROT_FSCA adopted" and docs/lanes/fm-20261005.md.
+# CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1 (user 2026-10-05; the last line of the list): lane iv, no drawing-side work for
+# a Ganado the next Render draws nothing of (render-only, TA streams identical, fight about -2.0 hw ms per drawn tick);
+# lane ph, port fix: the near-fade colour of an effect inside its near distance saturates to 0 as the GameCube's psq_st
+# (GQR2) does, instead of ftrc + extu.b wrapping to ~254 (sprites within ~1 m drew near-opaque: the white upstairs-window
+# glare). EFFECT_PS2_HAZE / EFFECT_PS2_STREAK wait for the user's r22h console look; GAME_LQ_MEMO (lane el) stays off.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -105,6 +110,7 @@ R21=(
   COARSE_SAT_SCENERY_ONLY=1 SS_BG_BLACK=1 PACE_VMU=1
   SKIN_PALETTE_LAZY=1 ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1 ACTOR_BIND_REUSE=1
   PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1 GAME_ROT_FSCA=1
+  CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
