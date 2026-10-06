@@ -5,7 +5,9 @@
 WEAPON_HEAP4=1 (issue #1 option 3) is in build-r21.sh: the r104 merchant's rifle, TMP and rocket launcher load into
 heap 4 instead of halting (about +0.3 s per door while held; heap 4 short reverts the equip). r107 keeps only
 ~100-109 KB of heap 4 with one held, and the scoped rifle reverts to the plain rifle there (route doc "WEAPON_HEAP4").
-The play fixtures' em/em13.drs never loads in r104 (route doc "Pre-existing r104 em13 read failure").
+The play fixtures' em/em13.drs never loads in r104 (route doc "Pre-existing r104 em13 read failure"); r22e on carries
+the native-scene lane's prepared em13 (6,829,984 B, MRAM 1,231,776 B). PRIM_CAP_R107=327680
+WEAPON_HEAP4_TOP=1 (recipe): the scoped rifle no longer reverts in r107 (360-367 KB heap 4 left).
 
 ## 2026-10-06: r22d (console test disc, not released)
 

@@ -120,7 +120,23 @@
   bell STRICT + MUST-IDENTICAL; 0 MISALIGN (interpreter, weapons in turn at r100 and the rifle door into r107);
   WEAPON_HEAP4_FAILTEST=1 (test only) reverts every oversize equip with no halt; recipe image New Game 1971 / 2360 /
   1175, HALT 0. The warp rig runs at most 8 `arm` lines.
-- **Pre-existing r104 em13 read failure (found 2026-10-06):** the play fixtures since r21l carry the r104 AICA
+- **PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1 in the play recipe (follow-up (b), 2026-10-06):** heap-4 census in
+  r107 (466,624 B free with the handgun, 64,096 B with the rifle; largest holders read.cpp 2.85 MB, native parts
+  1.86 MB, static packages 938 KB, the primitive buffer 589,888 B). PRIM_WATER (test only) measured the primitive
+  buffer's peak use per r107 frame at 269,824 B (game primitives ~20 KB, the native actor workspace tail 249,600 B),
+  so PRIM_CAP_R107 caps the room value 589,824 to 327,680; "tail declined" (the actor tail falling back to a smaller
+  workspace) stays 0 in every r107 run with and without the cap. WEAPON_HEAP4_TOP carves the heap-4 weapon body from
+  the top of the highest free cell (as room_alloc4_high), so the space a weapon change frees stays one piece.
+  **r107 heap-4 low-water with the scoped rifle (404,608 B): 360-367 KB, no revert** (every-weapon pass 367,200,
+  scoped rifle aimed and fired 360,736, door into r107 with it 363,296). Gates: H2 through s30 340/340 knob on and
+  off, heap_before 115,232 both, STRICT + MUST-IDENTICAL 7,019 ticks; bell and r107 STRICT + MUST-IDENTICAL, drift
+  0; s30 with the scoped rifle armed 340/340 (body lent, restored, heap_before 26,560); 0 MISALIGN (r107, door);
+  r107 frozen look (CROWD_FREEZE_AT=1200) pixel-identical knob on vs off. Knob-off image byte-identical; +160 B text.
+- **Known edge case: em2a with the scoped rifle in r100 (accepted 2026-10-06):** holding the scoped rifle in heap 4
+  through the r100 s20 ambush leaves 81,600 B of heap 4 free against the 276,064 B em2a.drs needs: "EmSetFromList2()
+  Em set failed, Id = 2a" (7 times), those ambush Ganados do not spawn. The normal route cannot return to r100 with
+  a merchant weapon, so only a warp or cheat reaches it.
+- **Pre-existing r104 em13 read failure (found 2026-10-06; fixed in the r22e fixture with the prepared em13):** the play fixtures since r21l carry the r104 AICA
   build's em/em13.drs (6,026,688 B, one 4,367,968 B MRAM part), which never fits heap 4: "DVD: Read Error :
   em/em13.drs", "EmSetFromList2() Em set failed, Id = 13" (7-19 times per r104 visit), so em13 enemies do not spawn
   in r104. Runs staged with the native-scene lane's prepared em13 (6,829,984 B, MRAM 1,231,776 B) load it once.

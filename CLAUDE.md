@@ -107,6 +107,8 @@ loads every texture package from one file (room entry 7.2 -> 3.1 s, east walk 6.
   (pack-fixture.sh replaced tex.pak): compare pack keys with the last good disc and boot the real disc before the SD.
 - 2026-10-06 WEAPON_HEAP4=1 in the recipe (issue #1 option 3): rifle / TMP / rocket launcher load into heap 4 (+0.3 s per door
   while held, equip reverts when heap 4 is short); r107 has ~100-109 KB heap 4 left with one held (scoped rifle reverts there).
+- 2026-10-06 PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1 in the recipe: scoped rifle fits in r107 with 360-367 KB heap 4 left (no revert);
+  em2a fails in the r100 ambush with the scoped rifle held (warp/cheat only, accepted); r22e fixture uses the prepared em13.
 - 2026-10-06 r22d (console test disc, not released): issue #1 fix landed (89035a54 + d72fd6a4, WEAPON_RESIDENT_BYTES=275424
   WEAPON_MODULES=1): shotgun / Punisher / grenades equip without halting; merchant rifle / rocket / TMP still halt, non-handgun weapons silent.
 - 2026-10-05 r22c = the play build (user released play-r22c-chapter-1-3-20261005): 2bb24730 + ROUTE_CH13=1 on the
