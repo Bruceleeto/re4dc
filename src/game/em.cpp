@@ -25,6 +25,9 @@
 #include "global.h"
 #include "db_log.h"
 #include "va_ppc.h"
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+#include "el_census.h"   // EL_CENSUS (game30.mk; lane el): the running enemy and its skeleton census
+#endif
 
 extern "C" {
 void RouteCk();                                     // route_ck.cpp
@@ -439,7 +442,16 @@ void emMove(cEm* em)
     em->plDist2 = dx * dx + dz * dz;
     em->l_sub = 1e16f;
     em->dmg.move();
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    re4dc_elc_em = em;
     em->move();
+    re4dc_elc_em = 0;
+    if ((em->be_flag & 0x201) == 1) {
+        elcEmAfterMove(em);
+    }
+#else
+    em->move();
+#endif
     if ((em->be_flag & 0x201) != 1) {
         return;
     }

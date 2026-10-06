@@ -14,6 +14,9 @@
 #include "dbmodule.h"
 #include "eprintf.h"
 #include "db_log.h"
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+#include "el_census.h"   // EL_CENSUS (game30.mk; lane el): caller context and getNearPoint census
+#endif
 
 // EMI entry as this unit draws it (embarrel.h has its own view of the same data).
 struct RckEmiEntry {
@@ -553,6 +556,9 @@ static int rckLineHitCheck(Vec* from, Vec* to, int attr, int flag)
     Vec pa;
     Vec pb;
     int mask;
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    ELC_RA(re4dc_elc_ra2);
+#endif
 
     pa = *from;
     pb = *to;
@@ -594,6 +600,19 @@ int getNearInfo(cEm* em, int mode, int mask)
 static unsigned long obNearChk[3];   // calls, insertions, mismatching calls
 extern "C" void re4dc_log(const char* fmt, ...);
 #endif
+#endif
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+// EL_CENSUS: every call goes through this wrapper (context + census); the body below is getNearPointCore.
+static s8 getNearPointCore(Vec* pos, int mode, int mask);
+s8 getNearPoint(Vec* pos, int mode, int mask)
+{
+    ELC_RA(re4dc_elc_ra3);
+    elcGnpBegin(pos, mode, mask, re4dc_elc_ra3);
+    const s8 r = getNearPointCore(pos, mode, mask);
+    elcGnpEnd(r);
+    return r;
+}
+#define getNearPoint getNearPointCore
 #endif
 s8 getNearPoint(Vec* pos, int mode, int mask)
 {
@@ -719,6 +738,9 @@ s8 getNearPoint(Vec* pos, int mode, int mask)
     }
     return -1;
 }
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+#undef getNearPoint
+#endif
 
 // Debug: draws every route point as a marker with its index, the links (blue, white when
 // two-way) and their direction arrows.

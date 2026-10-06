@@ -2212,6 +2212,33 @@ ENC_SKIP_GANADO ?= 0
 ifneq ($(ENC_SKIP_GANADO),0)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_ENC_SKIP_GANADO=1
 endif
+# EL_CENSUS=1 (diagnostic, default 0, lane el 2026-10-05; measurement builds only, read-only): el_census.cpp, the
+#              census that bounds exact reuse in the enemies' logic over global ticks EL_CENSUS_FROM..EL_CENSUS_TO
+#              (pG->Frame_cnt): line queries keyed by their complete inputs (repeats this tick / last tick / 2-8
+#              ticks back, outputs compared, work and candidate-polygon counters, by caller chain and enemy),
+#              getNearPoint repeats, unchanged skeletons after move(), redundant part-world passes. "ELC" log lines
+#              at the first hook after EL_CENSUS_TO. Hooks in atari.cpp, route_ck.cpp, em.cpp, model.cpp.
+EL_CENSUS ?= 0
+EL_CENSUS_FROM ?= 2300
+EL_CENSUS_TO ?= 2379
+ifneq ($(EL_CENSUS),0)
+PLATFORM_OBJS += $(OBJDIR)/el_census.o
+$(OBJDIR)/el_census.o: el_census.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_EL_CENSUS=1 -DRE4DC_EL_CENSUS_FROM=$(EL_CENSUS_FROM) -DRE4DC_EL_CENSUS_TO=$(EL_CENSUS_TO) -MMD -MP -c $< -o $@
+$(OBJDIR)/src/game/atari.o $(OBJDIR)/src/game/route_ck.o $(OBJDIR)/src/game/em.o $(OBJDIR)/src/game/model.o: GAME_CPPFLAGS += -DRE4DC_EL_CENSUS=1
+endif
+# GAME_LQ_MEMO=1 (lane el 2026-10-05; enemy logic, line queries; exact): cSatMgr::wallAdjust (atari.cpp) asks its
+#                line question twice around the sphere pass; when the first hit nothing and neither end moved since
+#                (bit for bit) the second gets that answer without a walk (fight / prejump: about 0.26 hw ms per
+#                tick). Trace builds give the first walk's decision notes again (logic_trace.cpp). =2: the second
+#                query always walks and the memo's answers are compared ("LQM pair= pairsame= pairmis=", must be 0).
+#                (A memo of the route line tests, rckLineHitCheck, was measured and dropped: its world check cost
+#                what its hits saved; docs/lanes/el-20261005.md.)
+GAME_LQ_MEMO ?= 0
+ifneq ($(GAME_LQ_MEMO),0)
+$(OBJDIR)/src/game/atari.o $(OBJDIR)/logic_trace.o: GAME_CPPFLAGS += -DRE4DC_LQ_MEMO=$(GAME_LQ_MEMO)
+endif
 
 # QUALITY_LOD_PX (default 5, the Standard RQ_LOD_COARSE threshold): the projected-pixel error Standard's mesh
 # LOD accepts (MESH_LOD_PX applies to Original only). Larger values are a visible change.

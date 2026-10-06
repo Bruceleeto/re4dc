@@ -168,8 +168,14 @@ extern "C" int re4dc_dt_window(void)
     return -1;
 }
 #endif
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+extern "C" void re4dc_lqm_note(unsigned kind, unsigned a, unsigned b);   // GAME_LQ_MEMO (atari.cpp): its recorder
+#endif
 extern "C" unsigned re4dc_dt_note(unsigned kind, unsigned a, unsigned b)
 {
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+    re4dc_lqm_note(kind, a, b);
+#endif
     if (re4dc_dt_snd) kind = 6;
     g_dt[kind & 7].word(a);
     g_dt[kind & 7].word(b);

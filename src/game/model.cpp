@@ -948,6 +948,9 @@ void pwckCheck(cModel* self)
 #endif
 }   // namespace
 #endif
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+#include "el_census.h"   // EL_CENSUS (game30.mk; lane el): the part-world pass census
+#endif
 void cModel::partsWorldCalc()
 {
     cParts* p;
@@ -956,6 +959,9 @@ void cModel::partsWorldCalc()
     Mtx m1;
     Mtx m2;
 
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    elcPartsWorld(this);
+#endif
     r_scale = scale;
     p = pList;
     if (!PTR_OK(p)) {

@@ -15,6 +15,9 @@
 #include "dbmodule.h"
 #include "main.h"
 #include "gx.h"
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+#include "el_census.h"   // EL_CENSUS (game30.mk; lane el): the line-query census hooks
+#endif
 
 #line 30 "D:/Bio4/Prog/atari.cpp"
 
@@ -49,6 +52,24 @@ extern u32 g_at2_total_cyc;
 u8 polyBit[0x400];
 // the piece the last hitCheck2 hit (hitCheck transforms the normal with its matrix)
 static cSat* pBypassAt;
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+// GAME_LQ_MEMO (game30.mk; lane el; exact): wallAdjust's repeated line query (the block at the end of this file).
+static int lqmVecSame(const Vec* a, const Vec* b);
+#if RE4DC_LQ_MEMO == 2
+static void lqmPairCount(int same, int mis);
+#endif
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+#define LQM_NOTES 10                  // decision notes a memo entry keeps (trace builds)
+#define LQM_NOTE_OVER 0xFFFFFFFFu
+struct LqmNotes {
+    u32 n;                            // words recorded (3 per note), LQM_NOTE_OVER when they did not fit
+    u32 w[3 * LQM_NOTES];
+};
+static void lqmNotesBegin(LqmNotes* r);
+static void lqmNotesEnd(LqmNotes* r);
+static void lqmNotesReplay(const LqmNotes* r);
+#endif
+#endif
 
 int atck(Vec* vec0, Vec* vec1, cAtariInfo* info, cModel* m, int flag);
 int blkPolySphereCk(cSat* sat, cSatBlock* blk, Vec* pos0, Vec* pos1, f32 r, int flag, Vec* nrm, int mask);
@@ -349,9 +370,28 @@ void cSatMgr::wallAdjust(Vec* nrm, Vec* oldPos, Vec* pos, f32 r, int flag, int m
     Vec n;
     Vec d;
     Vec p0;
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+    Vec lqP;          // the first line query's pos (its oldPos stays: see below)
+    int lqH;          // its answer
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+    LqmNotes lqN;
+#endif
+#endif
 
     if (flag & 1) {
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+        lqP = *pos;
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+        lqmNotesBegin(&lqN);
+#endif
+        lqH = hitCheck(oldPos, pos, &hit, &n, flag, mask);
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+        lqmNotesEnd(&lqN);
+#endif
+        if (lqH) {
+#else
         if (hitCheck(oldPos, pos, &hit, &n, flag, mask)) {
+#endif
             PSVECScale(&n, &tmp, r);
             PSVECAdd(&hit, &tmp, pos);
             if (nrm) {
@@ -372,7 +412,31 @@ void cSatMgr::wallAdjust(Vec* nrm, Vec* oldPos, Vec* pos, f32 r, int flag, int m
         polySphereCk(&p0, pos, r, flag | 0x80, nrm, mask);
     }
     if (flag & 1) {
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+        // GAME_LQ_MEMO: after a first query that hit nothing, with pos unmoved since (bit for bit), this query asks
+        // the same question. oldPos is the callers' own local (scrAtCheckSphere, scrAtCheckSphereAir; t_atari
+        // passes flag 0) that nothing here writes: hitCheck2 moves only pos1, and only on a hit; the sphere pass
+        // gets the copy p0 and writes no piece, flag, mask or seCk. It hits nothing again and writes only SEck
+        // (the same value) and hit (a dead local here).
+        int lqSame = lqH == 0 && lqmVecSame(pos, &lqP);
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+        lqSame = lqSame && lqN.n != LQM_NOTE_OVER;
+#endif
+#if RE4DC_LQ_MEMO == 2
+        const int lqR = hitCheck(oldPos, pos, &hit, &n, flag, mask);
+        lqmPairCount(lqSame, lqSame && lqR != 0);
+        if (lqR) {
+#else
+        if (lqSame) {
+            ((SEckView*) &SEck)->v = seCk;
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+            lqmNotesReplay(&lqN);
+#endif
+        } else if (hitCheck(oldPos, pos, &hit, &n, flag, mask)) {
+#endif
+#else
         if (hitCheck(oldPos, pos, &hit, &n, flag, mask)) {
+#endif
             PSVECScale(&n, &tmp, r);
             PSVECAdd(&hit, &tmp, pos);
             if (nrm) {
@@ -426,6 +490,9 @@ f32 cSatMgr::getFloor(Vec* pos, f32 up, f32 down, u32* attr, int flag)
     Vec top;
     Vec bottom;
     Vec hit;
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    ELC_RA(re4dc_elc_ra1);
+#endif
 
     if (pG->Debug_flg[1] & 0x10000000) {
         return 0.0f;
@@ -1263,6 +1330,9 @@ int cSatMgr::hitCheck(Vec* pos0, Vec* pos1, Vec* hit, Vec* nrm, int flag, int ma
 {
     u32 pn;
     int ret;
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    ELC_RA(re4dc_elc_ra1);
+#endif
 
 #if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE == 2
     if (re4dc_dt_window() >= 0) {
@@ -1535,6 +1605,9 @@ int cSatMgr::hitCheck2(Vec* pos0, Vec* pos1, Vec* hit, u32* attr, int flag, int 
     int ret = 0;
     u32 i;
 
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    elcQueryBegin(this, pos0, pos1, flag, mask, seCk, (u32) __builtin_return_address(0));
+#endif
     // stored through a struct view: keeps the `cur = *b` loads below the store like the original
     ((SEckView*) &SEck)->v = seCk;
     cur = *pos1;
@@ -1557,6 +1630,9 @@ int cSatMgr::hitCheck2(Vec* pos0, Vec* pos1, Vec* hit, u32* attr, int flag, int 
         if (sat->isAlive()) {
             cSatBlock* blk = sat->block_p;
             int r;
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+            ELC_W(ELC_W_ALIVE, 1);
+#endif
 #if defined(RE4DC_LINE_WALK) && RE4DC_LINE_WALK
 #if defined(RE4DC_LINE_PIECE) && RE4DC_LINE_PIECE
             cSatBlock* leaf[LNW_MAX];
@@ -1565,6 +1641,10 @@ int cSatMgr::hitCheck2(Vec* pos0, Vec* pos1, Vec* hit, u32* attr, int flag, int 
             if (nl == 0) {
                 continue;
             }
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+            ELC_W(ELC_W_WALKED, 1);
+            ELC_W(ELC_W_LEAVES, nl > 0 ? nl : 0);
+#endif
 #if defined(RE4DC_LINE_YROW) && RE4DC_LINE_YROW
             la.x = pq.lax;
             la.y = lyrRow1(sat->imat, pos0);
@@ -1691,6 +1771,9 @@ int cSatMgr::hitCheck2(Vec* pos0, Vec* pos1, Vec* hit, u32* attr, int flag, int 
         }
 #endif
     }
+#endif
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+    elcQueryEnd(ret, &cur, pn, pos1, pBypassAt);
 #endif
     return ret;
 }
@@ -1917,7 +2000,13 @@ static int lineLeaf(cSat* sat, u16* idx, int n, Vec* pos0, Vec* pos1, int flag, 
             polyBit[lk2c[j] >> 3] &= ~(1 << (lk2c[j] & 7));
         }
 #endif
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+        elcLeafPolys(sat, idx, c, pos0, pos1, polyBit);
+#endif
         const int k = re4dc_line_leaf2(&q, idx, c, surv);
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+        ELC_W(ELC_W_SURV, k);
+#endif
 #if RE4DC_LINE_LEAF2 == 2
         {
             int m = k != lk2k;
@@ -1984,7 +2073,13 @@ static int lineLeaf(cSat* sat, u16* idx, int n, Vec* pos0, Vec* pos1, int flag, 
             const u32 attr = At_poly_line_ck((AtPolyData*) sat, &h, poly, pos0, pos1, flag, mask);
 #endif
             if (attr) {
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+                ELC_W(ELC_W_HITS, 1);
+#endif
                 if (GetDistance(pos0, &h) < GetDistance(pos0, hit)) {
+#if defined(RE4DC_EL_CENSUS) && RE4DC_EL_CENSUS
+                    ELC_W(ELC_W_TAKEN, 1);
+#endif
                     *hit = h;
                     ret = attr;
                     if (pn) {
@@ -2798,3 +2893,71 @@ void at_pos_calc(cModel* m, Vec* vec)
 
 cSatMgr SatMgr;
 cEatMgr EatMgr;
+
+#if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
+// GAME_LQ_MEMO (game30.mk; lane el 2026-10-05; enemy logic, line queries; exact): wallAdjust (above) asks its line
+// question twice, around the sphere pass. When the first query hit nothing and neither end has moved since (bit for
+// bit), the second is the same question about the same pieces (the sphere pass writes no piece, flag, mask or seCk)
+// and gets the same answer, nothing, without a walk; it then writes what that walk writes that anyone reads: SEck.
+// Trace builds record the first walk's decision notes (logic_trace.cpp re4dc_dt_note -> re4dc_lqm_note) and give
+// them again for the second, so the LX hashes and counts stay those of two walks; when the notes do not fit
+// (LQM_NOTES) the second query walks.
+// =2 (check build): the second query always walks; "LQM pair= pairsame= pairmis=" counts the queries, those the memo
+// would have answered and the answers that differed from the walk's (must be 0).
+extern "C" void re4dc_log(const char* fmt, ...);
+
+static int lqmVecSame(const Vec* a, const Vec* b)
+{
+    const u32* x = (const u32*) a;
+    const u32* y = (const u32*) b;
+    return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+}
+
+#if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
+static LqmNotes* lqmRec;      // the recording in progress (wallAdjust's first query)
+extern "C" void re4dc_lqm_note(unsigned kind, unsigned a, unsigned b)
+{
+    LqmNotes* r = lqmRec;
+    if (!r || r->n == LQM_NOTE_OVER) {
+        return;
+    }
+    if (r->n + 3 > 3 * LQM_NOTES) {
+        r->n = LQM_NOTE_OVER;
+        return;
+    }
+    r->w[r->n] = kind;
+    r->w[r->n + 1] = a;
+    r->w[r->n + 2] = b;
+    r->n += 3;
+}
+static void lqmNotesBegin(LqmNotes* r)
+{
+    r->n = 0;
+    lqmRec = r;
+}
+static void lqmNotesEnd(LqmNotes* r)
+{
+    (void) r;
+    lqmRec = 0;
+}
+static void lqmNotesReplay(const LqmNotes* r)
+{
+    for (u32 i = 0; i < r->n; i += 3) {
+        re4dc_dt_note(r->w[i], r->w[i + 1], r->w[i + 2]);
+    }
+}
+#endif
+
+#if RE4DC_LQ_MEMO == 2
+static u32 lqmPairN, lqmPairHit, lqmPairMis;
+static void lqmPairCount(int same, int mis)
+{
+    lqmPairN++;
+    lqmPairHit += same != 0;
+    lqmPairMis += mis != 0;
+    if ((lqmPairN & 0x3FFF) == 0) {
+        re4dc_log("LQM pair=%u pairsame=%u pairmis=%u\n", lqmPairN, lqmPairHit, lqmPairMis);
+    }
+}
+#endif
+#endif
