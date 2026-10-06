@@ -49,6 +49,12 @@
 # lane ph, port fix: the near-fade colour of an effect inside its near distance saturates to 0 as the GameCube's psq_st
 # (GQR2) does, instead of ftrc + extu.b wrapping to ~254 (sprites within ~1 m drew near-opaque: the white upstairs-window
 # glare). EFFECT_PS2_HAZE / EFFECT_PS2_STREAK wait for the user's r22h console look; GAME_LQ_MEMO (lane el) stays off.
+# WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1 (issue lamb2k/re4dc#1, r22c console halt 2026-10-05: equipping the
+# r101 shotgun and leaving the inventory halted "asset exceeds selected resident budget": the 247,776 B weapon block
+# held only the compact handgun, and only wep02 was a linked module). 275,424 B = wep07, the largest chapter 1-1
+# weapon (Punisher 261,344; Red9 uses wep02; grenades 173,408). Heap 4 span -67 KB; r100 s30 still plays. The full
+# stage-1 value 404,608 (rifle + the r104 scope; rocket 382,688, TMP + stock 299,200, TMP 289,248) made the r100 s30
+# movie fail for heap 4: those r104 merchant weapons still halt (open decision).
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -95,7 +101,7 @@ R21=(
   SOUND_REGION_BYTES=0x60000 SS_POOL_HIGH=1 SS_UI_ORDER=1 SUBSCREEN=1 SUBSCREEN_OVL=1
   TARGET=$OUT/re4dc-game.elf TA_DIRECT=1 TA_DOUBLEBUF=1 TA_VERTBUF_KB=2048 TEX_RESIDENT=1 TREE_IMPOSTOR=1
   UI_FRAG_LATCH=1 UI_HANDLES=1 UI_HEADERS=1 UI_HEAP_LAZY=30 UI_OVERLAY_SLAB_KB=24 UI_PALETTE_SLOTS=32
-  UI_QUAD_LEAN=1 UI_VRAM=1 VMU_DEBUG_SLOT=1 VMU_DIALOG=1 VMU_SAVE=1 VRAM_PAGES=1 WEAPON_RESIDENT_BYTES=247776
+  UI_QUAD_LEAN=1 UI_VRAM=1 VMU_DEBUG_SLOT=1 VMU_DIALOG=1 VMU_SAVE=1 VRAM_PAGES=1 WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1
   ACTOR_TRANSACTION_DIAG=1 MOTION_PRESSURE_BYTES=262144 MOTION_OOM_EVICT=1 MOTION_RESERVE=1
   MOTION_RESERVE_SPILL=524288 COARSE_FX_SPRITES=2 COARSE_SCENERY_FALLBACK=1 AVK_RIGID6=1 GAME_WPAL_FAST=3
   GAME_SK1_ASM=1 ACTOR_STATS_LEAN=1 PS2_WORLD_DRAW=1 TA_GUARD=0 PS2_WORLD_KERNEL=0 PS2_WORLD_MESH=1
