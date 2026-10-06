@@ -447,7 +447,9 @@ seconds after boot, instead of a whole title -> intro -> r100 walk.
   `act` also takes a raw GameCube button mask (`0x0020` = R, which the rig also gives the analog trigger the aim
   reads; `0x0120` = R + A, fire), and `arm <room frame> <item id>` (up to 8, first room) arms that weapon
   (ItemMgr.debugWeapon) and reloads it as SubScreenExit does when a new weapon is equipped in the inventory
-  (SndBlkStop(2), weaponRelease / weaponLoad / weaponInit), logging `warp: arm item 0x2c ... loaded`.
+  (SndBlkStop(2), weaponRelease / weaponLoad / weaponInit), logging `warp: arm item 0x2c ... loaded`. `census <room frame>` (up to 6, first room) logs heap 4's occupancy by allocation tag
+  and its free cells (`warp: census ...`); PRIM_WATER=1 (test build) logs each room's peak primitive-buffer use
+  per frame (`prim water: ...`).
 - **What it does:** once the title data is loaded, the title, picker and menus are skipped and
   titleExit takes the debug-start path (config.txt [STAGE]/[ROOM] + START) with the warp room, so
   the room loads through the game's own new-game and room-load code. Quality comes from RE4DCCFG /

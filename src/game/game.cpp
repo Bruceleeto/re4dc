@@ -551,6 +551,13 @@ void gameRoomInit()
     } else {
         pG->nPrim = ConsGetRoomValue(8);
     }
+#if defined(RE4DC_PRIM_CAP_R107) && RE4DC_PRIM_CAP_R107
+    // PRIM_CAP_R107 (heap 4 for r107, issue #1 follow-up): r107's room value asks 589,824 B; a frame there takes at
+    // most ~270 KB (~20 KB primitives, the rest the native actor workspace tail, which declines to smaller sizes).
+    if (pG->room_id == 0x107 && pG->nPrim > RE4DC_PRIM_CAP_R107) {
+        pG->nPrim = RE4DC_PRIM_CAP_R107;
+    }
+#endif
     primInit();
     {
         Vec pos;

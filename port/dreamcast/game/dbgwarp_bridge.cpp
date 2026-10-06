@@ -57,6 +57,7 @@
 #include "em.h"
 #include "em_sub.h"
 #include "item.h"
+#include "main_mem.h"
 #include "snd.h"
 #include "re4dc_platform.h"
 #include <string.h>
@@ -111,6 +112,10 @@ struct Warp {
     // weaponRelease / weaponLoad / weaponInit: ReadWepData's DVD read, as on the inventory exit).
     struct ArmItem { u32 frame; u16 id; bool done; } arm[8];
     unsigned n_arm;
+    // census <room frame>: heap 4 occupancy by allocation tag and its free cells, once at that frame (test only).
+    u32 census[6];
+    bool census_done[6];
+    unsigned n_census;
     bool act_source_clock;  // opt-in fixture holds count source pad ticks, not wall-time stalls
     u8 parse_entry, max_entry;  // `entry <n>`: the room entry later act / goto lines belong to (1 = first room)
 #if RE4DC_WARP_JUMP
@@ -232,6 +237,9 @@ void load()
             else if (!strcmp(b, "fwd")) a.stick = 80;
             else if (!strcmp(b, "back")) a.stick = -80;
             else if (b[0] == '0' && b[1] == 'x') a.buttons = (u16) num(b);  // a raw button mask (R 0x0020 + A: 0x0120)
+        } else if (!strcmp(k, "census") && n >= 2 && wp.n_census < 6) {
+            wp.census_done[wp.n_census] = false;
+            wp.census[wp.n_census++] = num(tok[1]);
         } else if (!strcmp(k, "arm") && n >= 3 && wp.n_arm < 8) {
             Warp::ArmItem& a = wp.arm[wp.n_arm++];
             a.frame = num(tok[1]);
@@ -387,6 +395,43 @@ void kill_poll()
 
 // `goto`: in the first room, at or after its room frame and outside events (Status_flg[1]
 // 0x10000000), Leon is moved to the position (an area's trigger then fires as when he walks in).
+// census <frame> (test only): heap 4 cells in address order grouped by their "\0MAD" + file(line) tag (line
+// dropped), the free cells from the OSAlloc descriptor (total, largest, count), and the untagged allocated rest.
+static void warp_heap4_census(unsigned frame)
+{
+    struct Row { char tag[28]; unsigned bytes, count; } rows[48];
+    unsigned n = 0, untagged = 0, untagged_cells = 0, freeb = 0, freen = 0, largest = 0;
+    if (!memCheckHeapActive(4) || Heap[4].handle < 0) return;
+    const OSHeapDescriptor* d = reinterpret_cast<const OSHeapDescriptor*>((u32(re4dc_mem.heap) + 0x1FU) & ~0x1FU) + Heap[4].handle;
+    for (const OSHeapCell* f = d->free; f; f = f->next) {
+        freeb += (unsigned) f->size; ++freen;
+        if ((unsigned) f->size > largest) largest = (unsigned) f->size;
+    }
+    for (const OSHeapCell* c = d->allocated; c; c = c->next) {
+        const int size = c->size;
+        const unsigned char* t = reinterpret_cast<const unsigned char*>(c) + size - 0x20;
+        if (size >= 0x40 && !t[0] && t[1] == 'M' && t[2] == 'A' && t[3] == 'D') {
+            char tag[28];
+            unsigned k = 0;
+            const char* src = reinterpret_cast<const char*>(t + 4);
+            while (k + 1 < sizeof(tag) && src[k] && src[k] != '(') { tag[k] = src[k]; ++k; }
+            tag[k] = 0;
+            unsigned r = 0;
+            while (r < n && strcmp(rows[r].tag, tag)) ++r;
+            if (r == n && n < 48) { memcpy(rows[n].tag, tag, sizeof(tag)); rows[n].bytes = 0; rows[n].count = 0; ++n; }
+            if (r < n) { rows[r].bytes += (unsigned) size; ++rows[r].count; continue; }
+        }
+        untagged += (unsigned) size; ++untagged_cells;
+    }
+    for (unsigned i = 0; i < n; ++i)
+        for (unsigned j = i + 1; j < n; ++j)
+            if (rows[j].bytes > rows[i].bytes) { Row x = rows[i]; rows[i] = rows[j]; rows[j] = x; }
+    re4dc_log("warp: census room %03x frame %u span=%u free=%u in %u cells largest=%u untagged=%u x%u tags=%u\n",
+              (unsigned) pG->room_id, frame, (unsigned) (Heap[4].end - Heap[4].start), freeb, freen, largest, untagged,
+              untagged_cells, n);
+    for (unsigned i = 0; i < n; ++i) re4dc_log("warp: census %8u B x%-4u %s\n", rows[i].bytes, rows[i].count, rows[i].tag);
+}
+
 void goto_poll()
 {
     for (unsigned i = 0; i < wp.n_go; ++i) {
@@ -577,6 +622,12 @@ void re4dc_warp_poll(void)
         return;
     }
     goto_poll();
+    for (unsigned i = 0; i < wp.n_census; ++i) {
+        if (!wp.census_done[i] && wp.room_frames >= wp.census[i]) {
+            wp.census_done[i] = true;
+            warp_heap4_census((unsigned) wp.room_frames);
+        }
+    }
     for (unsigned i = 0; i < wp.n_arm; ++i) {
         Warp::ArmItem& a = wp.arm[i];
         if (a.done || wp.room_frames < a.frame) continue;

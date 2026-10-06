@@ -88,6 +88,9 @@ endif
 # returns it after the movie. WEAPON_HEAP4_FAILTEST=1 (test only): every heap-4 weapon allocation fails.
 WEAPON_HEAP4 ?= 0
 WEAPON_HEAP4_FAILTEST ?= 0
+# WEAPON_HEAP4_TOP=1 (with WEAPON_HEAP4): the body goes to the top of the highest free heap-4 cell that fits, so a
+# weapon change in a full room (r107: rifle -> scoped rifle) finds the space it freed in one piece.
+WEAPON_HEAP4_TOP ?= 0
 ifneq ($(WEAPON_HEAP4),0)
 ifneq ($(WEAPON_HEAP4),1)
 $(error WEAPON_HEAP4 must be 0 or 1)
@@ -96,9 +99,22 @@ WEAPON_HEAP4_OBJS := $(OBJDIR)/src/game/read.o $(OBJDIR)/src/game/pl_wep.o $(OBJ
     $(OBJDIR)/src/game/game.o $(OBJDIR)/route_movie_bridge.o
 $(WEAPON_HEAP4_OBJS): GAME_CPPFLAGS += -DRE4DC_WEAPON_HEAP4=1
 $(OBJDIR)/route_movie_bridge.o $(OBJDIR)/platform/dvd.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_WEAPON_HEAP4=1
+ifeq ($(WEAPON_HEAP4_TOP),1)
+$(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_WEAPON_HEAP4_TOP=1
+endif
 ifeq ($(WEAPON_HEAP4_FAILTEST),1)
 $(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_WEAPON_HEAP4_FAILTEST=1
 endif
+endif
+# PRIM_CAP_R107=<bytes> (default 0: no effect): caps r107's primitive buffer (room value 589,824 B) to free heap 4
+# there (the scoped rifle body, WEAPON_HEAP4); measured peak use per frame ~270 KB (PRIM_WATER).
+PRIM_CAP_R107 ?= 0
+ifneq ($(PRIM_CAP_R107),0)
+$(OBJDIR)/src/game/game.o: GAME_CPPFLAGS += -DRE4DC_PRIM_CAP_R107=$(PRIM_CAP_R107)
+endif
+# PRIM_WATER=1 (test only): per-room peak primitive-buffer bytes per frame ("prim water:" lines, trans.cpp).
+ifeq ($(PRIM_WATER),1)
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PRIM_WATER=1
 endif
 # WORLD_STAGE_MODULES=1 (world coverage lane, default 0: no effect): also link the stage modules st2_0 (r200..r203,
 # r207, r208, r210, r222) and st4_0 (the St4 rooms) so those rooms can be entered for native world coverage tests

@@ -898,6 +898,52 @@ static u8 wepMovieReleased;
 int re4dc_wep_heap4_failed;
 int re4dc_wep_reverted;
 
+#if RE4DC_WEAPON_HEAP4_TOP
+// WEAPON_HEAP4_TOP: OSAllocFromHeap is first fit and hands out the low part of a cell. The body is carved from the top
+// of the highest free heap-4 cell that fits instead (as ui_bridge.cpp room_alloc4_high does for native packages), as a
+// plain OSAlloc cell on the allocated list, so OSFreeToHeap returns it. Room allocations made while it is held come
+// from below, and the space it frees on a weapon change stays one piece with the cell's free rest.
+static void* wepHeap4AllocTop(u32 need)
+{
+    OSHeapDescriptor* d = (OSHeapDescriptor*) ((re4dc_mem.heap + 0x1FU) & ~0x1FU) + Heap[4].handle;
+    const s32 size = (s32) (((need + 0x1FU) & ~0x1FU) + 0x20U);
+    OSHeapCell* best = 0;
+    OSHeapCell* c;
+    OSHeapCell* cell;
+
+    for (c = d->free; c; c = c->next) {
+        if (c->size >= size) {
+            best = c;  // address order: the last fit is the highest
+        }
+    }
+    if (best == 0) {
+        return 0;
+    }
+    if (best->size - size < 0x40) {
+        if (best->prev) {
+            best->prev->next = best->next;
+        } else {
+            d->free = best->next;
+        }
+        if (best->next) {
+            best->next->prev = best->prev;
+        }
+        cell = best;
+    } else {
+        best->size -= size;
+        cell = (OSHeapCell*) ((u8*) best + best->size);
+        cell->size = size;
+    }
+    cell->prev = 0;
+    cell->next = d->allocated;
+    if (cell->next) {
+        cell->next->prev = cell;
+    }
+    d->allocated = cell;
+    return (u8*) cell + 0x20;
+}
+#endif
+
 static void* wepHeap4Alloc(u32 need)
 {
     void* p = 0;
@@ -907,6 +953,10 @@ static void* wepHeap4Alloc(u32 need)
     if (!memCheckHeapActive(4) || Heap[4].handle < 0) {
         return 0;
     }
+#if RE4DC_WEAPON_HEAP4_TOP
+    p = wepHeap4AllocTop(need);
+    if (p == 0)
+#endif
     p = mem_alloc(need, 0, 0, 1, 4);
     while (p == 0 && re4dc_motion_evict_one()) {
         evicted++;

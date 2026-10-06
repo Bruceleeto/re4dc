@@ -4498,6 +4498,33 @@ static void alphaSetup(cModel* m, ModelPart* part, cModelInfo* info, int thermo)
 
 // Frame start: flips the double-buffered primitive / vertex buffer (vtx_buf_no) and resets the
 // allocation pointer.
+#if RE4DC_PRIM_WATER
+// PRIM_WATER (test only): the bytes each frame took from the primitive buffer, peak per room.
+extern "C" void re4dc_log(const char* fmt, ...);
+static u32 primw_room, primw_peak, primw_tail, primw_tail_peak, primw_frames, primw_cap, primw_declined;
+static u8* primw_start;
+static void primWaterFrame()
+{
+    GxWork* g = GXWORK();
+    if (primw_start && g->prim >= primw_start) {
+        const u32 used = (u32) (g->prim - primw_start);
+        if (used > primw_peak) primw_peak = used;
+        if (primw_tail > primw_tail_peak) primw_tail_peak = primw_tail;
+    }
+    primw_tail = 0;
+    if (primw_room != (u32) pG->room_id || primw_cap != (u32) pG->nPrim || (++primw_frames % 300) == 0) {
+        if (primw_room) {
+            re4dc_log("prim water: room %03x cap %u peak %u (actor tail peak %u) frames %u tail declined %u\n", primw_room,
+                      primw_cap, primw_peak, primw_tail_peak, primw_frames, primw_declined);
+        }
+        if (primw_room != (u32) pG->room_id || primw_cap != (u32) pG->nPrim) {
+            primw_peak = primw_tail_peak = primw_frames = primw_declined = 0;
+        }
+        primw_room = pG->room_id;
+        primw_cap = pG->nPrim;
+    }
+}
+#endif
 void SetPrimBuffPtr()
 {
 #if RE4DC_COARSE_SOURCE_ACTORS
@@ -4508,6 +4535,9 @@ void SetPrimBuffPtr()
     if (pG->prim_cnt == 0) {
         return;
     }
+#if RE4DC_PRIM_WATER
+    primWaterFrame();
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PRIMITIVE_BUFFERS == 1
     // Render() has consumed the old OT and its source arrays synchronously.
     // Preserve the full per-frame capacity; reuse only the dead frame's bytes.
@@ -4516,6 +4546,9 @@ void SetPrimBuffPtr()
     U32Set(pG->vtx_buf_no, pG->vtx_buf_no ^ 1);
 #endif
     gx->prim = (u8*) pG->prim_cnt + pG->nPrim * pG->vtx_buf_no;
+#if RE4DC_PRIM_WATER
+    primw_start = gx->prim;
+#endif
 }
 
 // Allocates `size` bytes (32-byte aligned) from this frame's primitive buffer; 0 when exhausted.
@@ -4558,8 +4591,14 @@ extern "C" void* re4dc_prim_tail(unsigned bytes, unsigned reserve)
     u8* limit = base + pG->nPrim * (pG->vtx_buf_no + 1);
     u32 size = (bytes + 0x1F) / 32 * 32;
     if (gx->prim + size + reserve > limit) {
+#if RE4DC_PRIM_WATER
+        ++primw_declined;
+#endif
         return 0;
     }
+#if RE4DC_PRIM_WATER
+    primw_tail += size;
+#endif
     return GetPrimBuff(size);
 }
 #endif
