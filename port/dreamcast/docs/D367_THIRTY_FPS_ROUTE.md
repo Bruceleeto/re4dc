@@ -53,14 +53,16 @@
     console; **r22h** is a local test disc only (r22c content + EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2
     EFFECT_FADE_CLAMP=1 EFFECT_PS2_TOGGLE=1, not released): hold **X + START** to step GC -> GF -> PH -> PS (the VMU
     speed page names the look).
-- **Lane pc: PS2_INTERIOR_CULL + PS2_INTERIOR_ACTORS (landed default off 2026-10-06; render-only).** An offline r100
-  house cell (170 sub-cells, 1186 portals, tools/d367/ps2world/interior) culls the outdoor PS2 world and the source-path
-  Ganados (via CROWD_INVIS_SKIP) hidden behind the house walls; the cell is set up once per frame. hw ms per drawn tick
-  on the landed tree: stair foot -7.56, h-quiet +0.76 (+0.31 cell tests with nothing culled), fight +0.48, square +0.92
-  (inactive there: ps2_pass +0.12 plus layout drift). **Not in the recipe:** the cell costs 47,200 B static (portals
-  28.5 KB, cells 4.7 KB, two 2.6 KB State blocks, 5.5 KB code), taken from heap 4; with the knobs on the r100 s30 movie
-  fails (terminal=3, 0/340, heap_before 78,368) and H2 diverges at the skipped movie. Next: the tables and State become an
-  r100-only heap-4 allocation loaded from disc and lent to route movies. docs/lanes/pc-20261005.md.
+- **Lane pc: PS2_INTERIOR_CULL + PS2_INTERIOR_ACTORS (in the play recipe, coordinator 2026-10-06; render-only).** An
+  offline r100 house cell (170 sub-cells, 1186 portals, tools/d367/ps2world/interior) culls the outdoor PS2 world and
+  the source-path Ganados (via CROWD_INVIS_SKIP) hidden behind the house walls. First landed default off: the tables in
+  the image cost 47,200 B of heap 4 and the r100 s30 movie failed (0/340). Now the tables are the disc file
+  dc/native/r100/interior.cell (interior-r100.cell, cell_file.py), read into one r100-only heap-4 block (38,440 B with
+  both frustum arrays) when the r100 package opens; every route movie borrows it (native_movie.cpp open, before
+  heap_before) and route_movie_bridge.cpp reads it again; no block = no cull. Static cost 9,056 B. Landed-tree gates (584f28f7, recipe incl. WEAPON_HEAP4=1, fixtures with interior.cell, vs 87979611 knobs off): H2 STRICT 1450..1569 / ..740 / 1218.., whole room om-only, decision_cmp MUST-IDENTICAL; r100 s30 340/340, heap_before 115,232 (= knobs off); bell STRICT + MUST-IDENTICAL; =2 walk only the known crack; 0 MISALIGN; New Game 1971 / 2360 / 1175, HALT 0, MISSING 0; missing.txt empty. hw ms drawn (knobs off -> on): stair foot 63.19 -> 54.63, h-quiet 80.29 -> 80.06, fight 93.27 -> 92.08, square 73.53 -> 72.55.
+  Follow-ups: h-quiet's camera is inside the house, its cell tests cost +0.42 hw ms with nothing culled (eval's
+  all-direction hidden share cannot tell it from the stair foot: 27% vs 26%); a runtime adaptive skip (no hidden
+  placement for N frames -> skip tests for M frames) would fix it; owner-path actors. docs/lanes/pc-20261005.md.
 - **Heap-4 gate (coordinator 2026-10-06): every landing that grows .text, .rodata or .bss, or uses more heap 4, runs H2 through r100 s30 with its knobs on, confirms s30 plays 340/340 and reports heap_before at s30; the New Game gate stops before s30 and does not count.**
 - **Landing gates (el + iv + ph, recipe + CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1; clean builds, fresh objdirs,
   missing.txt empty; evidence C:/Flycast-Evidence/re4-dreamcast/land-20261005):** knob-off image + overlay

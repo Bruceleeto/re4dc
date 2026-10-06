@@ -19,11 +19,16 @@ with no halt; chapter 1-3 to "Coming Soon" at r10b; r101 bell HALT 0; 0 MISALIGN
 (Play-r22d.cmd); not on the SD card, not released. Known: the r104 merchant's rifle, rocket launcher and TMP still halt
 when bought; non-handgun weapons are silent (route doc "Issue lamb2k/re4dc#1").
 
-## 2026-10-06: PS2_INTERIOR_CULL and PS2_INTERIOR_ACTORS NOT in the recipe (heap-4 gate)
+## 2026-10-06: PS2_INTERIOR_CULL and PS2_INTERIOR_ACTORS in the recipe (next play build): stage interior.cell
 
-The lane pc knobs landed default off; they are not in build-r21.sh (412c45f9 reverted): with them on, the cell's 47 KB
-static cost in heap 4 made the r100 s30 movie fail (0/340). The next play build is unchanged by lane pc.
-Heap-4 gate (coordinator 2026-10-06): every landing that grows .text, .rodata or .bss, or uses more heap 4, runs H2 through r100 s30 with its knobs on, confirms s30 plays 340/340 and reports heap_before at s30; the New Game gate stops before s30 and does not count.
+PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1 (lane pc, render-only) are in build-r21.sh. **The play fixture must stage
+dc/native/r100/interior.cell** (tools/d367/ps2world/interior/interior-r100.cell): pack-fixture.sh adds it to any fixture
+that stages the r100 PS2 world; for an existing fixture run `tools/d367/ps2world/interior/add_cell.py <fixture.json>
+<out.json>` (e.g. title-r22d-candidate-pak.json). Without the file the game runs but does not cull ("PCCULL cell file
+missing" in the log). Check in the log: "PCCULL cell file loaded", "cell lent to a movie" at each route movie, r100 s30
+340/340. Heap-4 gate (coordinator 2026-10-06): every landing that grows .text, .rodata or .bss, or uses more heap 4,
+runs H2 through r100 s30 with its knobs on, confirms s30 plays 340/340 and reports heap_before at s30; the New Game
+gate stops before s30 and does not count.
 
 ## 2026-10-05: CROWD_INVIS_SKIP and EFFECT_FADE_CLAMP in the recipe (next play build)
 
