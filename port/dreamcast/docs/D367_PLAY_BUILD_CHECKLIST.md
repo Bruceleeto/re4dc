@@ -1,5 +1,12 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-06: WEAPON_HEAP4 in the recipe (next play build)
+
+WEAPON_HEAP4=1 (issue #1 option 3) is in build-r21.sh: the r104 merchant's rifle, TMP and rocket launcher load into
+heap 4 instead of halting (about +0.3 s per door while held; heap 4 short reverts the equip). r107 keeps only
+~100-109 KB of heap 4 with one held, and the scoped rifle reverts to the plain rifle there (route doc "WEAPON_HEAP4").
+The play fixtures' em/em13.drs never loads in r104 (route doc "Pre-existing r104 em13 read failure").
+
 ## 2026-10-06: r22d (console test disc, not released)
 
 r22d = r22c + the issue #1 fix: d72fd6a4 (recipe WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1, plus GAME_ROT_FSCA,

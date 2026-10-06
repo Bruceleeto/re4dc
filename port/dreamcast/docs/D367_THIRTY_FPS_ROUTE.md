@@ -97,6 +97,28 @@
   370-520 m out pass the game's 10 km far test; camera-straddling ones: no near plane). Step 2 (CROWD_INVIS_SKIP:
   decide in ModelTrans after the game's view test; fog depth, bone balls + near plane, mesh bound for source-path
   actors; =2 asserts 0 triangles) re-scoped to the fight, bar -1.0 hw ms drawn at function level, logic STRICT.
+- **WEAPON_HEAP4=1 in the play recipe (issue lamb2k/re4dc#1 option 3, coordinator decision (a) 2026-10-06):** a
+  weapon body whose MRAM parts exceed the 275,424 B resident block (the r104 merchant's rifle 398,144 / with scope
+  404,608, rocket launcher 382,688, TMP 289,248 / with stock 299,200) is read into heap 4, the room heap, as Krauser's
+  body goes to Game.pWepBuf (ReadWepData sums the DRS header's type-0 parts, as cDvdQueue sizes an allocated
+  destination); bodies that fit keep the resident block. gameRoomMemInit releases the heap-4 body and the next room's
+  player constructor reads it again: **about +0.3 s per door** while one is held (13,496 vs 13,179 ms, r104 -> r107).
+  Heap 4 short after one motion-key eviction pass: the equip is **reverted** to the previously loaded weapon's
+  inventory slot (or bare hands) with pArm / m_wep_id / weapon_no / weapon_type / bullet_type set to match ("weapon
+  heap4 alloc failed"); a route movie short of heap 4 borrows the body and gets it back after the movie (r100 s30
+  with the scoped rifle armed: 340/340, rifle restored). **Heap-4 low-water with an oversize body held:** r100 745 KB
+  (largest 400 KB), r101 569 KB, r104 ~3.2 MB, **r107 only ~100-109 KB** (508 KB with the handgun), and in r107
+  **the scoped rifle (404,608) reverts to the plain rifle** when heap 4 is short (seen in every r107 weapon pass).
+  Follow-up (b): free heap 4 in r107 so the scoped rifle fits with >= 300 KB left. Gates (knob on vs off, clean
+  builds, missing.txt empty): knob-off image byte-identical to adecf770; every stage-1 weapon in turn in r100 / r101
+  / r104 / r107, HALT 0; H2 STRICT 1450..1569, ..740, 1218.. and decision_cmp MUST-IDENTICAL (om pointer noise only);
+  bell STRICT + MUST-IDENTICAL; 0 MISALIGN (interpreter, weapons in turn at r100 and the rifle door into r107);
+  WEAPON_HEAP4_FAILTEST=1 (test only) reverts every oversize equip with no halt; recipe image New Game 1971 / 2360 /
+  1175, HALT 0. The warp rig runs at most 8 `arm` lines.
+- **Pre-existing r104 em13 read failure (found 2026-10-06):** the play fixtures since r21l carry the r104 AICA
+  build's em/em13.drs (6,026,688 B, one 4,367,968 B MRAM part), which never fits heap 4: "DVD: Read Error :
+  em/em13.drs", "EmSetFromList2() Em set failed, Id = 13" (7-19 times per r104 visit), so em13 enemies do not spawn
+  in r104. Runs staged with the native-scene lane's prepared em13 (6,829,984 B, MRAM 1,231,776 B) load it once.
 - **Issue lamb2k/re4dc#1 (r22c console halt, 2026-10-05) and option C (landed 89035a54 + d72fd6a4):** equipping the
   r101 shotgun and leaving the inventory halted with "asset exceeds selected resident budget". Three layers: (1) the
   weapon resident block (WEAPON_RESIDENT_BYTES=247776) held only the compact handgun (wep02), so ReadWepData /
