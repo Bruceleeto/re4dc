@@ -97,7 +97,17 @@ LOWER_ORDER = (8, 5, 1, 6, 2, 7, 0, 3)
 # (snd.cpp, ROUTE_CH13). Only rooms of the planned route add entries; r100..r107 output is unchanged.
 ROOM_BGM0 = {'r102': [1], 'r108': [5], 'r109': [3], 'r10a': [3]}
 
-RESIDENT = ['etc/core.das', 'em/pl00.drs', 'em/pl08.drs', 'em/wep02.drs', 'bgm/bio4midi.dat#0', 'bgm/doorse.dat#*']
+# Leon's other stage-1 weapons (--weapons; stage.sh AICA_WEAPONS=1; issue lamb2k/re4dc#1, silent weapons). The GC
+# loads the equipped weapon's SE block (WEP, block 2) on every weapon change (weaponLoad -> its .drs) into the one WEP
+# area; audio_aica.cpp places a prebuilt WEP bank into the resident WEP slot the same way (blk_prepare frees the
+# previous one). Without a prebuilt image the runtime converts into free AICA RAM, which holds only the 30 KB headroom
+# (taken in r100 by em2a's runtime bank), so every weapon but the handgun was silent ("blk 2 ... does not fit").
+# Each bank is built at the highest rate cap whose image fits the planned (or frozen) WEP slot, so the layout and every
+# other bank stay byte-identical. wep20 (TMP + stock) shares wep11's bank, wep21 / wep24 (rifle + scopes) wep09's.
+WEAPONS = ['em/wep01.drs', 'em/wep07.drs', 'em/wep09.drs', 'em/wep11.drs', 'em/wep13.drs', 'em/wep19.drs',
+           'em/wep20.drs', 'em/wep21.drs', 'em/wep24.drs']
+
+RESIDENT = ['etc/core.das','em/pl00.drs', 'em/pl08.drs', 'em/wep02.drs', 'bgm/bio4midi.dat#0', 'bgm/doorse.dat#*']
 ROOMS = {
     'title': ['ss/cmn/title.snd'],                  # title / menu ROOM bank, on every boot
     'r100': ['st1/r100.dar', 'em/em12.drs', 'em/em23.drs', 'em/em21.drs'],
@@ -411,7 +421,7 @@ def load_banks(mirror, specs, cache):
     return out
 
 
-def plan(mirror, rooms, budget, fixed=()):
+def plan(mirror, rooms, budget, fixed=(), weapons=()):
     """fixed: a route planned first whose caps and layout are frozen (the discs already built on it keep
     every bank byte-identical); the other rooms then only lower banks no fixed room uses, until each fits
     the frozen layout (route lane, r106 2026-10-01)."""
@@ -479,6 +489,15 @@ def plan(mirror, rooms, budget, fixed=()):
                     raise SystemExit('bio4midi #%d (%s) does not fit the BGM0 slot (%d bytes)' % (n, r, bgm0))
                 b.cap = fit[0]
                 uniq[b.key] = b   # the frozen layout, so every bank header stays byte-identical
+    wep = slots.get(2, 0)
+    for b in load_banks(mirror, list(weapons), data):
+        if b.key in uniq:
+            continue           # the resident handgun bank, or a variant sharing an earlier weapon's bank
+        fit = [c for c in CAPS if c <= pref_cap(b.t) and ((b.bytes_at(c) + 31) & ~31) <= wep]
+        if b.t != 2 or not fit:
+            raise SystemExit('%s does not fit the WEP slot (%d bytes)' % (b.name, wep))
+        b.cap = fit[0]
+        uniq[b.key] = b
     return res, per_room, uniq, slots, arena
 
 
@@ -494,10 +513,13 @@ def report(res, per_room, uniq, slots, arena, budget):
            'rooms': {r: {'arena_bytes': arena[r], 'resident_bytes': sum(v for s, v in slots.items() if s != 8),
                          'total_bytes': arena[r] + sum(v for s, v in slots.items() if s != 8),
                          'banks': [row(b) for b in per_room[r]]} for r in per_room}}
+    wep = [row(b) for b in uniq.values() if b.t == 2 and b not in res]
+    if wep:
+        rep['weapons'] = wep
     return rep
 
 
-def build(mirror, out, res, per_room, uniq, slots, cache_dir, check):
+def build(mirror, out, res, per_room, uniq, slots, cache_dir, check, weapons=()):
     data, banks = {}, {}
     for b in uniq.values():
         banks.setdefault(b.path, []).append(b)
@@ -507,13 +529,14 @@ def build(mirror, out, res, per_room, uniq, slots, cache_dir, check):
     # Every planned room's files too: a file whose banks all duplicate another file's (em13.drs's EM0 is em12's,
     # route lane 2026-10-01) holds no unique bank, but its copy still needs the prebuilt image.
     room_paths = set(archive_bases(mirror, s)[0] for r in per_room for s in ROOMS[r])
+    room_paths |= set(archive_bases(mirror, s)[0] for s in weapons)   # wep20 / 21 / 24 hold no unique bank
     for path in sorted({b.path for b in uniq.values()} | set(archive_bases(mirror, s)[0] for s in RESIDENT) | room_paths):
         if not os.path.exists(path):
             continue
         with open(path, 'rb') as f:
             d = bytearray(f.read())
         rel = os.path.relpath(path, mirror)
-        spec_like = [s for s in RESIDENT + [x for r in ROOMS.values() for x in r]
+        spec_like = [s for s in RESIDENT + list(weapons) + [x for r in ROOMS.values() for x in r]
                      + ['bgm/bio4midi.dat#%d' % n for r in per_room for n in ROOM_BGM0.get(r, ())] if s.partition('#')[0] == rel]
         bases = sorted({bb for s in spec_like for bb in archive_bases(mirror, s)[1]})
         n_conv = 0
@@ -760,7 +783,7 @@ def cached_streams(mirror, out, keys, cache_dir):
     os.link(cached, dst)
 
 
-def disc(mirror, out, cache_dir, rooms, keys, json_out):
+def disc(mirror, out, cache_dir, rooms, keys, json_out, weapons=()):
     """A disc data directory: the mirror hardlinked, route banks converted, disc streams added."""
     import shutil
     import tempfile
@@ -768,7 +791,7 @@ def disc(mirror, out, cache_dir, rooms, keys, json_out):
         raise SystemExit(out + ' exists')
     os.makedirs(cache_dir, exist_ok=True)
     budget = AICA_POOL - MOVIE_RESERVE - STREAM_RING
-    res, per_room, uniq, slots, arena = plan(mirror, rooms, budget)
+    res, per_room, uniq, slots, arena = plan(mirror, rooms, budget, weapons=weapons)
     rep = report(res, per_room, uniq, slots, arena, budget)
     # AICA RAM at run time: the layout plus the stream ring; what stays free must
     # cover the movie reserve (snd_stream, agreed with the cutscene audio). plan()
@@ -780,7 +803,8 @@ def disc(mirror, out, cache_dir, rooms, keys, json_out):
                          % (rep['layout_total'], STREAM_RING, free, MOVIE_RESERVE))
     overlay = tempfile.mkdtemp(prefix='aica-overlay.', dir=cache_dir)
     try:
-        rep['overlay'] = build(mirror, overlay, res, per_room, uniq, slots, os.path.join(cache_dir, 'banks'), False)
+        rep['overlay'] = build(mirror, overlay, res, per_room, uniq, slots, os.path.join(cache_dir, 'banks'), False,
+                               weapons)
         cached_streams(mirror, overlay, keys, cache_dir)
         merge(mirror, overlay, out)
     finally:
@@ -827,6 +851,8 @@ def main():
     ap.add_argument('--route', default='title,r100,r101,r103')
     ap.add_argument('--fixed-route', default='', help='plan/build: rooms of --route whose caps and layout stay as '
                     'planned alone (e.g. title,r100,r101,r103); the rest fit that layout with their own banks')
+    ap.add_argument('--weapons', action='store_true', help='plan/build/disc: also prebuild WEAPONS (Leon\'s other '
+                    'stage-1 weapons) into the WEP slot, each at the highest cap that fits it; the layout is unchanged')
     ap.add_argument('--cache')
     ap.add_argument('--json')
     ap.add_argument('--check', action='store_true', help='decode the AICA output and report SNR')
@@ -839,7 +865,8 @@ def main():
         if not (a.out and a.cache):
             raise SystemExit('disc needs --out and --cache')
         keys = [tuple(int(x) for x in k.split(':')) for k in a.streams.split(',') if k]
-        return disc(a.mirror, a.out, a.cache, [r for r in a.route.split(',') if r], keys, a.json)
+        return disc(a.mirror, a.out, a.cache, [r for r in a.route.split(',') if r], keys, a.json,
+                    WEAPONS if a.weapons else ())
     if a.cmd == 'streams':
         keys = [tuple(int(x) for x in k.split(':')) for k in a.streams.split(',') if k]
         rep = build_streams(a.mirror, a.out, keys)
@@ -850,12 +877,13 @@ def main():
     budget = AICA_POOL - MOVIE_RESERVE - STREAM_RING
     fixed = [r for r in a.fixed_route.split(',') if r]
     assert set(fixed) <= set(rooms), 'every --fixed-route room must be in --route'
-    res, per_room, uniq, slots, arena = plan(a.mirror, rooms, budget, fixed)
+    weapons = WEAPONS if a.weapons else ()
+    res, per_room, uniq, slots, arena = plan(a.mirror, rooms, budget, fixed, weapons)
     rep = report(res, per_room, uniq, slots, arena, budget)
     if a.cmd == 'build':
         if not a.out:
             raise SystemExit('build needs --out')
-        rep['overlay'] = build(a.mirror, a.out, res, per_room, uniq, slots, a.cache, a.check)
+        rep['overlay'] = build(a.mirror, a.out, res, per_room, uniq, slots, a.cache, a.check, weapons)
     txt = json.dumps(rep, indent=1)
     if a.json:
         open(a.json, 'w').write(txt + '\n')
@@ -863,6 +891,9 @@ def main():
     for r, v in rep['rooms'].items():
         print('  %s: resident %d + arena %d = %d  [%s]' % (r, v['resident_bytes'], v['arena_bytes'], v['total_bytes'],
               ', '.join('%s %d@%d' % (x['bank'], x['aica_bytes'], x['cap_hz']) for x in v['banks'])))
+    if 'weapons' in rep:
+        print('  WEP slot %d: %s' % (rep['slots'].get('WEP', 0), ', '.join('%s %d@%d' % (x['bank'], x['aica_bytes'],
+              x['cap_hz']) for x in rep['weapons'])))
 
 
 if __name__ == '__main__':

@@ -23,6 +23,8 @@
 # /root/probe/d367-aica-cache) keeps the conversions: ~25 s the first time, ~2 s after.
 # AICA_CALL_VOICES=1 (default 0) also streams the radio call voices (aica_banks.py CALL_VOICE_STREAMS);
 # without them every call screen is silent (BGM ducked, SEs paused, no voice).
+# AICA_WEAPONS=1 (default 0) also prebuilds Leon's other stage-1 weapon SE banks (aica_banks.py --weapons) into
+# the WEP slot; without them every weapon but the handgun fires silently (issue lamb2k/re4dc#1).
 # EFFECT_SPRITES=1 builds get the effect texture packages (tex_fx.sh) first in TEXDIRS.
 # ASSETS=<dir> sources <dir>/stage.env from the asset pipeline (tools/d367/assets.sh; its
 # MESHDIR/MESHROOMS/TEXDIRS/ROOMFILES/KEYED); variables set explicitly still win.
@@ -159,7 +161,8 @@ if [ "${AICA_BANKS:-1}" = 1 ]; then
   aica=$(mktemp -d "${TMPDIR:-/tmp}/re4dc-aica.XXXXXX"); rmdir "$aica"
   python3 "$here/../aica_banks.py" disc --mirror "$mirror" --out "$aica" \
     --cache "${AICA_CACHE:-/root/probe/d367-aica-cache}" --json "$aica.json" \
-    $([ "${AICA_CALL_VOICES:-0}" = 1 ] && echo --call-voices) | tail -1
+    $([ "${AICA_CALL_VOICES:-0}" = 1 ] && echo --call-voices) \
+    $([ "${AICA_WEAPONS:-0}" = 1 ] && echo --weapons) | tail -1
   mirror=$aica
 fi
 bash "$here/mkdisc-hardlink.sh" "$build/re4dc-game.elf" "$mirror" "$out" "$fixtures"
