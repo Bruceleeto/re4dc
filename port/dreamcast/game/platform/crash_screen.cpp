@@ -35,6 +35,16 @@ unsigned short g_glyph[96][kGH];               // 12 bits per row, bit 11 = left
 bool g_ready;
 unsigned short* g_fb;  // the frame buffer being scanned out (FB_R_SOF1), as vid_set_start maps it
 volatile int g_shown;
+kthread_t* g_threads[24];
+int g_nthreads;
+
+int collect(kthread_t* t, void*)
+{
+    if (g_nthreads < 24 && t->state != STATE_FINISHED && t->state != STATE_ZOMBIE &&
+        strcmp(t->label, "re4crash") && strcmp(t->label, "[idle]"))
+        g_threads[g_nthreads++] = t;
+    return 0;
+}
 
 void put_text(int col, int row, const char* s, unsigned short fg)
 {
@@ -76,13 +86,51 @@ void show(const char* kind, const char* detail, bool wait_render)
     put_text(0, row++, line, 0xF800);
     snprintf(line, sizeof(line), "stage %08lx  ui frame %u", re4dc_stage, re4dc_ui_frame());
     put_text(0, row++, line, 0xFFFF);
-    // Threads: id, state, pc, pr (the saved context; the running thread's is stale).
-    for (int tid = 1; tid <= 24 && row < 10; ++tid) {
-        kthread_t* t = thd_by_tid(tid);
-        if (!t) continue;
-        snprintf(line, sizeof(line), "t%d %.10s s%d pc %08lx pr %08lx%s", tid, t->label, (int) t->state,
-                 (unsigned long) t->context.pc, (unsigned long) t->context.pr, t == thd_current ? " *" : "");
+    // Threads, from the KOS thread list (issue #2: tids grow with every game task run, so the old
+    // tid 1..24 walk, capped at six rows, never showed the re4-task threads the main thread's
+    // os-sema wait leads to). Per thread: tid, label, state, saved pc (pr when it differs), and for
+    // a blocked one the genwait message + object ("ever" = no timeout). The watchdog, the idle
+    // thread and finished records are left out.
+    g_nthreads = 0;
+    thd_each(collect, nullptr);
+    for (int i = 1; i < g_nthreads; ++i)  // by tid
+        for (int j = i; j > 0 && g_threads[j]->tid < g_threads[j - 1]->tid; --j) {
+            kthread_t* x = g_threads[j];
+            g_threads[j] = g_threads[j - 1];
+            g_threads[j - 1] = x;
+        }
+    kthread_t* waiters[3];
+    int nwait = 0;
+    for (int i = 0; i < g_nthreads && row < kRows - 5; ++i) {
+        kthread_t* t = g_threads[i];
+        const unsigned long pc = t->context.pc, pr = t->context.pr;
+        int n = snprintf(line, sizeof(line), "t%d %.8s s%d %08lx%s", (int) t->tid, t->label, (int) t->state, pc,
+                         t == thd_current ? "*" : "");
+        if (pr != pc && n < (int) sizeof(line)) n += snprintf(line + n, sizeof(line) - n, " pr %08lx", pr);
+        const bool wait = t->state == STATE_WAIT;
+        if (wait && n < (int) sizeof(line))
+            snprintf(line + n, sizeof(line) - n, " %.12s %08lx%s", t->wait_msg ? t->wait_msg : "-",
+                     (unsigned long) t->wait_obj, t->wait_timeout ? "" : " ever");
         put_text(0, row++, line, 0x07FF);
+        if (wait && !t->wait_timeout && nwait < 3 && strcmp(t->label, "[reaper]")) waiters[nwait++] = t;
+    }
+    // Untimed waiters: return-address candidates on the saved stack (words pointing just past a
+    // jsr / bsr / bsrf), newest first; symbolize with syms.txt or addr2line.
+    for (int i = 0; i < nwait && row < kRows - 2; ++i) {
+        kthread_t* t = waiters[i];
+        const unsigned long* sp = (const unsigned long*) (t->context.r[15] & ~3ul);
+        int n = snprintf(line, sizeof(line), "bt%d", (int) t->tid), found = 0;
+        for (int w = 0; w < 192 && found < 5; ++w) {
+            const unsigned long a = (unsigned long) (sp + w);
+            if (a < 0x8c010000ul || a >= 0x8d000000ul) break;
+            const unsigned long v = sp[w];
+            if ((v & 1) || v < 0x8c010004ul || v >= 0x8d000000ul) continue;
+            const unsigned op = *(const unsigned short*) (v - 4);
+            if ((op & 0xF0FF) != 0x400B && (op & 0xF000) != 0xB000 && (op & 0xF0FF) != 0x0003) continue;
+            n += snprintf(line + n, sizeof(line) - n, " %08lx", v);
+            ++found;
+        }
+        put_text(0, row++, line, 0xFFE0);
     }
     // Newest log lines, oldest first, cut to the screen width.
     const unsigned long head = re4dc_log_head;
