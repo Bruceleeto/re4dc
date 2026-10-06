@@ -57,7 +57,10 @@
 # movie fail for heap 4. WEAPON_HEAP4=1 (option 3, 2026-10-06): those bigger bodies (rifle, TMP, rocket launcher) load
 # into heap 4, the room heap, and are read again at each door (about +0.3 s per door while held); heap 4 short ->
 # the equip reverts to the previous weapon. r107 keeps only ~100-109 KB of heap 4 with one held, and the scoped
-# rifle can revert to the plain rifle there.
+# rifle can revert to the plain rifle there. PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1 (2026-10-06, decision b): r107's
+# primitive buffer is capped from its room value 589,824 B (peak use per frame 269,824 B, the native actor tail never
+# declines) and a heap-4 weapon body is carved from the top of the highest free cell, so the scoped rifle fits in
+# r107 with >= 360 KB of heap 4 left (no revert). Logic STRICT, r107 frozen look pixel-identical to knob-off.
 # PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1 (lane pc, coordinator 2026-10-06; render-only, logic STRICT): inside the first
 # r100 house, an offline cell (170 sub-cells, 1186 portals: tools/d367/ps2world/interior) skips the outdoor PS2 world
 # draws and the source-path Ganados hidden behind its walls. The cell is the disc file dc/native/r100/interior.cell
@@ -113,6 +116,7 @@ R21=(
   TARGET=$OUT/re4dc-game.elf TA_DIRECT=1 TA_DOUBLEBUF=1 TA_VERTBUF_KB=2048 TEX_RESIDENT=1 TREE_IMPOSTOR=1
   UI_FRAG_LATCH=1 UI_HANDLES=1 UI_HEADERS=1 UI_HEAP_LAZY=30 UI_OVERLAY_SLAB_KB=24 UI_PALETTE_SLOTS=32
   UI_QUAD_LEAN=1 UI_VRAM=1 VMU_DEBUG_SLOT=1 VMU_DIALOG=1 VMU_SAVE=1 VRAM_PAGES=1 WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1 WEAPON_HEAP4=1
+  PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1
   ACTOR_TRANSACTION_DIAG=1 MOTION_PRESSURE_BYTES=262144 MOTION_OOM_EVICT=1 MOTION_RESERVE=1
   MOTION_RESERVE_SPILL=524288 COARSE_FX_SPRITES=2 COARSE_SCENERY_FALLBACK=1 AVK_RIGID6=1 GAME_WPAL_FAST=3
   GAME_SK1_ASM=1 ACTOR_STATS_LEAN=1 PS2_WORLD_DRAW=1 TA_GUARD=0 PS2_WORLD_KERNEL=0 PS2_WORLD_MESH=1
