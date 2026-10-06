@@ -48,7 +48,7 @@
 # a Ganado the next Render draws nothing of (render-only, TA streams identical, fight about -2.0 hw ms per drawn tick);
 # lane ph, port fix: the near-fade colour of an effect inside its near distance saturates to 0 as the GameCube's psq_st
 # (GQR2) does, instead of ftrc + extu.b wrapping to ~254 (sprites within ~1 m drew near-opaque: the white upstairs-window
-# glare). EFFECT_PS2_HAZE / EFFECT_PS2_STREAK wait for the user's r22h console look; GAME_LQ_MEMO (lane el) stays off.
+# glare). EFFECT_PS2_HAZE / EFFECT_PS2_STREAK are in (user 2026-10-06, below); GAME_LQ_MEMO (lane el) stays off.
 # WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1 (issue lamb2k/re4dc#1, r22c console halt 2026-10-05: equipping the
 # r101 shotgun and leaving the inventory halted "asset exceeds selected resident budget": the 247,776 B weapon block
 # held only the compact handgun, and only wep02 was a linked module). 275,424 B = wep07, the largest chapter 1-1
@@ -61,6 +61,9 @@
 # primitive buffer is capped from its room value 589,824 B (peak use per frame 269,824 B, the native actor tail never
 # declines) and a heap-4 weapon body is carved from the top of the highest free cell, so the scoped rifle fits in
 # r107 with >= 360 KB of heap 4 left (no revert). Logic STRICT, r107 frozen look pixel-identical to knob-off.
+# EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2 (PS2 haze and the PS2 light shaft, user 2026-10-06; lane ph 88f30aaf, render-only):
+# the camera haze drawn as the PS2 release has it, and r100's house window streaks replaced by the PS2 light shafts
+# (texture e9, in tex.pak). r103 is slightly heavier than GC (GPU proxy 16.7 vs 14.1 ms), accepted as PS2-faithful.
 # PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1 (lane pc, coordinator 2026-10-06; render-only, logic STRICT): inside the first
 # r100 house, an offline cell (170 sub-cells, 1186 portals: tools/d367/ps2world/interior) skips the outdoor PS2 world
 # draws and the source-path Ganados hidden behind its walls. The cell is the disc file dc/native/r100/interior.cell
@@ -117,6 +120,7 @@ R21=(
   UI_FRAG_LATCH=1 UI_HANDLES=1 UI_HEADERS=1 UI_HEAP_LAZY=30 UI_OVERLAY_SLAB_KB=24 UI_PALETTE_SLOTS=32
   UI_QUAD_LEAN=1 UI_VRAM=1 VMU_DEBUG_SLOT=1 VMU_DIALOG=1 VMU_SAVE=1 VRAM_PAGES=1 WEAPON_RESIDENT_BYTES=275424 WEAPON_MODULES=1 WEAPON_HEAP4=1
   PRIM_CAP_R107=327680 WEAPON_HEAP4_TOP=1
+  EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2
   ACTOR_TRANSACTION_DIAG=1 MOTION_PRESSURE_BYTES=262144 MOTION_OOM_EVICT=1 MOTION_RESERVE=1
   MOTION_RESERVE_SPILL=524288 COARSE_FX_SPRITES=2 COARSE_SCENERY_FALLBACK=1 AVK_RIGID6=1 GAME_WPAL_FAST=3
   GAME_SK1_ASM=1 ACTOR_STATS_LEAN=1 PS2_WORLD_DRAW=1 TA_GUARD=0 PS2_WORLD_KERNEL=0 PS2_WORLD_MESH=1
