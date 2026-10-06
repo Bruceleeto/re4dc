@@ -58,13 +58,6 @@
 # into heap 4, the room heap, and are read again at each door (about +0.3 s per door while held); heap 4 short ->
 # the equip reverts to the previous weapon. r107 keeps only ~100-109 KB of heap 4 with one held, and the scoped
 # rifle can revert to the plain rifle there.
-# PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1 (lane pc, coordinator 2026-10-06; render-only, logic STRICT): while the camera
-# is inside the first r100 house, an offline cell (170 sub-cells, 1186 portals: tools/d367/ps2world/interior) skips the
-# outdoor PS2 world draws and the source-path Ganados hidden behind its walls (the actor part rides CROWD_INVIS_SKIP's
-# skip path). hw ms per drawn tick: stair foot -7.06, climb -1.73, upstairs +0.22, h-out / fight ~0. Accepted look
-# caveats: a 1 px raster crack at the stair foot (an outdoor pixel through a seam between two wall triangles, 0-4
-# frames of a whole-house walk) is no longer drawn; the stair-foot frame differs by 4 px of one RGB565 step (replica
-# noise). docs/lanes/pc-20261005.md.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -127,7 +120,6 @@ R21=(
   SKIN_PALETTE_LAZY=1 ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1 ACTOR_BIND_REUSE=1
   PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1 GAME_ROT_FSCA=1
   CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1
-  PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
