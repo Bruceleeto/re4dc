@@ -9,6 +9,7 @@ hw ms drawn house 47.80 -> 43.61, fight 66.03 -> 59.10, square 78.03 -> 72.39; c
 Later 2026-10-05: GAME_ROT_FSCA=1 adopted (user) with LINK_ORDER link-order/r22-fsca-c3-8k.ld: hw ms drawn / skipped
 house 42.50 / 21.95, fight 57.54 / 21.96, square 70.75 / 25.08; decisions identical (decision_cmp, H2 / bell / fight;
 last-bit maths, so H2 is DISCRETE float drift, not STRICT); console playtest with the next test disc.
+2026-10-06: lane pc landed; PS2_INTERIOR_CULL=1 + PS2_INTERIOR_ACTORS=1 in the recipe (r100 house interior cull, render-only, logic STRICT): stair foot -7.06 hw ms per drawn tick, others ~0 (route doc lane pc).
 Later 2026-10-05: lanes el / iv / ph landed default off; CROWD_INVIS_SKIP=1 + EFFECT_FADE_CLAMP=1 (the white window-glare fix) in the recipe (user), fight 54.37 / 22.13 hw ms, logic STRICT; PS2 haze waits for the user's r22h console look (route doc lane ph).
 
 **Active (D367, user-directed).** Goals:

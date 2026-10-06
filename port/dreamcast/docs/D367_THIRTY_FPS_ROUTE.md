@@ -53,6 +53,12 @@
     console; **r22h** is a local test disc only (r22c content + EFFECT_PS2_HAZE=1 EFFECT_PS2_STREAK=2
     EFFECT_FADE_CLAMP=1 EFFECT_PS2_TOGGLE=1, not released): hold **X + START** to step GC -> GF -> PH -> PS (the VMU
     speed page names the look).
+- **Lane pc: PS2_INTERIOR_CULL + PS2_INTERIOR_ACTORS (in the play recipe, coordinator 2026-10-06; render-only).**
+  An offline r100 house cell (170 sub-cells, 1186 portals, tools/d367/ps2world/interior) culls the outdoor PS2 world
+  and the source-path Ganados (via CROWD_INVIS_SKIP) hidden behind the house walls; the cell is set up once per frame.
+  hw ms per drawn tick: stair foot -7.06 (~68% -> ~74% projected, factor 1.15), climb -1.73, upstairs +0.22, h-out /
+  fight ~0. Look caveats accepted: a 1 px wall-seam crack at the stair foot is no longer drawn; 4 px of one RGB565 step
+  (replica noise). Owner-path actors not covered (follow-up). docs/lanes/pc-20261005.md.
 - **Landing gates (el + iv + ph, recipe + CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1; clean builds, fresh objdirs,
   missing.txt empty; evidence C:/Flycast-Evidence/re4-dreamcast/land-20261005):** knob-off image + overlay
   byte-identical to 348bfd23 (SOURCE_DATE_EPOCH pinned) on the play image and the cost image. Knobs on vs the knob-off

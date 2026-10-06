@@ -12,6 +12,13 @@ with no halt; chapter 1-3 to "Coming Soon" at r10b; r101 bell HALT 0; 0 MISALIGN
 (Play-r22d.cmd); not on the SD card, not released. Known: the r104 merchant's rifle, rocket launcher and TMP still halt
 when bought; non-handgun weapons are silent (route doc "Issue lamb2k/re4dc#1").
 
+## 2026-10-06: PS2_INTERIOR_CULL and PS2_INTERIOR_ACTORS in the recipe (next play build)
+
+PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1 (lane pc, render-only; r100 house interior cull of the outdoor PS2 world and
+hidden source-path Ganados) are in build-r21.sh, so the next play build includes them; same play flags and fixture as
+r22d. Console check: walk the whole first house (stair foot, climb, upstairs, windows) for missing outdoor geometry or
+Ganados. Route doc lane pc bullet.
+
 ## 2026-10-05: CROWD_INVIS_SKIP and EFFECT_FADE_CLAMP in the recipe (next play build)
 
 CROWD_INVIS_SKIP=1 (lane iv, render-only) and EFFECT_FADE_CLAMP=1 (lane ph, the near-fade wrap fix: no white
