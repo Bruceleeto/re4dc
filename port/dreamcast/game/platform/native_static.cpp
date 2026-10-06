@@ -1309,7 +1309,7 @@ struct State {
     bool active=false;       // this frame's eye is in a sub-cell
     float eye[3]{};
     int cell=-1; unsigned nfr=0; Frustum fr[24];
-    unsigned frame=~0U,setup_frame=~0U;float corner=0;
+    unsigned frame=~0U,setup_frame=~0U,done_frame=~0U;float corner=0; // done_frame: the frame the cell was last set up for
     unsigned placements=0,clusters=0,meshlets=0,tests=0,active_frames=0,frames=0; // culled (=1/=3) or checked (=2)
 } st;
 // The eye from a 3x4 row-major view matrix: the inverse's translation.
@@ -1405,7 +1405,7 @@ inline int grid_hidden(const float* wq,const std::uint16_t lo[3],const std::uint
 } // namespace pc
 #if RE4DC_PS2_INTERIOR_ACTORS
 namespace pcact {
-float view[12];bool have=false;
+float view[12],P[7],near=0;bool have=false;unsigned reused=0;
 unsigned trans_frames=0,active=0,tests=0,hid=0,view_checked=0,view_mis=0;
 #if RE4DC_PS2_INTERIOR_CULL==2
 struct Box{float lo[3],hi[3];};
@@ -2795,7 +2795,27 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
     c.near=near;c.far=far;c.cull_far=cull_far;
 #if RE4DC_PS2_INTERIOR_CULL
-    pc::setup(ps2w.view,P,near);
+    {
+        // Once per frame (pass 0, or the first pass of a frame): passes 1 / 2 reuse it. With PS2_INTERIOR_ACTORS the
+        // Trans-time cell is taken as is when it was set up from the same view, projection and near plane.
+        const unsigned sf=re4dc_ui_frame();
+        if(!pass || pc::st.done_frame!=sf){
+            bool reused=false;
+#if RE4DC_PS2_INTERIOR_ACTORS
+            if(pcact::have && pcact::near==near && !std::memcmp(pcact::view,ps2w.view,sizeof(pcact::view)) &&
+               !std::memcmp(pcact::P,P,sizeof(pcact::P))){
+                const pc::State& t=pc::st_trans;pc::State& s=pc::st;
+                s.active=t.active;s.cell=t.cell;s.nfr=t.nfr;s.corner=t.corner;
+                for(unsigned a=0;a<3;++a)s.eye[a]=t.eye[a];
+                for(unsigned i=0;i<t.nfr;++i)s.fr[i]=t.fr[i];
+                if(s.active)s.setup_frame=sf;
+                reused=true;++pcact::reused;
+            }
+#endif
+            if(!reused)pc::setup(ps2w.view,P,near);
+            pc::st.done_frame=sf;
+        }
+    }
     if(!pass){
         const unsigned frame=re4dc_ui_frame();
 #if RE4DC_PS2_INTERIOR_ACTORS
@@ -2804,11 +2824,11 @@ int ps2_pass(unsigned pass,float zfar){
             if(std::memcmp(pcact::view,ps2w.view,sizeof(pcact::view)))++pcact::view_mis;
         }
         if(!(frame%120))
-            re4dc_log("PCACT frame=%u trans=%u active=%u tests=%u hidden=%u view=%u/%u"
+            re4dc_log("PCACT frame=%u trans=%u active=%u tests=%u hidden=%u view=%u/%u reused=%u"
 #if RE4DC_PS2_INTERIOR_CULL==2
                 " boxes=%u drawn=%u unchecked=%u overflow=%u"
 #endif
-                "\n",frame,pcact::trans_frames,pcact::active,pcact::tests,pcact::hid,pcact::view_mis,pcact::view_checked
+                "\n",frame,pcact::trans_frames,pcact::active,pcact::tests,pcact::hid,pcact::view_mis,pcact::view_checked,pcact::reused
 #if RE4DC_PS2_INTERIOR_CULL==2
                 ,pcact::boxes,pcact::drawn,pcact::unchecked,pcact::overflow
 #endif
@@ -3055,7 +3075,7 @@ extern "C" void re4dc_ps2_interior_trans(const float* view,const float* P){
     const float near=P[6]/(P[5]-1.0f);
     if(!(near>0.0f) || !re4dc::render::is_finite(near))return;
     pc::setup_state(s,view,P,near);
-    std::memcpy(pcact::view,view,sizeof(pcact::view));pcact::have=true;
+    std::memcpy(pcact::view,view,sizeof(pcact::view));std::memcpy(pcact::P,P,sizeof(pcact::P));pcact::near=near;pcact::have=true;
     ++pcact::trans_frames;if(s.active)++pcact::active;
 }
 // 1: the Trans-time cell hides the world box (lo / hi) and the actor may be skipped; 0 otherwise (and always at =2,
