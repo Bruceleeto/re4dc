@@ -72,6 +72,11 @@
 # value. hw ms per drawn tick: stair foot -8.6, h-quiet -0.2 (its cell tests cost +0.42 with nothing culled), fight /
 # square ~-1 (layout). Look caveats accepted: a 1 px wall-seam crack at the stair foot is not drawn; 4 px of one RGB565
 # step. LINK_ORDER stays r22-fsca-c3-8k.ld (a regenerated order measured +0.1..0.5 worse). docs/lanes/pc-20261005.md.
+# PS2_WORLD_DYNAMIC=1 (user 2026-10-06, issue lamb2k/re4dc#3: the r105 emblem never turned and its door looked shut): the
+# PS2 world follows the scenery the room code moves or hides. Each PS2 placement carries its SMD scroll id
+# (tools/ps2_room_ids.py writes dc/native/rXXX/ps2-world.ids next to each package); a hidden id is skipped and a moved
+# one is drawn with its object's matrix. Render-only, logic STRICT; without the ids file a room draws as before. Part
+# animation (chest lids) is not followed.
 #   ASSETS=<private asset dir: leon4k/ganado runtime headers, ganado_source_extras.h, vmu_dialog_english.inc>
 #   OBJDIR=<fresh objdir per knob set: never seed one objdir from another (its .d files name the old
 #          targets, so edited headers/includes silently keep stale objects)>  OUT=<elf dir>
@@ -137,6 +142,7 @@ R21=(
   PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1 GAME_ROT_FSCA=1
   CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1
   PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1
+  PS2_WORLD_DYNAMIC=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review
