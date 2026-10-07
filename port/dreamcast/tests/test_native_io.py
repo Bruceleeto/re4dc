@@ -14,6 +14,8 @@ class NativeIo(unittest.TestCase):
 #include <cstring>
 #include <stdexcept>
 #include "native_io.h"
+using kthread_t=void;
+unsigned long long timer_us_gettime64(){return 0;}
 using u32=unsigned long;
 struct OSThread {int state=2;unsigned nativeIoDepth=0;};
 struct TASK {OSThread Thread;unsigned Status=3;};
@@ -62,13 +64,14 @@ int main(){
         source=(ROOT/'src/game/dvd.cpp').read_text()
         step=source[source.index('int cDvdQueue::Read()'):source.index('// Fills the slot')]
         platform=(ROOT/'port/dreamcast/game/platform/dvd.cpp').read_text()
-        guard=platform[platform.index('namespace { void* dvd_step_owner; }'):platform.index('typedef signed char s8;')]
+        guard=platform[platform.index('namespace {\nvoid* dvd_step_owner;'):platform.index('typedef signed char s8;')]
         os=(ROOT/'port/dreamcast/game/platform/os.cpp').read_text()
         hooks=os[os.index('void* re4dc_io_begin()'):os.index('void OSExitThread(void* val)')]
         setup=r"""
 #include <cassert>
 #include <stdexcept>
 #include "native_io.h"
+using kthread_t=void;
 struct OSThread {unsigned nativeIoDepth=0;};
 OSThread workers[2];void* thd_current=&workers[0];unsigned waits=0;
 OSThread* threadOf(void* p){return (OSThread*)p;}

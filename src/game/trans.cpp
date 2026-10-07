@@ -587,6 +587,9 @@ extern "C" void re4dc_log(const char*, ...);
 #endif
 #if RE4DC_COARSE_SCENERY_FALLBACK
 extern "C" int re4dc_ps2_world_covers(unsigned room);
+#if RE4DC_PS2_WORLD_PARTS
+extern "C" int re4dc_ps2_dyn_source(unsigned room, const void* object, unsigned serial);
+#endif
 #endif
 extern "C" int re4dc_coarse_image;
 extern "C" void re4dc_coarse_draw(void);
@@ -1081,7 +1084,11 @@ void Trans()
             cUnit* cur = u;
             u = u->pNext; // original traversal captures next before the callback
             cModel* model = (cModel*) cur;
-            if (model->kindid == 2 && skip_scenery) { ++scenery_skipped; continue; }
+            if (model->kindid == 2 && skip_scenery
+#if RE4DC_PS2_WORLD_PARTS
+                && !re4dc_ps2_dyn_source(G_ROOM_ID, model, model->serial)
+#endif
+            ) { ++scenery_skipped; continue; }
             func(model); // source visibility, culling, materials, skin and OT order
             ++source_calls;
         }

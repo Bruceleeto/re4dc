@@ -40,6 +40,7 @@
 //   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
 //   act <frame> <a|b|x|y|start|fwd|back|none|0xMASK> <hold> | arm <frame> <item id> | trg <no> <frame> [room] | kill <id> <frame> [room] |
 //   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n> |
+//   radio <frame> <call no 0..23> (source radio replay, resource-lifetime test only)
 //   god (Leon's life refilled every frame) | alert <frame> (the crowd hunts Leon from that frame of its entry)
 //   fxmode <flags> (EFFECT_PS2_TOGGLE builds: the effect look at load; 1 fade clamp, 2 PS2 haze, 4 PS2 streak)
 //  - Later rooms: `entry <n>` (n >= 2) scopes the `act` / `goto` lines after it to the n-th room entry of the run
@@ -59,6 +60,9 @@
 #include "item.h"
 #include "main_mem.h"
 #include "snd.h"
+#include "sce.h"
+#include "sce_sys.h"
+#include "sscrn.h"
 #include "re4dc_platform.h"
 #include <string.h>
 #include <stdio.h>
@@ -79,6 +83,13 @@ void re4dc_ps2fx_set(unsigned flags);  // esp_sub.cpp (effects30.mk EFFECT_PS2_T
 namespace {
 struct Act { u32 frame; u16 buttons; s8 stick; u16 hold; u8 entry; };
 struct Rsf { u16 room; u8 bit; };
+// Replays a source radio call to test movie-to-subscreen resource handoff.
+// This command exists only in the DBG_WARP test rig; it does not certify route order.
+static void radio_fixture(int no) {
+    re4dc_log("warp: radio replay begin no=%d frame=%u\n",no,(unsigned)pG->Frame_cnt);
+    OpeSetOpenTerm(no,0,0,0,0);
+    re4dc_log("warp: radio replay end no=%d frame=%u\n",no,(unsigned)pG->Frame_cnt);
+}
 struct Warp {
     bool loaded, active, placed_logged, applied, dump;
     char name[32];
@@ -112,6 +123,9 @@ struct Warp {
     // weaponRelease / weaponLoad / weaponInit: ReadWepData's DVD read, as on the inventory exit).
     struct ArmItem { u32 frame; u16 id; bool done; } arm[8];
     unsigned n_arm;
+    bool has_radio, radio_done;
+    u32 radio_frame;
+    int radio_no;
     // census <room frame>: heap 4 occupancy by allocation tag and its free cells, once at that frame (test only).
     u32 census[6];
     bool census_done[6];
@@ -208,6 +222,8 @@ void load()
             for (int i = 1; i < n && wp.n_dead < 64; ++i) wp.dead[wp.n_dead++] = (u8) num(tok[i]);
         } else if (!strcmp(k, "inv") && n >= 2) {
             if (strcmp(tok[1], "default")) re4dc_log("warp: inv %s not supported (new-game inventory kept)\n", tok[1]);
+        } else if (!strcmp(k, "radio") && n >= 3 && num(tok[2]) < 24) {
+            wp.has_radio=true;wp.radio_frame=num(tok[1]);wp.radio_no=(int)num(tok[2]);
         } else if (!strcmp(k, "area") && n >= 2) {
             wp.area_no = (int) num(tok[1]);
             wp.area_dx = n >= 3 ? (f32) strtod(tok[2], nullptr) : 0.0f;
@@ -622,6 +638,11 @@ void re4dc_warp_poll(void)
         return;
     }
     goto_poll();
+    if (wp.has_radio && !wp.radio_done && wp.room_frames >= wp.radio_frame &&
+        pG->Rno0 == 3 && pG->Rno1 == 0 && pPL && pPL->checkEvent() == 1 &&
+        !(pG->Status_flg[1] & 0x10000000) && !SubScreenWk.type && !SceSys.event_start_cnt) {
+        if (SceExec(0x12,(TaskFunc)radio_fixture,wp.radio_no,0,SCE_PRIO_DEF_2,0))wp.radio_done=true;
+    }
     for (unsigned i = 0; i < wp.n_census; ++i) {
         if (!wp.census_done[i] && wp.room_frames >= wp.census[i]) {
             wp.census_done[i] = true;

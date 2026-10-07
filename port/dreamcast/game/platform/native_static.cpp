@@ -2720,34 +2720,72 @@ unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
 namespace dyn {
 constexpr unsigned kIds=250,kMoved=16,kNone=0xFF;
 struct Head { char magic[4]; std::uint32_t version,count,crc; };
-struct Slot { const unsigned char* obj; std::uint32_t serial; float rest[12]; };
+#if RE4DC_PS2_WORLD_PARTS
+struct PartPose { const unsigned char* part; float pose[9]; };
+#endif
+struct Slot {
+    const unsigned char* obj; std::uint32_t serial; float rest[12];
+#if RE4DC_PS2_WORLD_PARTS
+    PartPose* parts; unsigned nparts,pose_offset; bool source;
+#endif
+};
 unsigned char* block=nullptr;                      // heap-4 block: the ids file
 const std::uint8_t* ids=nullptr; unsigned nids=0; // placement field -> id
 Slot* slots=nullptr; unsigned nslots=0;
 std::uint8_t slot_of[kIds];                        // id -> slot (kNone: baked)
+#if RE4DC_PS2_WORLD_PARTS
+std::uint8_t object_order[kIds]; unsigned nobjects=0;
+void order_object(unsigned id){
+    unsigned at=0;
+    for(;at<nobjects && object_order[at]!=id;++at){}
+    if(at<nobjects){for(unsigned j=at+1;j<nobjects;++j)object_order[j-1]=object_order[j];--nobjects;}
+    const auto key=reinterpret_cast<std::uintptr_t>(slots[slot_of[id]].obj);
+    at=0;
+    while(at<nobjects && reinterpret_cast<std::uintptr_t>(slots[slot_of[object_order[at]]].obj)<key)++at;
+    for(unsigned j=nobjects;j>at;--j)object_order[j]=object_order[j-1];
+    object_order[at]=std::uint8_t(id);++nobjects;
+}
+#endif
 unsigned off_flag=0,off_serial=0,off_mat=0;        // cObj field offsets (from the first bind)
 unsigned frame=~0U,nmoved=0;
-std::uint8_t state[kIds];                          // this frame: 0 unknown, 1 baked, 2 hidden, 3 moved
+std::uint8_t state[kIds];                          // this frame: 0 unknown, 1 baked, 2 hidden, 3 moved, 4 source hierarchy
 std::uint8_t moved_of[kIds];
 float delta[kMoved][12];
 unsigned binds=0,hidden=0,moved=0,overflow=0,logged_frame=0;
 void reset(){
     if(block)re4dc_static_free(block);
+#if RE4DC_PS2_WORLD_PARTS
+    if(slots)for(unsigned i=0;i<nslots;++i)if(slots[i].parts)re4dc_static_free(slots[i].parts);
+    nobjects=0;
+#endif
     if(slots)re4dc_static_free(slots);
     block=nullptr;ids=nullptr;nids=0;slots=nullptr;nslots=0;std::memset(slot_of,kNone,sizeof(slot_of));frame=~0U;
 }
-// 0 baked, 1 hidden, 2 moved (delta[moved_of[id]] = mat * inverse(rest))
+// 0 baked, 1 hidden, 2 moved (delta[moved_of[id]] = mat * inverse(rest)), 3 source hierarchy
 unsigned query(unsigned id){
     const unsigned f=re4dc_ui_frame();
     if(f!=frame){frame=f;nmoved=0;std::memset(state,0,sizeof(state));}
     if(state[id])return state[id]-1U;
     unsigned r=0;
-    const Slot& s=slots[slot_of[id]];
+    Slot& s=slots[slot_of[id]];
     std::uint32_t flag=0,serial=0;
     if(s.obj){std::memcpy(&flag,s.obj+off_flag,4);std::memcpy(&serial,s.obj+off_serial,4);}
     if(s.obj && (flag&1U) && serial==s.serial){
         const float* m=reinterpret_cast<const float*>(s.obj+off_mat);
+#if RE4DC_PS2_WORLD_PARTS
+        if(!s.source)for(unsigned i=0;i<s.nparts;++i){
+            const PartPose& p=s.parts[i];
+            if(std::memcmp(p.part+s.pose_offset,p.pose,sizeof(p.pose))){
+                s.source=true;
+                re4dc_log("PS2PART source id=%02x part=%u parts=%u frame=%u\n",id,i,s.nparts,f);
+                break;
+            }
+        }
+#endif
         if(!(flag&2U)){r=1;++hidden;}
+#if RE4DC_PS2_WORLD_PARTS
+        else if(s.source)r=3;
+#endif
         else if(std::memcmp(m,s.rest,sizeof(s.rest))){
             float inv[12];
             if(nmoved<kMoved && inverse(s.rest,inv)){concat(m,inv,delta[nmoved]);moved_of[id]=std::uint8_t(nmoved++);r=2;++moved;}
@@ -3060,7 +3098,11 @@ int ps2_pass(unsigned pass,float zfar){
             const unsigned id=dyn::ids[pl.placement];
             if(id<dyn::kIds && dyn::slot_of[id]!=dyn::kNone){
                 const unsigned st=dyn::query(id);
-                if(st==1)continue;   // the game hides it
+                if(st==1
+#if RE4DC_PS2_WORLD_PARTS
+                    || st==3
+#endif
+                )continue;   // hidden, or drawn with its source part hierarchy
                 if(st==2){concat(dyn::delta[dyn::moved_of[id]],pl.affine,moved_affine);affine=moved_affine;}
             }
         }
@@ -3338,9 +3380,57 @@ extern "C" void re4dc_ps2_dyn_bind(unsigned room,unsigned id,const void* object,
     dyn::off_serial=unsigned(static_cast<const unsigned char*>(serial)-o);
     dyn::off_mat=unsigned(reinterpret_cast<const unsigned char*>(mat)-o);
     dyn::Slot& s=dyn::slots[dyn::slot_of[id]];
+#if RE4DC_PS2_WORLD_PARTS
+    if(s.parts)re4dc_static_free(s.parts);
+    s.parts=nullptr;s.nparts=0;s.source=false;
+#endif
     s.obj=o;std::memcpy(&s.serial,serial,4);std::memcpy(s.rest,mat,sizeof(s.rest));
+#if RE4DC_PS2_WORLD_PARTS
+    dyn::order_object(id);dyn::state[id]=0;
+#endif
     ++dyn::binds;
 }
+#if RE4DC_PS2_WORLD_PARTS
+extern "C" void re4dc_ps2_dyn_parts(unsigned room,unsigned id,const void* object,const void* first,
+                                     unsigned count,unsigned next_offset,unsigned pose_offset){
+    if(!dyn::ids || ps2w.room!=room || id>=dyn::kIds || dyn::slot_of[id]==dyn::kNone || !count || count>255)return;
+    dyn::Slot& s=dyn::slots[dyn::slot_of[id]];
+    if(s.obj!=object || s.parts)return;
+    auto* poses=static_cast<dyn::PartPose*>(re4dc_static_alloc(count*sizeof(dyn::PartPose)));
+    if(!poses){re4dc_log("PS2PART no heap id=%02x parts=%u\n",id,count);return;}
+    const auto* p=static_cast<const unsigned char*>(first);
+    for(unsigned i=0;i<count;++i){
+        if(!p){re4dc_static_free(poses);re4dc_log("PS2PART short chain id=%02x part=%u/%u\n",id,i,count);return;}
+        poses[i].part=p;std::memcpy(poses[i].pose,p+pose_offset,sizeof(poses[i].pose));
+        std::memcpy(&p,p+next_offset,sizeof(p));
+    }
+    s.parts=poses;s.nparts=count;s.pose_offset=pose_offset;
+    re4dc_log("PS2PART bind id=%02x parts=%u bytes=%u heap=%d\n",id,count,unsigned(count*sizeof(dyn::PartPose)),re4dc_static_heap_free());
+}
+extern "C" int re4dc_ps2_dyn_source(unsigned room,const void* object,unsigned serial){
+    if(!dyn::ids || ps2w.room!=room)return 0;
+    // This small owner table is shared with the placement adapter. Match the
+    // serial before inspecting any borrowed part addresses after object reuse.
+    const auto key=reinterpret_cast<std::uintptr_t>(object);
+    unsigned lo=0,hi=dyn::nobjects;
+    while(lo<hi){
+        const unsigned mid=(lo+hi)/2,id=dyn::object_order[mid];
+        const dyn::Slot& s=dyn::slots[dyn::slot_of[id]];
+        const auto at=reinterpret_cast<std::uintptr_t>(s.obj);
+        if(at<key)lo=mid+1;
+        else hi=mid;
+    }
+    // The object pool can reuse one address for a different scenery ID. A stale
+    // binding at the same address must not hide the current serial's binding.
+    for(;lo<dyn::nobjects;++lo){
+        const unsigned id=dyn::object_order[lo];
+        const dyn::Slot& s=dyn::slots[dyn::slot_of[id]];
+        if(reinterpret_cast<std::uintptr_t>(s.obj)!=key)break;
+        if(s.serial==serial)return dyn::query(id)==3;
+    }
+    return 0;
+}
+#endif
 #endif
 #if RE4DC_PS2_WORLD_ROOMS
 namespace { void ps2_free(){re4dc_ps2_mesh_retire();} }

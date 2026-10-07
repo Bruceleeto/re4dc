@@ -1,5 +1,60 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: issue fixes candidate after r22f
+
+The recipe enables ITEM_UI_ORDER=1, PS2_WORLD_PARTS=1 and MOVIE_STAGE_ORDER=1.
+Item pickups now use the source UI/model submission order. Scenery with a changing
+child pose hands its complete hierarchy to the existing source renderer and hides
+its baked PS2 placement; owner serials and room retirement guard borrowed parts.
+The native r104 already-open callbacks receive their item-event index explicitly.
+Unmodified scenery retains the PS2 path. Duplicate placement IDs retain the prior
+baked behavior, so this is not a claim that every interactive object is covered.
+
+The disc must also contain the two missing green/red herb color-mask pairs in
+`dc/tex.pak`. Prepare them with `tools/prepare_inventory_pairs.py SOURCE BASE_PACK
+NEW_OUTPUT_DIRECTORY`. The verified candidate has 3,749 entries; all 3,747 prior
+entries are byte-identical. Keep these derived assets outside the public source tree.
+
+The extra part-pose storage exposed an r100 s30 staging failure at 84,064 B free.
+MOVIE_STAGE_ORDER, adapted from 25c4cd0f, stages the same buffers largest first.
+The combined candidate plays all 340 s30 pictures at that same heap level, then
+opens and closes a source radio replay. This replay tests resource handoff; it does
+not change or establish normal route event order. New Game movies complete
+1,971 / 2,360 / 1,175 pictures. Inventory herb visibility, pickup layering, opening
+an r104 cabinet and reloading its open pose have Flycast screenshot evidence.
+
+Issue #6: prepared em13 enemies are visible and attack in r104. The normal merchant
+intro, greeting, menu exit and standing merchant with Talk prompt work in the tested
+warp route; a direct debug jump past the intro is not equivalent coverage.
+Issue #2 remains unresolved: a normal r103 typewriter save, fresh emulator boot,
+load and movement complete without a halt. No physical-console fix is claimed.
+
+Validation: the actual dynamic-part adapter passes ASan/UBSan cases for child
+changes, owner retirement and object-pool address reuse across scenery IDs. The
+old address lookup fails the new negative control. Native I/O and task-exit tests
+pass. Shared PPC conditional source tokens are unchanged (includes stripped for
+comparison; this is not a new full PPC build).
+
+Final H2: STRICT 0..740 (741), 1218..5696 (4,479) and 1450..1569 (120);
+MUST-IDENTICAL decisions (5,696), zero player/enemy drift. The whole-run difference
+is limited to the existing object-matrix interval 741..1215 (475 rows). Both arms
+play the movies successfully with MOVIE_STAGE_ORDER=1. Bell STRICT and
+MUST-IDENTICAL both cover 6,390 records. The chapter-1-3 twin plays s30 340/340 at
+heap_before 75,872, then opens/closes radio replay frames 5518..6079. The play
+image disables test controls, completes New Game 1971/2360/1175 and reaches live
+r100. Its exact GDI boots via the high-density TOC to the VMU prompt. All five
+final runs exit normally with zero HALT, MISALIGN or RE4DC MISSING records.
+No release has been published for this candidate.
+
+Cost gate (SH-4 hardware model, not physical-console acceptance): r104 cabinet
+0x2A, view (21821,-64,-30700), angle pi; ACT_CAP=0, PACE_DEBUG=1, ROUTE_CH13=1.
+Count window 1200..1231; eight consecutive traced frames 1200..1207 cover both
+drawn and skipped frames. Control af4b5016: 41.28 ms (24.22 modeled fps); fixed
+51dbc3e8: 41.39 ms (24.16 modeled fps), +0.11 ms in this sample. Trace instruction
+means are within 0.2%/0.6% of the 32-frame census. The earlier stride-10 sample
+aliased drawing cadence and is rejected. This is a bounded view, not a whole-route
+performance or 30 fps acceptance claim.
+
 ## 2026-10-06: WEAPON_HEAP4 in the recipe (next play build)
 
 WEAPON_HEAP4=1 (issue #1 option 3) is in build-r21.sh: the r104 merchant's rifle, TMP and rocket launcher load into

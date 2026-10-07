@@ -277,6 +277,9 @@ Entry* handles[kQuadCount]; unsigned nquad,frame,used,peak,staging_peak;
 #endif
 bool ui_order;unsigned quads_flushed;
 extern "C" int re4dc_ss_ui_order(); // actual swapped-area owner, not a UI guess
+#if RE4DC_ITEM_UI_ORDER
+extern "C" int re4dc_item_ui_order(); // source pickup presentation; no heap swap
+#endif
 #endif
 #if RE4DC_D349_RENDERER_STACK
 // Only selected lights and current channel/matrix parameters are snapshotted.
@@ -2609,6 +2612,9 @@ extern "C" void re4dc_ui_begin(){
     reset_deferred();source_draws_finished=false;desired_list=PVR_LIST_OP_POLY;
 #if RE4DC_SS_UI_ORDER
     ui_order=re4dc_ss_ui_order()!=0;quads_flushed=0;
+#if RE4DC_ITEM_UI_ORDER
+    ui_order=ui_order || re4dc_item_ui_order()!=0;
+#endif
 #if RE4DC_ROUTE_MOVIES
     if(movie_texture && movie_picture)ui_order=false;
 #endif

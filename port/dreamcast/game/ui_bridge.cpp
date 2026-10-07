@@ -16,6 +16,12 @@ extern "C" void GXGetProjectionv(float*);
 extern "C" void GXGetViewportv(float*);
 extern "C" void GXProject(float,float,float,const float[3][4],const float*,const float*,float*,float*,float*);
 
+#if RE4DC_ITEM_UI_ORDER
+#include "global.h"
+// sceAtGetItem sets this bit for the source ItemExamine pickup lifecycle.
+// This is a rendering-order query only; it does not imply a swapped heap.
+extern "C" int re4dc_item_ui_order() { return pG && (pG->Status_flg[1] & 2U); }
+#endif
 extern "C" int OSCheckHeap(int);
 extern "C" int re4dc_ui_heap_free() { return OSCheckHeap(Heap[MemGetCurrentHeap()].handle); }
 

@@ -143,6 +143,7 @@ R21=(
   CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1
   PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1
   PS2_WORLD_DYNAMIC=1
+  PS2_WORLD_PARTS=1 ITEM_UI_ORDER=1 MOVIE_STAGE_ORDER=1
 )
 # Every recipe and caller knob must be a name the makefiles read (assigned, expanded, or tested with ifdef / ifndef /
 # origin): a dead or misspelled knob would build without its effect and never show in resolved-knobs.txt (review

@@ -26,6 +26,10 @@ extern "C" void re4dc_static_retire_owner(int);
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_DYNAMIC
 extern "C" void re4dc_ps2_dyn_bind(unsigned room, unsigned id, const void* object, const void* flag, const void* serial,
                                    const float* mat);
+#if RE4DC_PS2_WORLD_PARTS
+extern "C" void re4dc_ps2_dyn_parts(unsigned room, unsigned id, const void* object, const void* first,
+                                    unsigned count, unsigned next_offset, unsigned pose_offset);
+#endif
 #endif
 int MotionSetCore(cModel* m, void* work, void* mot, int a, int b, int c, int d);
 void slideModelAddr(u32 addr, int ofs);
@@ -184,6 +188,13 @@ int setObj(int blk)
         if (w->id < 250 && scrObjTbl[w->id] == obj) {
             re4dc_ps2_dyn_bind(((unsigned) pG->stage_no << 8) | pG->room_no, w->id, obj, &obj->be_flag, &obj->serial,
                                &obj->mat[0][0]);
+#if RE4DC_PS2_WORLD_PARTS
+            if (obj->pList && obj->nParts) {
+                const unsigned char* part = (const unsigned char*) obj->pList;
+                re4dc_ps2_dyn_parts(((unsigned) pG->stage_no << 8) | pG->room_no, w->id, obj, part, obj->nParts,
+                    (const unsigned char*) &obj->pList->pList - part, (const unsigned char*) &obj->pList->pos - part);
+            }
+#endif
         }
 #endif
     }

@@ -122,10 +122,18 @@ static inline u32* evtKey(EventMgr* m) { return &m->NowExeEvtKey; }
 static void r104_checkBgmPlay();
 static void r104_execEmDash();
 extern "C" void r104_openBox_main(int no, int opened);
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+static void r104_openedBox(int no);
+#else
 static void r104_openedBox();
+#endif
 static void r104_openBox(int no);
 extern "C" void r104_openShelf_main(int no, int opened);
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+static void r104_openedShelf(int no);
+#else
 static void r104_openedShelf();
+#endif
 static void r104_openShelf(int no);
 extern "C" void cPatrol104_getNextTarget(cPatrol104* p, Vec* out);
 extern "C" void cPatrol104_init(cPatrol104* p, R104PatrolData* d);
@@ -240,11 +248,19 @@ void R104Init()
     if (RsfCheck(G_ROOM_ID, 15) == 0) {
         SceAtDataSet_exec(0xE, SCE_LEVEL10, 0, (TaskFunc) r104_execEmDash, 0, 1);
     }
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+    SceSetItemEvent(0xB, 0x84, 0x10, 7, r104_openShelf, (TaskFunc) r104_openedShelf, 0, 0);
+    SceSetItemEvent(0xC, 0x8E, 0x11, 8, r104_openShelf, (TaskFunc) r104_openedShelf, 1, 0);
+    SceSetItemEvent(0xD, 0x89, 0x12, 9, r104_openShelf, (TaskFunc) r104_openedShelf, 2, 0);
+    SceSetItemEvent(0xF, 0x8F, 0x13, 0xA, r104_openBox, (TaskFunc) r104_openedBox, 0, 0);
+    SceSetItemEvent(0x10, 0x90, 0x14, 0xB, r104_openBox, (TaskFunc) r104_openedBox, 1, 0);
+#else
     SceSetItemEvent(0xB, 0x84, 0x10, 7, r104_openShelf, r104_openedShelf, 0, 0);
     SceSetItemEvent(0xC, 0x8E, 0x11, 8, r104_openShelf, r104_openedShelf, 1, 0);
     SceSetItemEvent(0xD, 0x89, 0x12, 9, r104_openShelf, r104_openedShelf, 2, 0);
     SceSetItemEvent(0xF, 0x8F, 0x13, 0xA, r104_openBox, r104_openedBox, 0, 0);
     SceSetItemEvent(0x10, 0x90, 0x14, 0xB, r104_openBox, r104_openedBox, 1, 0);
+#endif
     SceExec(0x12, (TaskFunc) r104_checkBgmPlay, 0, 0, SCE_PRIO_DEF_2, 0);
 }
 
@@ -321,12 +337,21 @@ extern "C" void r104_openBox_main(int no, int opened)
 }
 
 // Item-event "already opened": pose box `no` open (no comes in r3 untouched, see the note).
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+// SceExec passes the item-event argument; do not depend on the PPC r3 register
+// surviving an uninitialised C local on the native target.
+static void r104_openedBox(int no)
+{
+    r104_openBox_main(no, 1);
+}
+#else
 static void r104_openedBox()
 {
     int no; // uninitialised in the original: the item event passes `no` in r3 and the void-parameter
             // helper forwards whatever r3 holds (the target is `li r4,1; bl` with r3 untouched)
     r104_openBox_main(no, 1);
 }
+#endif
 
 // Item-event opener: animate box `no` open.
 static void r104_openBox(int no)
@@ -377,11 +402,20 @@ extern "C" void r104_openShelf_main(int no, int opened)
 }
 
 // Item-event "already opened": pose shelf `no` open.
+#if defined(RE4DC_GAME) && !defined(__PPC__)
+// SceExec passes the item-event argument; do not depend on the PPC r3 register
+// surviving an uninitialised C local on the native target.
+static void r104_openedShelf(int no)
+{
+    r104_openShelf_main(no, 1);
+}
+#else
 static void r104_openedShelf()
 {
     int no; // same as r104_openedBox
     r104_openShelf_main(no, 1);
 }
+#endif
 
 // Item-event opener: animate shelf `no` open.
 static void r104_openShelf(int no)

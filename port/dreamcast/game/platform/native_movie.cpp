@@ -86,6 +86,21 @@ constexpr unsigned MaxAllocs=16;  // + the frames' planes as six pieces
 #else
 constexpr unsigned MaxAllocs=10;
 #endif
+#if !RE4DC_MOVIE_HEAP_EVICT
+#undef RE4DC_MOVIE_STAGE_ORDER
+#undef RE4DC_MOVIE_BALLAST_TEST
+#endif
+#ifndef RE4DC_MOVIE_STAGE_ORDER
+#define RE4DC_MOVIE_STAGE_ORDER 0
+#endif
+#ifndef RE4DC_MOVIE_BALLAST_TEST
+#define RE4DC_MOVIE_BALLAST_TEST 0   // test only: bytes of heap 4 held through r100 s30 (the margin probe)
+#endif
+#if RE4DC_MOVIE_STAGE_ORDER
+// MOVIE_STAGE_ORDER: the movie's large pieces are staged up front, largest first (first fit decreasing), while
+// heap 4 still has its largest holes; the player and the decoder then take them by size.
+constexpr unsigned MaxReserve=12;
+#endif
 struct Movie {
     unsigned id=0; char path[40]{};
     file_t file=-1; plm_buffer_t* input=nullptr; plm_video_t* decoder=nullptr;
@@ -101,6 +116,12 @@ struct Movie {
     unsigned shown=0,dropped=0,late=0,cadence2=0,cadence_other=0,max_gap=0,last_submit=0,v0=0;
     unsigned long long sum_present=0,max_present=0,sum_idle=0,starve_since=0;
     unsigned starved=0;
+#if RE4DC_MOVIE_STAGE_ORDER
+    void* reserve[MaxReserve]{}; unsigned reserve_bytes[MaxReserve]{}; unsigned nreserve=0;
+#endif
+#if RE4DC_MOVIE_BALLAST_TEST
+    void* ballast=nullptr;
+#endif
     unsigned k=0,held=0,mask=0; bool armed=false,held_end=false; plm_frame_t* pending=nullptr;  // loop state (start/iterate)
     bool full=false,hw=false; void* tex=nullptr; unsigned yuv_timeouts=0;
 #if RE4DC_ROUTE_MOVIE_DIAG
@@ -182,10 +203,45 @@ void* stage_alloc(size_t n){
 }
 void* plm_alloc(size_t n){
     if(m.nallocs==MaxAllocs)return nullptr;
+#if RE4DC_MOVIE_STAGE_ORDER
+    for(unsigned i=0;i<m.nreserve;++i)if(m.reserve[i]&&m.reserve_bytes[i]==n){
+        void* p=m.reserve[i];m.reserve[i]=nullptr;
+        m.allocs[m.nallocs++]=p;m.staged+=n;
+        return p;
+    }
+#endif
     void* p=stage_alloc(n);
     if(p){m.allocs[m.nallocs++]=p;m.staged+=n;}
     return p;
 }
+#if RE4DC_MOVIE_STAGE_ORDER
+// The pieces open() is about to stage, in the order it would ask (read buffer, PCM, callback, strip, video input,
+// two frames' luma and chroma planes, the stream service's separation buffer), staged largest first. r100 s30 with
+// the crash screen + PS2_WORLD_DYNAMIC + PS2_INTERIOR_ACTORS (r22f2-s30): asked in the old order, the PCM and callback
+// pieces split the lent 131,168 B model-cache hole, and the second luma plane found 219,520 B free in holes of at
+// most 47,808 B. Every piece is a staging piece the movie owned before; only the order of the requests changes.
+bool reserve_largest_first(bool want_hw,bool service){
+    unsigned sizes[MaxReserve],n=0;
+    const unsigned luma=m.width*m.height,chroma=(m.width/2)*(m.height/2);
+    sizes[n++]=VideoCap;sizes[n++]=luma;sizes[n++]=luma;sizes[n++]=AudioCap;sizes[n++]=CallbackCap;sizes[n++]=ReadCap+32;
+    for(unsigned i=0;i<4;++i)sizes[n++]=chroma;
+    if(!want_hw)sizes[n++]=Rows*m.width*2;
+    if(service)sizes[n++]=Ring+32;
+    for(unsigned i=1;i<n;++i)for(unsigned j=i;j&&sizes[j]>sizes[j-1];--j){unsigned t=sizes[j];sizes[j]=sizes[j-1];sizes[j-1]=t;}
+    for(unsigned i=0;i<n;++i){
+        void* p=stage_alloc(sizes[i]);
+        if(!p){re4dc_log("route movie heap: order: piece %u (%u B) short\n",i,sizes[i]);return false;}
+        m.reserve[m.nreserve]=p;m.reserve_bytes[m.nreserve]=sizes[i];++m.nreserve;
+    }
+    return true;
+}
+// The separation buffer piece goes back just before snd_stream_init_ex stages its own (first fit finds that hole).
+void release_reserved(unsigned bytes){
+    for(unsigned i=0;i<m.nreserve;++i)if(m.reserve[i]&&(!bytes||m.reserve_bytes[i]==bytes)){
+        re4dc_ui_stage_free(m.reserve[i]);m.reserve[i]=nullptr;if(bytes)return;
+    }
+}
+#endif
 unsigned little(const unsigned char* p){return p[0]|p[1]<<8|p[2]<<16|p[3]<<24;}
 void* audio(snd_stream_hnd_t,int requested,int* received){
     // The pinned snd_stream.c passes a byte count.
@@ -285,6 +341,12 @@ int finish(int status){
     for(unsigned tries=0;m.texture&&!re4dc_ui_movie_close()&&tries<100;++tries)thd_sleep(1);
     m.texture=false;
     for(unsigned i=0;i<m.nallocs;++i)re4dc_ui_stage_free(m.allocs[i]);
+#if RE4DC_MOVIE_STAGE_ORDER
+    release_reserved(0);   // pieces nobody took (a failed open)
+#endif
+#if RE4DC_MOVIE_BALLAST_TEST
+    if(m.ballast){re4dc_ui_stage_free(m.ballast);m.ballast=nullptr;}
+#endif
 #if RE4DC_MOVIE_HEAP_EVICT
     // After the staging is freed: ui_bridge ends the loan and allocates the cache again (the next draw attaches it).
     {unsigned bytes=0,requests=0;
@@ -315,6 +377,10 @@ bool open(unsigned id){
     // route_movie_bridge.cpp after the movie); taken before heap_before so the movie sees the knob-off heap.
     re4dc_ps2_interior_movie_release();
 #endif
+#if RE4DC_MOVIE_BALLAST_TEST
+    if(id==0x10030){m.ballast=re4dc_ui_stage_alloc(RE4DC_MOVIE_BALLAST_TEST);
+        re4dc_log("route movie heap: test ballast %u B %s\n",(unsigned)RE4DC_MOVIE_BALLAST_TEST,m.ballast?"held":"FAILED");}
+#endif
     m.id=id;m.entered=timer_us_gettime64();m.heap_before=re4dc_ui_heap_free();m.vram_before=pvr_mem_available();
     path_for(id,m.path,sizeof(m.path));
     movie_state(0,(int)(id&0xffff));
@@ -327,6 +393,9 @@ bool open(unsigned id){
     {Re4dcIoScope owner;if(fs_seek(m.file,2048,SEEK_SET)!=2048)return false;}
     const unsigned long long video_us=(unsigned long long)m.expected_frames*1001000ULL/30,audio_us=(unsigned long long)m.audio_bytes*1000000ULL/128000;
     m.duration_us=video_us>audio_us?video_us:audio_us;
+#if RE4DC_MOVIE_STAGE_ORDER
+    if(!reserve_largest_first(RE4DC_ROUTE_MOVIE_YUV&&m.full,!re4dc_movie_stream_initialized()))return false;
+#endif
     unsigned char* rb=(unsigned char*)plm_alloc(ReadCap+32);
     m.readbuf=rb?(unsigned char*)(((uintptr_t)rb+31)&~(uintptr_t)31):nullptr;
     m.pcm=(unsigned char*)plm_alloc(AudioCap);m.callback=(unsigned char*)plm_alloc(CallbackCap);
@@ -348,7 +417,11 @@ bool open(unsigned id){
 #if RE4DC_MOVIE_HEAP_EVICT
     // The service's separation buffer (Ring + 32 B, native_movie_stream.c) is staged without eviction: make
     // room for a piece that size first and hand it back, so the service's first-fit allocation finds one.
+#if RE4DC_MOVIE_STAGE_ORDER
+    release_reserved(m.owns_service?Ring+32:~0u);
+#else
     if(m.owns_service)if(void* room=stage_alloc(Ring+32))re4dc_ui_stage_free(room);
+#endif
 #endif
     if(snd_stream_init_ex(2,Ring)<0)return false;
     m.stream=snd_stream_alloc(audio,Ring);if(m.stream<0)return false;
