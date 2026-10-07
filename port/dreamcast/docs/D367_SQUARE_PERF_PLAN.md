@@ -18,9 +18,15 @@ page boundary, costing 4 KiB of measured arena/heap; s30 still plays 340/340 at
 [detailed evidence](D367_ATLIST_CAPACITY_20261007.md).
 
 The guarded r104 world-cell experiment was rejected after 39.832->40.461 ms;
-its runtime code stays private and disabled. Leon qualification is next in the
-user's order, followed by combined New Game. Published r22j and SD bytes are
-unchanged. Issue #2, whole-route and physical-console acceptance remain open.
+its runtime stays private. Leon qualification is complete: the combined path
+fails required allocations and H2 gameplay despite a modest square gain;
+face-only has a weak derived net gain and is also left off. See
+[D367_LEON_REQUALIFICATION_20261007.md](D367_LEON_REQUALIFICATION_20261007.md).
+Final capacity-only New Game completes all 1,971/2,360/1,175 movie frames and
+reaches live r100 with no required allocation failures. The play checklist
+records diagnostic scope and the separately verified clean local CUE/GDI.
+Published r22j and SD folder154 are unchanged. Issue #2, continuous whole-route
+and physical-console acceptance remain open.
 
 ## 2026-10-07: r22j published
 

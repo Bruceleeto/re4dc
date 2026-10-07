@@ -7,8 +7,12 @@ unchanged collision order/cache limits, validated large-list reuse. Static
 data +1,536 bytes costs 4 KiB after arena rounding; s30 completes 340/340 at
 63,584 bytes and radio backing restores fully. The play checklist records the
 exact H2 preserved-memory/timing qualification, bell and checker evidence.
-Leon qualification and final combined New Game are next. Published r22j and
-the verified SD copy remain unchanged; no new hardware/route acceptance.
+Ordered work is complete. Both Leon knobs remain off: the combined path fails
+required allocations/H2 gameplay, and face-only has a weak net gain. Final
+capacity-only automated New Game completes 1,971/2,360/1,175 and reaches live
+r100 with no required allocation failures. Clean local play ELF 5ad665ec,
+CUE/GDI and launcher are recorded in the checklist; its GDI boots separately.
+Published r22j and SD folder154 remain unchanged; no new hardware/route acceptance.
 
 Current publication, 2026-10-07: [r22j](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) includes the validated room music,
 PS2_INTERIOR_ACTORS=2 and GAME_ATLIST_OVERFLOW=1 changes plus all r22i fixes.

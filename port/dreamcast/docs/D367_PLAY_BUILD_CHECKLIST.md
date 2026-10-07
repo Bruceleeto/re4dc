@@ -1,6 +1,6 @@
 # D367 play build checklist (user, 2026-09-29)
 
-## 2026-10-07: 512-entry collision lists accepted; Leon qualification next
+## 2026-10-07: ordered optimization complete; collision capacity accepted
 
 The play recipe now enables GAME_ATLIST_512=1 alongside the existing overflow
 guard. Only the two ordered alive-list arrays grow from 320 to 512 entries;
@@ -38,9 +38,36 @@ bytes with hash verification and returns to the event world. The initial
 linear heap-loss assumption and its failed assertion remain in the evidence.
 No missing modules, halts or misalignment were reported by the bounded gates.
 
-Published r22j and the verified SD copy are unchanged. Final combined New Game
-and a clean local play candidate follow Leon qualification. This does not
-resolve issue #2 or establish whole-route, hardware or 30 fps acceptance.
+Leon qualification is complete and both LEON_NATIVE_PIPE and LEON_FACE_LAZY
+remain disabled. The combined path reduced a matched radio-free r101 square
+sample by 1.738 modeled ms per draw/skip pair (1.75%), but required model,
+work-backing and createSat allocations fail in traced and untraced r100 runs.
+H2 first diverges at frame 661. Complete movie counts and exact restoration did
+not detect these missing required objects; the later higher free-heap figure
+is not a safety margin. Four frozen framebuffers and 2,527 normalized TA rows
+matched, but rendering equality does not override the resource/gameplay fail.
+The smaller face-only arm adds 704 text bytes without moving linked end; its
+derived cabinet draw/skip pair gain is only 0.438 ms (0.60%) with unmatched
+drawn subsets, so it remains off without further qualification. See
+[the Leon requalification record](D367_LEON_REQUALIFICATION_20261007.md).
+
+Final capacity-only automated New Game completes 1,971/2,360/1,175 movie
+frames and reaches live r100 with no required model/atari/work-backing
+allocation failures. This gate uses DBG_WARP=1 and PC_SAMPLER=1 with the title
+input script; it is not an exact clean-disc manual playthrough.
+Clean play ELF 5ad665ec5086d3308111a5877545d5100a4704c89e122f4f885bdb6da9154dc5
+is built from reviewed source 96e0f20c with only GAME_ATLIST_512 newly enabled
+relative to r22j. Both Leon knobs, debug warps, PC/logic/decision tracing,
+forced pacing, freezes and diagnostic delay are off; ACT_CAP=0.
+The CUE and GDI live in D:/RE4DC-Play-Discs/ordered-optimization-20261007-*
+with launcher D:/RE4DC-Play/Play-Ordered-Optimization-20261007.cmd. All 1,195
+GDI payloads read back in both namespaces; the exact GDI separately boots in
+Flycast. Evidence: /root/probe/codex-ordered-20261007 and
+D:/Flycast-Evidence/re4-dreamcast/ordered-optimization-20261007.
+
+Published r22j and the hash-verified SD folder154 are unchanged. These local
+checks do not resolve issue2 or establish continuous whole-route, physical
+Dreamcast or 30 fps acceptance.
 
 ## 2026-10-07: r22j audio and performance release
 
