@@ -1,12 +1,27 @@
 # D367 square performance plan: r101 at 30 fps at full game speed
 
+## 2026-10-07: indoor owner cull accepted; CPU follow-up next
+
+The pending owner-path cull is integrated with identity-capture invalidation and
+PS2_INTERIOR_ACTORS=2. H2/bell logic, displayed-frame checker and s30/radio gates
+pass. In the moving r100 stair-ascent window 1760..1839, the model improves drawn
+55.756->53.908 ms and equal-weight whole cost 39.264->38.369 ms; skipped 22.771->22.829 ms.
+Both 80-frame censuses split 40/40; 12 trace samples split 6/6 and track census
+instruction means within 0.32%. This is a local scene result, not a square/fight
+or hardware 30 fps claim. See D367_PLAY_BUILD_CHECKLIST.md for memory and visual scope.
+
+The next CPU candidate remembers a failed oversized alive-list build under the
+existing head/generation guards, while retaining the full collision walk. It
+remains default-off until measured on the combined music/culling baseline and
+passes its target gates. Final combined New Game is still required.
+
 **Acceptance target (architect review 2026-10-03): 30 fps at full game speed** (section "30 fps rethink":
 G <= 24 + R <= 6 + margin per tick). The 15 fps goal below (2026-09-24) is historical. A 15 fps build would be a
 separately chosen compromise, never the acceptance target.
 
-Owner: the D367 main session, which since 2026-09-25 coordinates parallel lanes (section "Current order
+Owner: the D 367 main session, which since 2026-09-25 coordinates parallel lanes (section "Current order
 and status") and lands every patch. Started 2026-09-24 from the user's play tests. The repeatable loop
-lives in the `re4-dreamcast-square-perf` skill. This file is the plan and the ledger: update the ledger
+lives in the `re 4-dreamcast-square-perf` skill. This file is the plan and the ledger: update the ledger
 with every measured arm, and the plan when an item lands or is dropped.
 
 ## Persistent goal (user, 2026-09-24)

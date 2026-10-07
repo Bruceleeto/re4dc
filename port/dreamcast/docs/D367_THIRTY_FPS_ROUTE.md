@@ -1,5 +1,16 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: owner-path indoor culling integration
+
+PS2_INTERIOR_ACTORS=2 is enabled after H2/bell decision and STRICT-window checks,
+1,494 clean displayed-frame scans, 191 matching owner replay checks and the
+340-frame s30/radio handoff. The matched untraced s30 headroom is 67,680 bytes,
+8,192 less than control. Source 1760..1839 stair ascent averages 39.264->38.369
+SH-4 modeled ms across equal drawn/skipped samples; drawn 55.756->53.908,
+skipped 22.771->22.829. ACT_CAP=0; the census confirms balanced representative
+sampling. See the play checklist for scope and exact gates. The final combined
+New Game gate remains pending CPU integration; r22i is unchanged.
+
 ## 2026-10-07: r104/r107 music bank preparation
 
 Candidate after published r22i; not included in r22i.

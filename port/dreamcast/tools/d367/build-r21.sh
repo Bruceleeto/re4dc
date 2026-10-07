@@ -72,6 +72,11 @@
 # value. hw ms per drawn tick: stair foot -8.6, h-quiet -0.2 (its cell tests cost +0.42 with nothing culled), fight /
 # square ~-1 (layout). Look caveats accepted: a 1 px wall-seam crack at the stair foot is not drawn; 4 px of one RGB565
 # step. LINK_ORDER stays r22-fsca-c3-8k.ld (a regenerated order measured +0.1..0.5 worse). docs/lanes/pc-20261005.md.
+# PS2_INTERIOR_ACTORS=2 (2026-10-07): also rejects wholly hidden owner-path Ganados, preserving
+# admission and crowd ranking. Identity capture invalidates the prior cull mark. H2/bell decisions
+# match; checker 1494 displayed scans and 191 replay checks are clean. Stair ascent frames 1760..1839:
+# drawn 55.756->53.908 modeled ms, skipped 22.771->22.829, balanced mean 39.264->38.369.
+# Linked image +8256 B; matched untraced s30 completes 340/340 at 67680 B free, then radio handoff passes.
 # PS2_WORLD_DYNAMIC=1 (user 2026-10-06, issue lamb2k/re4dc#3: the r105 emblem never turned and its door looked shut): the
 # PS2 world follows the scenery the room code moves or hides. Each PS2 placement carries its SMD scroll id
 # (tools/ps2_room_ids.py writes dc/native/rXXX/ps2-world.ids next to each package); a hidden id is skipped and a moved
@@ -141,7 +146,7 @@ R21=(
   SKIN_PALETTE_LAZY=1 ESP_SPRITE_FAST=1 ESP47_SKIP_LEAN=1 MODEL_PREP_KEEP=1 CROWD_READOPT_MEMO=1 ACTOR_BIND_REUSE=1
   PS2_WORLD_HDR_CACHE=1 MESH_CLIP_ACCEPT=1 PS2_PASS_MASK=1 GAME_HF_REG=1 GAME_CLOTH_SPRING=1 GAME_SND_WALL_ALT=1 GAME_ROT_FSCA=1
   CROWD_INVIS_SKIP=1 EFFECT_FADE_CLAMP=1
-  PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=1
+  PS2_INTERIOR_CULL=1 PS2_INTERIOR_ACTORS=2
   PS2_WORLD_DYNAMIC=1
   PS2_WORLD_PARTS=1 ITEM_UI_ORDER=1 MOVIE_STAGE_ORDER=1
 )

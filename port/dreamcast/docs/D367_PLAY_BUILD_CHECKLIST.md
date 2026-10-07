@@ -1,5 +1,38 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: owner-path interior culling
+
+The recipe now selects PS2_INTERIOR_ACTORS=2. The integrated owner-path rejection
+keeps actor admission, leases, crowd ranking and all source simulation; identity
+replacement discards a prior cull mark. Knob-off image and overlay remain
+byte-identical to the c36 issue-fix diagnostic build. The lifetime host test and
+its failing negative control cover serial/data/parts replacement and generation wrap.
+
+H2 is STRICT for 0..740, 1218..5696 and 1450..1569; decisions match for 5,696
+records. The established object-matrix-only interval 741..1215 remains outside
+those STRICT windows. Bell is STRICT and decision-identical for 6,372 records.
+The checker reports 1,494 displayed framebuffer scans with zero magenta hits,
+191 owner replay checks with zero mismatches, and 303 checked bounds with no
+overflow. This is displayed-frame coverage through its UI 2160 summary, not every
+source tick. Stair-ascent and settled-window screenshots look normal.
+
+The linked image grows 8,256 bytes (allocated payload +4,864, including 608 bytes
+of custom-section data). The matched untraced movie/radio twin has 67,680 bytes
+free before s30 versus 75,872 for control; all 340 movie frames complete and radio
+replay 5520..6080 restores the room. Traced H2 has 67,584 bytes free in both arms.
+Do not compare traced and untraced heap values.
+
+The SH-4 model pair covers source 1760..1839 while Leon climbs toward the upstairs
+window. Twelve traces at stride 7 split 6 drawn/6 skipped; the 80-frame census is
+40/40, with sample instruction means within 0.32% of their respective census means.
+Drawn cost 55.756->53.908 ms, skipped 22.771->22.829 ms, equal-weight mean 39.264->38.369 ms.
+ACT_CAP=0, HWTRACE_ALIGN=1, and MISALIGN=0 in both arms. This is a bounded model
+result, not stationary stair-foot, whole-route,30 fps or physical-console acceptance.
+
+The existing interior.cell is retained; no new derived geometry is required.
+Final combined New Game validation remains pending the CPU candidate. These
+changes are not included in the published r22i download.
+
 ## 2026-10-07: room music bank preparation
 
 This change is a candidate after published r22i; r22i does not include it.
