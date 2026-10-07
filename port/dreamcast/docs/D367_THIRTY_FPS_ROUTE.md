@@ -1,5 +1,27 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: collision capacity accepted; visibility extension rejected
+
+GAME_ATLIST_512=1 joins the play recipe. Enlarging only the existing two alive
+arrays admits the 470-object cabinet list without changing the 96-collidable
+limit or collision order. The balanced eight-tick cabinet sample improves
+39.832->36.338 modeled ms; drawn 53.062->50.376 and skipped 26.592->22.288.
+The longer census changes from 16/16 to 17/15 draw/skip; this is a bounded local
+sample, not console FPS. Actual 470..479-object check mode reports no mismatch.
+
+Bell passes 6,370 shared logic/required-decision records. H2's preserved-memory,
+timing-controlled diagnostic passes all 3,237 shared records, retaining the
+ordinary borrowed-memory and zero-delay timing failures separately. The normal
+build has no diagnostic delay. Static data +1,536 bytes crosses an ARENA_FIT
+page boundary, costing 4 KiB of measured arena/heap; s30 still plays 340/340 at
+63,584 bytes and radio backing restores fully. See the play checklist and
+[detailed evidence](D367_ATLIST_CAPACITY_20261007.md).
+
+The guarded r104 world-cell experiment was rejected after 39.832->40.461 ms;
+its runtime code stays private and disabled. Leon qualification is next in the
+user's order, followed by combined New Game. Published r22j and SD bytes are
+unchanged. Issue #2, whole-route and physical-console acceptance remain open.
+
 ## 2026-10-07: r22j published
 
 The [r22j test release](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) now includes the accepted room music, indoor

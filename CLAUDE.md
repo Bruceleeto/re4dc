@@ -1,5 +1,15 @@
 # RE4 Dreamcast working handoff
 
+2026-10-07 ordered follow-up: the guarded r104 visibility extension was
+measured and rejected; its runtime remains private. GAME_ATLIST_512=1 is now
+accepted in the play recipe: cabinet balanced sample 39.832->36.338 modeled ms,
+unchanged collision order/cache limits, validated large-list reuse. Static
+data +1,536 bytes costs 4 KiB after arena rounding; s30 completes 340/340 at
+63,584 bytes and radio backing restores fully. The play checklist records the
+exact H2 preserved-memory/timing qualification, bell and checker evidence.
+Leon qualification and final combined New Game are next. Published r22j and
+the verified SD copy remain unchanged; no new hardware/route acceptance.
+
 Current publication, 2026-10-07: [r22j](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) includes the validated room music,
 PS2_INTERIOR_ACTORS=2 and GAME_ATLIST_OVERFLOW=1 changes plus all r22i fixes.
 All four packages and checksums are published and verified. See the play

@@ -1,5 +1,47 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: 512-entry collision lists accepted; Leon qualification next
+
+The play recipe now enables GAME_ATLIST_512=1 alongside the existing overflow
+guard. Only the two ordered alive-list arrays grow from 320 to 512 entries;
+the 96-collidable cache bound, live change notifications, ordering and complete
+over-capacity fallback remain unchanged. The general make default remains 0.
+Runtime candidate 6c7cc182 is integrated as 09ac28d7. See
+[the capacity evidence](D367_ATLIST_CAPACITY_20261007.md) for reproduction and
+[the rejected r104 visibility experiment](D367_R104_WORLD_CELL_20261007.md).
+
+The uncapped r104 cabinet sample improves 39.832->36.338 nominal SH-4 modeled
+ms per tick (-3.494, 8.77%): drawn 53.062->50.376, skipped 26.592->22.288.
+Eight consecutive traces at source 1200..1207 have four drawn/four skipped
+ticks per arm. The 32-frame census is 16/16 OFF and 17/15 ON; sample-to-census
+mode deviation reaches 4.29%. These are balanced sample means, not a timed
+32-frame mean, rendered FPS or physical-console measurements. The existing
+470-object candidate walks disappear; ObjHitCheck still visits every object.
+
+Host capacity/lifetime/overflow checks pass. The actual cabinet checker sees
+470 through 479 objects, 196,573 candidate-cache hits and zero list/candidate
+mismatches. Bell is STRICT with required decisions identical on all 6,370
+shared records. Ordinary H2 has only 475 borrowed-memory object-matrix hash
+differences, with required decisions identical. Preserved-memory tracing
+resolves those bytes but exposes a one-tick wall-time radio-close difference.
+The single existing 1,000-us diagnostic-delay qualification matches all 3,237
+shared gameplay records and required decisions, including the entire radio
+interval, with no added exclusions. Two informational sound-query records
+differ; they follow audio timing. All three outcomes are retained. Production
+and performance builds keep delay=0 and preserved-memory tracing disabled.
+
+Static data grows 1,536 bytes and text shrinks 32 bytes. Linked end grows
+1,536 bytes, crossing the existing ARENA_FIT 4-KiB rounding boundary: arena
+12,365,824->12,361,728 and untraced s30 heap 67,680->63,584 bytes. All movies
+complete, including s30 340/340. Radio replay 5518..6079 restores 3,027,520
+bytes with hash verification and returns to the event world. The initial
+linear heap-loss assumption and its failed assertion remain in the evidence.
+No missing modules, halts or misalignment were reported by the bounded gates.
+
+Published r22j and the verified SD copy are unchanged. Final combined New Game
+and a clean local play candidate follow Leon qualification. This does not
+resolve issue #2 or establish whole-route, hardware or 30 fps acceptance.
+
 ## 2026-10-07: r22j audio and performance release
 
 The [r22j prerelease](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) packages the validated music, indoor culling and CPU
