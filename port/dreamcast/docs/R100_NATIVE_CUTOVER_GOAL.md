@@ -296,6 +296,22 @@ request the operator switch models. Astra resolves the question, records the
 decision in this durable goal/handoff, and hands implementation back to
 GPT-6 Sol / Max. A queued model change is not evidence the decision is resolved.
 
+### Resolved outdoor review, 2026-10-07
+
+Astra/Max reviewed the fresh uncapped r101 village sample on accepted
+`fc39b433`: drawn 73.180 / skipped 26.261 modeled ms, world subtree 10.6857 ms.
+World-only changes cannot close the outdoor budget. The
+[recorded decision](D367_OUTDOOR_ARCHITECTURE_20261007.md) approves only a pure
+current Trans-state eligibility guard before owner Ganado interior-bound work.
+Sol may implement that isolated guard with the stated host/cache, image identity,
+one-cost, interior/checker, STRICT and route/resource gates. The 0.3 ms attributable
+net gate applies; no result or 30 fps acceptance is assumed. The earlier repeated
+qualification certificate and smaller world groups remain rejected/private.
+Larger drivers or outdoor visibility need the specific additional attribution and
+source-valid evidence listed in the decision. Locked source, model ownership,
+memory and gameplay contracts remain in force; this does not resume the broader
+paused architecture goal or authorize a release/SD change.
+
 Current qualification: [D349 slices and source-block budget](R4_R100_SOURCE_BLOCK_BUDGET.md).
 The 14,577,304-byte monolithic conversion is not the target representation and
 does not trigger escalation by itself. Reconstruct the existing D349 source/
