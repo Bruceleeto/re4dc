@@ -161,7 +161,13 @@ static int atchkCollect(cEm* head, cEm** out)
 // lines be prefetched ATLIST_PF ahead. More works than ATLIST_MAX: the list walk runs.
 // =2 (diagnostic): every cached use is also checked against a list walk (a mismatch is counted
 // and rebuilt), with an "ATL" summary line every 8192 syncs.
+// GAME_ATLIST_512 changes only the existing ordered alive-array capacity. The
+// 96-candidate limit, dirty-note reuse and complete overflow fallback stay intact.
+#if defined(RE4DC_ATLIST_512) && RE4DC_ATLIST_512
+#define ATLIST_MAX 512
+#else
 #define ATLIST_MAX 320
+#endif
 #define ATLIST_PF 6
 struct AtList {
     cEm* head;

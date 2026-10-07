@@ -264,6 +264,18 @@ $(error GAME_ATLIST_OVERFLOW needs GAME_ATCHK_LIST=1)
 endif
 $(OBJDIR)/src/game/at_mod.o: GAME_CPPFLAGS += -DRE4DC_ATLIST_OVERFLOW=$(GAME_ATLIST_OVERFLOW)
 endif
+# GAME_ATLIST_512=1: enlarge only the two ordered alive arrays from 320 to 512.
+# Candidate capacity and overflow semantics are unchanged; SH-4 static cost +1536 B.
+GAME_ATLIST_512 ?= 0
+ifeq ($(filter $(GAME_ATLIST_512),0 1),)
+$(error GAME_ATLIST_512 must be 0 or 1)
+endif
+ifneq ($(GAME_ATLIST_512),0)
+ifeq ($(GAME_ATCHK_LIST),0)
+$(error GAME_ATLIST_512 needs GAME_ATCHK_LIST=1)
+endif
+$(OBJDIR)/src/game/at_mod.o: GAME_CPPFLAGS += -DRE4DC_ATLIST_512=1
+endif
 # GAME_ATCHK_CACHE=1 (needs GAME_ATCHK_LIST=1; G, collision traversal; exact): EmAtCheck keeps each list's
 #                    collected bodies while the list is unchanged and applies to them every body whose
 #                    collidable test (cAtariInfo m_flag bit 0x200, m_radius2 != 0) changed: the two fields

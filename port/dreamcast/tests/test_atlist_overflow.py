@@ -110,7 +110,7 @@ class AtListOverflowTest(unittest.TestCase):
     def test_extracted_helpers(self):
         source=SOURCE.read_text()
         collect=source[source.index('#define ATCHK_MAX'):source.index('#if defined(RE4DC_ATCHK_LIST)')]
-        begin=source.index('#define ATLIST_MAX')
+        begin=source.index('#if defined(RE4DC_ATLIST_512)')
         end=source.index('#if defined(RE4DC_ATCHK_CACHE) && RE4DC_ATCHK_CACHE\n// GAME_ATCHK_CACHE',begin)
         helpers=source[begin:end]
         marker='static int atListBuild(AtList* L, cEm* head, u32 gen)\n{'
