@@ -1,5 +1,12 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: r22j published
+
+The [r22j test release](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) now includes the accepted room music, indoor
+culling and CPU changes below, alongside all r22i fixes. The play checklist
+records exact build provenance and validation. The separate scene gains do
+not establish physical-console or 30 fps acceptance. Issue #2 remains open.
+
 ## 2026-10-07: CPU retry optimization and combined gates accepted
 
 GAME_ATLIST_OVERFLOW=1 is enabled in the play recipe after preserving all shared

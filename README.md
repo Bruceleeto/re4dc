@@ -7,7 +7,7 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download r22i](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006)** ·
+**[Download r22j](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Decompilation](docs/DECOMPILATION.md)
 
@@ -17,12 +17,12 @@ Extract the complete package for your system:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Windows | [RE4DC-r22i.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22i-inventory-animation-fixes-20261006/RE4DC-r22i.zip) | Double-click `Play-r22i.cmd`. Includes Flycast and keyboard/DualSense support. |
-| Steam Deck / SteamOS | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22i-inventory-animation-fixes-20261006/RE4DC-r22i-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
-| CachyOS / Arch | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22i-inventory-animation-fixes-20261006/RE4DC-r22i-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
-| Dreamcast / GDEMU | [GDEMU image](https://github.com/lamb2k/re4dc/releases/download/play-r22i-inventory-animation-fixes-20261006/RE4DC-r22i-GDEMU.zip) | Copy `disc.gdi` and all three track files into a new numbered SD-card folder. |
+| Windows | [RE4DC-r22j.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j.zip) | Double-click `Play-r22j.cmd`. Includes Flycast and keyboard/DualSense support. |
+| Steam Deck / SteamOS | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
+| CachyOS / Arch | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
+| Dreamcast / GDEMU | [GDEMU image](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-GDEMU.zip) | Copy `disc.gdi` and all three track files into a new numbered SD-card folder. |
 
-[SHA-256 checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22i-inventory-animation-fixes-20261006/SHA256SUMS.txt) · [Release notes and verification](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006)
+[SHA-256 checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/SHA256SUMS.txt) · [Release notes and verification](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007)
 
 Already have Flycast? Open `disc/disc.cue` from an emulator package and keep its `disc.bin` beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -43,20 +43,20 @@ Fast pacing is the default. A VMU in controller slot 1 shows FPS, game speed, CP
 
 ## Status and limitations
 
-**r22i, October 6, 2026:** fixes invisible herbs, pickup item layering and animated cupboard,
-lid and puzzle parts. It also repairs movie buffer allocation and includes the earlier r22f fixes.
+**r22j, October 7, 2026:** restores room music in r104/r107 and adds indoor enemy culling
+and a CPU optimization. Includes the r22i herb, pickup layering, object animation and movie fixes.
 The route extends through r10a; the unfinished r10b door shows **Coming Soon**. This is a prerelease,
 not the complete game.
 
-The r22i GDEMU image booted to the VMU prompt in Flycast. Recorded checks cover New Game, movies,
-inventory rendering, animated interactions, merchant access and all three grenade equips.
-Every release archive member was hash checked. A continuous r22i playthrough and physical Dreamcast
-acceptance remain pending. See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md).
+Combined New Game, movie, radio and logic checks pass in Flycast. All three grenade types trigger
+their mapped sound sample. The exact GDEMU image boots to the VMU prompt, and every archive member
+was hash checked. Continuous playthrough, mixed audio listening and physical Dreamcast acceptance
+remain pending. See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md).
 
 - **Performance:** below the 30 fps/full-speed target. The separate r22g console test ran the r100
-  outdoor fight at about 10 fps and 70% speed; this is not an r22i measurement.
-- **Presentation and sound:** some models/effects and textures need work. Room music is missing in
-  r104/r107, grenade sound remains under investigation, and rifle sound is lower quality.
+  outdoor fight at about 10 fps and 70% speed; this is not an r22j measurement.
+- **Presentation and sound:** some models/effects and textures need work. Rifle sound is lower quality;
+  the restored room music and grenade sounds still need listening checks on hardware.
 - **Stability:** the r103 hang remains under investigation. If the freeze report appears, attach a photo
   to a bug report.
 - **Loading and saves:** room-entry pauses remain. Normal chapter 1-2 key-item pickups and reloading

@@ -1,5 +1,11 @@
 # RE4 Dreamcast working handoff
 
+Current publication, 2026-10-07: [r22j](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) includes the validated room music,
+PS2_INTERIOR_ACTORS=2 and GAME_ATLIST_OVERFLOW=1 changes plus all r22i fixes.
+All four packages and checksums are published and verified. See the play
+checklist for build provenance and bounded validation; issue #2 remains open.
+Earlier publication/candidate status below is historical.
+
 Current publication, 2026-10-06: r22i packages the validated c36a08cc runtime
 with the herb texture additions, pickup ordering, source part animations and
 movie staging fix. See the play checklist's r22i section for exact scope and

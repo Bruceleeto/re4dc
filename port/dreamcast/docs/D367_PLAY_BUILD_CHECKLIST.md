@@ -1,5 +1,26 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: r22j audio and performance release
+
+The [r22j prerelease](https://github.com/lamb2k/re4dc/releases/tag/play-r22j-audio-performance-20261007) packages the validated music, indoor culling and CPU
+changes below, plus every r22i fix. Windows, SteamOS, CachyOS and GDEMU archives
+contain the same checked disc bytes; every archive member was read back and
+hashed. All public asset sizes/digests and download responses were verified.
+
+Release source is 8b0b9623. The clean play runtime was built at 10eb831f with
+GAME_ATLIST_OVERFLOW=1; the release commit adds only matching recipe activation
+and documentation. Its ELF SHA256 is
+`8eba3bb57d70cd08b7c8c736561efd1d41fd373a965a524b22c7794925f4751d`.
+The corrected bank-9 asset is included, with the 3,749-entry herb pack retained.
+All 1,195 GDI payloads match in both namespaces and the exact GDI boots from
+its high-density TOC to the VMU prompt. Test-control files are absent.
+
+The prior candidate sections record the combined New Game, movie/radio, logic,
+audio and modeled-cost scope. Earlier statements that these changes are absent
+from r22i are historical and remain true; r22j now delivers them. No continuous
+whole-route, physical-console, mixed-audio listening or 30 fps acceptance is
+claimed. The r103 save-load freeze in issue #2 remains unresolved.
+
 ## 2026-10-07: oversized alive-list retry optimization accepted
 
 GAME_ATLIST_OVERFLOW=1 is now in the play recipe; its general make default stays
