@@ -1,5 +1,29 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: r104/r107 music bank preparation
+
+Candidate after published r22i; not included in r22i.
+
+`ROOM_BGM0` includes r104 and r107's `bio4midi` entry 9. Without that
+preparation, its runtime conversion needs 189,760 bytes even at 8 kHz and fails
+with 1,804,992 AICA bytes reserved. The prepared 236,640-byte image fits the
+existing 264,576-byte BGM0 slot; all layout offsets, other banks and movie
+reserve stay unchanged. No runtime code or heap-4 footprint changes.
+
+The chapter 1-3 overlay must be explicitly regenerated and staged: follow
+[D367_PLAY_BUILD_CHECKLIST.md](D367_PLAY_BUILD_CHECKLIST.md), "room music bank
+preparation". The base four-room `stage.sh` recipe alone is insufficient.
+The existing length limit leaves seven long samples at 8 kHz and two at 32 kHz.
+A same-binary r107 A/B changes the matched summary from 0 music notes / 39
+unmapped events to 39 notes / 0 unmapped events; all nine prepared samples
+have nonzero decoded energy. This establishes source-bank playback through
+the AICA driver, not physical-console or listening acceptance.
+The r104 source arrival/QTE and radio-close replay restores the room and
+continues bank-9 notes at -28/-27 dB. World return is log-backed; the following
+test input opened Map before the next screenshot. All three grenade types use
+the existing PL bank and pass item consumption plus mapped driver key-on checks;
+no grenade audio patch is needed under this bounded evidence.
+
 ## 2026-10-06: r22i issue fixes
 
 The [r22i test release](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006) contains c36a08cc:
@@ -8,7 +32,6 @@ inventory herb texture pairs. Source timing and child-pose ownership are retaine
 The play checklist records the logic, movie, interaction and bounded cost gates.
 This is not a performance release or a fix for the reported r103 hardware freeze.
 PS2_INTERIOR_ACTORS=2 and the room/grenade audio work remain separate followups.
-
 
 ## 2026-10-06: r22f, the issue #2 crash screen and the issue #3 fixes
 

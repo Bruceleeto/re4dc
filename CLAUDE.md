@@ -9,6 +9,12 @@ indoor actor cull are separate work. All existing release caveats still apply.
 
 Updated 2026-10-05. Project rules: [AGENTS.md](AGENTS.md).
 
+2026-10-07 audio candidate (not in published r22i): r104/r107 select music bank 9; `ROOM_BGM0` now prepares it
+in the existing BGM0 slot (236,640 / 264,576 bytes, no layout/reserve growth).
+Regenerate and stage the chapter 1-3 `bgm/bio4midi.dat` overlay explicitly using
+the play checklist's "room music bank preparation" command; the base stage
+route omits these rooms. Driver/sample validation is not console listening.
+
 2026-10-05 (pushed 3f4b599d; test disc r22, not released; fight 73% is a projection): the perf lanes sk / fx / cl / wd / logic are integrated and their 12 knobs
 are in build-r21.sh with LINK_ORDER link-order/r21z-perf-c3-8k.ld (route doc "2026-10-05: integrated perf lanes"):
 hw ms drawn house 47.80 -> 43.61, fight 66.03 -> 59.10, square 78.03 -> 72.39; console projection fight 66.6% 10.0 fps

@@ -1,5 +1,48 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: room music bank preparation
+
+This change is a candidate after published r22i; r22i does not include it.
+
+The room table selects `bio4midi` entry 9 for r104 and r107. `ROOM_BGM0`
+now includes both rooms, so the converter puts this bank into the existing
+264,576-byte BGM0 slot instead of attempting runtime allocation after the pool
+is occupied. Its image is 236,640 bytes; the frozen layout and movie reserve
+are unchanged. The 32 kHz cap preserves two samples at 32 kHz; seven longer
+samples use 8 kHz under the existing 65,534-sample channel-length limit.
+
+Regenerate the chapter 1-3 music overlay from an unconverted private mirror:
+
+```sh
+python3 port/dreamcast/tools/aica_banks.py build \
+  --mirror "$MIRROR" --out "$NEW_AUDIO_OVERLAY" \
+  --route title,r100,r101,r103,r104,r107,r102,r108,r109,r10a \
+  --fixed-route title,r100,r101,r103 --weapons --check
+```
+
+Stage only the resulting `bgm/bio4midi.dat` into the existing chapter 1-3
+fixture. The default base route in `stage.sh` does not include the later rooms
+and does not regenerate this overlay. Keep the established weapon and room
+files and the current herb texture pack from their reviewed fixtures.
+The new file must differ only in entry 9's ARAM span; all other bytes, including
+prior music banks and archive metadata, remain identical to the prior overlay.
+
+Validation: seven converter host tests pass. A same-binary r107 A/B changes
+0 music notes / 39 unmapped events to 39 / 0 in the matched periodic summary.
+The r104 normal-arrival fixture passes the source QTE, skips the following movie
+through its source completion path, closes the radio with START, restores the
+room and plays bank-9 notes at -28/-27 dB. Room return has source/draw log
+markers; the next test input opens Map, so later screenshots do not establish
+sustained world play. Fresh warps with the arrival flag already set are not an
+equivalent r104 music test. No runtime code changes or heap-4 growth are involved.
+
+All three player grenade types consume one item and key on the expected nonzero
+PL-bank sample in a quiet r102 Flycast replay: hand PL/0x14, fire PL/0x22 and
+flash PL/0x13. The runtime PL image hash matches the existing packaged bank.
+These are the `cSubWep` detonation paths, not generic scenery `obj01` effects.
+No grenade audio change is indicated by these tests. This is source/driver/sample
+validation, not captured mixed audio, listening acceptance or a console test.
+
 ## 2026-10-06: r22i inventory and animation release
 
 The [r22i prerelease](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006) packages the validated
@@ -18,7 +61,6 @@ without the reported DLL halt. The test setup only gives/selects the item.
 No physical-console or continuous whole-route acceptance is claimed. Issue #2
 remains unresolved. The r104/r107 music and grenade sound work, and the pending
 PS2_INTERIOR_ACTORS=2 integration, are not part of r22i.
-
 
 ## 2026-10-07: issue fixes candidate after r22f
 
