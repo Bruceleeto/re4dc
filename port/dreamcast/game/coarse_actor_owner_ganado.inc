@@ -232,6 +232,10 @@ struct InvisRec {
     cModelInfo* role[4];
     unsigned app, bindkey, mark_gen;
     unsigned char count, outcome, cullable, mark, nparts;
+#if RE4DC_PS2_INTERIOR_OWNER
+    unsigned pc_gen;  // PS2_INTERIOR_ACTORS=2: the Trans (invis_gen) whose interior cell hides this owner-path Ganado
+    unsigned char pc_cast;  // roles 0..3 drawn from the cast chunks at the owner admission (bit per role)
+#endif
 };
 constexpr unsigned kInvisRecs = 48;
 InvisRec invis_rec[kInvisRecs];
@@ -249,6 +253,10 @@ unsigned invis_marked, invis_checked, invis_violations, invis_violation_tris, in
 unsigned invis_builds, invis_build_fail;
 #if RE4DC_PS2_INTERIOR_ACTORS
 unsigned invis_pc_tests, invis_pc_hidden;  // PS2_INTERIOR_ACTORS: source-path Ganados tested / hidden by the cell
+#endif
+#if RE4DC_PS2_INTERIOR_OWNER
+unsigned invis_pco_tests, invis_pco_hidden;  // PS2_INTERIOR_ACTORS=2: owner-path Ganados tested / marked
+unsigned invis_pco_why[6];  // not marked: 0 no source-mesh bound for an original / fifth info, 1 no pregate balls, 2 beyond the fog proof, 3 box not finite, 4 not hidden by the cell, 5 fog prediction not believed
 #endif
 InvisRec* invis_find(const cModel* m, bool create) {
     for (unsigned k = 0; k < kInvisRecs; ++k) if (invis_rec[k].m == m) return &invis_rec[k];
@@ -270,6 +278,10 @@ bool invis_same(const InvisRec& r, const cModel* m) {
 }
 void invis_capture(InvisRec& r, const cModel* m) {
     r.serial = unsigned(m->serial); r.parts = m->pList; r.count = 0xFF; r.outcome = 0; r.cullable = 0; r.bindkey = 0;
+#if RE4DC_PS2_INTERIOR_OWNER
+    // A replacement identity must not inherit a mark from an earlier owner in this Trans generation.
+    r.pc_gen = invis_gen - 1u;
+#endif
     unsigned n = 0;
     for (cModelInfo* i = m->pModelInfo; i; i = i->pList) {
         if (n == 6) return;
@@ -290,6 +302,11 @@ void invis_note_owner(cModel* m) {
     r->outcome = 1; r->app = owner_plan_app;
     r->cullable = owner_info_count[owner_current_slot] == 4 && !owner_original_chunk(2) && !owner_original_chunk(3);
     for (unsigned k = 0; k < 4; ++k) r->role[k] = bound->infos[k];
+#if RE4DC_PS2_INTERIOR_OWNER
+    r->pc_cast = 0;  // the roles drawn from the cast chunks (no original source chunk): the pregate balls bound them
+    for (unsigned k = 0; k < 4 && k < owner_info_count[owner_current_slot]; ++k)
+        if (!owner_original_chunk(k)) r->pc_cast |= (unsigned char)(1u << k);
+#endif
 }
 // Source-mesh bound: per drawn info's ModelData and the skeleton's bind matrices, a ball per bone in the bone's bind
 // frame around every position that bone moves with a positive rate (MakeWeightPalette's rates, the last one the
@@ -604,11 +621,22 @@ extern "C" void re4dc_invis_note(cModel* m, unsigned outcome) {
 #if RE4DC_PS2_INTERIOR_ACTORS
 extern "C" void re4dc_ps2_interior_trans(const float* view, const float* P);  // native_static.cpp
 #endif
+#if RE4DC_PS2_INTERIOR_OWNER
+// coarse_actor_transaction.inc: owned submissions skipped / declined by the replay, =2 crowd checks / mismatches.
+extern "C" unsigned re4dc_pco_skipped, re4dc_pco_declined, re4dc_pco_checked, re4dc_pco_check_mis;
+#endif
 extern "C" void re4dc_invis_begin(const float* P, float fog_pred) {
     ++invis_gen;
 #if RE4DC_PS2_INTERIOR_ACTORS
     re4dc_ps2_interior_trans(&pG->Cam.v_mat[0][0], P);
     if (!(invis_gen % 600)) re4dc_log("INVISPC t=%u tests=%u hidden=%u\n", unsigned(pG->Frame_cnt), invis_pc_tests, invis_pc_hidden);
+#endif
+#if RE4DC_PS2_INTERIOR_OWNER
+    if (!(invis_gen % 120))
+        re4dc_log("INVISPCO t=%u tests=%u marked=%u skipped=%u declined=%u checked=%u check_mis=%u why=%u,%u,%u,%u,%u,%u\n",
+                  unsigned(pG->Frame_cnt), invis_pco_tests, invis_pco_hidden, re4dc_pco_skipped, re4dc_pco_declined,
+                  re4dc_pco_checked, re4dc_pco_check_mis, invis_pco_why[0], invis_pco_why[1], invis_pco_why[2],
+                  invis_pco_why[3], invis_pco_why[4], invis_pco_why[5]);
 #endif
     InvisView& iv = invis_view;
     iv.ok = false;
@@ -673,6 +701,9 @@ static bool invis_settled(cModel* m) {
 // the CROWD_LOD note kept) under the same settled-parts rule. Owner-path Ganados are not taken: their crowd ranking
 // entries come from the cast chunks the pregate keeps, which this test does not reproduce.
 extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3], const float hi[3]);  // native_static.cpp
+#if RE4DC_PS2_INTERIOR_OWNER
+extern "C" int re4dc_ps2_interior_owner_hidden(const float lo[3], const float hi[3]);  // native_static.cpp
+#endif
 static inline void invis_acc(float* lo, float* hi, const float* w, float rho) {
     for (unsigned a = 0; a < 3; ++a) { if (w[a] - rho < lo[a]) lo[a] = w[a] - rho; if (w[a] + rho > hi[a]) hi[a] = w[a] + rho; }
 }
@@ -734,6 +765,112 @@ static bool invis_interior(cModel* m, const InvisRec& r) {
     ++invis_pc_hidden;
     return true;
 }
+#if RE4DC_PS2_INTERIOR_OWNER
+// PS2_INTERIOR_ACTORS=2: an owner-path Ganado (admitted last time, kept by the crowd policy: invis_owner false) whose
+// drawn infos lie behind the house walls. Trans only marks it (pc_gen); its OT entry, ModelRender and the transaction
+// (plan, semantics, crowd_policy, actor_acquire's leases) run unchanged and only the owned submission is skipped
+// (coarse_actor_transaction.inc), after the CROWD_LOD notes its runs would have left (native_actor_fast.cpp
+// re4dc_actor_owned_crowd_replay: CROWD_INVIS_SKIP's re4dc_actor_crowd_note under its settled-parts rule). Each drawn
+// info (be_flag 8) is bounded by balls placed as their own tests place them: a role drawn from its cast chunk by the
+// chunk's pregate balls (invis_owner: root x info x inv(root) x bone, radius x scales x 1.002 + 4); an original
+// source chunk or a fifth info by its source-mesh balls (invis_interior's, the source ModelData the chunk was
+// converted from). Taken only when every drawn info is bounded, each is kept by the actor path's fog gate (every ball
+// wholly nearer than the fogged View far the next Render uses, 100 mm spare: the fog prediction must be believed), so
+// each of its runs reaches crowd_tier, and the world box of all the balls lies wholly outside the house box and the
+// Trans-time cell hides it.
+static bool invis_owner_interior(cModel* m, const InvisRec& r) {
+    const InvisView& iv = invis_view;
+    if (iv.fog < 0.0f) { ++invis_pco_why[5]; return false; }
+    float (*root)[4] = m->pParts->mat;
+    Mtx inv;
+    if (!PSMTXInverse(root, inv)) return false;
+    cParts* parts[64];
+    const unsigned np = invis_parts(m, parts);
+    if (np != kBones) return false;
+    const float (*v)[4] = pG->Cam.v_mat;
+    const float vz = __builtin_sqrtf(v[2][0] * v[2][0] + v[2][1] * v[2][1] + v[2][2] * v[2][2]);
+    float lo[3] = {3.0e38f, 3.0e38f, 3.0e38f}, hi[3] = {-3.0e38f, -3.0e38f, -3.0e38f};
+    static const float I[3][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};
+    unsigned any = 0, bindkey = 0;
+    for (unsigned k = 0; k < r.count; ++k) {
+        cModelInfo* info = r.info[k];
+        if (!(info->be_flag & 8)) continue;
+        unsigned role = 4;
+        for (unsigned i = 0; i < 4; ++i) if (r.role[i] == info && ((r.pc_cast >> i) & 1u)) role = i;
+        const bool ident = !std::memcmp(info->mat, I, sizeof(I));
+        Mtx T;
+        float sT = 1.0f;
+        if (!ident) {
+            Mtx t;
+            PSMTXConcat(root, info->mat, t);
+            PSMTXConcat(t, inv, T);
+            sT = gate_scale_sym(T);
+        }
+        float deepest = -3.0e38f;
+        auto ball = [&](float* w, float rho) {
+            invis_acc(lo, hi, w, rho);
+            const float depth = -(v[2][0] * w[0] + v[2][1] * w[1] + v[2][2] * w[2] + v[2][3]) + rho * vz;
+            if (!(depth <= deepest)) deepest = depth;
+        };
+        if (role < 4) {
+            if (!gate_init(r.app) || stress_layout) { ++invis_pco_why[1]; return false; }
+            const unsigned n = gate_count[r.app][role], first = gate_first[r.app][role];
+            if (!n) { ++invis_pco_why[1]; return false; }
+            for (unsigned j = 0; j < n; ++j) {
+                const GateBall& g = gate_ball[first + j];
+                const float (*A)[4] = parts[gate_bone[first + j]]->mat;
+                float w[3];
+                invis_xf(A, g.c, w);
+                float rho = g.r * gate_scale_sym(A) * 1.002f;
+                if (!ident) { float u[3]; invis_xf(T, w, u); w[0] = u[0]; w[1] = u[1]; w[2] = u[2]; rho *= sT * 1.002f; }
+                ball(w, rho + 4.0f);
+            }
+        } else {
+            // invis_interior's per-info bound (re4dc_invis_note's bindkey over the parts' bind matrices).
+            const ModelData* d = info->pData;
+            if ((info->be_flag & 2) || d->nTex > 0xF7) { ++invis_pco_why[0]; return false; }
+            if (!bindkey) {
+                unsigned h = 2166136261u;
+                for (unsigned i = 0; i < np; ++i) {
+                    const unsigned* w = reinterpret_cast<const unsigned*>(&parts[i]->lt_inv_mat[0][0]);
+                    for (unsigned j = 0; j < 12; ++j) h = (h ^ w[j]) * 16777619u;
+                }
+                bindkey = h | 1u;
+            }
+            const InvisMesh* e = invis_mesh_for(d, bindkey, parts, np);
+            if (!e) { ++invis_pco_why[0]; return false; }
+            if (invis_rigid(d)) {
+                const unsigned no = d->pHead->partsNo;
+                if (no >= np) { ++invis_pco_why[0]; return false; }
+                const cParts* p = (m->be_flag & 0x2000) ? reinterpret_cast<const cParts*>(m->pParts) + no : parts[no];
+                Mtx W;
+                PSMTXConcat(p->mat, info->mat, W);
+                const InvisBall& b = invis_ball[e->first];
+                float w[3];
+                invis_xf(W, b.c, w);
+                ball(w, b.r * gate_scale_sym(W) * 1.002f + 4.0f);
+            } else {
+                for (unsigned j = 0; j < e->n; ++j) {
+                    const InvisBall& b = invis_ball[e->first + j];
+                    const float (*A)[4] = parts[invis_ball_bone[e->first + j]]->mat;
+                    float w[3];
+                    invis_xf(A, b.c, w);
+                    float rho = b.r * gate_scale_sym(A) * 1.002f;
+                    if (!ident) { float u[3]; invis_xf(T, w, u); w[0] = u[0]; w[1] = u[1]; w[2] = u[2]; rho *= sT * 1.002f; }
+                    ball(w, rho + 4.0f);
+                }
+            }
+        }
+        if (!(deepest + 100.0f <= iv.far_owner)) { ++invis_pco_why[2]; return false; }  // NaN fails too
+        ++any;
+    }
+    if (!any) return false;
+    for (unsigned a = 0; a < 3; ++a) if (!coarse_finite(lo[a]) || !coarse_finite(hi[a])) { ++invis_pco_why[3]; return false; }
+    if (re4dc_ps2_interior_owner_hidden(lo, hi)) return true;
+    ++invis_pco_why[4];
+    return false;
+}
+#endif
 #endif
 extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (m->id < 0x10 || m->id > 0x20) return 0;
@@ -742,7 +879,16 @@ extern "C" unsigned re4dc_invis_decide(cModel* m) {
     if (!r) { ++invis_n[3]; return 0; }
     if (!invis_same(*r, m)) { ++invis_n[4]; return 0; }
     unsigned k = 0;
-    if (r->outcome == 1) k = invis_owner(m, *r) ? 1u : 0u;
+    if (r->outcome == 1) {
+        k = invis_owner(m, *r) ? 1u : 0u;
+#if RE4DC_PS2_INTERIOR_OWNER
+        // Not a Trans skip (k stays 0): the mark lets the next Render's transaction skip the owned submission.
+        if (!k) {
+            ++invis_pco_tests;
+            if (invis_owner_interior(m, *r)) { r->pc_gen = invis_gen; ++invis_pco_hidden; }
+        }
+#endif
+    }
     else if (r->outcome == 2) {
         k = invis_source(m, *r) ? 2u : 0u;
 #if RE4DC_PS2_INTERIOR_ACTORS
@@ -760,6 +906,15 @@ extern "C" unsigned re4dc_invis_decide(cModel* m) {
     return k;
 #endif
 }
+#if RE4DC_PS2_INTERIOR_OWNER
+// PS2_INTERIOR_ACTORS=2 (coarse_actor_transaction.inc, an owner-path Ganado's draw): 1 when this frame's Trans marked
+// m as hidden by the interior cell (same structure, still owner path).
+extern "C" int re4dc_invis_owner_marked(cModel* m) {
+    if (!m || m->id < 0x10 || m->id > 0x20) return 0;
+    const InvisRec* r = invis_find(m, false);
+    return r && r->pc_gen == invis_gen && r->outcome == 1 && invis_same(*r, m);
+}
+#endif
 #if RE4DC_CROWD_INVIS_SKIP == 2
 // ModelRender (=2): the kind the knob would have taken for m in this image (0: none).
 extern "C" unsigned re4dc_invis_marked(cModel* m) {

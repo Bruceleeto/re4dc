@@ -3728,8 +3728,9 @@ extern "C" int re4dc_actor_part_settled(const void* stream, unsigned bytes) {
     const u8* s = static_cast<const u8*>(stream);
     return bytes >= sizeof(BlobHeader) && s[0] == kMagic && s[1] == kVersion && !(s[2] & kLodPending);
 }
-#if RE4DC_CROWD_INVIS_SKIP == 2
-// =2 (check build): the model's crowd entry in this frame: 1 and its distance when its parts noted it, else 0.
+#if RE4DC_CROWD_INVIS_SKIP == 2 || (defined(RE4DC_PS2_INTERIOR_OWNER) && RE4DC_PS2_INTERIOR_OWNER == 2)
+// =2 (check build; also PS2_INTERIOR_ACTORS=2 with PS2_INTERIOR_CULL=2): the model's crowd entry in this frame: 1 and
+// its distance when its parts noted it, else 0.
 extern "C" int re4dc_actor_crowd_peek(const void* model, float* distance) {
     for (unsigned i = 0; i < crowd_count; ++i)
         if (crowd[i].model == model) {
@@ -4891,6 +4892,47 @@ extern "C" unsigned re4dc_actor_submit_chunks(Re4dcModelPart* part, const Re4dcA
 
 #if RE4DC_ACTOR_TRANSACTION
 #include "include/native_actor_owner_submit.inc"
+#if defined(RE4DC_PS2_INTERIOR_OWNER) && RE4DC_PS2_INTERIOR_OWNER && defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
+// PS2_INTERIOR_ACTORS=2 (game30.mk; coarse_actor_transaction.inc): an owner-path Ganado whose owned submission the
+// interior cell skips. one_chunk notes every run that reaches crowd_tier in the CROWD_LOD ranking; Trans proved that
+// the fog gate keeps each drawn chunk (coarse_actor_owner_ganado.inc invis_owner_interior), and actor_acquire's
+// preflight that every run qualifies and reserves. This checks what one_chunk does before crowd_tier for each run,
+// as re4dc_actor_submit_owned_runs loads it (owned_run_load): one_qualifies, finite near / far, a settled part
+// (CROWD_INVIS_SKIP's re4dc_actor_part_settled: converted in place, no LOD build waiting, so the skip leaves the
+// streams and the LOD budget as the submission would), cull != 3. All pass: 1, *nearest = the least distance noted,
+// and with note != 0 each run's crowd class > 0 notes its modelview through re4dc_actor_crowd_note (CROWD_INVIS_SKIP's
+// crowd_tier bookkeeping). Any fails: 0, nothing noted (the caller submits).
+extern "C" int re4dc_actor_owned_crowd_replay(const Re4dcModelPart* base, const Re4dcActorDrawRun* runs, unsigned n,
+                                              const Re4dcActorOwnedMaterial* materials, unsigned nm, int note,
+                                              float* nearest) {
+    if constexpr (!kCrowd) return 0;
+    if (!base || !runs || !materials || !n || n > kRe4dcActorRuns) return 0;
+    Re4dcModelPart p = *base;
+    float best = 0.0f;
+    for (unsigned i = 0; i < n; ++i) {
+        if (runs[i].material >= nm) return 0;
+        owned_run_load(p, runs[i], materials[runs[i].material]);
+        const SkinEntry* se = nullptr;
+        Re4dcActorSource src{};
+        if (p.positions || !one_qualifies(p, se, src)) return 0;
+        const float near_distance = p.projection[6] / (p.projection[5] - 1.0f);
+        const float far_distance = p.projection[6] / p.projection[5];
+        if (!re4dc::render::is_finite(near_distance) || !re4dc::render::is_finite(far_distance) ||
+            near_distance <= 0.0f || far_distance <= near_distance) return 0;
+        if (!re4dc_actor_part_settled(p.stream, p.stream_bytes) || p.cull == 3) return 0;
+        const float* m = p.modelview;
+        const float d = std::sqrt(m[3] * m[3] + m[7] * m[7] + m[11] * m[11]);
+        if (!i || d < best) best = d;
+    }
+    if (note)
+        for (unsigned i = 0; i < n; ++i) {
+            owned_run_load(p, runs[i], materials[runs[i].material]);
+            if (re4dc_actor_model_class(p.model, p.info) > 0) re4dc_actor_crowd_note(p.model, p.modelview);
+        }
+    *nearest = best;
+    return 1;
+}
+#endif
 #if RE4DC_LEON_NATIVE_PIPE
 #include "include/native_actor_leon_pipe.inc"
 #endif

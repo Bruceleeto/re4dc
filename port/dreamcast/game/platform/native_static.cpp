@@ -1474,6 +1474,9 @@ constexpr unsigned kBoxes=32;
 Box box[kBoxes];unsigned nbox=0,boxes=0,drawn=0,unchecked=0,overflow=0;
 unsigned key[6];bool have_key=false;
 #endif
+#if RE4DC_PS2_INTERIOR_OWNER
+unsigned owner_tests=0,owner_hid=0; // PS2_INTERIOR_ACTORS=2: owner-path Ganados tested / hidden (also counted in hid)
+#endif
 }
 #endif
 #endif
@@ -3044,6 +3047,9 @@ int ps2_pass(unsigned pass,float zfar){
             re4dc_log("PCCULL frame=%u active=%d cell=%d eye=%d,%d,%d corner=%d portals=%u frames=%u/%u placements=%u clusters=%u meshlets=%u tests=%u\n",
                 frame,int(pc::st.active),pc::st.cell,int(e[0]),int(e[1]),int(e[2]),int(pc::st.corner),pc::st.nfr,pc::st.active_frames,pc::st.frames,
                 pc::st.placements,pc::st.clusters,pc::st.meshlets,pc::st.tests);
+#if RE4DC_PS2_INTERIOR_OWNER
+            re4dc_log("PCOWN frame=%u tests=%u hidden=%u\n",frame,pcact::owner_tests,pcact::owner_hid);
+#endif
         }
 #if RE4DC_PS2_INTERIOR_CULL==2
         else {
@@ -3335,6 +3341,28 @@ extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3],const float hi[
     return 1;
 #endif
 }
+#if RE4DC_PS2_INTERIOR_OWNER
+// PS2_INTERIOR_ACTORS=2: the same test for an owner-path Ganado's cast-ball box (coarse_actor_owner_ganado.inc
+// invis_owner_interior). 1 when the Trans-time cell hides it, also at =2, where the box is queued for the magenta
+// check as above and the caller draws the Ganado and checks its crowd entry instead of skipping it.
+extern "C" int re4dc_ps2_interior_owner_hidden(const float lo[3],const float hi[3]){
+    pc::State& s=pc::st_trans;
+    if(!s.active || s.setup_frame!=re4dc_ui_frame())return 0;
+    float c[3],h[3];
+    for(unsigned a=0;a<3;++a){c[a]=(lo[a]+hi[a])*0.5f;h[a]=std::fabs(hi[a]-lo[a])*0.5f;}
+    ++pcact::owner_tests;
+    if(!(pc::hidden_state(s,c,h)>0))return 0;
+    ++pcact::owner_hid;++pcact::hid;
+#if RE4DC_PS2_INTERIOR_CULL==2
+    if(pcact::nbox<pcact::kBoxes){
+        auto& b=pcact::box[pcact::nbox++];
+        for(unsigned a=0;a<3;++a){b.lo[a]=lo[a];b.hi[a]=hi[a];}
+        ++pcact::boxes;
+    } else ++pcact::overflow;
+#endif
+    return 1;
+}
+#endif
 #endif
 extern "C" void re4dc_ps2_mesh_log(unsigned frame){
     for(unsigned p=0;p<3;++p){

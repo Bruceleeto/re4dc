@@ -2031,16 +2031,33 @@ endif
 # CROWD_INVIS_SKIP's source path; owner-path Ganados are not taken. With PS2_INTERIOR_CULL=2 nothing is skipped and
 # each such box is drawn as an opaque magenta box (PCACT boxes / drawn / unchecked), covered by the framebuffer scan.
 # With =3 the actor part follows PS2_INTERIOR_CULL_SELECT.
+# PS2_INTERIOR_ACTORS=2 (lane pc2, 2026-10-06; render only; default 0): =1 plus owner-path Ganados (the ACTOR_TRANSACTION
+# owner path). Trans (re4dc_invis_decide) marks an owner-path Ganado the crowd policy keeps when its drawn cast chunks'
+# pregate balls are all within the fog gate's far plane and their world box is hidden by the cell; the next Render's
+# transaction runs unchanged up to the owned submission (plan, semantics, crowd_policy, actor_acquire), leaves the
+# CROWD_LOD notes its runs would leave (native_actor_fast.cpp re4dc_actor_owned_crowd_replay: CROWD_INVIS_SKIP's
+# re4dc_actor_crowd_note under its settled-parts rule) and skips the submission. With PS2_INTERIOR_CULL=2 nothing is
+# skipped: the box is drawn magenta and the crowd entry the submission left is compared with the replay's
+# (INVISPCO checked / check_mis, must stay 0).
 PS2_INTERIOR_ACTORS ?= 0
 ifneq ($(PS2_INTERIOR_ACTORS),0)
-ifneq ($(PS2_INTERIOR_ACTORS),1)
-$(error PS2_INTERIOR_ACTORS must be 0 or 1)
+ifeq ($(filter $(PS2_INTERIOR_ACTORS),1 2),)
+$(error PS2_INTERIOR_ACTORS must be 0, 1 or 2)
 endif
 ifneq ($(CROWD_INVIS_SKIP),1)
 $(error PS2_INTERIOR_ACTORS needs CROWD_INVIS_SKIP=1)
 endif
 $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_PS2_INTERIOR_ACTORS=1
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_ACTORS=1
+ifeq ($(PS2_INTERIOR_ACTORS),2)
+PS2_INTERIOR_OWNER := $(if $(filter 2,$(PS2_INTERIOR_CULL)),2,1)
+$(OBJDIR)/coarse_ganado.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_INTERIOR_OWNER=$(PS2_INTERIOR_OWNER)
+$(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_INTERIOR_OWNER=$(PS2_INTERIOR_OWNER)
+# PS2_INTERIOR_OWNER_SELECT=0|1 (layout control, diagnostic; unset in every real build): the owner-path skip behind one .data word.
+ifneq ($(PS2_INTERIOR_OWNER_SELECT),)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_INTERIOR_OWNER_SELECT=$(PS2_INTERIOR_OWNER_SELECT)
+endif
+endif
 endif
 ifeq ($(PS2_INTERIOR_CULL),3)
 PS2_INTERIOR_CULL_SELECT ?= 0

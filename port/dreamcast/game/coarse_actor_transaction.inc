@@ -505,6 +505,16 @@ extern "C" void re4dc_invis_note(cModel*,unsigned);  // coarse_actor_owner_ganad
 #else
 #define INVIS_NOTE(m,k)
 #endif
+#if RE4DC_PS2_INTERIOR_OWNER && RE4DC_CROWD
+// PS2_INTERIOR_ACTORS=2 (game30.mk): owner-path Ganados hidden by the r100 house interior cell.
+extern "C" int re4dc_invis_owner_marked(cModel*);  // coarse_actor_owner_ganado.inc
+extern "C" int re4dc_actor_owned_crowd_replay(const Re4dcModelPart*,const Re4dcActorDrawRun*,unsigned,
+    const Re4dcActorOwnedMaterial*,unsigned,int,float*);  // native_actor_fast.cpp
+#if RE4DC_PS2_INTERIOR_OWNER == 2
+extern "C" int re4dc_actor_crowd_peek(const void*,float*);  // native_actor_fast.cpp
+#endif
+extern "C" { unsigned re4dc_pco_skipped,re4dc_pco_declined,re4dc_pco_checked,re4dc_pco_check_mis; }
+#endif
 #if defined(RE4DC_ENCV) && RE4DC_ENCV
 extern "C" unsigned re4dc_encv_crowd;  // ENC_CENSUS=2 (coarse.cpp): the crowd policy's reason in this call
 #endif
@@ -790,7 +800,39 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_CROWD_OUTPUT
     const unsigned crowd_out0=re4dc_model_output_count();
 #endif
+#if RE4DC_PS2_INTERIOR_OWNER && RE4DC_CROWD
+    // PS2_INTERIOR_ACTORS=2: Trans marked this owner-path Ganado as hidden behind the house walls. Its CROWD_LOD notes
+    // are left as its runs would leave them and the owned submission is skipped (=2: drawn, the notes checked after).
+    bool pco_skip=false;float pco_nearest=0;int pco_check=0;
+#ifdef RE4DC_PS2_INTERIOR_OWNER_SELECT
+    // PS2_INTERIOR_OWNER_SELECT=0|1 (layout control, diagnostic): one .data word, 1 off, 2 on.
+    static volatile unsigned pco_select=1U+RE4DC_PS2_INTERIOR_OWNER_SELECT;
+    if(pco_select==2U && r->crowd_ganado && n && re4dc_invis_owner_marked(m)) {
+#else
+    if(r->crowd_ganado && n && re4dc_invis_owner_marked(m)) {
+#endif
+#if RE4DC_PS2_INTERIOR_OWNER == 2
+        pco_check=re4dc_actor_owned_crowd_replay(&r->base,runs,n,r->plan.materials,r->plan.material_count,0,&pco_nearest);
+#else
+        pco_skip=re4dc_actor_owned_crowd_replay(&r->base,runs,n,r->plan.materials,r->plan.material_count,1,&pco_nearest)!=0;
+        if(pco_skip)++re4dc_pco_skipped;else ++re4dc_pco_declined;
+#endif
+    }
+    (void)pco_nearest;(void)pco_check;
+    const int result=pco_skip?1:n?re4dc_actor_submit_owned_runs(&r->base,runs,n,r->plan.materials,r->plan.material_count,&r->workspace,&r->skin,r->textures):1;
+#if RE4DC_PS2_INTERIOR_OWNER == 2
+    if(pco_check) {
+        float have=0;const int noted=re4dc_actor_crowd_peek(m,&have);
+        ++re4dc_pco_checked;
+        if(!noted || std::memcmp(&have,&pco_nearest,sizeof(have))) {
+            ++re4dc_pco_check_mis;
+            if(re4dc_pco_check_mis<=32)re4dc_log("INVISPCO BAD t=%u m=%p noted=%d have=%g predicted=%g\n",unsigned(pG->Frame_cnt),m,noted,have,pco_nearest);
+        }
+    }
+#endif
+#else
     const int result=n?re4dc_actor_submit_owned_runs(&r->base,runs,n,r->plan.materials,r->plan.material_count,&r->workspace,&r->skin,r->textures):1;
+#endif
 #if RE4DC_CROWD_OUTPUT
     if(r->crowd_ganado) {
         const unsigned emitted=re4dc_model_output_count()-crowd_out0;
