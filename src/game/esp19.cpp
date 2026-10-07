@@ -7,6 +7,11 @@
 #include "global.h"
 #include "math_sub.h"
 #include "esp.h"
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+#include "native_ui.h"
+extern "C" void GXGetProjectionv(f32*);
+extern "C" void GXGetViewportv(f32*);
+#endif
 
 struct Esp19Work {
     Vec Vec0;  // 0x00 end point of the line
@@ -102,6 +107,57 @@ static void Draw_line3d_local_222(Vec* p0, Vec* p1, Mtx mtx, u32 color, cEsp* es
     }
     rate = 1.0f - d / len;
 
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+    // Carry the same final endpoints and vertex colours through the native
+    // effect queue. Target/collision, generator and effect lifetime stay source.
+    f32 P[7], V[6];
+    GXGetProjectionv(P);
+    GXGetViewportv(V);
+    if (V[2] <= 0.0f || V[3] <= 0.0f) return;
+    Vec v[2];
+    PSMTXMultVec(mtx, p0, &v[0]);
+    PSMTXMultVec(mtx, &end, &v[1]);
+    const u32 col[2] = {0xff000000U | ((u32)r << 16) | ((u32)g << 8) | b,
+        ((u32)(u8)(a * rate) << 24) | ((u32)(u8)(r * rate) << 16) |
+        ((u32)(u8)(g * rate) << 8) | (u8)(b * rate)};
+    const int ortho = P[0] != 0.0f;
+    f32 t0 = 0.0f, t1 = 1.0f;
+    if (!ortho) {
+        const f32 near_d = P[6] / (P[5] - 1.0f), far_d = P[6] / P[5];
+        const f32 d0 = -v[0].z, d1 = -v[1].z, dd = d1 - d0;
+        if (dd == 0.0f) {
+            if (d0 < near_d || d0 > far_d) return;
+        } else {
+            f32 enter = (near_d - d0) / dd, leave = (far_d - d0) / dd;
+            if (enter > leave) { const f32 swap = enter; enter = leave; leave = swap; }
+            if (enter > t0) t0 = enter;
+            if (leave < t1) t1 = leave;
+            if (t0 > t1) return;
+        }
+    }
+    Re4dcEffectLine line;
+    for (int i = 0; i < 2; ++i) {
+        const f32 t = i ? t1 : t0;
+        const f32 x = v[0].x + (v[1].x - v[0].x) * t;
+        const f32 y = v[0].y + (v[1].y - v[0].y) * t;
+        const f32 z = v[0].z + (v[1].z - v[0].z) * t;
+        const f32 inv = ortho ? 1.0f : 1.0f / -z;
+        const f32 px = ortho ? P[1] * x + P[2] : (P[1] * x + P[2] * z) * inv;
+        const f32 py = ortho ? P[3] * y + P[4] : (P[3] * y + P[4] * z) * inv;
+        line.x[i] = (V[2] * 0.5f * px + V[0] + V[2] * 0.5f) * 640.0f / V[2];
+        line.y[i] = (-V[3] * 0.5f * py + V[1] + V[3] * 0.5f) * 480.0f / V[3];
+        line.z[i] = inv;
+        line.color[i] = 0;
+        for (unsigned shift = 0; shift < 32; shift += 8) {
+            const f32 c0 = (col[0] >> shift) & 255, c1 = (col[1] >> shift) & 255;
+            line.color[i] |= (u32)(u8)(c0 + (c1 - c0) * t) << shift;
+        }
+    }
+    line.src = esp->xA5 & 7; line.dst = esp->xA6 & 7;
+    line.depth_test = (color >> 24) != 0xFE; line.blend_mode = esp->xA4;
+    re4dc_effect_line(&line);
+    return;
+#endif
     GXBegin(0xB0, 0, 2);
     GXPosition3f32(p0->x, p0->y, p0->z);
     GXColor4u8(r, g, b, a);

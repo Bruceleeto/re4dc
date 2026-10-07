@@ -30,6 +30,19 @@
 #                    eligible). Render only.
 EFFECT_LEAN ?= 0
 EFFECT_SPRITES ?= 0
+# The source laser uses Esp19, a line rather than an EspCommonTrans sprite.
+# Native packet extension only: existing OT queue and frame storage, no texture.
+NATIVE_LASER ?= 0
+ifneq ($(filter-out 0 1,$(NATIVE_LASER)),)
+$(error NATIVE_LASER is 0 or 1)
+endif
+ifeq ($(NATIVE_LASER),1)
+ifneq ($(EFFECT_SPRITES),1)
+$(error NATIVE_LASER needs EFFECT_SPRITES=1)
+endif
+$(OBJDIR)/src/game/esp.o $(OBJDIR)/src/game/esp_sub.o $(OBJDIR)/src/game/esp19.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_LASER=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_NATIVE_LASER=1
+endif
 COARSE_FX_SPRITES ?= 0
 ifneq ($(COARSE_FX_SPRITES),0)
 ifneq ($(EFFECT_SPRITES),1)

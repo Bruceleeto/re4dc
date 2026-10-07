@@ -434,6 +434,9 @@ static void EspSpriteEmit(cEsp* esp)
 extern EspTransFunc EspTransTbl[0xFF];
 extern "C" int re4dc_esp_sprite_class(cEsp* esp)
 {
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+    if (esp->m_Id == 0x19) return 1;
+#endif
     return (EspTransTbl[esp->m_Id] == EspCommonTrans || esp->m_Id == 0x0B) && EspSpriteEligible(esp);
 }
 extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE builds (native_static.cpp)
@@ -451,6 +454,11 @@ extern "C" void re4dc_esp_sprite_pass_begin()
 #endif
 extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
 {
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+    // A beam can cross the view while either endpoint is outside it. Esp19
+    // retains source OT checks; its own line adapter clips the full segment.
+    if (esp->m_Id == 0x19) return 1;
+#endif
 #if RE4DC_PS2FX_DRAW
     if (re4dc_ps2fx & (PS2FX_HAZE | PS2FX_STREAK)) {
         const int k = Ps2fxClass(esp);

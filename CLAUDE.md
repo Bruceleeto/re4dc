@@ -1,5 +1,15 @@
 # RE4 Dreamcast working handoff
 
+2026-10-07 bug follow-up: NATIVE_LASER=1 restores the source weapon beam, while
+ACTOR_GANADO_SOURCE_LIGHT=0 implements the user's request that native Ganados
+share Leon's prelit lighting path. Beam and lighting each pass 2,911-record
+STRICT/required decisions. The final 512-entry s30/radio gate passes at the
+accepted 63,584-byte starting heap; clean final linked end/BSS/arena do not grow.
+See [the exact qualification](port/dreamcast/docs/D367_BUG_QUALIFICATION_20261007.md).
+No new release or SD change; console inventory/bridge/older freeze causes stay
+open pending reporter saves/settings. Fog distance and baked Leon are intentional.
+The separate live-Leon probe and outdoor guard below remain private/unaccepted.
+
 2026-10-07 outdoor follow-up: all bounded candidates remain unaccepted. The
 current-Trans eligibility guard saves 0.699766 modeled ms of synchronous owner
 work per drawn square sample, but final exact TA/framebuffer qualification is

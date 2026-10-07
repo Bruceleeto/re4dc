@@ -757,6 +757,9 @@ int EspTrans()
             }
             // Esp0b_Trans is EspCommonTrans after a camera jitter (Core_flg 0x8000) that draws the shared
             // Rnd(): a coarse image queues the common body only (same OT priority), so no game state moves.
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+            if (esp->m_Id != 0x19)
+#endif
             trans = EspCommonTrans;
         }
 #endif

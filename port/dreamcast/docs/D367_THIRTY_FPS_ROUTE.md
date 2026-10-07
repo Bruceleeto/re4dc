@@ -1,5 +1,25 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: native Ganado prelit lighting and missing beam
+
+The user reconfirmed Leon's baked-lighting performance choice and requested the
+same path for Ganados. The play recipe now sets ACTOR_GANADO_SOURCE_LIGHT=0;
+native Ganados use Leon's existing prelit/constant record. NATIVE_LASER=1 also
+restores the missing source weapon beam through the existing effect queue;
+target/dot/collision are unchanged. Both changes pass complete 2,911-record
+STRICT and required-decision comparisons in the matched aim fixture.
+
+The final 512-entry movie/radio gate completes s03/s20/s30, with s30 340/340 at
+63,584 starting heap bytes and both radio backing hashes restored. Clean final
+text +1,120 and character data -32 bytes leave BSS, allocated addresses, linked
+end and arena unchanged. The Ganado wall-aim balanced model sample improves
+48.350586 -> 47.786288 ms; this small local four-tick result is not console FPS.
+See [the source bug qualification](D367_BUG_QUALIFICATION_20261007.md) for build
+identities, modes, scope and preserved aborted attempts. No new release or SD
+write follows. Inventory/bridge console failures remain un-reproduced and open;
+reduced-distance fog and baked Leon are intentional user choices. The outdoor
+candidate below remains unaccepted.
+
 ## 2026-10-07: outdoor follow-up remains unaccepted
 
 The bounded current-Trans eligibility guard saves 0.699766 modeled ms of

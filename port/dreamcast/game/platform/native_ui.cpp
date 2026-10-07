@@ -3903,6 +3903,13 @@ namespace {
 // (header + textured sprite body). The drain sends it in OT order between model parts.
 DeferredLighting* const kSpriteTag=reinterpret_cast<DeferredLighting*>(1);
 constexpr unsigned kSpriteNode=(sizeof(DeferredPart)+31)&~31U,kSpritePacket=sizeof(pvr_poly_hdr_t)+sizeof(pvr_sprite_txr_t);
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+DeferredLighting* const kLineTag=reinterpret_cast<DeferredLighting*>(3);
+constexpr unsigned kLinePacket=sizeof(pvr_poly_hdr_t)+4*sizeof(pvr_vertex_t);
+#if RE4DC_NATIVE_FOG
+extern "C" unsigned re4dc_fog_enabled();
+#endif
+#endif
 #if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
 // ESP_SPRITE_FAST: the compiled header is a pure function of the texture (format, size, VRAM address) and the
 // sprite's blend and screen flag; consecutive sprites mostly share them, so the last one is kept.
@@ -4029,6 +4036,55 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+// Esp19's source line becomes one untextured, colour-interpolated strip in
+// the same bounded OT queue as effect sprites. All packet bytes are copied
+// before returning; no source pointer, texture, heap or frame owner is added.
+extern "C" int re4dc_effect_line(const Re4dcEffectLine* s){
+    if(!s || !frame_ready || stream_aborted || draining_parts)return 0;
+    if(s->blend_mode>1){++unsupported;return 0;}
+    for(unsigned i=0;i<2;++i)
+        if(!re4dc::render::is_finite(s->x[i]) || !re4dc::render::is_finite(s->y[i]) ||
+           !re4dc::render::is_finite(s->z[i]) || s->z[i]<=0.0f)return 0;
+    const float dx=s->x[1]-s->x[0],dy=s->y[1]-s->y[0];
+    const float length=std::sqrt(dx*dx+dy*dy);
+    if(!re4dc::render::is_finite(length) || length<.0001f)return 0;
+    const float ox=-dy*(.5f/length),oy=dx*(.5f/length);
+    alignas(32) unsigned char packet[kLinePacket]{};
+    pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
+    c.gen.culling=PVR_CULLING_NONE;c.gen.shading=PVR_SHADE_GOURAUD;
+    c.depth.comparison=s->depth_test?PVR_DEPTHCMP_GEQUAL:PVR_DEPTHCMP_ALWAYS;
+    c.depth.write=PVR_DEPTHWRITE_ENABLE; // source GXSetZMode's update flag is 1
+    c.blend.src=s->blend_mode?(pvr_blend_mode_t)s->src:PVR_BLEND_ONE;
+    c.blend.dst=s->blend_mode?(pvr_blend_mode_t)s->dst:PVR_BLEND_ZERO;
+#if RE4DC_NATIVE_FOG
+    c.gen.fog_type=re4dc_fog_enabled()?PVR_FOG_TABLE:PVR_FOG_DISABLE;
+#endif
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(packet),&c);
+    auto* v=reinterpret_cast<pvr_vertex_t*>(packet+sizeof(pvr_poly_hdr_t));
+    for(unsigned i=0;i<4;++i){
+        const unsigned end=i/2;const float side=i&1?-1.0f:1.0f;
+        v[i]={PVR_CMD_VERTEX,s->x[end]+side*ox,s->y[end]+side*oy,s->z[end],0,0,s->color[end],0};
+    }
+    v[3].flags=PVR_CMD_VERTEX_EOL;
+    if(source_draws_finished){
+        stream_select(PVR_LIST_TR_POLY);stream_send(packet,kLinePacket);++fx_direct;return 1;
+    }
+    const unsigned required=kSpriteNode+kLinePacket,margin=8192;
+    unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
+    if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
+        if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
+        if(!deferred_spill || required>deferred_spill_top){++fx_dropped;return 0;}
+        storage=deferred_spill;top=&deferred_spill_top;
+    }
+    *top-=required;auto* node=new(storage+*top) DeferredPart{};node->lighting=kLineTag;
+    std::memcpy(storage+*top+kSpriteNode,packet,kLinePacket);
+    if(deferred_last)deferred_last->next=node;else deferred_first=node;
+    deferred_last=node;++deferred_count;++fx_queued;
+    frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
+    return 1;
+}
+#endif
 #endif
 #if RE4DC_POST_F00
 #if !RE4DC_D349_RENDERER_STACK || !RE4DC_PVR_STREAM
@@ -4474,6 +4530,12 @@ extern "C" void re4dc_model_finish_source_draws(){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
             deferred_first=deferred_first->next;stream_send(packet,kSpritePacket);continue;
         }
+#if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
+        if(deferred_first->lighting==kLineTag){
+            const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
+            deferred_first=deferred_first->next;stream_send(packet,kLinePacket);continue;
+        }
+#endif
 #endif
 #if RE4DC_POST_F00
         if(deferred_first->lighting==kPostTag){

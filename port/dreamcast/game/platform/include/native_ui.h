@@ -18,6 +18,13 @@ struct Re4dcEffectSprite {
     unsigned color;                      // ARGB, material colour after TEV scale
     unsigned char src, dst, screen, pad; // PVR blend factors; screen: depth always, no fog
 };
+// Esp19's two final source endpoints, projected and depth-clipped by its owner.
+// One pixel GX line, with the source endpoint colours and blend/depth state.
+struct Re4dcEffectLine {
+    float x[2], y[2], z[2];
+    unsigned color[2];
+    unsigned char src, dst, depth_test, blend_mode;
+};
 // NATIVE_MES=1 (mes.cpp draw()): one message glyph, the texel window u..u+cw, v..v+ch of a
 // GameCube CI4 font sheet (8x8 texel tiles, as on the disc) with its TLUT (GX format 0 IA8,
 // 1 RGB565, 2 RGB5A3; big-endian entries), drawn over x0,y0..x1,y1 (640x480) with argb
@@ -32,6 +39,7 @@ struct Re4dcUiGlyph {
 };
 extern "C" {
 int re4dc_effect_sprite(const Re4dcEffectSprite*);
+int re4dc_effect_line(const Re4dcEffectLine*);
 void re4dc_ui_glyph(const Re4dcUiGlyph*);
 void re4dc_ui_glyph_fonts_changed();
 void re4dc_ui_init();
