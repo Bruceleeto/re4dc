@@ -1,5 +1,19 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: outdoor follow-up remains unaccepted
+
+The bounded current-Trans eligibility guard saves 0.699766 modeled ms of
+synchronous owner work per drawn r101 square sample. Host checks, cold-cache
+interior/checker runs, complete STRICT Bell (6,370)/H2 (3,237), ordinary radio resources
+and final automated New Game pass. Clean ON adds 64 text bytes without linked-end
+or arena growth. Final exact rendering qualification remains REVIEW_REQUIRED:
+493 movie-only TA hash differences and held framebuffer pixel differences 0/8
+and 5/0. Their cause is unproven; no new exclusions or thresholds are accepted.
+The guard and observer stay private/off. No runtime/recipe/play-disc/SD/release
+change follows. See [the final qualification](D367_OUTDOOR_PERF_20261007.md).
+The larger outdoor 30 fps gap remains open; the remaining-stage and Leon donor
+audits establish no additional authorized implementation.
+
 ## 2026-10-07: ordered optimization complete; collision capacity accepted
 
 The play recipe now enables GAME_ATLIST_512=1 alongside the existing overflow

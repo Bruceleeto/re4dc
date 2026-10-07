@@ -1,5 +1,16 @@
 # RE4 Dreamcast working handoff
 
+2026-10-07 outdoor follow-up: all bounded candidates remain unaccepted. The
+current-Trans eligibility guard saves 0.699766 modeled ms of synchronous owner
+work per drawn square sample, but final exact TA/framebuffer qualification is
+REVIEW_REQUIRED. STRICT Bell/H2 and route/resource checks pass; the remaining
+movie hashes and 13 held-frame pixels are unexplained. No waiver or default
+change was made. Guard source d865794 and diagnostic observer stay private/off;
+the accepted local capacity build, public r22j and SD are unchanged. See
+[final evidence](port/dreamcast/docs/D367_OUTDOOR_PERF_20261007.md).
+The outdoor 30 fps gap remains open. Larger runtime/Leon/model/resource changes
+remain subject to the existing architecture/source-evidence contract.
+
 2026-10-07 ordered follow-up: the guarded r104 visibility extension was
 measured and rejected; its runtime remains private. GAME_ATLIST_512=1 is now
 accepted in the play recipe: cabinet balanced sample 39.832->36.338 modeled ms,

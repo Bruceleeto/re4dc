@@ -1,5 +1,19 @@
 # D367 square performance plan: r101 at 30 fps at full game speed
 
+## 2026-10-07: outdoor follow-up remains unaccepted
+
+The bounded current-Trans eligibility guard saves 0.699766 modeled ms of
+synchronous owner work per drawn r101 square sample. Host checks, cold-cache
+interior/checker runs, complete STRICT Bell (6,370)/H2 (3,237), ordinary radio resources
+and final automated New Game pass. Clean ON adds 64 text bytes without linked-end
+or arena growth. Final exact rendering qualification remains REVIEW_REQUIRED:
+493 movie-only TA hash differences and held framebuffer pixel differences 0/8
+and 5/0. Their cause is unproven; no new exclusions or thresholds are accepted.
+The guard and observer stay private/off. No runtime/recipe/play-disc/SD/release
+change follows. See [the final qualification](D367_OUTDOOR_PERF_20261007.md).
+The larger outdoor 30 fps gap remains open; the remaining-stage and Leon donor
+audits establish no additional authorized implementation.
+
 ## 2026-10-07: collision capacity accepted; visibility extension rejected
 
 GAME_ATLIST_512=1 joins the play recipe. Enlarging only the existing two alive
@@ -1745,7 +1759,7 @@ Append one row per measured arm: date, arm, change, hw ms (2L+R), logic trace ve
 | 09-25 | land12 | the skeleton kernels landed (ddea9bf; GAME_PWC_KERNEL / GAME_PMC_KERNEL / GAME_HERMITE_FAST, measured as sq53-sq57) | - | - | knob-off identity (default, canonical); gc13 carry-over 447 / 456 objects identical, model.o the same instructions (a switch table's local name differs), the rest tree5-only | landed, default off: the landed tree carries the lanes' base |
 | 09-25 | sq99 | landed-stack control (tree7 land12): effect pools + collision stack (no SPHERE_BACKFACE) + skeleton kernels + the landed order file | **28.29** | - | - (every knob gated in its lane) | **G_q 28.29**, gap 3.32; residual vs the naive sum +0.31 (EspMove layout) |
 | 09-25 | vl7 | cl42 + ACTOR_VTX_KERNEL=1 (rev 1b), version C | W 47.58 (R 16.92; -2.97; characters 12.87 over stick figures) | - | vl8 (C, =2) / vl9 (A, =2) STRICT, 0 mismatches, max screen error 0.000 px | kept |
-| 09-25 | land13 | the vertex kernel landed (42afaa1) | - | - | knob-off identity (default, canonical); vl7 carry-over 451 / 460 objects identical (the rest tree5-only); the generator regenerates avk_sh4.S byte for byte | landed, default off |
+| 09-25 | land 13 | the vertex kernel landed (42afaa1) | - | - | knob-off identity (default, canonical); vl7 carry-over 451 / 460 objects identical (the rest tree5-only); the generator regenerates avk_sh4.S byte for byte | landed, default off |
 | 09-25 | sk10 | sk kernels' control + LIGHT_LAZY, FP_SCHED, HF_INLINE, HF_PF, PWC_SCHED, PWC_PF, TRIG_LEAN, ACOS_LEAN | 29.14 (-1.52 vs sq97) | - | skM1 / skM5 / skM6 STRICT, must-match rows identical, drift 0 | kept |
 | 09-25 | land14 | the skeleton lane landed (ee7d080; pwc_sh4.S ported: tree5's GAME_SKEL_PF stripped) | - | - | knob-off identity (default, canonical); sk10 carry-over 447 / 455 objects identical (the rest tree5-only) | landed, default off |
 | 09-25 | wd12 | wd1 + COARSE_WORLD=15 (v9: shells, ground, sky, trees), coarse world + stick figures | R +0.68 over wd1 | - | wdG4 STRICT vs tr56 / tr42; the gauge reads "10" | kept |
