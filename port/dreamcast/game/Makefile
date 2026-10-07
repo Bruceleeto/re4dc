@@ -369,8 +369,8 @@ $(OBJDIR)/crash-screen.h: crash-screen-force
 	@rm -f $@.tmp
 $(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o: $(OBJDIR)/crash-screen.h
 $(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
-$(OBJDIR)/src/game/scheduler.o: $(OBJDIR)/crash-screen.h
-$(OBJDIR)/src/game/scheduler.o: GAME_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
+$(OBJDIR)/src/game/scheduler.o $(OBJDIR)/sscrn_bridge.o: $(OBJDIR)/crash-screen.h
+$(OBJDIR)/src/game/scheduler.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
 .PHONY: poison-force
 $(OBJDIR)/poison.h: poison-force
 	@mkdir -p $(dir $@)

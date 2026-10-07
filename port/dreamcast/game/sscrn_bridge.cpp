@@ -587,6 +587,22 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
               live_bytes, unsigned(t1 - t0), h, h == open_hash ? "ok" : "MISMATCH", re4dc_ssb_pool_free());
     if (h != open_hash) re4dc_missing("sub screen backing corrupted while the screen was open");
 }
+
+#if RE4DC_CRASH_SCREEN
+// Read only, called after a stop. The overlay moves with pStFnt, so its exact
+// runtime base is required to symbolize an inventory PC/PR from a photograph.
+extern "C" void re4dc_subscreen_brief(char* out, unsigned size)
+{
+    if (!size) return;
+    out[0] = 0;
+    if (!swapped) return;
+#if RE4DC_SUBSCREEN_OVL
+    snprintf(out, size, "ss area %08x overlay %08x+%x", area_lo, area_lo + kDescriptorBytes, ovl_image_bytes);
+#else
+    snprintf(out, size, "ss area %08x+%x", area_lo, kSsAramSize);
+#endif
+}
+#endif
 #endif  // RE4DC_SUBSCREEN
 
 // ------------------------------------------------------------------------------ W11 fixture

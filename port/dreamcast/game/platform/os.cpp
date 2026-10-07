@@ -570,12 +570,17 @@ s32 OSSignalSemaphore(OSSemaphore* sem)
 #if RE4DC_CRASH_SCREEN
     // crashtest.txt "block" (test discs only): the next game task that signals blocks forever instead,
     // so the main thread hangs in its os-sema wait for that task (the issue #2 shape).
-    if (re4dc_crashtest_block && threadOf(thd_current) != &g_mainThread) {
+    if (re4dc_crashtest_block == 1 && threadOf(thd_current) != &g_mainThread) {
         re4dc_crashtest_block = 0;
         re4dc_log("CRASH_SCREEN test: task tid %d blocks\n", (int) thd_current->tid);
         semaphore_t never;
         sem_init(&never, 0);
         sem_wait(&never);
+    }
+    if (re4dc_crashtest_block == 2 && threadOf(thd_current) == &g_mainThread) {
+        re4dc_crashtest_block = 0;
+        re4dc_log("CRASH_SCREEN test: main tid %d sleeps for 120000 ms\n", (int) thd_current->tid);
+        thd_sleep(120000);
     }
 #endif
     int old = irq_disable();

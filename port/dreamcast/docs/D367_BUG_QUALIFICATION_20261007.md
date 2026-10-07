@@ -1,5 +1,45 @@
 # October 7 source bug qualification
 
+## Follow-up crash context for issues 8, 9 and 2
+
+The crash screen now records the saved main-thread PR and signed milliseconds
+to a timed wait deadline, includes timed main-thread stack return candidates,
+and prints the active inventory area and overlay load address. Return addresses
+are kept complete within the screen width. This addresses gaps in the existing
+photographs; it does not identify or fix the reported faults.
+
+The opt-in `crashtest.txt` test hook accepts `sleep`, using the existing one-shot
+flag to sleep the main thread for 120 seconds. Ordinary execution leaves that
+flag zero. The original source hang detector can halt after 3,600 vsyncs during
+this deliberately long sleep; recovery from the synthetic hang is not claimed.
+The test file is not added to a play disc.
+
+* Host checks exercise the actual report, stack scan and signal bodies with
+  synthetic thread states, including expired and 64-bit deadlines, full screen
+  bounds, an active overlay, normal signals, and both one-shot block modes.
+* Clean Dreamcast cross build has no missing symbols. Relative to the accepted
+  combined play build, text grows by 640 bytes, BSS is unchanged, and linked
+  `_end` advances by 192 bytes. The inventory bridge receives the crash-screen
+  build definition through its existing generated header dependency.
+* A private Flycast cold title Load into the r103 typewriter save completes two
+  normal inventory closes and returns to the rendered room. The backing checks
+  restore 3,129,056 and 3,128,864 bytes with matching `d5441259` and `4baf3fd6`
+  hashes. No deliberate sleep is armed during those normal cycles.
+* On the third open, the private harness writes value 2 to the existing test
+  flag in its owned emulator. After the deliberate stall, the captured screen
+  shows `ss area 8c80b9e0 overlay 8c80ba20+1eb40`, `wait +89527ms`, and full
+  main-thread return candidates. `8c0337e6` resolves to the injected sleep in
+  `OSSignalSemaphore`. This is a synthetic diagnostic check, not reproduction
+  of issue 9 or evidence that a real console resumes after a hang.
+
+The qualified ELF is
+`3894026f17bf54999a5cbda8cb44b207fb6d013d06bcdccb302faa278b90cab5`.
+Private evidence is under
+`C:/Flycast-Evidence/re4-dreamcast/coldload-20261007`, scenario
+`cold-crash-context-v2`. The earlier v1 run is retained: it exposed a missing
+build definition that omitted the overlay line. No release, SD change or issue
+closure is part of this diagnostic follow-up.
+
 ## Missing weapon beam, issue 12
 
 The reporter and user confirm that the target dot already appears; only the beam
@@ -68,8 +108,9 @@ matching hashes; every observed cleanup phase and subsequent world execution
 finishes. The fault is not reproduced, and no speculative cleanup change is
 adopted. The reporter subsequently confirms that starting New Game before
 loading the save prevents the inventory crash. This is a reported workaround,
-not an independently reproduced cause. The failing VMU and pacing remain
-pending; a follow-up also asks whether the workaround prevents issue 9.
+not an independently reproduced cause. The reporter cannot supply the failing
+VMU; it is not a prerequisite for further investigation. Pacing remains
+unconfirmed, and a follow-up asks whether the workaround prevents issue 9.
 
 A further cold-boot test uses normal title Load, a preserved private FILE1 r103
 typewriter save and no warp. The diagnostic r22j runtime runs 361.28 seconds,

@@ -27,6 +27,7 @@ extern "C" unsigned re4dc_ui_frame();
 extern "C" int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
 extern "C" void re4dc_halt(const char* file, int line);
 extern "C" void re4dc_task_brief(char* out, unsigned size, const void* wait);  // scheduler.cpp
+extern "C" void re4dc_subscreen_brief(char* out, unsigned size) __attribute__((weak));
 static const unsigned kLogSize = 0x10000;  // mem.cpp RE4DC_LOG_SIZE
 
 namespace {
@@ -45,6 +46,25 @@ int collect(kthread_t* t, void*)
         strcmp(t->label, "re4crash") && strcmp(t->label, "[idle]"))
         g_threads[g_nthreads++] = t;
     return 0;
+}
+
+// A timed main-thread wait hid the caller in issue 9. Keep the full signed
+// distance to its deadline; ffffffff is a wait object, not a duration.
+void wait_detail(char* out, unsigned size, const kthread_t* t, uint64_t now)
+{
+    if (!t->wait_timeout) {
+        snprintf(out, size, "main pr %08lx wait untimed", (unsigned long) t->context.pr);
+    } else {
+        const uint64_t due = t->wait_timeout;
+        snprintf(out, size, "main pr %08lx wait %c%llums", (unsigned long) t->context.pr,
+                 due >= now ? '+' : '-', (unsigned long long) (due >= now ? due - now : now - due));
+    }
+}
+
+bool trace_waiter(const kthread_t* t)
+{
+    return t->state == STATE_WAIT && strcmp(t->label, "[reaper]") &&
+           (!t->wait_timeout || !strcmp(t->label, "[kernel]"));
 }
 
 void put_text(int col, int row, const char* s, unsigned short fg)
@@ -87,6 +107,10 @@ void show(const char* kind, const char* detail, bool wait_render)
     put_text(0, row++, line, 0xF800);
     snprintf(line, sizeof(line), "stage %08lx  ui frame %u", re4dc_stage, re4dc_ui_frame());
     put_text(0, row++, line, 0xFFFF);
+    if (re4dc_subscreen_brief) {
+        re4dc_subscreen_brief(line, sizeof(line));
+        if (line[0]) put_text(0, row++, line, 0xFFFF);
+    }
     // Threads, from the KOS thread list (issue #2: tids grow with every game task run, so the old
     // tid 1..24 walk, capped at six rows, never showed the re4-task threads the main thread's
     // os-sema wait leads to). Per thread: tid, label, state, saved pc (pr when it differs), and for
@@ -114,8 +138,12 @@ void show(const char* kind, const char* detail, bool wait_render)
             snprintf(line + n, sizeof(line) - n, " %.12s %08lx%s", t->wait_msg ? t->wait_msg : "-",
                      (unsigned long) t->wait_obj, t->wait_timeout ? "" : " ever");
         put_text(0, row++, line, 0x07FF);
-        if (wait && !t->wait_timeout && nwait < 3 && strcmp(t->label, "[reaper]")) waiters[nwait++] = t;
-        if (wait && !strcmp(t->label, "[kernel]")) mainwait = t->wait_obj;
+        if (trace_waiter(t) && nwait < 3) waiters[nwait++] = t;
+        if (wait && !strcmp(t->label, "[kernel]")) {
+            mainwait = t->wait_obj;
+            wait_detail(line, sizeof(line), t, timer_ms_gettime64());
+            put_text(0, row++, line, 0xFFFF);
+        }
     }
     // The game's task slots (scheduler.cpp): "slot:status/tid", x = thread finished; Y / R marks the slot
     // whose yield / resume semaphore the main thread waits on.
@@ -126,7 +154,7 @@ void show(const char* kind, const char* detail, bool wait_render)
         put_text(0, row++, line, 0xFFFF);
         if (strlen(line) > (size_t) kCols && row < kRows - 3) put_text(0, row++, line + kCols, 0xFFFF);
     }
-    // Untimed waiters: return-address candidates on the saved stack (words pointing just past a
+    // Main and untimed waiters: return-address candidates on the saved stack (words pointing just past a
     // jsr / bsr / bsrf), newest first, as the low 24 bits of 8cXXXXXX; symbolize with addr2line.
     for (int i = 0; i < nwait && row < kRows - 2; ++i) {
         kthread_t* t = waiters[i];
@@ -139,6 +167,7 @@ void show(const char* kind, const char* detail, bool wait_render)
             if ((v & 1) || v < 0x8c010004ul || v >= 0x8d000000ul) continue;
             const unsigned op = *(const unsigned short*) (v - 4);
             if ((op & 0xF0FF) != 0x400B && (op & 0xF000) != 0xB000 && (op & 0xF0FF) != 0x0003) continue;
+            if (n + 7 > kCols) break;  // never truncate a return address in the photograph
             n += snprintf(line + n, sizeof(line) - n, " %06lx", v & 0xFFFFFFul);
             ++found;
         }
@@ -195,7 +224,7 @@ void* watchdog(void*)
     return nullptr;
 }
 
-// Test hook: /cd/dc/crashtest.txt ("fault", "halt", "hang" or "block") stops the game that way 20 s after boot,
+// Test hook: /cd/dc/crashtest.txt ("fault", "halt", "hang", "block" or "sleep") stops the game that way 20 s after boot,
 // so the report can be checked in Flycast. The file is never on a play disc.
 int g_test;
 }  // namespace
@@ -218,6 +247,9 @@ void* crash_test(void*)
     } else if (g_test == 4) {
         re4dc_log("CRASH_SCREEN test: block\n");
         re4dc_crashtest_block = 1;  // the next game task to signal blocks forever; main waits on it
+    } else if (g_test == 5) {
+        re4dc_log("CRASH_SCREEN test: main timed sleep\n");
+        re4dc_crashtest_block = 2;  // the next main-thread signal sleeps, preserving a real saved caller
     }
     return nullptr;
 }
@@ -249,7 +281,7 @@ extern "C" void re4dc_crash_screen_init(void)
     char t[16] = {0};
     if (re4dc_fixture_read("/cd/dc/crashtest.txt", t, sizeof(t) - 1) > 0) {
         g_test = !strncmp(t, "fault", 5) ? 1 : !strncmp(t, "halt", 4) ? 2 : !strncmp(t, "hang", 4) ? 3
-                 : !strncmp(t, "block", 5) ? 4 : 0;
+                 : !strncmp(t, "block", 5) ? 4 : !strncmp(t, "sleep", 5) ? 5 : 0;
         kthread_attr_t b = {};
         b.stack_size = 4096;
         b.prio = 9;
