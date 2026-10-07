@@ -66,8 +66,22 @@ Its automatic no-item-action r101 fixture and an observational cleanup twin
 each complete three inventory opens and closes. All backing bytes restore with
 matching hashes; every observed cleanup phase and subsequent world execution
 finishes. The fault is not reproduced, and no speculative cleanup change is
-adopted. Reporter questions about fresh New Game versus loaded save, pacing and
-a failing VMU remain pending. These Flycast checks do not fix the console report.
+adopted. The reporter subsequently confirms that starting New Game before
+loading the save prevents the inventory crash. This is a reported workaround,
+not an independently reproduced cause. The failing VMU and pacing remain
+pending; a follow-up also asks whether the workaround prevents issue 9.
+
+A further cold-boot test uses normal title Load, a preserved private FILE1 r103
+typewriter save and no warp. The diagnostic r22j runtime runs 361.28 seconds,
+completes three no-item-action inventory closes, reaches cleanup phase 30 on
+each close and continues world execution after the third. Restored sizes and
+hashes are 3,129,056 / `c3d0e545`, 3,128,864 / `495c5382` and 3,129,088 /
+`4a87721b`. The final framebuffer shows native gameplay. ELF identity is
+`1c9ab2e203bcd6551d21654c53d14ee433a731e9b29a164bc77b6fe1cceffc9d`;
+the reviewed private report is
+`C:/Flycast-Evidence/re4-dreamcast/coldload-20261007/cold-inventory-qualification.json`.
+This save does not reproduce the cold-load failure. These Flycast checks do not
+fix or certify the console report; no runtime change follows this investigation.
 
 ## Bridge door hang, issue 9
 
