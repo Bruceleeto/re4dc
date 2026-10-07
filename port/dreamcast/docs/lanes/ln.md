@@ -263,3 +263,18 @@ before and after, 2.0 console ms more margin.
 - Ganado extension: not described (the verdict is FAIL). The per-actor proof / lease work this design removes for Leon
   (role bindings, identity, owned source, immutable chunk proofs, preflights, texture validation: ~0.9 ms per drawn hf
   tick in B2, now mostly the Ganados') is the same kind of work in the Ganado owner passes.
+
+
+## 2026-10-07 bounded requalification on the accepted capacity stack
+
+The original fixed 40% threshold and **FAIL** above remain unchanged. Current-stack testing found a modest
+r101-square drawn/skipped model-pair gain of 1.738 ms (1.75%) for both knobs, with exact frozen images and
+normalized TA/source-fallback output. It nevertheless fails required native-parts, ModelInit and createSat allocations
+in both the untraced production-shaped run and H2; H2 first differs at tick 661 (43/42 enemies, 212/211 objects).
+The later higher s30 free-heap reading does not establish safety after an actor failed allocation.
+
+One face-only cabinet test adds 704 text bytes without moving the linked end, but yields only a derived
+0.219 ms (0.60%) equal-mode tick gain with unmatched drawn subsets. It was not advanced to further qualification.
+**Both Leon knobs stay off.** Accepted capacity-only runtime completes the 1971/2360/1175 New Game sequence
+and reaches live r100 without required allocation failures. See [the requalification record](../D367_LEON_REQUALIFICATION_20261007.md)
+for the rejected comparisons, corrected resource assessment, scopes, diagnostics and build identities.
