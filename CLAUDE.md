@@ -1,5 +1,12 @@
 # RE4 Dreamcast working handoff
 
+Current publication, 2026-10-06: r22i packages the validated c36a08cc runtime
+with the herb texture additions, pickup ordering, source part animations and
+movie staging fix. See the play checklist's r22i section for exact scope and
+validation. Issue #2 is still unresolved; room/grenade audio and the pending
+indoor actor cull are separate work. All existing release caveats still apply.
+
+
 Updated 2026-10-05. Project rules: [AGENTS.md](AGENTS.md).
 
 2026-10-05 (pushed 3f4b599d; test disc r22, not released; fight 73% is a projection): the perf lanes sk / fx / cl / wd / logic are integrated and their 12 knobs

@@ -1,5 +1,15 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-06: r22i issue fixes
+
+The [r22i test release](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006) contains c36a08cc:
+ITEM_UI_ORDER=1, PS2_WORLD_PARTS=1, MOVIE_STAGE_ORDER=1 and the two additional
+inventory herb texture pairs. Source timing and child-pose ownership are retained.
+The play checklist records the logic, movie, interaction and bounded cost gates.
+This is not a performance release or a fix for the reported r103 hardware freeze.
+PS2_INTERIOR_ACTORS=2 and the room/grenade audio work remain separate followups.
+
+
 ## 2026-10-06: r22f, the issue #2 crash screen and the issue #3 fixes
 
 - r22f = r22e (7cdec176) + the crash screen rework (575b9970, 6cac28d8; issue lamb2k/re4dc#2), PS2_WORLD_DYNAMIC

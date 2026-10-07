@@ -1,5 +1,25 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-06: r22i inventory and animation release
+
+The [r22i prerelease](https://github.com/lamb2k/re4dc/releases/tag/play-r22i-inventory-animation-fixes-20261006) packages the validated
+c36a08cc runtime with the 3,749-entry herb texture pack. Windows, SteamOS,
+CachyOS and GDEMU archives retain the tested disc bytes; every archive member
+was read back against its input hash. The play ELF is
+`db89a3fd215236c20e4ee028588b1d0bcd0cd0f0ee963672de167c0d6bf8645b`.
+
+In addition to the candidate checks below, the final diagnostic twin passes
+r102 well, r103/r106 cupboard, r107 kiln and the complete r108 cemetery dial
+solution. The source changes animate the audited unique placement IDs; this
+does not add general duplicate-ID animation. Separate inventory fixtures invoke
+the real Equip command for all three grenades in r101 and exit to gameplay
+without the reported DLL halt. The test setup only gives/selects the item.
+
+No physical-console or continuous whole-route acceptance is claimed. Issue #2
+remains unresolved. The r104/r107 music and grenade sound work, and the pending
+PS2_INTERIOR_ACTORS=2 integration, are not part of r22i.
+
+
 ## 2026-10-07: issue fixes candidate after r22f
 
 The recipe enables ITEM_UI_ORDER=1, PS2_WORLD_PARTS=1 and MOVIE_STAGE_ORDER=1.
@@ -44,7 +64,7 @@ heap_before 75,872, then opens/closes radio replay frames 5518..6079. The play
 image disables test controls, completes New Game 1971/2360/1175 and reaches live
 r100. Its exact GDI boots via the high-density TOC to the VMU prompt. All five
 final runs exit normally with zero HALT, MISALIGN or RE4DC MISSING records.
-No release has been published for this candidate.
+This validated candidate is packaged as r22i; see the release section above.
 
 Cost gate (SH-4 hardware model, not physical-console acceptance): r104 cabinet
 0x2A, view (21821,-64,-30700), angle pi; ACT_CAP=0, PACE_DEBUG=1, ROUTE_CH13=1.
