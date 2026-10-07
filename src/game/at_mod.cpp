@@ -193,7 +193,9 @@ static int atListBuild(AtList* L, cEm* head, u32 gen)
     for (cEm* m = head; m != 0; m = (cEm*) m->pNext) {
         if (n == ATLIST_MAX) {
             L->n = -1;
+#if !defined(RE4DC_ATLIST_OVERFLOW) || !RE4DC_ATLIST_OVERFLOW
             L->head = 0;
+#endif
 #if RE4DC_ATCHK_LIST == 2
             atlOvf++;
 #endif
@@ -221,6 +223,26 @@ static int atListBuild(AtList* L, cEm* head, u32 gen)
 }
 static inline int atListSync(AtList* L, cEm* head, u32 gen)
 {
+#if defined(RE4DC_ATLIST_OVERFLOW) && RE4DC_ATLIST_OVERFLOW
+    // A failed build is also valid until the manager changes. Keep using the
+    // complete source walk; only avoid retrying its same oversized prefix.
+    if (L->n < 0 && L->head != 0 && L->head == head && L->gen == gen) {
+#if RE4DC_ATCHK_LIST == 2
+        // Check mode verifies the negative result too: an unreported shrink
+        // is a mismatch and rebuild, rather than a silently retained overflow.
+        cEm* m = head;
+        int n = 0;
+        for (; m != 0 && n < ATLIST_MAX; m = (cEm*) m->pNext) {
+            n++;
+        }
+        if (m == 0) {
+            ++atlMis;
+            return atListBuild(L, head, gen);
+        }
+#endif
+        return -1;
+    }
+#endif
 #if RE4DC_ATCHK_LIST == 2
     if (++atlSync % 8192 == 0) {
         re4dc_log("ATL sync=%u rebuild=%u ovf=%u mismatch=%u maxn=%u visits=%u\n", atlSync, atlRebuild, atlOvf,
