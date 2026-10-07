@@ -1,5 +1,40 @@
 # D367 play build checklist (user, 2026-09-29)
 
+## 2026-10-07: oversized alive-list retry optimization accepted
+
+GAME_ATLIST_OVERFLOW=1 is now in the play recipe; its general make default stays
+0. The existing head/generation guards remember a failed 320-entry alive-list
+build. Every required full collision walk still runs in its original order;
+capacity, collision decisions and source state are unchanged. Eight host knob
+combinations and the negative/lifetime controls pass. Knob-off executable and
+overlay are byte-identical to the accepted culling baseline. The enabled image
+adds 96 text bytes, with no other allocated-section or linked-span growth.
+
+The uncapped r104 cabinet 0x2A view measures 41.310->39.832 SH-4 modeled ms per
+tick (-1.478 ms, 3.58%): drawn 54.961->53.062, skipped 27.647->26.592. Eight
+consecutive traces at source 1200..1207 contain four drawn/four skipped ticks;
+the 1200..1231 census contains 16/16. Draw parity flips between arms, so these
+are mode averages, not exact-frame pairs. Sample instruction means differ from
+the full census by -0.62%/-0.47%; the largest per-mode deviation is 2.72%.
+This is eight timed frames, not a fully timed census or a rendered-FPS estimate.
+The cabinet fixture, input, warp, music bank and resolved knobs match apart from
+GAME_ATLIST_OVERFLOW; ACT_CAP=0 and HWTRACE_ALIGN=1, with zero misalignment,
+halt or missing-module markers. Full fallback body visits remain unchanged;
+the saved time comes from removing repeated failed prefix builds.
+
+Against the accepted culling trace, all shared H2 records 0..5698 (5,699) and
+bell records 0..6371 (6,372) are STRICT and decision-identical, including H2's
+previously excepted object-matrix interval. Bounded capture tails differ in
+length. The untraced s30/radio check completes 340/340 frames with 67,680 bytes
+free before s30, unchanged from its matched culling control, then restores the
+room backing. Final combined New Game completes 1,971/2,360/1,175 movie frames
+and reaches live r100. These gates include the corrected r104/r107 music bank.
+
+These results are bounded emulator and hardware-model evidence, not physical
+Dreamcast, whole-route or 30 fps acceptance. The stair-ascent culling and cabinet
+CPU gains are different scenes and must not be added together. Published r22i
+is unchanged; the new audio asset must accompany this source in later builds.
+
 ## 2026-10-07: owner-path interior culling
 
 The recipe now selects PS2_INTERIOR_ACTORS=2. The integrated owner-path rejection
@@ -27,10 +62,10 @@ window. Twelve traces at stride 7 split 6 drawn/6 skipped; the 80-frame census i
 40/40, with sample instruction means within 0.32% of their respective census means.
 Drawn cost 55.756->53.908 ms, skipped 22.771->22.829 ms, equal-weight mean 39.264->38.369 ms.
 ACT_CAP=0, HWTRACE_ALIGN=1, and MISALIGN=0 in both arms. This is a bounded model
-result, not stationary stair-foot, whole-route,30 fps or physical-console acceptance.
+result, not stationary stair-foot, whole-route, 30 fps or physical-console acceptance.
 
 The existing interior.cell is retained; no new derived geometry is required.
-Final combined New Game validation remains pending the CPU candidate. These
+Final combined New Game validation passes with the CPU change above. These
 changes are not included in the published r22i download.
 
 ## 2026-10-07: room music bank preparation

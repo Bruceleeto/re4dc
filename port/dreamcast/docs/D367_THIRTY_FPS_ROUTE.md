@@ -1,5 +1,23 @@
 # D367: 30 fps on real hardware, three-room route
 
+## 2026-10-07: CPU retry optimization and combined gates accepted
+
+GAME_ATLIST_OVERFLOW=1 is enabled in the play recipe after preserving all shared
+H2 (5,699) and bell (6,372) logic/decision records against the accepted culling
+baseline. The failed oversized alive-list build is remembered under existing
+head/generation guards; the full collision walk and ordering remain unchanged.
+The uncapped r104 cabinet view improves 41.310->39.832 SH-4 modeled ms per tick:
+drawn 54.961->53.062, skipped 27.647->26.592. Eight consecutive timed frames
+1200..1207 are balanced 4/4 and checked against a 32-frame census. Draw parity
+flips, so these are mode averages, not exact-frame pairs or rendered FPS.
+
+The enabled image adds 96 text bytes with no linked-span/data growth. The
+combined music/cull/CPU build completes s30 340/340 at unchanged 67,680-byte
+headroom, restores radio backing and completes New Game's 1,971/2,360/1,175
+movies into live r100. See the play checklist for exact scope and limitations.
+These different scene gains cannot be added together and do not establish
+physical-console or 30 fps acceptance. Published r22i remains unchanged.
+
 ## 2026-10-07: owner-path indoor culling integration
 
 PS2_INTERIOR_ACTORS=2 is enabled after H2/bell decision and STRICT-window checks,
@@ -9,7 +27,7 @@ PS2_INTERIOR_ACTORS=2 is enabled after H2/bell decision and STRICT-window checks
 SH-4 modeled ms across equal drawn/skipped samples; drawn 55.756->53.908,
 skipped 22.771->22.829. ACT_CAP=0; the census confirms balanced representative
 sampling. See the play checklist for scope and exact gates. The final combined
-New Game gate remains pending CPU integration; r22i is unchanged.
+New Game gate passes with the CPU integration above; r22i is unchanged.
 
 ## 2026-10-07: r104/r107 music bank preparation
 

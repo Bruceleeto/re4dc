@@ -1,6 +1,24 @@
 # D367 square performance plan: r101 at 30 fps at full game speed
 
-## 2026-10-07: indoor owner cull accepted; CPU follow-up next
+## 2026-10-07: CPU retry optimization and combined gates accepted
+
+GAME_ATLIST_OVERFLOW=1 is enabled in the play recipe after preserving all shared
+H2 (5,699) and bell (6,372) logic/decision records against the accepted culling
+baseline. The failed oversized alive-list build is remembered under existing
+head/generation guards; the full collision walk and ordering remain unchanged.
+The uncapped r104 cabinet view improves 41.310->39.832 SH-4 modeled ms per tick:
+drawn 54.961->53.062, skipped 27.647->26.592. Eight consecutive timed frames
+1200..1207 are balanced 4/4 and checked against a 32-frame census. Draw parity
+flips, so these are mode averages, not exact-frame pairs or rendered FPS.
+
+The enabled image adds 96 text bytes with no linked-span/data growth. The
+combined music/cull/CPU build completes s30 340/340 at unchanged 67,680-byte
+headroom, restores radio backing and completes New Game's 1,971/2,360/1,175
+movies into live r100. See the play checklist for exact scope and limitations.
+These different scene gains cannot be added together and do not establish
+physical-console or 30 fps acceptance. Published r22i remains unchanged.
+
+## 2026-10-07: indoor owner cull accepted
 
 The pending owner-path cull is integrated with identity-capture invalidation and
 PS2_INTERIOR_ACTORS=2. H2/bell logic, displayed-frame checker and s30/radio gates
@@ -10,10 +28,8 @@ Both 80-frame censuses split 40/40; 12 trace samples split 6/6 and track census
 instruction means within 0.32%. This is a local scene result, not a square/fight
 or hardware 30 fps claim. See D367_PLAY_BUILD_CHECKLIST.md for memory and visual scope.
 
-The next CPU candidate remembers a failed oversized alive-list build under the
-existing head/generation guards, while retaining the full collision walk. It
-remains default-off until measured on the combined music/culling baseline and
-passes its target gates. Final combined New Game is still required.
+The CPU follow-up and final combined New Game are accepted under the bounded
+gates above. The make default remains off; the play recipe enables it.
 
 **Acceptance target (architect review 2026-10-03): 30 fps at full game speed** (section "30 fps rethink":
 G <= 24 + R <= 6 + margin per tick). The 15 fps goal below (2026-09-24) is historical. A 15 fps build would be a

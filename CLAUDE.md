@@ -3,9 +3,16 @@
 Current publication, 2026-10-06: r22i packages the validated c36a08cc runtime
 with the herb texture additions, pickup ordering, source part animations and
 movie staging fix. See the play checklist's r22i section for exact scope and
-validation. Issue #2 is still unresolved; room/grenade audio and the pending
-indoor actor cull are separate work. All existing release caveats still apply.
+validation. Issue #2 is still unresolved; the new music, indoor culling and CPU
+optimization below are follow-up work outside that release. All existing release caveats still apply.
 
+
+2026-10-07 follow-up accepted: PS2_INTERIOR_ACTORS=2 and GAME_ATLIST_OVERFLOW=1
+are in the play recipe, with the corrected chapter 1-3 bank-9 music asset staged
+separately. The play checklist records the measured stair-ascent/cabinet gains,
+shared-record STRICT/decision comparisons, s30/radio and final New Game gates.
+Published r22i remains unchanged; this does not resolve issue #2 or establish
+physical-console or 30 fps acceptance.
 
 Updated 2026-10-05. Project rules: [AGENTS.md](AGENTS.md).
 
