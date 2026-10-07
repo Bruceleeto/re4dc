@@ -42,9 +42,9 @@ The relevant current source is under `/root/probe/codex-issues-20261006/tree`:
 - `port/dreamcast/game/coarse_actor_owner_ganado.inc:781`: `invis_owner_interior` computes inverse matrices, traverses parts, builds world bounds and fog-depth bounds, and only then calls the native cell helper at line 869.
 - `port/dreamcast/game/platform/native_static.cpp:3348`: `re4dc_ps2_interior_owner_hidden` returns 0 immediately when `!pc::st_trans.active || pc::st_trans.setup_frame != re4dc_ui_frame()`.
 - `native_static.cpp:3310`: Trans setup resets `active=false` before doing anything; invalid projection/view or an unusable cell leaves it false.
-- `native_static.cpp:1340`: setup requires the admitted package/data/frustum block, a supported near-plane footprint and an eye inside one supported cell. Only successful setup marks the state active and records the current UI frame.
-- `native_static.cpp:2963`: package admission requires room identity and the exact cell mesh CRC, sidecar CRC and mesh byte count. The r101 package therefore cannot activate the r100 cell.
-- `native_static.cpp:1418` and `:3281`: unload/movie lending deactivate both states and release their frustum pointers; restoration runs the existing load/setup path.
+- `native_static.cpp:1341`: setup requires the admitted package/data/frustum block, a supported near-plane footprint and an eye inside one supported cell. Only successful setup marks the state active and records the current UI frame.
+- `native_static.cpp:2964`: package admission requires room identity and the exact cell mesh CRC, sidecar CRC and mesh byte count. The r101 package therefore cannot activate the r100 cell.
+- `native_static.cpp:1422` and `:3281`: unload/movie lending deactivate both states and release their frustum pointers; restoration runs the existing load/setup path.
 - `src/game/trans.cpp:870` and `:897`: Trans initializes the visibility state before the actor decision. `native_ui.cpp:2284` exposes the UI frame; its advance is in the existing frame owner, not in the bound-building helpers.
 
 Expose or share a pure helper for **exactly the existing predicate** `pc::st_trans.active && pc::st_trans.setup_frame == re4dc_ui_frame()`. Call it at the beginning of `invis_owner_interior` and return false if it is false. Keep the final helper's current validation too. A helper name and a default-off implementation/check knob are routine implementation choices.
