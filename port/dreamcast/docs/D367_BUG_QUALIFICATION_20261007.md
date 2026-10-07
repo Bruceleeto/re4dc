@@ -48,6 +48,13 @@ Private qualification is rooted at
   failure or exception occurs. The earlier six-pulse retrace fixture completed
   only two closes and is retained without calling it a three-cycle pass.
 
+The reviewed runtime is commit `abd0853b`. A fresh clean rebuild from that
+committed source, with no private inventory diagnostic patch, produces ELF
+`33c0fd02cffc36aa3a63c48f7ac752f2ccd96a7b60c76bbd885dd1e9dd0dfd83`.
+All allocated section addresses/sizes/bytes, the boot binary and the sub-screen
+overlay match the qualified final clean candidate exactly. Private helper/debug
+metadata explains the different full ELF hash. No missing symbols are reported.
+
 The final combined play-stack resource gate below passes with the 512-entry
 collision list, beam on and Ganado source lighting off. Console beam/depth/fog
 quality and the reported console faults are not certified by these checks.
