@@ -543,6 +543,10 @@ def room(args):
         if cur.rstrip(b'\0') != src_le.rstrip(b'\0'):
             raise ValueError('pair %s: the payload BIN is not le_mirror(GC BIN); refusing to replace modified data' % pair)
         new, st = rebuild(gbin, pe[pa][1])
+        if st['out_tris'] >= st['gc_tris']:
+            st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc=hex(pa), skipped='PS2 not smaller')
+            report['objects'].append(st)
+            continue
         rep[i] = to_le(new, pair)
         st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc=hex(pa), le_bytes_before=len(cur), le_bytes_after=len(rep[i]))
         report['objects'].append(st)
