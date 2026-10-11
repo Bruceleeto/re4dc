@@ -247,14 +247,5 @@ extern "C" void re4dc_mv_emit(unsigned frame)
         re4dc_ui_mv_stats(&sends, &bytes, &scenes, &receivers);
         re4dc_log("MV shadows: frames=%u casters=%u tris=%u clipped=%u skipped=%u failed=%u sends=%u bytes=%u scenes=%u receivers=%u near=%d\n",
                   g_frames, g_casters, g_tris, g_clipped, g_skipped, g_failed, sends, bytes, scenes, receivers, (int) g_near);
-        if (n) {   // the nearest-listed caster: world feet, view-space feet and screen point
-            const V3 v = to_view(list[0].x, list[0].y, list[0].z);
-            float s[3] = {0, 0, 0};
-            if (-v.z > g_near) project(v, s);
-            re4dc_log("MV caster: world %d,%d,%d view %d,%d,%d screen %d,%d cam %d,%d,%d P %d,%d,%d,%d,%d,%d VP %d,%d,%d,%d\n",
-                      (int) list[0].x, (int) list[0].y, (int) list[0].z, (int) v.x, (int) v.y, (int) v.z, (int) s[0], (int) s[1],
-                      (int) cam.x, (int) cam.y, (int) cam.z, (int) (P[1] * 1000), (int) (P[2] * 1000), (int) (P[3] * 1000),
-                      (int) (P[4] * 1000), (int) (P[5] * 1000), (int) P[6], (int) VP[0], (int) VP[1], (int) VP[2], (int) VP[3]);
-        }
     }
 }
