@@ -1566,6 +1566,11 @@ unsigned gigante_folds;  // parts folded to `keep` lights (logged with the censu
 unsigned gigante_keep(const Re4dcModelPart& p) {
     const int id = re4dc_actor_model_id(p.model);
     if (id == 0x2B || (RE4DC_GIGANTE_LIGHTS_TREES && id == 0x49)) return RE4DC_GIGANTE_LIGHTS == 2 ? 2U : 3U;
+#if defined(RE4DC_GANADO_LIGHT_FOLD) && RE4DC_GANADO_LIGHT_FOLD
+    // PS2_GANADO_LIT (game30.mk): the lit Ganados (em10..em20 classes, 0x10..0x20) keep the 3 strongest lights per
+    // part + ambient, as the PS2 lights its characters per vertex, instead of the exact per-vertex path.
+    if (id >= 0x10 && id <= 0x20) return 3U;
+#endif
     return 0U;
 }
 #endif

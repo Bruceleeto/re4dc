@@ -260,3 +260,20 @@ endif
 GAME_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
 PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
 endif
+# PS2_GANADO_LIT=1 (Phase 2 A1; render only; default 0: nothing changes): the cast Ganados (owner appearances < 0x100)
+#              are lit per vertex like the PS2 lights its characters: the source's GX light set (LightSetModel lights,
+#              ambient, material colour, TEV scale; coarse_actor_transaction.inc actor_source_lighting) folded to the
+#              3 strongest directional lights + ambient per part (native_actor_fast.cpp gigante_keep, ids 0x10..0x20),
+#              evaluated by the skinned fast-light kernel (one FIPR per light per vertex). PS2_GANADO_DIR must then be
+#              a bundle with real normals (ps2_cast.py without PS2CAST_FLAT_NORMALS); a flat bundle draws evenly lit.
+PS2_GANADO_LIT ?= 0
+ifneq ($(PS2_GANADO_LIT),0)
+ifneq ($(PS2_GANADO_LIT)$(PS2_GANADO)$(ACTOR_TRANSACTION),111)
+$(error PS2_GANADO_LIT=1 needs PS2_GANADO=1 ACTOR_TRANSACTION=1)
+endif
+ifeq ($(filter $(GIGANTE_LIGHTS),1 2),)
+$(error PS2_GANADO_LIT=1 needs GIGANTE_LIGHTS=1 or 2 (the light fold))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_GANADO_LIT=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIGHT_FOLD=1
+endif
