@@ -142,6 +142,52 @@ $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_NATIVE_MODEL_REGISTRY_PACK=1
 endif
 endif
 
+# NATIVE_MODEL_REGISTRY_BONES=<n> (lane ps2cast-all, 2026-10-10; default 48: nothing changes; needs
+#              NATIVE_MODEL_REGISTRY_PACK=1): the room package's skeleton capacity (kRegBones: the bindings' part lists,
+#              the palette build's bone matrices and jobs, the loader's parents / binds caps). 64 takes El Gigante (em2b
+#              type 0: 64 parts); the package generator takes the same value (model_registry.py --pack-bones).
+# NATIVE_MODEL_REGISTRY_SHIFT=1 (lane ps2cast-all; default 0; needs NATIVE_MODEL_REGISTRY_PACK=1; render only): a
+#              package descriptor carries its chunks' position fraction bits in descriptor word 44 (0 = 4, the 1/16 mm
+#              of every cast and the =0 rule; 1..4 allowed) and the owned part takes it (coarse_actor_transaction.inc
+#              base.shift; native_actor_fast.cpp dequantizes by base.shift as it does for source parts). Models whose
+#              source positions exceed +-2048 mm (El Gigante, Del Lago: GC shift 2) need 2. Leon and the Ganado cast
+#              keep 4. Packages without the word are unchanged.
+# PS2_GIGANTE=1 (lane ps2cast-all; default 0; render only): the runtime side of El Gigante's PS2 mesh (em2b type 0, a
+#              64-bone, shift-2 model): NATIVE_MODEL_REGISTRY_BONES=64 NATIVE_MODEL_REGISTRY_SHIFT=1. The mesh itself is
+#              disc data: the r119 room package dc/native/r119/registry.re4nmr (model_registry.py --package-room 119
+#              --pack-bones 64 over the ps2_cast.py regcast cast) and its atlas in dc/tex.pak. Without the package
+#              El Gigante keeps the source path.
+PS2_GIGANTE ?= 0
+ifeq ($(filter $(PS2_GIGANTE),0 1),)
+$(error PS2_GIGANTE must be 0 or 1)
+endif
+ifeq ($(PS2_GIGANTE),1)
+NATIVE_MODEL_REGISTRY_BONES ?= 64
+NATIVE_MODEL_REGISTRY_SHIFT ?= 1
+ifneq ($(NATIVE_MODEL_REGISTRY_BONES)$(NATIVE_MODEL_REGISTRY_SHIFT),641)
+$(error PS2_GIGANTE=1 needs NATIVE_MODEL_REGISTRY_BONES=64 (or unset) and NATIVE_MODEL_REGISTRY_SHIFT=1)
+endif
+endif
+NATIVE_MODEL_REGISTRY_BONES ?= 48
+NATIVE_MODEL_REGISTRY_SHIFT ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_SHIFT),0 1),)
+$(error NATIVE_MODEL_REGISTRY_SHIFT must be 0 or 1)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_BONES)$(NATIVE_MODEL_REGISTRY_SHIFT),480)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error NATIVE_MODEL_REGISTRY_BONES / NATIVE_MODEL_REGISTRY_SHIFT need NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_BONES),48 64 80 96 128),)
+$(error NATIVE_MODEL_REGISTRY_BONES must be 48, 64, 80, 96 or 128)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_BONES),48)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_BONES=$(NATIVE_MODEL_REGISTRY_BONES)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_SHIFT),0)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SHIFT=1
+endif
+endif
+
 # ACTOR_PROOF_LEAN (default 0; needs ACTOR_TRANSACTION=1; render only; independent of the registry knobs): one actor
 # transaction proves each thing once, for Leon, the Ganado cast and registry plans alike. The decisions are the =0
 # decisions:

@@ -402,6 +402,12 @@ def main():
         i = args.index('--package-room'); package_room = int(args[i + 1], 16); del args[i:i + 2]
         if not 0x100 <= package_room <= 0x7ff:
             sys.exit('model_registry: --package-room is the hex room number, e.g. 103')
+    global PACK_BONES
+    if '--pack-bones' in args:
+        # NATIVE_MODEL_REGISTRY_BONES (native_model_registry.mk): the loader's skeleton capacity of the target image
+        i = args.index('--pack-bones'); PACK_BONES = int(args[i + 1]); del args[i:i + 2]
+        if PACK_BONES not in (48, 64, 80, 96, 128):
+            sys.exit('model_registry: --pack-bones takes 48, 64, 80, 96 or 128 (NATIVE_MODEL_REGISTRY_BONES)')
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')
@@ -574,7 +580,9 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             tp = e['texture_packages'].get(str(c['source_info']))
             if not tp:
                 raise Fail(f'{name} chunk {c["source_info"]}: no texture package bound to this source_info')
-            if tp['format'] not in ('RGB565', 'ARGB4444', 'ARGB1555'):
+            # 'VQ RGB565' (ps2_cast.py packs): the runtime binds a package by its key like any other (the Ganado cast
+            # atlases are VQ); only paletted / unknown formats are refused.
+            if tp['format'] not in ('RGB565', 'ARGB4444', 'ARGB1555', 'VQ RGB565'):
                 raise Fail(f'{name}: texture format {tp["format"]} unsupported (paletted or unknown)')
             pkg = inputs.take(tp['package'], 'cast/' + tp['package'].split('/cast-20260925/', 1)[-1])
             if sha(open(pkg, 'rb').read()) != tp['package_sha256']:
@@ -592,7 +600,10 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                      archive_sha256=audit[arcname]['sha256'], model_id=int(d['model_id'], 16), source_types=d['source_types'],
                      bones=bones, parents=parents, bind=bind, sections=sections, chunks=chunks, skin_bytes=skin,
                      header=L['runtime_header'], header_sha256=L['header_sha256'], rooms=e.get('rooms', []),
-                     needs=need_names(need), category=e.get('category'), status=e.get('status'), spec=d)
+                     needs=need_names(need), category=e.get('category'), status=e.get('status'), spec=d,
+                     position_shift=int(e.get('position_shift', 4)))
+        if not 1 <= entry['position_shift'] <= 4:
+            raise Fail(f'{name}: position_shift {entry["position_shift"]} outside 1..4')
         missing = need & ~FLAT_IMPLEMENTED
         if missing:
             entry['contract'] = (f'source materials need {", ".join(need_names(missing))}; the flat owner path implements '
@@ -840,7 +851,10 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
         if len(name) > 15:
             raise Fail(f'{r["name"]}: descriptor name longer than 15 bytes')
         desc.append(name.ljust(16, b'\0') + struct.pack('<8I', r['appearance'], r['model_id'], r['bones'], len(r['sections']),
-                                                         first_ref, parents_at, bind_first, 0))
+                                                         first_ref, parents_at, bind_first,
+                                                         # word 44: the position shift read by NATIVE_MODEL_REGISTRY_SHIFT=1
+                                                         # images (0 = 4, what every image assumes)
+                                                         0 if r['position_shift'] == 4 else r['position_shift']))
     # source identity facts, in first-use order
     fmodel, fpart, ftex, fm_index, ft_index, roles = [], [], [], {}, {}, []
     for r in runtime:

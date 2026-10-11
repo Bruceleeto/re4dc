@@ -28,12 +28,20 @@ struct Chunk { unsigned source_info, position_count, normal_count, palette_count
     const unsigned char *positions, *normals, *uv, *stream; const Weight *weights; unsigned uv_bytes, texture, skin_bytes, geometry; };
 struct Texture { unsigned crc, fnv, width, height; };
 struct Descriptor { char name[16]; unsigned appearance, model_id, bones, sections, first_chunk, skin_bytes;
-    const signed char* parents; const float (*bind)[12]; };
+    const signed char* parents; const float (*bind)[12];
+#if RE4DC_NMR_SHIFT
+    unsigned shift;  // NATIVE_MODEL_REGISTRY_SHIFT: the chunks' position fraction bits (package descriptor word 44; 0 = 4)
+#endif
+};
 constexpr unsigned appearance_first=0x200u;
 }
 static_assert(sizeof(nmr::Weight)==16,"package weight records");
-// Explicit capacities of one room package (the generator and the loader refuse more).
-constexpr unsigned kRegDescriptors=16,kRegChunks=32,kRegGeometry=32,kRegTextures=16,kRegBones=48;
+// Explicit capacities of one room package (the generator and the loader refuse more). NATIVE_MODEL_REGISTRY_BONES
+// (native_model_registry.mk, default 48) sets the skeleton capacity.
+#ifndef RE4DC_NMR_BONES
+#define RE4DC_NMR_BONES 48
+#endif
+constexpr unsigned kRegDescriptors=16,kRegChunks=32,kRegGeometry=32,kRegTextures=16,kRegBones=RE4DC_NMR_BONES;
 #else
 #include "native_model_registry.h"
 static_assert(nmr::descriptor_count && nmr::descriptor_count<=32 && nmr::chunk_count && nmr::max_bones<=256,"registry bundle shape");
@@ -191,6 +199,14 @@ inline const nmr::Descriptor* registry_descriptor(unsigned appearance) {
     if(appearance<nmr::appearance_first || appearance-nmr::appearance_first>=registry.descriptor_count)return nullptr;
     return &registry.descriptors[appearance-nmr::appearance_first];
 }
+#if RE4DC_NMR_SHIFT
+// NATIVE_MODEL_REGISTRY_SHIFT: the owned part's position shift (coarse_actor_transaction.inc): a registry
+// appearance's package shift (a model whose source positions exceed the 1/16 range: El Gigante, shift 2), else 4.
+inline unsigned registry_position_shift(unsigned appearance) {
+    const nmr::Descriptor* d=registry_descriptor(appearance);
+    return d?d->shift:4u;
+}
+#endif
 bool registry_skin_init(unsigned d) {
     if(registry_skin_state[d])return registry_skin_state[d]==1;
     const auto& desc=registry.descriptors[d];

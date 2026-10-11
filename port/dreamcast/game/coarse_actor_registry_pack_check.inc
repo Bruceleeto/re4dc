@@ -45,6 +45,12 @@ struct PackSection { unsigned at,bytes,count; };
 struct PackSpan { unsigned at,bytes; };
 
 // Validation and the record build. On kPwNone the pack_* records describe the package at base; nothing is published.
+// Descriptor word 44: 0, or under NATIVE_MODEL_REGISTRY_SHIFT the position shift 1..4 (0 = 4).
+#if RE4DC_NMR_SHIFT
+#define RE4DC_NMR_WORD44_BAD(w) ((w)>4)
+#else
+#define RE4DC_NMR_WORD44_BAD(w) (w)
+#endif
 PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigned& detail) {
     detail=0;
     if(size<kPackPayload || std::memcmp(p,"RE4NMR1\0",8))return kPwHeader;
@@ -122,7 +128,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         for(unsigned k=n;k<16;++k)if(r[k])return kPwDescriptor;
         const unsigned app=pu32(r,16),id=pu32(r,20),bones=pu32(r,24),sections=pu32(r,28),first=pu32(r,32),pat=pu32(r,36),bfirst=pu32(r,40);
         if(app!=nmr::appearance_first+d || id>255 || !bones || bones>max_bones || !sections || sections>8 || first!=refs ||
-           pat!=parents_used || bfirst!=binds_used || pu32(r,44) || refs+sections>sec[kRef].count ||
+           pat!=parents_used || bfirst!=binds_used || RE4DC_NMR_WORD44_BAD(pu32(r,44)) || refs+sections>sec[kRef].count ||
            pat+bones>sec[kParents].count || bfirst+bones>sec[kBind].count)return kPwDescriptor;
         // Skeleton: an index-ordered forest rooted at bone 0, finite inverse binds.
         if(parents[pat]!=-1)return kPwSkeleton;
@@ -131,6 +137,9 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         std::memset(desc.name,0,sizeof(desc.name));std::memcpy(desc.name,r,n);
         desc.appearance=app;desc.model_id=id;desc.bones=bones;desc.sections=sections;desc.first_chunk=first;desc.skin_bytes=0;
         desc.parents=parents+pat;desc.bind=bind+bfirst;
+#if RE4DC_NMR_SHIFT
+        desc.shift=pu32(r,44)?pu32(r,44):4u;
+#endif
         for(unsigned i=0;i<sections;++i) {
             const unsigned char* f=p+sec[kRef].at+(first+i)*16;detail=d*256+i;
             const unsigned g=pu32(f,0),t=pu32(f,4);

@@ -313,6 +313,9 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     }
     if(!re4dc_actor_skin_acquire(frame.frame,bindings,order,&r->skin)){ATD(m,14,order,0);return actor_decline(*r,failed);}
     auto& b=r->base;b.model=m;b.position_stride=6;b.normal_stride=6;b.normal_shift=14;b.shift=4;
+#if RE4DC_NMR_SHIFT
+    b.shift=registry_position_shift(p.appearance);
+#endif
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     if(!RE4DC_LEON_LIKE(p.appearance)) {
