@@ -198,6 +198,33 @@ GAME_CPPFLAGS += -DRE4DC_RES_MODES=$(RES_MODES) -DRE4DC_RES_MODE=$(RES_MODE) -DR
 PLATFORM_CPPFLAGS += -DRE4DC_RES_MODES=$(RES_MODES) -DRE4DC_RES_MODE=$(RES_MODE) -DRE4DC_RES_CYCLE_FRAMES=$(RES_CYCLE_FRAMES)
 $(OBJDIR)/platform/res_mode.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr
 endif
+# MV_SHADOWS=1 (Phase 2 C2; render only, default 0; mv_shadow.cpp): character shadows as PVR cheap-shadow modifier
+#   volumes. Leon and the live Ganados within MV_RANGE_M (15) metres, nearest MV_MAX (12), each a MV_SIDES-gon (8)
+#   prism of MV_RADIUS mm (420) from MV_TOP mm (250) above the feet to MV_DEPTH mm (1200) below; receivers are the
+#   MeshDraw parts (room scenery and objects, the PS2 world) in the opaque list; inside a volume they show at MV_SCALE
+#   percent (50). OP_MOD object pointer blocks of MV_OPB_BINS words (8 or 16) come out of the vertex buffer, not the
+#   texture pool. Near-plane crossings are clipped and capped. TA_BIN_DIAG counts the volume list ("tabin mod:").
+MV_SHADOWS ?= 0
+ifneq ($(MV_SHADOWS),0)
+MV_OPB_BINS ?= 8
+MV_SCALE ?= 50
+MV_SIDES ?= 8
+MV_RADIUS ?= 420
+MV_TOP ?= 250
+MV_DEPTH ?= 1200
+MV_RANGE_M ?= 15
+MV_MAX ?= 12
+ifeq ($(filter $(MV_OPB_BINS),8 16),)
+$(error MV_OPB_BINS is 8 or 16)
+endif
+MV_DEFS := -DRE4DC_MV_SHADOWS=1 -DRE4DC_MV_OPB_BINS=$(MV_OPB_BINS) -DRE4DC_MV_SCALE=$(MV_SCALE) -DRE4DC_MV_SIDES=$(MV_SIDES) \
+  -DRE4DC_MV_RADIUS=$(MV_RADIUS) -DRE4DC_MV_TOP=$(MV_TOP) -DRE4DC_MV_DEPTH=$(MV_DEPTH) -DRE4DC_MV_RANGE_M=$(MV_RANGE_M) -DRE4DC_MV_MAX=$(MV_MAX)
+PLATFORM_CPPFLAGS += $(MV_DEFS)
+PLATFORM_OBJS += $(OBJDIR)/mv_shadow.o
+$(OBJDIR)/mv_shadow.o: mv_shadow.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) $(MV_DEFS) -Iplatform/include -MMD -MP -c $< -o $@
+endif
 # ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
 #                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
 ACTOR_STATS_LEAN ?= 0

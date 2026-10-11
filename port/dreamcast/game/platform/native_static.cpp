@@ -401,6 +401,16 @@ extern "C" void re4dc_model_texture(const unsigned* key);
 #endif
 extern "C" int re4dc_fixture_read(const char* path,char* buffer,unsigned size);   // os.cpp
 #endif
+#if RE4DC_MV_SHADOWS
+// MV_SHADOWS (game30.mk; mv_shadow.cpp): every MeshDraw part (room scenery, room objects, the PS2 world) is a shadow
+// receiver: native_ui.cpp sets the cheap-shadow modifier bit on its opaque header while this flag is set. The
+// perspective projection and viewport of the frame's first receiver are kept for the shadow volumes.
+extern "C" {
+unsigned re4dc_mv_receiver;
+float re4dc_mv_projection[7],re4dc_mv_viewport[6];
+unsigned re4dc_mv_camera_frame=~0U;
+}
+#endif
 
 namespace {
 using re4dc::room::Package;
@@ -797,6 +807,14 @@ struct Emitter {
 #endif
     bool bind(){
         if(bound)return true;
+#if RE4DC_MV_SHADOWS
+        struct MvReceiver{MvReceiver(){re4dc_mv_receiver=1;}~MvReceiver(){re4dc_mv_receiver=0;}} mv_receiver;
+        if(p.projection[0]==0 && p.viewport[2]>0 && p.viewport[3]>0 && re4dc_mv_camera_frame!=re4dc_ui_frame()){
+            std::memcpy(re4dc_mv_projection,p.projection,sizeof(re4dc_mv_projection));
+            std::memcpy(re4dc_mv_viewport,p.viewport,sizeof(re4dc_mv_viewport));
+            re4dc_mv_camera_frame=re4dc_ui_frame();
+        }
+#endif
 #if RE4DC_MESH_DIRECT
         if(direct){
             Re4dcModelDirect out{};

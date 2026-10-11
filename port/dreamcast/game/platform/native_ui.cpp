@@ -179,6 +179,13 @@ extern "C" {
 #include "../../room/room_storage.hpp"
 #include "../../room/gpu_lifecycle.hpp"
 #include "../../room/pvr_geometry.hpp"
+#if RE4DC_MV_SHADOWS
+#if !RE4DC_PVR_STREAM || !RE4DC_TA_DIRECT || !RE4DC_D349_RENDERER_STACK || !RE4DC_TA_HEADROOM
+#error MV_SHADOWS needs PVR_STREAM=1, TA_DIRECT=1, D349_RENDERER_STACK=1 (stream_select) and TA_HEADROOM>=1
+#endif
+extern "C" unsigned re4dc_mv_receiver;  // native_static.cpp MeshDraw::bind: the part being bound is a shadow receiver
+static unsigned mv_receivers;           // receiver headers this run (MV_SHADOWS stats)
+#endif
 #if RE4DC_COARSE_WORLD & 64
 extern "C" int re4dc_coarse_world_room(void);                        // coarse.cpp: the world data's room (R3)
 extern "C" int re4dc_coarse_world_tex(unsigned i,unsigned out[5]);   // coarse_world.cpp: its texture list
@@ -812,9 +819,18 @@ void list_begin_timed(pvr_list_t list,bool& failed){
 // from that frame on (render_busy stays set as on the console), "pvrlist <ui frame>" one translucent list-done.
 namespace pvr_recover {
 constexpr unsigned kStuckMs=1000,kStuckErrMs=100,kGiveUp=8;
+#if RE4DC_MV_SHADOWS
+// MV_SHADOWS: the opaque modifier volume list is enabled too (its OPB is allocated), so KOS waits for its list-done.
+constexpr unsigned kNLists=4;
+asic_evt_handler_entry_t done_prev{},list_prev[kNLists]{};
+constexpr std::uint16_t kListEvents[kNLists]={ASIC_EVT_PVR_OPAQUEDONE,ASIC_EVT_PVR_TRANSDONE,ASIC_EVT_PVR_PTDONE,ASIC_EVT_PVR_OPAQUEMODDONE};
+constexpr unsigned kListBits[kNLists]={1U<<PVR_LIST_OP_POLY,1U<<PVR_LIST_TR_POLY,1U<<PVR_LIST_PT_POLY,1U<<PVR_LIST_OP_MOD};
+#else
+constexpr unsigned kNLists=3;
 asic_evt_handler_entry_t done_prev{},list_prev[3]{};
 constexpr std::uint16_t kListEvents[3]={ASIC_EVT_PVR_OPAQUEDONE,ASIC_EVT_PVR_TRANSDONE,ASIC_EVT_PVR_PTDONE};
 constexpr unsigned kListBits[3]={1U<<PVR_LIST_OP_POLY,1U<<PVR_LIST_TR_POLY,1U<<PVR_LIST_PT_POLY};
+#endif
 asic_evt_handler_entry_t err_prev[6]{};
 volatile unsigned req;            // 1 P1 render, 2 P2 TA lists; cleared by the vblank handler
 volatile unsigned err_bits;       // SB_ISTERR bits since the current render started
@@ -840,7 +856,7 @@ void done_chain(uint32_t code,void* data){
 }
 void list_chain(uint32_t code,void* data){
     const unsigned i=unsigned(reinterpret_cast<std::uintptr_t>(data));
-    if(i>=3)return;
+    if(i>=kNLists)return;
     if(!synth && i==1 && inject_list_frame>=0 && int(frame)>=inject_list_frame){inject_list_frame=-1;return;}
     if(list_prev[i].hdl)list_prev[i].hdl(code,list_prev[i].data);
     note_render_state();
@@ -860,7 +876,7 @@ void vblank(uint32_t,void*){
         if(done_prev.hdl)done_prev.hdl(ASIC_EVT_PVR_RENDERDONE_TSP,done_prev.data);
     } else if(r==2 && !pvr_state.render_busy && pvr_state.ta_busy){
         if(err_bits&0x30){PVR_SET(PVR_RESET,PVR_RESET_TA);PVR_SET(PVR_RESET,PVR_RESET_NONE);}
-        for(unsigned i=0;i<3;++i)
+        for(unsigned i=0;i<kNLists;++i)
             if((pvr_state.lists_enabled&kListBits[i]) && !(pvr_state.lists_transferred&kListBits[i]) && list_prev[i].hdl)
                 list_prev[i].hdl(kListEvents[i],list_prev[i].data);
     }
@@ -877,7 +893,7 @@ void install(){
         else if(!std::strncmp(t,"pvrlist",7) && std::sscanf(t+7,"%u",&a)==1)inject_list_frame=int(a);
     }
     done_prev=asic_evt_set_handler(ASIC_EVT_PVR_RENDERDONE_TSP,done_chain,nullptr);
-    for(unsigned i=0;i<3;++i)list_prev[i]=asic_evt_set_handler(kListEvents[i],list_chain,reinterpret_cast<void*>(std::uintptr_t(i)));
+    for(unsigned i=0;i<kNLists;++i)list_prev[i]=asic_evt_set_handler(kListEvents[i],list_chain,reinterpret_cast<void*>(std::uintptr_t(i)));
     for(unsigned b=0;b<6;++b)err_prev[b]=asic_evt_set_handler(std::uint16_t(ASIC_EVT_PVR_ISP_OUTOFMEM+b),err_chain,reinterpret_cast<void*>(std::uintptr_t(b)));
     const int handle=vblank_handler_add(vblank,nullptr);
     re4dc_log("pvr recover: armed (stuck %u ms, %u ms after a render error, give up after %u) vblank=%d test hang=%d/%d list=%d\n",
@@ -1262,6 +1278,9 @@ unsigned blocks_words(unsigned list){
 #if RE4DC_TREE_IMPOSTOR
     if(list==4)return 8;
 #endif
+#if RE4DC_MV_SHADOWS
+    if(list==1)return unsigned(RE4DC_MV_OPB_BINS);
+#endif
     return list==0||list==2?unsigned(RE4DC_TA_OPB_BINS):(list==4?16U:0U);
 }
 inline int clampt(float v,int hi){ if(!(v==v))return -1; if(v<0)return 0; const int t=int(v)>>5; return t>hi?hi:t; }
@@ -1277,7 +1296,31 @@ void add_box(unsigned list,float x0,float x1,float y0,float y1,unsigned tris){
     }
 }
 void obj_begin(L& s){ ++objid; ++s.objs; s.tri_in_obj=0; scene_param+=s.hdr_words; }
+#if RE4DC_MV_SHADOWS
+// MV_SHADOWS: the opaque modifier volume list. A header (type 4) then 64-byte triangles (type 7): counted as one
+// object per triangle in every tile its box touches (an upper bound for the TA's grouping), 3 + 9 parameter words.
+float mv_tri[5];bool mv_second;
+void feed_mod(const std::uint32_t* q){
+    L& s=ls[1];
+    const float* f=reinterpret_cast<const float*>(q);
+    if(mv_second){
+        mv_second=false;const float cy=f[0];
+        obj_begin(s);++s.tris;++s.verts;scene_param+=9;
+        add_box(1,std::min({mv_tri[0],mv_tri[2],mv_tri[4]}),std::max({mv_tri[0],mv_tri[2],mv_tri[4]}),
+                std::min({mv_tri[1],mv_tri[3],cy}),std::max({mv_tri[1],mv_tri[3],cy}),1);
+        return;
+    }
+    const unsigned t=q[0]>>29;
+    if(t==4u){if(((q[0]>>24)&7)!=1)++scene_mismatch;s.hdr_words=3;return;}
+    if(t!=7u)return;
+    if(!s.hdr_words){++s.orphans;}
+    mv_tri[0]=f[1];mv_tri[1]=f[2];mv_tri[2]=f[4];mv_tri[3]=f[5];mv_tri[4]=f[7];mv_second=true;
+}
+#endif
 void feed_block(unsigned list,const std::uint32_t* q){
+#if RE4DC_MV_SHADOWS
+    if(list==1){feed_mod(q);return;}
+#endif
     L& s=ls[list];
     if(s.half){ s.half=false; return; }                 // second half of a 64-byte vertex / header
     if(s.hdr64_pending){ s.hdr64_pending=false; return; }
@@ -1352,7 +1395,12 @@ void scene_end(unsigned fr,bool present){
         if(trtri[t]>maxtr){maxtr=trtri[t];trt=t;}
         if(ent[0][t]>ent[0][opt])opt=t;
     }
+#if RE4DC_MV_SHADOWS
+    const unsigned limit=(2*unsigned(RE4DC_TA_OPB_BINS)+blocks_words(4)+blocks_words(1))*4*kTiles*unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM);
+    re4dc_log("tabin mod: f=%u obj=%u ent=%u deep=%u\n",fr,objs[1],total[1],maxent[1]);
+#else
     const unsigned limit=(2*unsigned(RE4DC_TA_OPB_BINS)+blocks_words(4))*4*kTiles*unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM);
+#endif
     const unsigned param=scene_param*4;
     const bool peak=pool>max_pool||param>max_param||maxtr>max_trtile;
     if(peak){
@@ -1390,6 +1438,9 @@ void scene_end(unsigned fr,bool present){
         unsigned(RE4DC_TA_VERTEX_BYTES),maxtr,tris,shorts,orph,scene_wild,scene_mismatch,peak?" PEAK":"");
     std::memset(ent,0,sizeof(ent));std::memset(trtri,0,sizeof(trtri));
     for(auto& s:ls)s=L{};
+#if RE4DC_MV_SHADOWS
+    mv_second=false;
+#endif
     scene_param=scene_wild=scene_mismatch=scene_lists_seen=0;
 }
 }
@@ -1547,9 +1598,20 @@ void stream_send(const void* data,unsigned bytes) {
     guard_account(1,bytes/32-1); // every call is one header + its vertices
 #endif
 }
+#if RE4DC_MV_SHADOWS
+// MV_SHADOWS (game30.mk; mv_shadow.cpp): the frame's shadow volumes go into the opaque modifier volume list, opened
+// once after every other list of a presented scene (a closed list is never reopened). re4dc_mv_emit calls
+// re4dc_ui_mv_send once per caster (a header pair and its 64-byte triangles).
+extern "C" void re4dc_mv_emit(unsigned frame);
+unsigned mv_sends,mv_bytes,mv_scenes;
+bool mv_open;
+#endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
     if(!stream_scene)stream_open();
+#if RE4DC_MV_SHADOWS
+    if(present && !stream_aborted && !direct_open){mv_open=false;re4dc_mv_emit(frame);if(mv_open)++mv_scenes;}
+#endif
 #if RE4DC_TA_GUARD
     const unsigned ta_faults=guard_scene_end();
 #else
@@ -3237,11 +3299,27 @@ extern "C" void re4dc_ui_init(){
     }
 #endif
 #endif
+#if RE4DC_MV_SHADOWS
+    {
+        // MV_SHADOWS: object pointer blocks for the opaque modifier volume list (MV_OPB_BINS words per tile), in the
+        // initial blocks and every overflow pool (KOS pvr_allocate_buffers: opb_total_size x (1 + overflow) after the
+        // vertex buffer), paid for by the vertex buffer so the texture pool does not shrink.
+        params.opb_sizes[PVR_LIST_OP_MOD]=RE4DC_MV_OPB_BINS==16?PVR_BINSIZE_16:PVR_BINSIZE_8;
+        const unsigned words=RE4DC_MV_OPB_BINS==16?16U:8U;
+        const unsigned shrink=(words*4U*(640U/32U)*(480U/32U)*(1U+unsigned(params.opb_overflow_count))+1023U)&~1023U;
+        params.vertex_buf_size-=int(shrink);
+        ta_vertex_bytes=unsigned(params.vertex_buf_size);
+        re4dc_log("MV shadows: OP_MOD blocks %u words, %u B per bank from the vertex buffer (now %d B)\n",words,shrink,params.vertex_buf_size);
+    }
+#endif
     params.autosort_disabled=1; // source OT is the UI blending order
 #if RE4DC_RES_MODES
     ta_vertex_bytes=re4dc_res_params(&params); // res_mode.cpp: the allocation for the largest available mode
 #endif
     ready=pvr_init(&params)==0;
+#if RE4DC_MV_SHADOWS
+    if(ready)pvr_set_shadow_scale(true,float(RE4DC_MV_SCALE)/100.0f); // cheap shadow: receivers inside a volume at this intensity
+#endif
 #if RE4DC_RES_MODES
     if(ready)re4dc_res_init();
 #endif
@@ -4090,6 +4168,11 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
 #if RE4DC_ACTOR_UV16
     model_packets[model_used].flags=(model_packets[model_used].flags&~pcw_clear)|pcw_set;
 #endif
+#if RE4DC_MV_SHADOWS
+    // A shadow receiver (native_static.cpp MeshDraw: room scenery / objects) in the opaque list: cheap-shadow modifier
+    // bit on this part's slab copy only (the cached header stays generic).
+    if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY){model_packets[model_used].flags|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+#endif
     model_pending=model_used+count;model_handle=handle;
     out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
 #if RE4DC_MESH_TEXTURES
@@ -4225,6 +4308,19 @@ extern "C" void re4dc_model_direct_end(unsigned vertices){
     (void)vertices;
 #endif
 }
+#if RE4DC_MV_SHADOWS
+// mv_shadow.cpp, inside stream_close only: one caster's volume (headers and 64-byte triangles, 32-byte multiples).
+extern "C" int re4dc_ui_mv_send(const void* data,unsigned bytes){
+    if(!stream_scene || stream_aborted || direct_open || !bytes || (bytes&31))return 0;
+    if(!mv_open){stream_select(PVR_LIST_OP_MOD);if(stream_aborted || stream_list!=PVR_LIST_OP_MOD)return 0;mv_open=true;}
+    stream_send(data,bytes);
+    ++mv_sends;mv_bytes+=bytes;
+    return 1;
+}
+extern "C" void re4dc_ui_mv_stats(unsigned* sends,unsigned* bytes,unsigned* scenes,unsigned* receivers){
+    *sends=mv_sends;*bytes=mv_bytes;*scenes=mv_scenes;*receivers=mv_receivers;
+}
+#endif
 #if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT
 extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart* p,const Re4dcModelPacket* reserved,Re4dcModelDirect* out){
     model_reserved=reserved;
@@ -5457,6 +5553,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #if defined(RE4DC_SKY_FAR) || defined(RE4DC_LOOK_TOGGLE)
         if(re4dc_ps2_sky_header)ps2_sky_header(header);
 #endif
+#if RE4DC_MV_SHADOWS
+        if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+#endif
         std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
         model_pending=model_used+count;model_handle=handle;
         if(!stream_scene)stream_open();
@@ -5520,6 +5619,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #endif
 #if defined(RE4DC_SKY_FAR) || defined(RE4DC_LOOK_TOGGLE)
     if(re4dc_ps2_sky_header)ps2_sky_header(header);
+#endif
+#if RE4DC_MV_SHADOWS
+    if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
 #endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
