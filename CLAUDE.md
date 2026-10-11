@@ -1,5 +1,10 @@
 # RE4 Dreamcast working handoff
 
+2026-10-11 Phase 2 starts: follow [the Phase 2 plan](port/dreamcast/docs/D367_PHASE2_PLAN.md).
+Base build is r22j test 7 (r23 after console confirmation). Step 0 is a fixed heap 4
+reservation for em10 parts so image size stops coupling lanes. Lanes A characters, B objects
+and room packages, C PVR submit, D route and fixes; two builder agents at a time; tiered gates.
+
 2026-10-09 issues 9 and 15: the crash screen adds an `asic` line (ASIC_ACK_A/B/C,
 TA_OPB_INIT) to the first-failure snapshot; disc streams decode with the SND_SHD
 coefficient order (battle music and radio voices no longer saturate); prebuilt
