@@ -3193,6 +3193,15 @@ extern "C" void re4dc_ui_glyph_fonts_changed(){
 #if RE4DC_PVR_MID_FENCE && !RE4DC_PVR_PIPELINE
 #error PVR_MID_FENCE waits in present_fence: needs PVR_PIPELINE
 #endif
+#if RE4DC_RES_MODES
+#if RE4DC_TA_BIN_DIAG || !RE4DC_PVR_STREAM || RE4DC_PVR_PIPELINE!=2 || !RE4DC_TA_HEADROOM
+#error RES_MODES needs PVR_STREAM=1, PVR_PIPELINE=2, TA_HEADROOM>=1 (ta_vertex_bytes) and TA_BIN_DIAG=0 (its 20x15 tile replay)
+#endif
+extern "C" unsigned re4dc_res_params(pvr_init_params_t* p);
+extern "C" void re4dc_res_init();
+extern "C" int re4dc_res_pending();
+extern "C" void re4dc_res_apply_pending();
+#endif
 extern "C" void re4dc_ui_init(){
     if(ready)return;
     pvr_init_params_t params=pvr_default_params;
@@ -3226,7 +3235,13 @@ extern "C" void re4dc_ui_init(){
 #endif
 #endif
     params.autosort_disabled=1; // source OT is the UI blending order
+#if RE4DC_RES_MODES
+    ta_vertex_bytes=re4dc_res_params(&params); // res_mode.cpp: the allocation for the largest available mode
+#endif
     ready=pvr_init(&params)==0;
+#if RE4DC_RES_MODES
+    if(ready)re4dc_res_init();
+#endif
     re4dc_log("native UI: PVR init %s; source ID adapter, 640x480\n",ready?"ok":"FAILED");
 #if RE4DC_POISON_RAM
     if(ready){
@@ -3322,6 +3337,11 @@ extern "C" void re4dc_ui_end_frame_skip(){
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_PACE_CATCHUP
     pace_skip_frame=false;
+#endif
+#if RE4DC_RES_MODES
+    // RES_MODES safe point: a requested render size applies before this frame computes any screen position, once
+    // the previous scene is presented and the PVR is idle (res_mode.cpp; else the next frame tries again).
+    if(ready && !stream_scene && !stream_retire && re4dc_res_pending()){present_fence();re4dc_res_apply_pending();}
 #endif
 #if RE4DC_PERF_HUD
     hud_begin_prev=hud_begin;hud_begin=timer_us_gettime64();
@@ -4709,6 +4729,11 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 #endif
     }
     if((s->color>>24)==0){++fx_culled;return 0;}
+#if RE4DC_RES_MODES
+    Re4dcEffectSprite scaled=*s;   // esp_sub.cpp projects to 640x480: the current render size
+    for(unsigned i=0;i<4;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}
+    s=&scaled;
+#endif
 #if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
     {   // ESP_SPRITE_FAST: std::isfinite on the bits (UI_QUAD_LEAN's test): an all-ones exponent carries into bit
         // 31 of (bits & 0x7f800000) + 0x00800000; no __unordsf2 call per coordinate.
@@ -4733,7 +4758,7 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
             x0=std::min(x0,s->x[i]);x1=std::max(x1,s->x[i]);y0=std::min(y0,s->y[i]);y1=std::max(y1,s->y[i]);
             zmax=std::max(zmax,s->z[i]);
         }
-        if(x1<0.0f || x0>640.0f || y1<0.0f || y0>480.0f){++fx_culled;return 0;}
+        if(x1<0.0f || x0>RE4DC_SCREEN_WF || y1<0.0f || y0>RE4DC_SCREEN_HF){++fx_culled;return 0;}
         const float fog_far=(!s->screen && re4dc_fog_gate_far)?re4dc_fog_gate_far():0.0f;
         if(fog_far>0.0f && zmax*fog_far<1.0f){++fx_culled;return 0;}
     }
@@ -4781,6 +4806,11 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 extern "C" int re4dc_effect_line(const Re4dcEffectLine* s){
     if(!s || !frame_ready || stream_aborted || draining_parts)return 0;
     if(s->blend_mode>1){++unsupported;return 0;}
+#if RE4DC_RES_MODES
+    Re4dcEffectLine scaled=*s;   // projected to 640x480 by its owner: the current render size
+    for(unsigned i=0;i<2;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}
+    s=&scaled;
+#endif
     for(unsigned i=0;i<2;++i)
         if(!re4dc::render::is_finite(s->x[i]) || !re4dc::render::is_finite(s->y[i]) ||
            !re4dc::render::is_finite(s->z[i]) || s->z[i]<=0.0f)return 0;
@@ -4963,7 +4993,7 @@ void post_pass(unsigned char* out,pvr_blend_mode_t src,pvr_blend_mode_t dst,unsi
     const float xs[4]={0,0,640,640},ys[4]={480,0,480,0};
     const std::uint32_t argb=0xff000000U|grey<<16|grey<<8|grey;
     for(unsigned k=0;k<4;++k){
-        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=xs[k];v[k].y=ys[k];v[k].z=1.0f;
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=RE4DC_UI_X(xs[k]);v[k].y=RE4DC_UI_Y(ys[k]);v[k].z=1.0f;
         v[k].u=v[k].v=0;v[k].argb=argb;v[k].oargb=0;
     }
 }
@@ -5060,7 +5090,7 @@ void grade_packet(unsigned char* out,std::uint32_t argb){
     auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
     const float xs[4]={0,0,640,640},ys[4]={480,0,480,0};
     for(unsigned k=0;k<4;++k){
-        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=xs[k];v[k].y=ys[k];v[k].z=1.0f;
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=RE4DC_UI_X(xs[k]);v[k].y=RE4DC_UI_Y(ys[k]);v[k].z=1.0f;
         v[k].u=v[k].v=0;v[k].argb=argb;v[k].oargb=0;
     }
 }
@@ -5100,7 +5130,7 @@ void osd_packet(unsigned char* out){
     const float w=float(std::min(kOsdW,unsigned(strlen(osd_loaded))*12U+8U)),u1=w/float(kOsdW); // the text's width only
     const float x0=20,y0=66,xs[4]={x0,x0,x0+w,x0+w},ys[4]={y0+kOsdH,y0,y0+kOsdH,y0},us[4]={0,0,u1,u1},vs[4]={1,0,1,0};
     for(unsigned k=0;k<4;++k){
-        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=xs[k];v[k].y=ys[k];v[k].z=1.0f;
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=RE4DC_UI_X(xs[k]);v[k].y=RE4DC_UI_Y(ys[k]);v[k].z=1.0f;
         v[k].u=us[k];v[k].v=vs[k];v[k].argb=0xffffffffU;v[k].oargb=0;
     }
 }

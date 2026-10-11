@@ -392,6 +392,9 @@ void re4dc_pace_cycle_mode(void);  // pace.cpp: Smooth -> Fast -> Off (test buil
 #if defined(RE4DC_LOOK_TOGGLE)
 extern "C" void re4dc_look_cycle(void);  // native_static.cpp (post30.mk LOOK_TOGGLE)
 extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp: the preset label always shown / 3 s
+#if RE4DC_RES_MODES
+extern "C" void re4dc_res_cycle(void);  // res_mode.cpp (game30.mk RES_MODES)
+#endif
 #endif
 #if defined(RE4DC_EFFECT_PS2_TOGGLE) && RE4DC_EFFECT_PS2_TOGGLE
 void re4dc_ps2fx_cycle(void);  // esp_sub.cpp: the next effect look (effects30.mk EFFECT_PS2_TOGGLE)
@@ -543,6 +546,11 @@ u32 PADRead(PADStatus* status)
                 if (!lookStartHeld && held == (PAD_BUTTON_X | PAD_BUTTON_Y)) {
                     lookChord = 1;
                     re4dc_look_osd_toggle();  // X + Y + START: the on-screen preset label always shown / 3 s
+#if RE4DC_RES_MODES
+                } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_DOWN)) {
+                    lookChord = 1;
+                    re4dc_res_cycle();  // X + D-pad down + START: the next render mode (res_mode.cpp, safe point)
+#endif
                 } else if (!lookStartHeld && held == PAD_BUTTON_X) {
                     lookChord = 1;
                     re4dc_look_cycle();

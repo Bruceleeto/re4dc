@@ -201,6 +201,9 @@ void task_detail(int& row)
     put_text(0, row++, line, 0xFFE0);
 }
 #endif
+#if RE4DC_RES_MODES
+extern "C" void re4dc_res_crash_display(void);  // res_mode.cpp
+#endif
 // Keeps __LINE__ below as in a build without CRASH_TASK_DETAIL (crash_test's re4dc_halt).
 #line 144
 void show(const char* kind, const char* detail, bool wait_render)
@@ -218,6 +221,9 @@ void show(const char* kind, const char* detail, bool wait_render)
         kRows = kH / kGH;
     }
     // Draw into the buffer on screen now; the display is left where it is.
+#if RE4DC_RES_MODES
+    re4dc_res_crash_display();  // RES_MODES: the 640x480 display layout back (the frame buffers are 640x480)
+#endif
     g_fb = (unsigned short*) (PVR_RAM_BASE | (PVR_GET(PVR_FB_ADDR) & (PVR_RAM_SIZE - 1)));
     unsigned short* fb = g_fb;
     for (int i = 0; i < kW * kH; ++i) fb[i] = 0x0008;

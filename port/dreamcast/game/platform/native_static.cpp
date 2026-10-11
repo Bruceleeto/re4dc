@@ -243,7 +243,12 @@ static void re4dc_look_render_done(uint32_t code,void* data){
     if(re4dc_look_kos_done.hdl)re4dc_look_kos_done.hdl(code,re4dc_look_kos_done.data);
     const unsigned w=re4dc_look_scaler_want;
     if(w==~0U || pvr_state.render_busy)return;
-    PVR_SET(PVR_SCALER_CFG,w);re4dc_look_scaler_want=~0U;re4dc_look_scaler_writes=re4dc_look_scaler_writes+1;
+#if RE4DC_RES_MODES
+    PVR_SET(PVR_SCALER_CFG,(PVR_GET(PVR_SCALER_CFG)&~0xffffU)|(w&0xffffU));re4dc_look_scaler_want=~0U; // keep RES_MODES' FSAA bit
+#else
+    PVR_SET(PVR_SCALER_CFG,w);re4dc_look_scaler_want=~0U;
+#endif
+    re4dc_look_scaler_writes=re4dc_look_scaler_writes+1;
 }
 static const char* re4dc_look_scaler_request(unsigned cfg){
     if(vid_mode && vid_mode->cable_type==CT_VGA){re4dc_look_scaler_want=~0U;return "vga: scaler untouched";}
@@ -265,7 +270,13 @@ extern "C" void re4dc_look_osd_toggle(void){
     re4dc_look_osd_always=!re4dc_look_osd_always;re4dc_look_osd_until=re4dc_vi_retrace_count()+180U;
     re4dc_log("look: label always %s\n",re4dc_look_osd_always?"on":"off");
 }
+#if RE4DC_RES_MODES
+extern "C" const char* re4dc_res_osd_text(void); // res_mode.cpp: the render mode's name, 3 s after a change
+#endif
 extern "C" const char* re4dc_look_osd_text(void){
+#if RE4DC_RES_MODES
+    if(const char* res=re4dc_res_osd_text())return res;
+#endif
     if(!re4dc_look_osd_always && int(re4dc_look_osd_until-re4dc_vi_retrace_count())<=0)return nullptr;
     return re4dc_looks[re4dc_look_mode%kLooks].text;
 }

@@ -164,6 +164,40 @@ ifneq ($(SCREEN_320),0)
 GAME_CPPFLAGS += -DRE4DC_SCREEN_W=320 -DRE4DC_SCREEN_H=240
 PLATFORM_CPPFLAGS += -DRE4DC_SCREEN_W=320 -DRE4DC_SCREEN_H=240
 endif
+# RES_MODES=<mask> (Phase 2 C0, test builds; render only; platform/res_mode.cpp): render resolution / FSAA at run
+#   time. Bit n makes mode n available: 0 640x480, 1 640x240 line doubled, 2 640x240 FSAA (1280x240 into the
+#   scaler), 3 640x480 FSAA (1280x480; KOS allocates 600 tiles, the texture pool shrinks ~0.5 MB). RES_MODE=<n>
+#   is the boot mode. With LOOK_TOGGLE, X + D-pad down + START steps to the next mode (applied at the next frame
+#   start with the PVR idle) and the mode name shows for 3 s. RES_CYCLE_FRAMES=n (test arms): the next mode every
+#   n frames. Every screen mapping reads the current size (re4dc_screen.h). Default 0: nothing changes.
+RES_MODES ?= 0
+RES_MODE ?= 0
+RES_CYCLE_FRAMES ?= 0
+ifeq ($(RES_MODES),0)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/res_mode.o,$(PLATFORM_OBJS))
+ifneq ($(RES_MODE)$(RES_CYCLE_FRAMES),00)
+$(error RES_MODE / RES_CYCLE_FRAMES need RES_MODES)
+endif
+else
+ifeq ($(filter $(RES_MODES),1 2 3 4 5 6 7 8 9 10 11 12 13 14 15),)
+$(error RES_MODES is a mask 1..15 of modes 0..3)
+endif
+ifeq ($(filter $(RES_MODE),0 1 2 3),)
+$(error RES_MODE is 0..3)
+endif
+ifeq ($(shell echo $$(( ($(RES_MODES) >> $(RES_MODE)) & 1 ))),0)
+$(error RES_MODE $(RES_MODE) is not in RES_MODES $(RES_MODES))
+endif
+ifneq ($(SCREEN_320),0)
+$(error RES_MODES and SCREEN_320 are exclusive)
+endif
+ifneq ($(NATIVE_ACTOR_FAST),1)
+$(error RES_MODES needs NATIVE_ACTOR_FAST=1 (platform/native_actor.cpp maps to a fixed 640x480))
+endif
+GAME_CPPFLAGS += -DRE4DC_RES_MODES=$(RES_MODES) -DRE4DC_RES_MODE=$(RES_MODE) -DRE4DC_RES_CYCLE_FRAMES=$(RES_CYCLE_FRAMES)
+PLATFORM_CPPFLAGS += -DRE4DC_RES_MODES=$(RES_MODES) -DRE4DC_RES_MODE=$(RES_MODE) -DRE4DC_RES_CYCLE_FRAMES=$(RES_CYCLE_FRAMES)
+$(OBJDIR)/platform/res_mode.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr
+endif
 # ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
 #                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
 ACTOR_STATS_LEAN ?= 0
