@@ -974,3 +974,29 @@ this patch, PVR_LATCH=2 PVR_RECOVER=1).
 ## Numbers (image, build, evidence)
 
 ## Ready to land
+
+## Progress 2026-10-10 (issue 9 i9d: heap-neutral test knobs, TA_HEADROOM, PVR_MID_FENCE; all default off)
+
+Lane i9d (branch fix/issue9-headroom-20261010, on 818db77c).
+- **UI_OS** (defaults to PVR_RECOVER): platform/native_ui.o at -Os, 9.6 KB less text. Knobs on (PVR_READY_STRICT=1
+  PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1) the image ends below the knobs-off one: play recipe `_end` 8c3e93dc ->
+  8c3e86fc; H2 trace arms s30 340/340 heap_before 65,696 (control 61,600).
+- **TA_HEADROOM=n**: n more OPB overflow pools per TA bank (+48,000 B each at 640x480, OP 16 + TR 16 + PT 8), paid by
+  a vertex buffer 48,000 B smaller (2048 -> 2001 KiB); texture pool unchanged (2,566,912 -> 2,567,168 B free), so
+  no room's uploads change (0 upload failures in every run). r109 entry with TA_BIN_DIAG: pool peak 118,592 of
+  192,000 (was of 144,000), param peak 1,657,012 of 2,049,024, OP tile depth 1,391.
+- **PVR_MID_FENCE** (defaults to PVR_RECOVER): glyph palette banks (pvr_set_pal_entry), glyph cell texel loads and the
+  LOOK_TOGGLE label texture wait for the queued render (present_fence). TA_BIN_DIAG peaks also log the overflow pool
+  other OPB block sizes would need (`tabin alt`).
+- **Per-tile limit**: none documented. KOS pvr.h (opb_overflow_count) and pvr_misc.c (TA_OPB_END = opb + opb_size x
+  (1 + overflow)) bound only the whole overflow pool; asic.h names the error events: 0x0200 ISP out of memory,
+  0x0203 OPB went past TA_OPB_END. The photo's er05 = bits 0 and 3 = ISP out of memory + OPB overflow, consistent
+  with pool exhaustion (cumulative since boot on latch v1).
+- **Gates**: knob-off identity vs 818db77c: the build stamp only (3 bytes), overlays equal, `_end` equal, missing.txt
+  empty. H2 STRICT 1450..1569 / 0..740 / 1218.. and bell STRICT, decision_cmp MUST-IDENTICAL (6,971 / 5,084 ticks;
+  arms on f7c5c31f, same code); 0 MISALIGN; New Game 1971 / 2360 / 1175; r108 -> r109 crossed HALT 0 MISSING 0
+  (kf data and the package data); recover counts 0.
+- **hw ms** (hwproject, knobs on vs the d74 test recipe): r101 square 70.47 vs 70.27; r100 house fight 66.99 vs 68.01
+  (within the model band).
+- Console test package (not published): C:\RE4DC-Play-Discs\test-32d24af2-20261010-gdemu-package (data: the r117
+  lane's pa1-oqC staging minus warp/padscript, this build's overlays); boots to the title in Flycast.
