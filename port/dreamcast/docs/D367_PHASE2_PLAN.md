@@ -32,12 +32,12 @@ with the PS2 room objects. Until then the coordinator recomputes IMAGE_PAD_BYTES
 
 | Lane | Items, in order | Main files | Gate tier 2 triggers |
 |---|---|---|---|
-| **A Characters** | A1 lit villagers: PS2 3 lights + ambient, FIPR, intensity mode. A2 character mipmaps + PS2 4bpp palette textures. A3 crow, solid PS2 wing. | actor draw, registry, texture tools | perf decision |
+| **A Characters** | A1 lit villagers: PS2 3 lights + ambient, FIPR, intensity mode. A2 character mipmaps + PS2 4bpp palette textures. A3 crow, solid PS2 wing. A4 Leon edge fringes (silhouette strips, character only edge AA). | actor draw, registry, texture tools | perf decision |
 | **B Objects + packages** | B1 PS2 room objects, heaviest rooms first (r100 set pieces, r103, r108, r118). B2 combined r118 package (wolf + female Ganado). | ps2_cast / room tools, room packages | memory (packages), perf |
-| **C GPU / submit** | C1 vertex DMA (CPU time). C2 modifier volume shadows. C3 Del Lago bump. | PVR submit path | PVR timing (console), perf |
+| **C GPU / submit** | C0 resolution trial: 640x240 line doubled (half fill), 640x240 + FSAA (PS2 like smoothness), switched only at safe points. C2 modifier volume shadows. C1 measure store queue stalls, DMA ring only if it pays. C4 lake layers. C3 Del Lago bump. | PVR submit path | PVR timing (console), perf |
 | **D Route + fixes** | D0 = Step 0. D1 Flycast cutscene hang: timed wait + recovery. D2 silent chapter 1-3 results music. D3 chapter 2-2: r112, r111, r113, r11c. | mem, movie, audio, room code | memory, logic, new rooms |
 
-Kept as is: GameCube Ashley (PS2 skeleton does not bind). Out of scope: glow via render to texture (GPU bound outdoors), lake ripples (look decision pending).
+Kept as is: GameCube Ashley (PS2 skeleton does not bind). Out of scope: glow via render to texture (GPU bound outdoors and it breaks the PVR pipeline overlap). Technique notes: a study of KOS examples, GLdc, Doom64-dc, Wobble and ITLOF ranked shadows high, DMA as measure first, palette textures needing a 4444/1555 palette format.
 
 ## Waves (two builder agents at a time)
 
