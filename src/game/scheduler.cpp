@@ -566,5 +566,18 @@ extern "C" void re4dc_task_brief(char* out, unsigned size, const void* wait)
         else n += snprintf(out + n, size - n, " %lu:%02x/%d%s", (unsigned long) i, (unsigned) t->Status, tid, mark);
     }
 }
+#if RE4DC_CRASH_TASK_DETAIL
+// CRASH_TASK_DETAIL (issue 21): the thread of the slot whose yield / resume semaphore is `wait`, or 0.
+extern "C" const void* re4dc_task_waited(const void* wait, int* slot)
+{
+    for (u32 i = 0; i < TASK_NUM; ++i) {
+        if (wait == &nativeTaskYielded[i] || wait == &nativeTaskResume[i]) {
+            *slot = (int) i;
+            return &Task[i].Thread;
+        }
+    }
+    return 0;
+}
+#endif
 #endif
 #endif

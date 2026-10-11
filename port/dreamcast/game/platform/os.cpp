@@ -563,6 +563,13 @@ extern "C" int re4dc_os_thread_kstate(const void* thread, int* tid)
     *tid = kt ? (int) kt->tid : 0;
     return kt ? (int) kt->state : -1;
 }
+#if RE4DC_CRASH_TASK_DETAIL
+// CRASH_TASK_DETAIL: an OSThread's KOS thread (0 without one).
+extern "C" void* re4dc_os_thread_kt(const void* thread)
+{
+    return ((const OSThread*) thread)->kt;
+}
+#endif
 #endif
 
 s32 OSSignalSemaphore(OSSemaphore* sem)

@@ -141,6 +141,68 @@ void put_text(int col, int row, const char* s, unsigned short fg)
     }
 }
 
+#if RE4DC_CRASH_TASK_DETAIL
+}  // namespace
+extern "C" const void* re4dc_task_waited(const void* wait, int* slot);  // scheduler.cpp
+extern "C" void* re4dc_os_thread_kt(const void* thread);                 // os.cpp
+namespace {
+int find_main_wait(kthread_t* t, void* out)
+{
+    if (t->state == STATE_WAIT && !strcmp(t->label, "[kernel]")) *(kthread_t**) out = t;
+    return 0;
+}
+// CRASH_TASK_DETAIL (issue 21): the main thread's os-sema wait only says which game task has not yielded; that
+// task's own thread is what hangs. Up to three rows (W = waited-on task): slot, tid, label, state, saved pc / pr;
+// its wait message, object and timeout (or "not waiting": busy or ready); its return-address candidates.
+void task_detail(int& row)
+{
+    kthread_t* mt = nullptr;
+    thd_each(find_main_wait, &mt);
+    if (!mt) return;
+    int slot = -1;
+    const void* th = re4dc_task_waited(mt->wait_obj, &slot);
+    if (!th) return;
+    const kthread_t* t = (const kthread_t*) re4dc_os_thread_kt(th);
+    char line[96];
+    if (!t) {
+        snprintf(line, sizeof(line), "W slot %d no thread", slot);
+        put_text(0, row++, line, 0xFFE0);
+        return;
+    }
+    snprintf(line, sizeof(line), "W slot %d t%d %.8s s%d pc %08lx pr %08lx", slot, (int) t->tid, t->label,
+             (int) t->state, (unsigned long) t->context.pc, (unsigned long) t->context.pr);
+    put_text(0, row++, line, 0xFFE0);
+    if (t->state == STATE_WAIT) {
+        const uint64_t now = timer_ms_gettime64(), due = t->wait_timeout;
+        if (!due)
+            snprintf(line, sizeof(line), "W wait %.16s %08lx ever", t->wait_msg ? t->wait_msg : "-",
+                     (unsigned long) t->wait_obj);
+        else
+            snprintf(line, sizeof(line), "W wait %.16s %08lx %c%llums", t->wait_msg ? t->wait_msg : "-",
+                     (unsigned long) t->wait_obj, due >= now ? '+' : '-',
+                     (unsigned long long) (due >= now ? due - now : now - due));
+    } else {
+        snprintf(line, sizeof(line), "W not waiting (s%d: busy or ready)", (int) t->state);
+    }
+    put_text(0, row++, line, 0xFFE0);
+    const unsigned long* sp = (const unsigned long*) (t->context.r[15] & ~3ul);
+    int n = snprintf(line, sizeof(line), "Wbt"), found = 0;
+    for (int w = 0; w < 256 && found < 7; ++w) {
+        const unsigned long a = (unsigned long) (sp + w);
+        if (a < 0x8c010000ul || a >= 0x8d000000ul) break;
+        const unsigned long v = sp[w];
+        if ((v & 1) || v < 0x8c010004ul || v >= 0x8d000000ul) continue;
+        const unsigned op = *(const unsigned short*) (v - 4);
+        if ((op & 0xF0FF) != 0x400B && (op & 0xF000) != 0xB000 && (op & 0xF0FF) != 0x0003) continue;
+        if (n + 7 > kCols) break;
+        n += snprintf(line + n, sizeof(line) - n, " %06lx", v & 0xFFFFFFul);
+        ++found;
+    }
+    put_text(0, row++, line, 0xFFE0);
+}
+#endif
+// Keeps __LINE__ below as in a build without CRASH_TASK_DETAIL (crash_test's re4dc_halt).
+#line 144
 void show(const char* kind, const char* detail, bool wait_render)
 {
     if (!g_ready || g_shown) return;
@@ -167,6 +229,10 @@ void show(const char* kind, const char* detail, bool wait_render)
     put_text(0, row++, line, 0xF800);
     snprintf(line, sizeof(line), "stage %08lx  ui frame %u", re4dc_stage, re4dc_ui_frame());
     put_text(0, row++, line, 0xFFFF);
+#if RE4DC_CRASH_TASK_DETAIL
+    task_detail(row);  // rows 4..6, before the latch rows (at most 4 + 3 + 6 + 1 of the 20 rows)
+#endif
+#line 170
 #if RE4DC_PVR_LATCH
     // PVR_LATCH: the same snapshot in two rows, then the latch rows (state, totals, event ring) captured at the
     // first failure; a hang without a failure prints the latch rows as they are now.

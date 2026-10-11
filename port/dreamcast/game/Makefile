@@ -519,10 +519,14 @@ PVR_MID_FENCE ?= $(PVR_RECOVER)
 # texture pool does not shrink (measured: 2,566,912 -> 2,567,168 B free at init). r109's first scenes (TA_BIN_DIAG) need ~118.6K of the 144K pool in the
 # model, ~136K at the photo-calibrated 0.87 x hardware ratio, and 1.66 MB of vertex buffer.
 TA_HEADROOM ?= 0
+# CRASH_TASK_DETAIL=1 (issue 21 diagnosis, default 0; needs CRASH_SCREEN=1): when the main thread waits on a game
+# task's yield / resume semaphore, the stop screen shows that task's own thread first (slot, tid, state, saved pc / pr,
+# wait message + object + timeout, return-address candidates), above the PVR latch rows. Stop screen only.
+CRASH_TASK_DETAIL ?= 0
 .PHONY: crash-screen-force
 $(OBJDIR)/crash-screen.h: crash-screen-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_CRASH_SCREEN %s\n#define RE4DC_PVR_LATCH %s\n' '$(CRASH_SCREEN)' '$(PVR_LATCH)' > $@.tmp
+	@printf '#define RE4DC_CRASH_SCREEN %s\n#define RE4DC_PVR_LATCH %s\n#define RE4DC_CRASH_TASK_DETAIL %s\n' '$(CRASH_SCREEN)' '$(PVR_LATCH)' '$(CRASH_TASK_DETAIL)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o: $(OBJDIR)/crash-screen.h
