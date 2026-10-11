@@ -137,6 +137,13 @@ extern "C" int re4dc_actor_model_class(const void* model,const void* info_ptr){
     return EM10_WK(em)->pHead==(const cModelInfo*)info_ptr?2:1;
 }
 #endif
+#if defined(RE4DC_GIGANTE_LIGHTS) && RE4DC_GIGANTE_LIGHTS
+// GIGANTE_LIGHTS (native_actor_fast.cpp build_lights): the enemy id of a kindid-0 model, else -1.
+extern "C" int re4dc_actor_model_id(const void* model){
+    auto* m=(const cModel*)model;
+    return m && m->kindid==0 ? int(m->id) : -1;
+}
+#endif
 #endif
 extern "C" void re4dc_model_material(const void* object,float u,float v,unsigned flags){
     selected={};mask={};mask_ref=256;mask_same_uv=0;

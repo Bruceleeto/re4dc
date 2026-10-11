@@ -135,6 +135,9 @@ void re4dc_log(const char* fmt, ...);
 #else
 #define RE4DC_AVK 0
 #endif
+#if defined(RE4DC_GIGANTE_LIGHTS) && RE4DC_GIGANTE_LIGHTS
+extern "C" int re4dc_actor_model_id(const void* model);  // model_bridge.cpp (GIGANTE_LIGHTS)
+#endif
 
 namespace {
 using u8 = std::uint8_t;
@@ -1547,8 +1550,30 @@ struct Lights {
     float view_dot[3]{};     // light . direction from the part centre to the camera (view space)
 };
 
+#ifndef RE4DC_GIGANTE_LIGHTS
+#define RE4DC_GIGANTE_LIGHTS 0
+#endif
+#ifndef RE4DC_GIGANTE_LIGHTS_TREES
+#define RE4DC_GIGANTE_LIGHTS_TREES 0
+#endif
+#if RE4DC_GIGANTE_LIGHTS
+// GIGANTE_LIGHTS=1/2 (render only): parts of El Gigante (em2b, cModel id 0x2B; with GIGANTE_LIGHTS_TREES=1 also
+// cEmTree 0x49) whose torch lights exceed the three-direction fold keep the 1 + 2 = 3 (or 2) strongest lights by
+// contribution at the part centre (colour x attenuation) as directions and fold the rest into the ambient term with
+// the mean of max(0, n.l) over the camera-facing hemisphere, (1 + l.v) / 4, so overall brightness is kept. Parts
+// with <= 3 lights fold as before. 0 = exact (the generic per-vertex path).
+unsigned gigante_folds;  // parts folded to `keep` lights (logged with the census)
+unsigned gigante_keep(const Re4dcModelPart& p) {
+    const int id = re4dc_actor_model_id(p.model);
+    if (id == 0x2B || (RE4DC_GIGANTE_LIGHTS_TREES && id == 0x49)) return RE4DC_GIGANTE_LIGHTS == 2 ? 2U : 3U;
+    return 0U;
+}
+#endif
 bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3], Lights& L) {
     const SourceLighting& S = *p.lighting;
+#if RE4DC_GIGANTE_LIGHTS
+    const unsigned keep = gigante_keep(p);
+#endif
     L = Lights{};
     L.source = &S;
     constexpr float k = 1.0f / 255.0f;
@@ -1574,6 +1599,10 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
     const float* N = S.normal_matrix;
     float col[3][3]{};
     const float c2 = px * px + py * py + pz * pz, cr = c2 > 0.0f ? -1.0f / std::sqrt(c2) : 0.0f;
+#if RE4DC_GIGANTE_LIGHTS
+    float cand_dir[8][4], cand_vd[8], cand_col[8][3], cand_w[8];
+    unsigned cands = 0;
+#endif
     for (unsigned i = 0; i < 8; ++i) {
         if (!(S.mask & (1U << i))) continue;
         const SourceLight& s = S.lights[i];
@@ -1592,6 +1621,20 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
         const float red = s.color[0] * k * attenuation, green = s.color[1] * k * attenuation,
                     blue = s.color[2] * k * attenuation;
         if (std::max(red, std::max(green, blue)) <= 1.0f / 1024.0f) continue;
+#if RE4DC_GIGANTE_LIGHTS
+        if (keep) {  // collect every significant light; chosen after the loop
+            float* o = cand_dir[cands];
+            o[0] = (N[0] * lx + N[4] * ly + N[8] * lz) * f.nq;
+            o[1] = (N[1] * lx + N[5] * ly + N[9] * lz) * f.nq;
+            o[2] = (N[2] * lx + N[6] * ly + N[10] * lz) * f.nq;
+            o[3] = 0.0f;
+            cand_vd[cands] = (lx * px + ly * py + lz * pz) * cr;
+            cand_col[cands][0] = red; cand_col[cands][1] = green; cand_col[cands][2] = blue;
+            cand_w[cands] = std::max(red, std::max(green, blue));
+            ++cands;
+            continue;
+        }
+#endif
         if (L.count == 3) return false;  // fourth significant light: slow path
         float* o = L.dir[L.count];
         o[0] = (N[0] * lx + N[4] * ly + N[8] * lz) * f.nq;
@@ -1602,6 +1645,29 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
         col[L.count][0] = red; col[L.count][1] = green; col[L.count][2] = blue;
         ++L.count;
     }
+#if RE4DC_GIGANTE_LIGHTS
+    if (keep) {
+        // Strongest first (ties keep the source order); the first `limit` become directions, the rest ambient.
+        const unsigned limit = cands > 3 ? keep : 3U;
+        bool used[8]{};
+        for (unsigned l = 0; l < cands && l < limit; ++l) {
+            unsigned best = 8;
+            for (unsigned j = 0; j < cands; ++j)
+                if (!used[j] && (best == 8 || cand_w[j] > cand_w[best])) best = j;
+            used[best] = true;
+            std::memcpy(L.dir[L.count], cand_dir[best], sizeof(L.dir[0]));
+            L.view_dot[L.count] = cand_vd[best];
+            for (unsigned c = 0; c < 3; ++c) col[L.count][c] = cand_col[best][c];
+            ++L.count;
+        }
+        for (unsigned j = 0; j < cands; ++j) {
+            if (used[j]) continue;
+            const float w = std::max(0.0f, 0.25f * (1.0f + cand_vd[j]));
+            for (unsigned c = 0; c < 3; ++c) ambient[c] += w * cand_col[j][c];
+        }
+        if (cands > limit) ++gigante_folds;
+    }
+#endif
     // Colour matrix (matrix_t: [column][row]); input (m0, m1, m2, 1).
     for (unsigned l = 0; l < 3; ++l)
         for (unsigned c = 0; c < 3; ++c) L.color[l * 4 + c] = 0.5f * col[l][c] * scale[c];
@@ -3732,6 +3798,13 @@ extern "C" void re4dc_actor_frame(void* memory, unsigned bytes) {
     lod_budget = lod_budget_frame;
     lod_wanted_last = lod_wanted; lod_wanted = false;
     if constexpr (kCrowd) crowd_rank();
+#if RE4DC_GIGANTE_LIGHTS
+    if (!(frame_serial % 600U) && gigante_folds) {
+        re4dc_log("gigante lights: frame=%u folds=%u (parts over 3 lights, last 600 frames)\n", frame_serial,
+                  gigante_folds);
+        gigante_folds = 0;
+    }
+#endif
 #if RE4DC_ACTOR_LOG
     if (!(frame_serial % 120U)) {
         const Re4dcActorStats& s = stats;

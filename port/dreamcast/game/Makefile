@@ -318,6 +318,18 @@ endif
 ifeq ($(ACTOR_EXACT_FAST),1)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_EXACT_FAST=1
 endif
+# GIGANTE_LIGHTS=1 (render only, default 0): El Gigante's parts (em2b, model id 0x2B, r119) under more than three
+# significant torch lights keep the three strongest at the part centre (colour x attenuation) in the directional
+# fold and add the rest to ambient with the camera-facing hemisphere mean (1 + l.v) / 4, instead of the exact
+# per-vertex path (native_actor_fast.cpp build_lights). =2 keeps two. GIGANTE_LIGHTS_TREES=1 (the default when
+# GIGANTE_LIGHTS is on) also folds r119's cEmTree (0x49): on the boss view the exact cost is the trees, not the giant
+# (whose parts already fold), so GIGANTE_LIGHTS_TREES=0 leaves the image and the cost as GIGANTE_LIGHTS=0.
+GIGANTE_LIGHTS ?= 0
+GIGANTE_LIGHTS_TREES ?= 1
+ifneq ($(GIGANTE_LIGHTS),0)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GIGANTE_LIGHTS=$(GIGANTE_LIGHTS) -DRE4DC_GIGANTE_LIGHTS_TREES=$(GIGANTE_LIGHTS_TREES)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GIGANTE_LIGHTS=$(GIGANTE_LIGHTS)
+endif
 ifeq ($(NATIVE_ACTOR)$(NATIVE_ACTOR_FAST),11)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_actor.o,$(PLATFORM_OBJS))
 else

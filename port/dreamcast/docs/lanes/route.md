@@ -548,6 +548,8 @@ r11a. Everything is behind ROUTE_CH21=1 (default 0: knob-off images byte-identic
   is the source-drawn room models (the huts, roofs, gate and the three SetTree trees): RENDER/models(other) 59 ms is
   the next r119 perf item. Headroom: heap 4 above; VRAM free 93,440..192,256 B in the fight (missing 0); AICA arena
   612,256 of 1,004,192.
+- **Boss-view lighting (later, lane gigante):** the remaining exact lighting on the boss view is the trees under the
+  torches, not the giant; GIGANTE_LIGHTS=1 folds them (boss 90.1 -> 79.0 hw ms, quiet 92.4 -> 59.0), see "GIGANTE_LIGHTS".
 - **Next: r118** (r119 door 0; then r117, the chapter 2-1 end).
 
 ## Progress 2026-10-10 (WATER42_GRID_SKIP: espgen42 without its height grid, r10a + r11a)
@@ -790,6 +792,47 @@ significant lights, so no fold, and the bake key changes every frame: a bake gav
 - **Gates.** As LINK_TIGHT (same final image l4): H2 + bell STRICT, MUST-IDENTICAL; play-throughs pass.
 - **Next for r119 perf.** The boss itself (em2b, GC-drawn: models(other) ~33 ms) needs a native draw path; the
   quiet view's remaining cost is the source-drawn huts / roofs / gate.
+
+## Progress 2026-10-10 (GIGANTE_LIGHTS: r119 boss-view lighting, lane gigante)
+
+The boss view's 13.8 hw ms of `pass_lights_exact` is r119's trees (cEmTree 0x49, up to eight flickering torch lights),
+not El Gigante: the giant's parts already fold into three directions (a giant-only fold changes nothing: 90.1 ->
+88.8, noise). Lane tree /root/probe/lanes-20261010/gigante, branch lane/gigante-lights-20261010, evidence
+D:/Flycast-Evidence/re4-dreamcast/gigante-20261010, stills C:/Game Dev/Emulators/gigante-lights-20261010.
+- **GIGANTE_LIGHTS=1** (render only, default 0; GIGANTE_LIGHTS_TREES defaults to 1 with it): parts of em2b (0x2B)
+  and cEmTree (0x49) with more than three significant lights keep the three strongest at the part centre (colour x
+  attenuation, the existing fold's own test) as directions and add the rest to ambient with the camera-facing
+  hemisphere mean of max(0, n.l), (1 + l.v) / 4, so brightness is kept; they then take the existing fast fold path
+  (native_actor_fast.cpp build_lights; model id from model_bridge.cpp re4dc_actor_model_id). =2 keeps two lights:
+  no cheaper (the fold's colour matrix is three columns either way) and slightly darker, rejected.
+- **hw ms (drawn, cost arms glC0 -> glC1t / glC2t, stacked on f7c5c31f's CH21 recipe).**
+
+  | view (window) | exact | =1 (3 + ambient) | =2 (2 + ambient) |
+  |---|---|---|---|
+  | El Gigante (hb 900:979) | 90.11 (pass_lights_exact 13.86) | 78.95 (0.73) | 74.38 |
+  | El Gigante approach, trees near (hb 820:899) | 123.0 | 86.6 (6 drawn ticks; one more drawn tick, 827, 183.6: actor conversion work, not lighting) | 92.0 |
+  | quiet, the r11a door (hq 500:579) | 92.39 | 59.00 | 58.94 |
+
+  The 820:899 window moves (Leon walks in), so its run-to-run noise is ~8 ms (giant-only =1 without trees: 114.6).
+  Flycast PACE draw ms, 300-frame windows in r119 without the s20 movie window (hb fixture, vsync off), p50 / p99 /
+  max: exact 63.2 / 73.9 / 73.9, =1 52.6 / 57.3 / 57.3; the window with the giant approaching 73.9 -> 51.7.
+- **Look.** Frozen-tick stills (`freeze`, T arms, logic STRICT) exact vs =1 vs =2 at boss ticks 860 / 900 / 940
+  and quiet tick 540, |diff| x8 and a labelled sheet (sheet.png, stats.json). Only the trees differ: =1 mean |diff|
+  0.04-0.07 per channel, max 25 of 255, 93-152 pixels over 16 at 640x480; tick 940 (no tree in view) and the quiet
+  view 0 / 19 pixels over 4. The giant is unchanged. Flicker: frozen ticks 896..904 (every 2nd), mean luma of the
+  tree pixels: exact 33.70 -> 32.96, =1 33.01 -> 32.25 (about 2% darker), tick-to-tick steps equal within 0.012
+  (flicker.json): no popping and no change to the flicker.
+- **Decision (rule: near identical in play + real ms): adopt GIGANTE_LIGHTS=1** (trees on, two lights rejected).
+  Default stays 0; the recipe line is `GIGANTE_LIGHTS=1` with ROUTE_CH21=1. PS2 reference: no PS2 em2b / tree
+  lighting data in the private store beyond r119's room light sets (ps2rooms aux r119_002 / 003.LIT), so the PS2
+  look was not compared directly; the cut is judged against the exact GC lighting, which it matches.
+- **Gates** (T = trace flags + ROUTE_CH21=1 SBB_STUB=1 + GIGANTE_LIGHTS=1, B = the same without). Knob-off identity:
+  default recipe and play flags vs f7c5c31f differ by 3 bytes (the `__TIME__` build stamp), overlays identical,
+  `_end` equal; missing.txt empty on every arm; MISALIGN 0 in every run. H2 (ACT_CAP=0): STRICT 1450..1569, 0..740,
+  1218..; decision_cmp MUST-IDENTICAL (6987 ticks, om info only as before); s30 340/340 heap_before 61,600 both.
+  Bell STRICT frame (5097) + room, MUST-IDENTICAL. r119 fight g3 (r11a -> r119, s00, s10, s30, kill, s20) T vs B
+  STRICT frame (2810) + room, MUST-IDENTICAL; cost arm g3: HALT 0, MISSING 0, every movie terminal. New Game (P):
+  1971 / 2360, s40 1175.
 
 ## Progress 2026-10-10 (r118: past El Gigante, chapter 2-1, behind ROUTE_CH21, lane r118)
 
