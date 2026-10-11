@@ -452,19 +452,27 @@ def rebuild_tagged(data, en, replace):
 NATIVE_TABLES = {b'ESQ\0': b'R4ESQTBL', b'NTR\0': None}
 
 
-def remap_native_tables(old, new):
+def remap_native_tables(old, new, inner=None):
     """The native room payload's prepared tables (ESQ effect sequences, NTR texture identities: header
     magic, version, count, 12, crc32(table), word24, word28 + count 12-byte rows of payload offsets) name
     absolute payload offsets and the payload size (native_effect.cpp bind_archive, native_ui.cpp adopt).
-    Rebase every offset by its owning entry's move and the size words to the new payload bytes."""
+    Rebase every offset by its owning entry's move and the size words to the new payload bytes.
+    inner {entry index: [(old rel start, old rel end, new rel start, replaced)]}: a rebuilt entry's
+    sub-file moves (ETM); an offset inside a replaced sub-file body (past its 0x40 header) is refused."""
     import zlib
-    n = struct.unpack_from('<I', old, 0)[0]
     oe, ne = rs.tagged_entries(old, '<'), rs.tagged_entries(new, '<')
-    spans = sorted((s, e, ne[i][1]) for i, (t, s, e) in enumerate(oe))
+    spans = sorted((s, e, ne[i][1], i) for i, (t, s, e) in enumerate(oe))
 
     def mapped(x):
-        for s, e, s2 in spans:
+        for s, e, s2, i in spans:
             if s <= x < e:
+                if inner and i in inner:
+                    for a, b, a2, repl in inner[i]:
+                        if a <= x - s < b:
+                            if repl and x - s >= a + 0x40:
+                                raise ValueError('table offset %#x inside a replaced sub-file' % x)
+                            return x - s - a + a2 + s2
+                    raise ValueError('table offset %#x outside the sub-files of entry %d' % (x, i))
                 return x - s + s2
         raise ValueError('table offset %#x outside every entry' % x)
     out = bytearray(new)
@@ -479,9 +487,14 @@ def remap_native_tables(old, new):
             o = s + 32 + 12 * r
             a, b, c = struct.unpack_from('<3I', out, o)
             if tag == b'ESQ\0':
+                checks = [(a, b)]
                 struct.pack_into('<I', out, o, mapped(a))
             else:
+                checks = [(a, 32), (b, 36), (c, 12)]
                 struct.pack_into('<3I', out, o, mapped(a), mapped(b), mapped(c))
+            for x, ln in checks:
+                if old[x:x + ln] != new[mapped(x):mapped(x) + ln]:
+                    raise ValueError('%s row %d: data at %#x did not move intact' % (tag, r, x))
         if tag == b'ESQ\0':
             if w24 != len(old) or w28:
                 raise ValueError('ESQ size word')
@@ -533,6 +546,7 @@ def room(args):
         rep[i] = to_le(new, pair)
         st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc=hex(pa), le_bytes_before=len(cur), le_bytes_after=len(rep[i]))
         report['objects'].append(st)
+    inner = {}
     if args.etm:
         ei = next(i for i, (t, s, e) in enumerate(ge) if t.rstrip(b'\0') == b'ETM')
         gb = gd[ge[ei][1]:ge[ei][2]]
@@ -542,6 +556,8 @@ def room(args):
         pents = {nm: pbm[s + 0x40:e] for nm, s, e in etm_entries(pbm, '<')}
         want = None if args.etm == 'all' else set(args.etm.split(','))
         pieces = []
+        if lents[-1][2] != len(lb) or lents[0][1] != 0x20:
+            raise ValueError('ETM sub-files do not tile the entry')
         for (nm, s, e), (lnm, ls, le_) in zip(gents, lents):
             if nm != lnm:
                 raise ValueError('ETM order differs')
@@ -567,13 +583,24 @@ def room(args):
                         body = nb
                 except ValueError as ex:
                     report['objects'].append(dict(kind='etc', name=nm, skipped=str(ex)))
-            pieces.append(body)
+            pieces.append((ls, le_, body, body != bytes(lb[ls:le_])))
         newetm = bytearray(lb[:0x20])
-        for b in pieces:
+        moves = [(0, 0x20, 0, False)]
+        for ls, le_, b, repl in pieces:
+            moves.append((ls, le_, len(newetm), repl))
             newetm += b
+        inner[ei] = moves
         newetm += bytes(al(len(newetm)) - len(newetm))
         rep[ei] = bytes(newetm)
-    newpay, report['native_tables'] = remap_native_tables(pay, rebuild_tagged(pay, '<', rep))
+    newpay = rebuild_tagged(pay, '<', rep)
+    if args.pad_to:
+        # Equalised gate arm: zero-pad the payload to the control's bytes so heap 4 keeps the control layout
+        # (the H2 frame 660 em10 parts allocation is heap-4-layout dependent until D0).
+        pad = len(pay) if args.pad_to == 'source' else int(args.pad_to, 0)
+        if pad < len(newpay) or pad % 32:
+            raise ValueError('--pad-to %d is below the payload or unaligned' % pad)
+        newpay += bytes(pad - len(newpay))
+    newpay, report['native_tables'] = remap_native_tables(pay, newpay, inner)
     out = bytearray(dar[:off]) + newpay
     out += bytes(al(len(out), 2048) - len(out))
     struct.pack_into('<4I', out, 0x20, 0, len(newpay), 0, off)
@@ -595,7 +622,7 @@ def main():
     a = sp.add_parser('selftest'); a.add_argument('gc')
     a = sp.add_parser('room')
     a.add_argument('--dar', required=True); a.add_argument('--room', required=True); a.add_argument('--pairs')
-    a.add_argument('--etm'); a.add_argument('--out', required=True); a.add_argument('--json')
+    a.add_argument('--etm'); a.add_argument('--pad-to'); a.add_argument('--out', required=True); a.add_argument('--json')
     a.add_argument('--gc-iso', default=GC_ISO); a.add_argument('--ps2-iso', default=PS2_ISO)
     args = ap.parse_args()
     if args.cmd == 'bin':
