@@ -18,6 +18,10 @@ inline constexpr std::uint32_t kArgb4444 = 2;
 inline constexpr std::uint32_t kPal4 = 3;
 inline constexpr std::uint32_t kAlpha = 1U << 0U;
 inline constexpr std::uint32_t kBinaryAlpha = 1U << 1U;
+// Game CAST_MIPMAP=1 only: a full-codebook VQ payload with the PVR mip chain
+// (codebook, then the index bytes of every level from 1x1 up), sampled with
+// the TCW mipmap bit. Square textures only; other builds reject the flag.
+inline constexpr std::uint32_t kMipmap = 1U << 2U;
 // Linear 16-bit payloads use the existing upload-time twiddler. Twiddled and
 // full-codebook VQ payloads are copied unchanged and sampled in their native
 // format. PAL4/PAL8, mipmaps and partial VQ codebooks are not supported here.

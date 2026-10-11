@@ -727,6 +727,19 @@ endif
 $(OBJDIR)/coarse_ganado.o: $(PS2_GANADO_DIR)/ganado_cast_runtime.h
 $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -iquote $(PS2_GANADO_DIR)
 endif
+# CAST_MIPMAP=1 (Phase 2 A2; render only; default 0: nothing changes): texture packages may carry a mipmapped
+#              full-codebook VQ payload (convert_tpl.FLAG_MIPMAP, written by vq_export.py --pack-existing --mipmap from
+#              a pvrtex -m DcTx; room/texture_package.cpp), sampled with the TCW mipmap bit (D adjust 1.0, bilinear).
+#              Data: the character atlases re-encoded with their mip chains under their own keys (same key, same size
+#              and format, VRAM +1/3 of the index bytes: 512x512 +21,846 B), staged in tex.pak. A build without the knob
+#              rejects such a package (the texture then falls back like any missing one).
+CAST_MIPMAP ?= 0
+ifeq ($(filter $(CAST_MIPMAP),0 1),)
+$(error CAST_MIPMAP must be 0 or 1)
+endif
+ifeq ($(CAST_MIPMAP),1)
+$(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_CAST_MIPMAP=1
+endif
 # COARSE_PREGATE=1 (needs COARSE_GANADO_CAST; render only): an actor-level cull ahead of the cast Ganado adapter's
 #                  skin work (coarse_ganado_cast.cpp): a visible chunk whose every drawable position is provably
 #                  outside one of the actor path's culling planes (a screen edge or far) is skipped before its

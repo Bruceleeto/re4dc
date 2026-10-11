@@ -99,11 +99,12 @@ def main(argv=None) -> int:
     parser.add_argument("--pack-existing", type=pathlib.Path, help="wrap an existing DcTx VQ candidate; no encoder run")
     parser.add_argument("--package", type=pathlib.Path)
     parser.add_argument("--material", default="source")
+    parser.add_argument("--mipmap", action="store_true", help="--pack-existing: accept a mipmapped DcTx (CAST_MIPMAP runtime)")
     args = parser.parse_args(argv)
     if args.pack_existing:
         if not args.package or any((args.tpl,args.mtl,args.out,args.pvrtex)):
             parser.error("--pack-existing requires --package and excludes export/encoder arguments")
-        package,metadata=convert_tpl.package_existing_vq(args.pack_existing.read_bytes(),args.material)
+        package,metadata=convert_tpl.package_existing_vq(args.pack_existing.read_bytes(),args.material,allow_mipmaps=args.mipmap)
         import json,hashlib
         metadata['encoded_sha256']=hashlib.sha256(args.pack_existing.read_bytes()).hexdigest()
         args.package.parent.mkdir(parents=True,exist_ok=True)

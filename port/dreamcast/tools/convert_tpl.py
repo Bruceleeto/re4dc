@@ -40,6 +40,10 @@ FORMAT_ARGB1555 = 1
 FORMAT_ARGB4444 = 2
 FLAG_ALPHA = 1
 FLAG_BINARY_ALPHA = 2
+# CAST_MIPMAP (Phase 2 A2): the VQ payload carries the PVR mip chain (codebook, then the index bytes of every level
+# from 1x1 up, the PVR's own layout); the runtime samples it with the TCW mipmap bit. Only builds with CAST_MIPMAP=1
+# accept such a package (room/texture_package.cpp).
+FLAG_MIPMAP = 4
 # R4b: how the payload is laid out, so the runtime can upload it without
 # interpreting it. Version 1 had no such field and was always LINEAR.
 PAYLOAD_LINEAR = 0
@@ -450,11 +454,22 @@ def downsample_box(
     return result, new_width, new_height
 
 
-def package_existing_vq(encoded: bytes, material: str = "source") -> tuple[bytes, dict]:
+def vq_mip_index_bytes(size: int) -> int:
+    """PVR mipmapped VQ index bytes of a square size x size texture: one byte for the 1x1 level, then one byte per
+    2x2 block of every level 2x2 .. size x size."""
+    total, s = 1, 2
+    while s <= size:
+        total += (s // 2) * (s // 2)
+        s *= 2
+    return total
+
+
+def package_existing_vq(encoded: bytes, material: str = "source", allow_mipmaps: bool = False) -> tuple[bytes, dict]:
     """Wrap a pinned pvrtex DcTx candidate without decoding or re-encoding.
 
     Bounded support: 16-bit RGB565/ARGB1555/ARGB4444, full 256-entry VQ,
-    power-of-two dimensions, no mipmaps, strides or partial/small codebooks.
+    power-of-two dimensions, no strides or partial/small codebooks; mipmaps only
+    with allow_mipmaps (square, FLAG_MIPMAP; CAST_MIPMAP runtime builds).
     DcTx layout authority: pinned KOS utils/pvrtex/file_dctex.h/.c.
     """
     if len(encoded)<32 or encoded[:4]!=b'DcTx':
@@ -465,16 +480,21 @@ def package_existing_vq(encoded: bytes, material: str = "source") -> tuple[bytes
     fmt=(mode>>27)&7
     dimensions=all(8<=n<=1024 and n&(n-1)==0 for n in (width,height))
     if (size!=len(encoded) or size%32 or version!=0 or units!=0 or book!=255 or
-        not dimensions or fmt>2 or not mode&(1<<30) or mode&((1<<31)|(1<<26)|(1<<25)|(1<<11)) or
+        not dimensions or fmt>2 or not mode&(1<<30) or mode&((0 if allow_mipmaps else 1<<31)|(1<<26)|(1<<25)|(1<<11)) or
         any(encoded[20:32])):
         raise ValueError('unsupported DcTx version, layout, size or codebook')
     if (8<<((mode>>3)&7),8<<(mode&7))!=(width,height):
         raise ValueError('DcTx dimensions disagree with PVR size flags')
-    expected=2048+width*height//4
+    mip=bool(mode&(1<<31))
+    if mip and width!=height:
+        raise ValueError('a mipmapped PVR texture must be square')
+    expected=2048+(vq_mip_index_bytes(width) if mip else width*height//4)
     if len(encoded)!=((32+expected+31)&~31):
         raise ValueError('VQ payload must be the full codebook plus compact block indices')
     native_format={0:FORMAT_ARGB1555,1:FORMAT_RGB565,2:FORMAT_ARGB4444}[fmt]
     flags=0 if fmt==1 else FLAG_ALPHA | (FLAG_BINARY_ALPHA if fmt==0 else 0)
+    if mip:
+        flags|=FLAG_MIPMAP
     payload=encoded[32:32+expected] # DcTx transport padding is not texture data.
     start=HEADER.size+TEXTURE.size
     descriptor=TEXTURE.pack(_name_bytes(material),width,height,native_format,start,len(payload),flags,PAYLOAD_VQ,0)
@@ -483,7 +503,7 @@ def package_existing_vq(encoded: bytes, material: str = "source") -> tuple[bytes
     return header+body,{'width':width,'height':height,'payload':'vq','format':native_format,
                         'encoded_file_bytes':len(encoded),'vram_bytes':len(payload),
                         'uncompressed_16bit_bytes':width*height*2,
-                        'candidate_only':True,'reencoded':False}
+                        'candidate_only':True,'reencoded':False,**({'mipmap':True} if mip else {})}
 
 
 def build_package(

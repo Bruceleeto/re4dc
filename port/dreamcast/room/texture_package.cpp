@@ -362,17 +362,36 @@ bool Package::validate() {
         // Full 256-entry VQ codebook, no mipmaps or small-codebook pointer bias.
         // Unknown layouts must not fall through as a raw 16-bit upload.
         const std::uint64_t pixels = std::uint64_t(texture.width) * texture.height;
+#if RE4DC_CAST_MIPMAP
+        // CAST_MIPMAP: a square full-codebook VQ payload may carry the PVR mip
+        // chain (kMipmap): one index byte for 1x1, then one per 2x2 block of
+        // every level up to the base. vq_indices replaces pixels / 4 below.
+        const bool mip = (texture.flags & kMipmap) != 0;
+        std::uint64_t vq_indices = pixels / 4U;
+        if(mip) {
+            if(texture.payload != kPayloadVq || texture.width != texture.height || texture.format > kArgb4444) {
+                error_ = "mipmapped texture must be square 16-bit VQ";
+                close();
+                return false;
+            }
+            vq_indices = 1U;
+            for(std::uint32_t s = 2U; s <= texture.width; s <<= 1U) vq_indices += std::uint64_t(s / 2U) * (s / 2U);
+        }
+#define RE4DC_VQ_INDICES vq_indices
+#else
+#define RE4DC_VQ_INDICES (pixels / 4U)
+#endif
 #if RE4DC_TREE_IMPOSTOR
         // kPal4: 256 8-byte codebook entries of 4x4 texels, one index byte
         // per 4x4 block, then the 16-entry palette.
         const bool pal4 = texture.format == kPal4 && texture.payload == kPayloadVq;
         const std::uint64_t expected = pal4 ? 2048U + pixels / 16U + 32U :
-            texture.payload == kPayloadVq ? 2048U + pixels / 4U : pixels * 2U;
+            texture.payload == kPayloadVq ? 2048U + RE4DC_VQ_INDICES : pixels * 2U;
         if(!dimensions || texture.payload > kPayloadVq || texture.reserved_0 != 0 ||
            texture.data_size != expected || (texture.format > kArgb4444 && !pal4) ||
 #else
         const std::uint64_t expected = texture.payload == kPayloadVq
-            ? 2048U + pixels / 4U : pixels * 2U;
+            ? 2048U + RE4DC_VQ_INDICES : pixels * 2U;
         if(!dimensions || texture.payload > kPayloadVq || texture.reserved_0 != 0 ||
            texture.data_size != expected || texture.format > kArgb4444 ||
 #endif
@@ -384,6 +403,7 @@ bool Package::validate() {
             close();
             return false;
         }
+#undef RE4DC_VQ_INDICES
     }
     error_ = nullptr;
     return true;
@@ -433,7 +453,13 @@ std::uint32_t pvr_format(const Texture& texture) {
         PVR_TXRFMT_RGB565, PVR_TXRFMT_ARGB1555, PVR_TXRFMT_ARGB4444
     };
     return formats[texture.format] |
-        (texture.payload == kPayloadVq ? PVR_TXRFMT_VQ_ENABLE : 0U);
+        (texture.payload == kPayloadVq ? PVR_TXRFMT_VQ_ENABLE : 0U)
+#if RE4DC_CAST_MIPMAP
+        // TCW bit 31 (mip mapped); pvr_poly_compile ORs the format word into
+        // mode3, and pvr_poly_cxt_txr already sets the D adjust to 1.0.
+        | ((texture.flags & kMipmap) ? 0x80000000U : 0U)
+#endif
+        ;
 }
 
 bool Package::upload() {
