@@ -815,9 +815,21 @@ struct Emitter {
         return ((c&0x8000U)?0xff000000U:0U)|(((r<<3)|(r>>2))<<16)|(((g<<3)|(g>>2))<<8)|((b<<3)|(b>>2));
     }
     // Per corner: this unit is -Os, which otherwise keeps the decode out of line.
+#if RE4DC_PS2_VERTEX_ALPHA
+    // PS2_VERTEX_ALPHA (game30.mk): a marked PS2 world part stores ARGB4444 corner colours (the vertex alpha).
+    bool c4444=false;
+    [[gnu::always_inline]] static std::uint32_t argb4444(std::uint16_t c){
+        return ((c>>12)&15U)*0x11000000U|((c>>8)&15U)*0x110000U|((c>>4)&15U)*0x1100U|(c&15U)*0x11U;
+    }
+    [[gnu::always_inline]] re4dc::render::StaticCorner corner(const re4dc::room::CompactVertex12& in)const{
+        return {float(in.x),float(in.y),float(in.z),in.u,in.v,
+                palette?palette[in.color]:c4444?argb4444(in.color):argb1555(in.color)};
+    }
+#else
     [[gnu::always_inline]] re4dc::render::StaticCorner corner(const re4dc::room::CompactVertex12& in)const{
         return {float(in.x),float(in.y),float(in.z),in.u,in.v,palette?palette[in.color]:argb1555(in.color)};
     }
+#endif
     void clip_vertex(const re4dc::render::StaticCorner& in,const re4dc::room::CompactBatch& batch,
                      re4dc::render::RenderVertex& out){
         float x=mvq[0]*in.x+mvq[1]*in.y+mvq[2]*in.z+mvq[3];
@@ -2915,6 +2927,22 @@ struct Ps2World {
     std::uint8_t pass_mask[kMaskPlacements]{}; bool masked=false;
 #endif
 } ps2w;
+#if RE4DC_PS2_VERTEX_ALPHA
+// PS2_VERTEX_ALPHA (game30.mk): the ARGB4444 halves of a marked part's corner colour, laid out as vp::build_lut's
+// ARGB1555 table ([0,256) high byte A4 R4, [256,512) low byte G4 B4), so the LUT path ORs the two the same way.
+alignas(32) std::uint32_t ps2_lut4[512];
+bool ps2_lut4_built=false;
+const std::uint32_t* ps2_vertex_alpha_lut(){
+    if(!ps2_lut4_built){
+        for(unsigned i=0;i<256;++i){
+            ps2_lut4[i]=(i>>4)*0x11000000U|(i&15U)*0x110000U;
+            ps2_lut4[256+i]=(i>>4)*0x1100U|(i&15U)*0x11U;
+        }
+        ps2_lut4_built=true;
+    }
+    return ps2_lut4;
+}
+#endif
 #if RE4DC_PS2_PASS_MASK==2
 unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
 #endif
@@ -3175,6 +3203,10 @@ bool ps2_open(){
 #endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
+#if RE4DC_PS2_VERTEX_ALPHA
+    {unsigned marked=0;for(unsigned i=0;i<h.parts;++i)marked+=ps2w.parts[i].reserved&1U;
+     re4dc_log("PS2VA marked_parts=%u of %u (ARGB4444 vertex alpha, translucent pass)\n",marked,unsigned(h.parts));}
+#endif
     return true;
 }
 // 1 complete, 0 a part fell back (not drawn) or the camera is unusable, -1 aborted after publishing.
@@ -3390,8 +3422,15 @@ int ps2_pass(unsigned pass,float zfar){
             const unsigned index=mesh.first_part+k;const auto& meta=ps2w.parts[index];
             if(meta.pass!=pass)continue;
             ++c.parts;part.cull=meta.cull;
+#if RE4DC_PS2_VERTEX_ALPHA
+            const bool marked=(meta.reserved&1U)!=0; // a --vertex-alpha tr4 part: ARGB4444 corners, alpha kept
+            MeshDraw d{{part,{},near,far},pk,pk.parts()[index],
+                       marked&&ps2w.lut?ps2_vertex_alpha_lut():ps2w.lut,ps2w.gather};
+            d.alpha=0xff000000U;d.vertex_alpha=marked;d.c4444=marked;d.cull_far=cull_far;d.direct=true;
+#else
             MeshDraw d{{part,{},near,far},pk,pk.parts()[index],ps2w.lut,ps2w.gather};
             d.alpha=0xff000000U;d.vertex_alpha=false;d.cull_far=cull_far;d.direct=true;
+#endif
             d.part_index=index;d.lod_scale=lod_scale;
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;

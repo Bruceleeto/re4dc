@@ -2056,6 +2056,24 @@ PS2_PASS_MASK_SELECT ?= 0
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PASS_MASK_SELECT=$(PS2_PASS_MASK_SELECT)
 endif
 endif
+# PS2_VERTEX_ALPHA=1 (native_static.cpp, render only, changes the look, default 0; needs PS2_WORLD_MESH=1; issue 20):
+# the PS2 GS blends every world triangle by its vertex alpha, and the rooms use that for soft shadows and ground
+# blend layers (faces of non-blend materials with corners below alpha 1.0: r106's fence shadows, r104 / r10a / r10b
+# dirt and wet patches). The PS2 world path forces alpha 1, so they draw as solid dark shapes. Packages built with
+# tools/ps2_room_r4im.py --vertex-alpha tr4 put those faces in the translucent pass with ARGB4444 corner colours and
+# mark the part (R4PW part byte 15 bit 0); with this knob such a part decodes its colours as ARGB4444 (a second 2 KiB
+# LUT) and keeps the corner alpha. Without the knob a marked part would decode as ARGB1555: stage tr4 packages only
+# with PS2_VERTEX_ALPHA=1. Unmarked parts and older packages draw exactly as before.
+PS2_VERTEX_ALPHA ?= 0
+ifneq ($(PS2_VERTEX_ALPHA),0)
+ifeq ($(PS2_WORLD_MESH),0)
+$(error PS2_VERTEX_ALPHA needs PS2_WORLD_MESH=1)
+endif
+ifneq ($(PS2_VERTEX_ALPHA),1)
+$(error PS2_VERTEX_ALPHA must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_VERTEX_ALPHA=1
+endif
 # PS2_INTERIOR_CULL=1 (native_static.cpp, render only, meant image-identical (see =2), default 0; needs PS2_WORLD_MESH=1,
 # PS2_WORLD_ROOMS and MESH_LOD): an offline-built interior cell for the r100 house (include/ps2_interior_cell.inc, from
 # tools/d367/ps2world/interior/build_cell.py). While the camera eye is inside one of the cell's sub-cells (and the

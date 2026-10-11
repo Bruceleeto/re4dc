@@ -348,6 +348,16 @@ def final_gains(room, src, out, groups):
     return used, gains
 
 
+def disguise_4444(c8):
+    """--vertex-alpha tr4: 8-bit RGBA corners -> the 8-bit RGBA whose prelit ARGB1555 slot (convert_room_bins
+    slot_of: bit 15 = a >= 128, then round(v * 31 / 255) per channel) is the corner's ARGB4444 word, so the shared
+    converter stores the ARGB4444 word unchanged; the runtime decodes a marked part with its ARGB4444 LUT."""
+    q4 = np.clip(np.floor(c8 * 15 / 255 + 0.5), 0, 15).astype(np.int64)
+    w = (q4[..., 3] << 12) | (q4[..., 0] << 8) | (q4[..., 1] << 4) | q4[..., 2]
+    five = lambda k: np.floor(k * 255 / 31 + 0.5).astype(np.int64)     # round(five(k) * 31 / 255) == k
+    return np.stack([five((w >> 10) & 31), five((w >> 5) & 31), five(w & 31), np.where(w & 0x8000, 255, 0)], -1)
+
+
 def face_colours(g, gains):
     """Final 8-bit corner RGBA (ps2src.corner_rgba): rgb * float32(1/gain), clamped; alpha /128 -> 255."""
     inv = np.stack([np.float32(1 / gains[int(t)]).astype(np.float64) for t in g['tex']])
@@ -368,7 +378,7 @@ def fit_affine(a, b):
     return M.T                                              # 3 x 4
 
 
-def build(groups, gains, textures, share=True):
+def build(groups, gains, textures, share=True, vertex_alpha='off'):
     meshes, placements, sources, parts_meta = [], [], {}, []
     by_bin = collections.defaultdict(list)                  # bin -> [(mesh index, group)]
     stats = collections.Counter()
@@ -379,12 +389,27 @@ def build(groups, gains, textures, share=True):
         if clipped:
             stats['corners_clipped'] += clipped
         g['pass'] = np.array([textures[int(t)]['format'] if b else 0 for t, b in zip(g['tex'], g['blend'])])
+        if vertex_alpha != 'off':
+            # --vertex-alpha (issue 20): the GS blends every triangle by its vertex alpha, so a face of a non-blend
+            # material with a corner below 1.0 is a vertex-alpha overlay (the soft shadow / dirt layers drawn over
+            # the base geometry). Drawn opaque, its dark corners show as solid black shapes; it goes to the
+            # translucent pass (texture alpha off for an opaque texture: alpha = the vertex alpha).
+            fade = (g['c8'][..., 3] < 255).any(-1) & (g['pass'] == 0)
+            g['pass'] = np.where(fade, 2, g['pass'])
+            stats['vertex_alpha_faces'] += int(fade.sum())
+            g['mark'] = fade if vertex_alpha == 'tr4' else np.zeros(len(fade), bool)
+            if vertex_alpha == 'tr4' and fade.any():
+                g['c8'] = g['c8'].copy()
+                g['c8'][fade] = disguise_4444(g['c8'][fade])
+        else:
+            g['mark'] = np.zeros(len(g['tex']), bool)
         stats['vertex_alpha_below_one'] += int((g['c8'][..., 3] < 255).sum())
         match = None
         if share:
             for mi, first in by_bin[g['bin']]:
                 if (len(first['tex']) != len(g['tex']) or not np.array_equal(first['tex'], g['tex']) or
                         not np.array_equal(first['pass'], g['pass']) or first['cull'] != g['cull'] or
+                        not np.array_equal(first['mark'], g['mark']) or
                         not np.array_equal(first['c8'], g['c8']) or np.abs(first['uv'] - g['uv']).max() > 1e-5):
                     continue
                 M = fit_affine(first['pos'].reshape(-1, 3), g['pos'].reshape(-1, 3))
@@ -412,7 +437,7 @@ def build(groups, gains, textures, share=True):
         uvs, uv_index, colors, color_index = [], {}, [], {}
         order, loose = [], {}
         for f in range(len(g['tex'])):
-            key = (int(g['tex'][f]), int(g['pass'][f]), g['cull'])
+            key = (int(g['tex'][f]), int(g['pass'][f]), g['cull'], bool(g['mark'][f]))
             if key not in loose:
                 loose[key] = []
                 order.append(key)
@@ -428,10 +453,11 @@ def build(groups, gains, textures, share=True):
             loose[key].append(tuple(corners))
         parts = []
         for k, key in enumerate(order):
-            t, pas, cull = key
+            t, pas, cull, mark = key
             tex = textures[t]
             parts.append(dict(offset=32 * k, size=0, flags=0, texture=k & 255, alpha=255, strips=[], loose=loose[key]))
-            parts_meta.append((tex['key'][0], tex['key'][1], tex['width'], tex['height'], pas, PS2_TO_PART_CULL[cull], t & 255))
+            parts_meta.append((tex['key'][0], tex['key'][1], tex['width'], tex['height'], pas, PS2_TO_PART_CULL[cull], t & 255,
+                               int(mark)))
         sources[mi] = dict(flags=0, nvtx=min(65535, len(positions)), nparts=len(parts), positions=positions,
                            parts=parts, uv=uvs.__getitem__, color=colors.__getitem__,
                            normal=lambda n: (0.0, 1.0, 0.0), bytes=0)
@@ -474,6 +500,12 @@ def main():
     ap.add_argument('--lod-floor', type=float, default=2.0)
     ap.add_argument('--lod-cluster', type=float, default=20000.0)
     ap.add_argument('--meshlet-vertices', type=int, default=64)
+    ap.add_argument('--vertex-alpha', choices=('off', 'tr', 'tr4'), default='off',
+                    help="faces of non-blend materials with a corner alpha below 1.0 (the GS vertex-alpha overlays): "
+                         "'off' keep them opaque (the historical packages, solid dark shapes); 'tr4' put them in the "
+                         "translucent pass with ARGB4444 corner colours and mark their parts (R4PW part byte 15 bit "
+                         "0) for game PS2_VERTEX_ALPHA=1 (issue 20); 'tr' the translucent pass only (test variant: "
+                         "the PS2 world path forces alpha 1, so it draws as 'off')")
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     if a.lod_uv_guard is not None:
@@ -484,7 +516,8 @@ def main():
                         a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
-    meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share)
+    meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share,
+                                                           vertex_alpha=a.vertex_alpha)
     scales = collections.defaultdict(float)
     for mi, _, aff in placements:
         scales[(OWNER, mi)] = max(scales[(OWNER, mi)], placement_scale(aff))
@@ -496,7 +529,7 @@ def main():
                                     source=lambda token: sources[token.mesh], color_mode='prelit')
     if summary['parts'] != len(parts_meta):
         raise SystemExit('part count %d != %d (an empty mesh was skipped)' % (summary['parts'], len(parts_meta)))
-    body = b''.join(struct.pack('<IIHHBBBB', *m, 0) for m in parts_meta)
+    body = b''.join(struct.pack('<IIHHBBBB', *m) for m in parts_meta)
     body += b''.join(struct.pack('<HH12f', mi, gi, *[x for row in aff for x in row]) for mi, gi, aff in placements)
     side = struct.pack('<4s7I', b'R4PW', 1, len(placements), len(parts_meta), len(meshes), zlib.crc32(body), 0, 0) + body
     (a.out / 'ps2-world.re4mesh').write_bytes(blob)
