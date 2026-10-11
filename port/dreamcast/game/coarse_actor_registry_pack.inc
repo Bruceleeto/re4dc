@@ -38,7 +38,11 @@ struct PackState {
 };
 PackState pack{};
 void registry_view_clear() {
-    registry=RegistryView{};registry_mask_ready=false;std::memset(registry_id_mask,0,sizeof(registry_id_mask));
+    registry=RegistryView{};registry_mask_ready=false;
+#if RE4DC_NMR_MASK
+    registry_geom=registry_blob=nullptr;
+#endif
+    std::memset(registry_id_mask,0,sizeof(registry_id_mask));
     for(auto& b:registry_bindings)b=RegistryBinding{};
     registry_replace=0;registry_bound=nullptr;
 #if RE4DC_NATIVE_MODEL_REGISTRY_TX
@@ -120,8 +124,13 @@ extern "C" void re4dc_registry_room_enter(unsigned room) {
             ng=pu32(base,kPackHeader+kGeom*16+12),nt=pu32(base,kPackHeader+kTex*16+12),geom_at=pu32(base,kPackHeader+kGeom*16+4);
         unsigned geometries=0;
         for(unsigned g=0;g<ng && why==kPwNone;++g) {
+#if RE4DC_NMR_MASK
+            // Every geometry from its own arrays (a masked section's run geometries are referenced by no chunk).
+            const nmr::Chunk c=registry_geom_view(base+geom_at,base+pu32(base,kPackHeader+kBlob*16+4),g);(void)nc;const unsigned bones=pu32(base,geom_at+g*64+28);
+#else
             unsigned ci=0;while(ci<nc && pack_chunks[ci].geometry!=g)++ci;
             const auto& c=pack_chunks[ci];const unsigned bones=pu32(base,geom_at+g*64+28);
+#endif
             const re4dc_source::ChunkInput input{{c.positions,c.position_count*8u},{c.normals,c.normal_count*8u},{c.uv,c.uv_bytes},
                 {c.stream,c.stream_bytes},{reinterpret_cast<const unsigned char*>(c.weights),c.palette_count*16u},
                 c.position_count,c.normal_count,c.palette_count,c.triangles,bones};
@@ -133,6 +142,9 @@ extern "C" void re4dc_registry_room_enter(unsigned room) {
         if(why==kPwNone) {
             registry_view_clear();
             registry=RegistryView{pack_desc,pack_chunks,pack_tex,nd,nc,nt,ng,generation};
+#if RE4DC_NMR_MASK
+            registry_geom=base+geom_at;registry_blob=base+pu32(base,kPackHeader+kBlob*16+4);
+#endif
             registry_skin=base+((size+31u)&~31u);registry_skin_cap=skin;
             for(unsigned d=0;d<nd && why==kPwNone;++d)if(!registry_skin_init(d)){why=kPwSkin;detail=d;}
             if(why==kPwNone && registry_skin_next!=skin){why=kPwSkin;detail=registry_skin_next;}

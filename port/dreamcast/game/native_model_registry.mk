@@ -179,6 +179,11 @@ endif
 #              colour, TEV scale; coarse_actor_transaction.inc actor_source_lighting) instead of the constant colour, so
 #              it is lit like the source-path boss (GIGANTE_LIGHTS folds em2b the same way). Without it the boss drew
 #              unlit (flat, lighter).
+# Culling (lane ps2cast-3): PS2_DELLAGO also sets RE4DC_NMR_SOURCE_CULL (bit 1 em2f): the registry draw takes the source
+#              cull (model_bridge.cpp re4dc_model_cull of the material CullMode: back faces) instead of the owner paths'
+#              cull none. In the r10b fight the camera goes inside the body (tick 2440: vertices 7.1 m behind it); the
+#              source culls the inner faces and shows the legs, cull none filled the screen with the body's inside.
+#              The PS2 mesh keeps the GC winding (the same faces cull in an offline render of both meshes).
 PS2_DELLAGO ?= 0
 ifeq ($(filter $(PS2_DELLAGO),0 1),)
 $(error PS2_DELLAGO must be 0 or 1)
@@ -188,10 +193,40 @@ NATIVE_MODEL_REGISTRY_SHIFT ?= 1
 ifneq ($(NATIVE_MODEL_REGISTRY_SHIFT),1)
 $(error PS2_DELLAGO=1 needs NATIVE_MODEL_REGISTRY_SHIFT=1 (or unset))
 endif
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_DROP_BUMP=1
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_DROP_BUMP=1 -DRE4DC_NMR_SOURCE_CULL=2
 endif
-ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO),00)
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(if $(filter 1,$(PS2_GIGANTE)),$(if $(filter 1,$(PS2_DELLAGO)),3,1),2)
+# NATIVE_MODEL_REGISTRY_MASK=1 (lane ps2cast-3, 2026-10-11; default 0; needs NATIVE_MODEL_REGISTRY_PACK=1; render only): a
+#              package section may be drawn as two runs (package ref word 12): its opaque triangles with the chunk
+#              texture and its alpha-masked triangles (hair cards) with a colour + I4 mask pair, the material the Leon
+#              hair draws in the native look (TR, SRC_ALPHA/INV_SRC_ALPHA, no depth write, same-UV mask; the ARGB4444
+#              pair package keyed as native_ui.cpp model_mask_key derives it). Both runs index the section's positions /
+#              normals / palettes (the loader checks equal bytes); a plan with such runs meets the source's mask and
+#              second-pass needs in the material certificate. tools/ps2_mask_runs.py builds the runs and the pair from
+#              the GC colour + mask images; model_registry.py "mask_runs" packages them.
+# PS2_GANADO_F=1 (lane ps2cast-3; default 0; render only): the female Ganado (em17 / em16 type 0xc, r108 r118 r111 r113
+#              r11d) through the registry owner path with the PS2 mesh and the GC hair mask: NATIVE_MODEL_REGISTRY_MASK=1.
+#              The mesh is disc data: the room package dc/native/r1xx/registry.re4nmr, its atlas and the hair pair in
+#              dc/tex.pak. Without the package she keeps the source path.
+PS2_GANADO_F ?= 0
+ifeq ($(filter $(PS2_GANADO_F),0 1),)
+$(error PS2_GANADO_F must be 0 or 1)
+endif
+ifeq ($(PS2_GANADO_F),1)
+NATIVE_MODEL_REGISTRY_MASK ?= 1
+endif
+NATIVE_MODEL_REGISTRY_MASK ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_MASK),0 1),)
+$(error NATIVE_MODEL_REGISTRY_MASK must be 0 or 1)
+endif
+ifeq ($(NATIVE_MODEL_REGISTRY_MASK),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error NATIVE_MODEL_REGISTRY_MASK needs NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_MASK=1
+endif
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F),000)
+# bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today.
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) )))
 endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0

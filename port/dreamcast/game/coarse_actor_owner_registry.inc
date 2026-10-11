@@ -25,7 +25,14 @@
 namespace nmr {
 struct Weight { unsigned char bone[3], count; float value[3]; };
 struct Chunk { unsigned source_info, position_count, normal_count, palette_count, triangles, stream_bytes;
-    const unsigned char *positions, *normals, *uv, *stream; const Weight *weights; unsigned uv_bytes, texture, skin_bytes, geometry; };
+    const unsigned char *positions, *normals, *uv, *stream; const Weight *weights; unsigned uv_bytes, texture, skin_bytes, geometry;
+#if RE4DC_NMR_MASK
+    // NATIVE_MODEL_REGISTRY_MASK: a section drawn as two runs, the opaque triangles (geometry mask_geometry[0], the
+    // chunk texture) and the alpha-masked ones (geometry mask_geometry[1], colour + I4 mask pair: textures
+    // mask_texture[0] / [1], pair key pair_crc / pair_fnv as native_ui.cpp model_mask_key derives it). ~0u: none.
+    unsigned mask_geometry[2], mask_texture[2], pair_crc, pair_fnv;
+#endif
+};
 struct Texture { unsigned crc, fnv, width, height; };
 struct Descriptor { char name[16]; unsigned appearance, model_id, bones, sections, first_chunk, skin_bytes;
     const signed char* parents; const float (*bind)[12];
@@ -88,6 +95,23 @@ unsigned registry_tokens[kRegTextures];
 Re4dcUiImage registry_image(unsigned t) {
     return Re4dcUiImage{&registry_tokens[t],nullptr,registry.textures[t].width,registry.textures[t].height,6,0xffffffffU,0};
 }
+#if RE4DC_NMR_MASK
+// NATIVE_MODEL_REGISTRY_MASK: every geometry's own arrays (the published package's geometry views; a masked section's
+// run streams / UVs come from its two run geometries) and the I4 mask image of a pair (format 0, its own token).
+// The views decode on demand from the package's 64-byte geometry headers (no per-geometry table: static bytes are heap).
+const unsigned char *registry_geom,*registry_blob;
+nmr::Chunk registry_geom_view(const unsigned char* geom,const unsigned char* blob,unsigned g) {
+    const unsigned char* r=geom+g*64u;unsigned w[13];std::memcpy(w,r,sizeof(w));
+    nmr::Chunk v{};v.position_count=w[0];v.normal_count=w[1];v.palette_count=w[2];v.triangles=w[3];v.stream_bytes=w[4];
+    v.uv_bytes=w[5];v.skin_bytes=w[6];v.geometry=g;v.positions=blob+w[8];v.normals=blob+w[9];v.uv=blob+w[10];
+    v.stream=blob+w[11];v.weights=reinterpret_cast<const nmr::Weight*>(blob+w[12]);v.mask_geometry[0]=v.mask_geometry[1]=~0u;
+    return v;
+}
+nmr::Chunk registry_gview(unsigned g){return registry_geom_view(registry_geom,registry_blob,g);}
+Re4dcUiImage registry_mask_image(unsigned t) {
+    return Re4dcUiImage{&registry_tokens[t],nullptr,registry.textures[t].width,registry.textures[t].height,0,0xffffffffU,0};
+}
+#endif
 // FTRV palette groups (coarse_skin.h), one stream per unique geometry; per descriptor its used bones.
 #if RE4DC_NATIVE_MODEL_REGISTRY_PACK
 unsigned char* registry_skin;unsigned registry_skin_cap;  // the package cell's skin arena (header skin_bytes)
@@ -571,6 +595,24 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
             auto& m0=p.materials[p.material_count++];m0.image=registry_image(c.texture);
             m0.crc=registry.textures[c.texture].crc;m0.fnv=registry.textures[c.texture].fnv;
         }
+#if RE4DC_NMR_MASK
+        if(c.mask_geometry[0]!=~0u) {
+            // Two runs over this role's chunk (its positions / normals / palettes): the opaque triangles with the chunk
+            // texture, then the alpha-masked ones with the colour + mask pair (the source's mask pass: TR, blended,
+            // no depth write, as the Leon hair's native-look material).
+            const nmr::Chunk go=registry_gview(c.mask_geometry[0]),gh=registry_gview(c.mask_geometry[1]);
+            if(p.run_count+2>kRe4dcActorRuns || p.material_count==kRe4dcActorMaterials){NMR_CENSUS(registry_decline(m,&p,kRwPlan));return 0;}
+            auto& ro=p.runs[p.run_count++];ro.role=i;ro.material=mat;ro.immutable_asset_id=kRegistryAsset0+c.mask_geometry[0];
+            ro.triangles=go.triangles;ro.uv={go.uv,go.uv_bytes};ro.stream={go.stream,go.stream_bytes};
+            auto& mh=p.materials[p.material_count];
+            mh.image=registry_image(c.mask_texture[0]);mh.mask=registry_mask_image(c.mask_texture[1]);
+            mh.crc=c.pair_crc;mh.fnv=c.pair_fnv;
+            mh.material_flags=4;mh.blend=0;mh.depth_mode=1;mh.mask_ref=0;mh.mask_same_uv=1;mh.wrap_s=mh.wrap_t=1;
+            auto& rh=p.runs[p.run_count++];rh.role=i;rh.material=p.material_count++;rh.immutable_asset_id=kRegistryAsset0+c.mask_geometry[1];
+            rh.triangles=gh.triangles;rh.uv={gh.uv,gh.uv_bytes};rh.stream={gh.stream,gh.stream_bytes};
+            continue;
+        }
+#endif
         auto& run=p.runs[p.run_count++];run.role=i;run.material=mat;run.immutable_asset_id=p.immutable_asset_id[i];
         run.triangles=c.triangles;run.uv=input.uv;run.stream=input.stream;
     }
@@ -585,6 +627,56 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
 #endif
 }
 // The certificate's registry branch: every run draws its chunk's own descriptor texture (coarse_actor_material.inc).
+#if RE4DC_NMR_MASK
+namespace {
+bool registry_plain_material(const Re4dcActorOwnedMaterial& m,unsigned t) {
+    const auto& x=registry.textures[t];
+    return m.image.pixels==&registry_tokens[t] && m.crc==x.crc && m.fnv==x.fnv && m.image.width==x.width && m.image.height==x.height &&
+        m.image.format==6 && !m.image.palette && !m.image.palette_bytes && !m.mask.pixels && !m.material_flags && !m.blend &&
+        !m.depth_mode && m.mask_ref==256 && !m.wrap_s && !m.wrap_t;
+}
+bool registry_run_is(const Re4dcActorPlannedRun& r,unsigned role,unsigned g) {
+    const nmr::Chunk v=registry_gview(g);
+    return r.role==role && r.immutable_asset_id==kRegistryAsset0+g && r.triangles==v.triangles && r.stream.data==v.stream &&
+        r.stream.size==v.stream_bytes && r.uv.data==v.uv && r.uv.size==v.uv_bytes;
+}
+}
+// NATIVE_MODEL_REGISTRY_MASK: the registry branch with masked sections (opaque run + pair run per such section).
+extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
+    const auto* desc=p?registry_descriptor(p->appearance):nullptr;
+    if(!desc || p->count!=desc->sections || !p->material_count || p->material_count>kRe4dcActorMaterials)return 0;
+    unsigned seen=0,j=0;
+    for(unsigned i=0;i<desc->sections;++i) {
+        const auto& c=registry.chunks[desc->first_chunk+i];
+        if(j>=p->run_count)return 0;
+        const auto& r=p->runs[j];
+        if(r.material>=p->material_count || !registry_plain_material(p->materials[r.material],c.texture))return 0;
+        seen|=1u<<r.material;
+        if(c.mask_geometry[0]==~0u) {
+            if(r.role!=i || r.immutable_asset_id!=kRegistryAsset0+registry_geometry(desc->first_chunk+i) || r.triangles!=c.triangles ||
+               r.stream.data!=c.stream || r.uv.data!=c.uv)return 0;
+            ++j;continue;
+        }
+        if(!registry_run_is(r,i,c.mask_geometry[0]) || j+1>=p->run_count)return 0;
+        const auto& h=p->runs[j+1];
+        if(!registry_run_is(h,i,c.mask_geometry[1]) || h.material>=p->material_count)return 0;
+        const auto& m=p->materials[h.material];const auto& ct=registry.textures[c.mask_texture[0]];const auto& mt=registry.textures[c.mask_texture[1]];
+        if(m.image.pixels!=&registry_tokens[c.mask_texture[0]] || m.image.width!=ct.width || m.image.height!=ct.height || m.image.format!=6 ||
+           m.image.palette || m.image.palette_bytes || m.mask.pixels!=&registry_tokens[c.mask_texture[1]] || m.mask.width!=mt.width ||
+           m.mask.height!=mt.height || m.mask.format!=0 || m.crc!=c.pair_crc || m.fnv!=c.pair_fnv || m.material_flags!=4 || m.blend ||
+           m.depth_mode!=1 || m.mask_ref || m.mask_same_uv!=1 || m.wrap_s!=1 || m.wrap_t!=1)return 0;
+        seen|=1u<<h.material;j+=2;
+    }
+    return j==p->run_count && seen==(1u<<p->material_count)-1u;
+}
+// The certificate's mask capability: a registry plan whose every masked source section draws its pair run.
+extern "C" int re4dc_registry_masked(const Re4dcActorPlan* p) {
+    const auto* desc=p?registry_descriptor(p->appearance):nullptr;
+    if(!desc)return 0;
+    for(unsigned i=0;i<desc->sections;++i)if(registry.chunks[desc->first_chunk+i].mask_geometry[0]!=~0u)return 1;
+    return 0;
+}
+#else
 extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
     if(!desc || p->count!=desc->sections || p->run_count!=desc->sections || !p->material_count || p->material_count>kRe4dcActorMaterials)return 0;
@@ -603,6 +695,7 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
     }
     return seen==(1u<<p->material_count)-1u;
 }
+#endif
 extern "C" int re4dc_registry_model(const cModel* m,const Re4dcActorPlan* p) {
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
     return desc && m && m->id==desc->model_id && m->nParts==desc->bones && p->count==desc->sections && !m->ot_type;
@@ -621,7 +714,12 @@ extern "C" unsigned re4dc_registry_sections(unsigned appearance) {
     const auto* desc=registry_descriptor(appearance);return desc?desc->sections:0;
 }
 extern "C" int re4dc_registry_texture_key(const Re4dcUiImage* i,unsigned* c,unsigned* f) {
+#if RE4DC_NMR_MASK
+    // A pair's I4 mask image (format 0) keys like the colour image: model_mask_key hashes the two keys into the pair's.
+    if(!i || (i->format!=6 && i->format!=0) || i->palette_bytes)return 0;
+#else
     if(!i || i->format!=6 || i->palette_bytes)return 0;
+#endif
     for(unsigned t=0;t<registry.texture_count;++t) {
         if(i->pixels!=&registry_tokens[t] || i->width!=registry.textures[t].width || i->height!=registry.textures[t].height)continue;
         *c=registry.textures[t].crc;*f=registry.textures[t].fnv;return 1;

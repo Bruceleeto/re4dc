@@ -572,7 +572,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                     t['textures'][k]['key'] = [0, 0]
             need |= n
             sections.append(dict(role=i, kind=b['role'], bin=b['bin'], tpl=b['tpl'], bin_sha256=f['sha256'],
-                                 normalized_sha256=f['normalized_sha256'], tpl_sha256=t['sha256'], needs=need_names(n)))
+                                 normalized_sha256=f['normalized_sha256'], tpl_sha256=t['sha256'], needs=need_names(n), need_bits=n))
         identity = (arcname, tuple(s['bin'] for s in sections), tuple(s['tpl'] for s in sections))
         if identity in seen_identity:
             raise Fail(f'{name}: source identity {identity} is ambiguous with {seen_identity[identity]}')
@@ -610,7 +610,48 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             if tk not in [x[:4] for x in textures]:
                 textures.append(tk + (pkg, tp['package_sha256'], tp['format']))
             c['texture'] = [x[:4] for x in textures].index(tk)
-        materials = sorted({c['texture'] for c in chunks})
+        # "mask_runs": {"<source_info>": "<tools/ps2_mask_runs.py output dir>"} (lane ps2cast-3, NATIVE_MODEL_REGISTRY_MASK
+        # packages only): the section draws its opaque triangles with the chunk texture and its hair cards with a
+        # colour + I4 mask pair (the pair package is staged; the colour / mask keys are texture records that key the
+        # runtime's pair tokens). The runs' streams index the chunk's own positions / normals / palettes.
+        mask_sections = set()
+        for si, mdir in (d.get('mask_runs') or {}).items():
+            si = int(si)
+            c = [x for x in chunks if x['source_info'] == si]
+            if not c:
+                raise Fail(f'{name}: mask_runs names section {si}, the header has none')
+            c = c[0]
+            mj = inputs.json(os.path.join(mdir, 'mask-runs.json'), f'mask/{name}/{si}/mask-runs.json')
+            if mj['header_sha256'] != L['header_sha256'] or mj['section'] != si or mj['triangles']['chunk'] != c['triangles']:
+                raise Fail(f'{name} section {si}: mask runs were made from another header / section')
+            rb = {}
+            for k in ('opaque.blob', 'hair.blob', 'hair.uv'):
+                rb[k] = open(inputs.take(os.path.join(mdir, k), f'mask/{name}/{si}/{k}'), 'rb').read()
+            if sha(rb['opaque.blob']) != mj['runs']['opaque']['sha256'] or sha(rb['hair.blob']) != mj['runs']['hair']['sha256']:
+                raise Fail(f'{name} section {si}: run blobs differ from mask-runs.json')
+            for k in ('opaque.blob', 'hair.blob'):
+                cc_ = dict(c, stream=rb[k], stream_bytes=len(rb[k]), triangles=mj['runs'][k.split('.')[0]]['triangles'])
+                if k == 'hair.blob':
+                    cc_['uv'] = rb['hair.uv']
+                err = preflight_chunk(cc_, bones)
+                if err:
+                    raise Fail(f'{name} section {si} {k}: preflight {err}')
+            tw, th = mj['texture']['width'], mj['texture']['height']
+            ppath = inputs.take(os.path.join(mdir, mj['pair_package']['file']), f'mask/{name}/{si}/{mj["pair_package"]["file"]}')
+            if sha(open(ppath, 'rb').read()) != mj['pair_package']['sha256']:
+                raise Fail(f'{name} section {si}: pair package sha256 differs')
+            idx = []
+            for kk in ('colour', 'mask'):
+                crc, fnv = (int(x, 16) for x in mj['keys'][kk].split('-'))
+                tk = (crc, fnv, tw, th)
+                if tk not in [x[:4] for x in textures]:
+                    textures.append(tk + (None, None, 'key only (pair token, ' + kk + ')'))
+                idx.append([x[:4] for x in textures].index(tk))
+            c['mask'] = dict(opaque=rb['opaque.blob'], hair=rb['hair.blob'], hair_uv=rb['hair.uv'],
+                             opaque_triangles=mj['runs']['opaque']['triangles'], hair_triangles=mj['runs']['hair']['triangles'],
+                             colour_texture=idx[0], mask_texture=idx[1], pair=mj['keys']['pair'], pair_package=ppath)
+            mask_sections.add(si)
+        materials = sorted({c['texture'] for c in chunks} | {c['mask']['colour_texture'] for c in chunks if 'mask' in c})
         if len(materials) > ACTOR_MATERIALS:
             raise Fail(f'{name}: {len(materials)} materials > {ACTOR_MATERIALS}')
         entry = dict(name=name, revision=rev, base_revision=base_rev, level=level, archive=arcname,
@@ -629,6 +670,13 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             if x != 'bump':
                 raise Fail(f'{name}: source_drops takes only "bump"')
             drops |= BUMP
+        if mask_sections:
+            # every section whose source materials need the mask pass draws its pair run (NATIVE_MODEL_REGISTRY_MASK)
+            for s in sections:
+                if s['need_bits'] & MASK and s['role'] not in mask_sections:
+                    raise Fail(f'{name}: section {s["role"]} needs the mask pass and has no mask_runs')
+            drops |= MASK | SOURCE_PASS
+            entry['mask_runs'] = sorted(mask_sections)
         entry['source_drops'] = need_names(need & drops)
         missing = need & ~(FLAT_IMPLEMENTED | drops)
         if missing:
@@ -652,7 +700,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                              for c in contracts))
     for i, r in enumerate(runtime):
         r['appearance'] = APPEARANCE0 + i
-    used_tex = sorted({c['texture'] for r in runtime for c in r['chunks']})
+    used_tex = sorted({c['texture'] for r in runtime for c in r['chunks']} |
+                      {c['mask'][k] for r in runtime for c in r['chunks'] if 'mask' in c for k in ('colour_texture', 'mask_texture')})
     write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls, blobs, nroles0, nblobs0)
     package = None
     if package_room is not None:
@@ -674,7 +723,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                     raise Fail(f'room package {rname}: the cast of {r["name"]} does not list {rname} ({r["rooms"]})')
             if len(pr) != len(set(names)):
                 raise Fail(f'room package {rname}: duplicate names in {names}')
-            pk_tex = sorted({c['texture'] for r in pr for c in r['chunks']})
+            pk_tex = sorted({c['texture'] for r in pr for c in r['chunks']} |
+                            {c['mask'][k] for r in pr for c in r['chunks'] if 'mask' in c for k in ('colour_texture', 'mask_texture')})
             pk_blobs = sorted({(r['archive'], s['bin']) for r in pr for s in r['sections']})
         package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs)
         package['descriptors'] = [dict(name=r['name'], appearance='0x%x' % r['appearance'], archive=r['archive'],
@@ -817,7 +867,13 @@ def write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls,
     os.makedirs(os.path.join(out, 'tex'))
     for t in used_tex:
         crc, fnv, w, h, pkg = textures[t][:5]
+        if pkg is None:
+            continue  # a pair token's key only (mask_runs): the pair package below is what the disc stages
         shutil.copy2(pkg, os.path.join(out, 'tex', f'{crc:08x}-{fnv:08x}.re4tex'))
+    for r in runtime:
+        for c in r['chunks']:
+            if 'mask' in c:
+                shutil.copy2(c['mask']['pair_package'], os.path.join(out, 'tex', c['mask']['pair'] + '.re4tex'))
 
 
 # ---------------------------------------------------------------- room package (NATIVE_MODEL_REGISTRY_PACK=1)
@@ -873,8 +929,29 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                                           len(c['stream']), len(c['uv']), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
                                   bytes=len(c['positions']) + len(c['normals']) + len(c['uv']) + len(c['stream']) + len(w),
                                   users=[]))
-            g = gkey[key]; geoms[g]['users'].append(f'{r["name"]}/{c["source_info"]}')
-            refs.append((g, tex_index[c['texture']], c['source_info'], 0))
+            g = gkey[key]; geoms[g]['users'].append(f'{r["name"]}/{c["source_info"]}'); geoms[g]['primary'] = True
+            word12 = 0
+            if 'mask' in c:
+                # NATIVE_MODEL_REGISTRY_MASK: the two run geometries (the chunk's arrays with each run's stream; the pair run
+                # with its own UV words) and ref word 12 = opaque + 1 | pair + 1 << 8 | colour tex << 16 | mask tex << 24
+                mk_ = c['mask']; rg = []
+                for stream, uvb, tris in ((mk_['opaque'], bytes(c['uv']), mk_['opaque_triangles']),
+                                          (mk_['hair'], mk_['hair_uv'], mk_['hair_triangles'])):
+                    k2 = ('run', r['bones'], c['position_count'], c['normal_count'], c['palette_count'], tris, c['skin_bytes'],
+                          bytes(c['positions']), bytes(c['normals']), uvb, stream, w)
+                    if k2 not in gkey:
+                        gkey[k2] = len(geoms)
+                        at = [put(c['positions']), put(c['normals']), put(uvb), put(stream), put(w)]
+                        crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + uvb + stream + w)
+                        geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], tris, len(stream),
+                                                  len(uvb), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
+                                          bytes=len(c['positions']) + len(c['normals']) + len(uvb) + len(stream) + len(w),
+                                          users=[], primary=False))
+                    rg.append(gkey[k2]); geoms[gkey[k2]]['users'].append(f'{r["name"]}/{c["source_info"]}/run')
+                if max(rg) > 254 or tex_index[mk_['colour_texture']] > 255 or tex_index[mk_['mask_texture']] > 255:
+                    raise Fail('mask run indices exceed ref word 12')
+                word12 = (rg[0] + 1) | ((rg[1] + 1) << 8) | (tex_index[mk_['colour_texture']] << 16) | (tex_index[mk_['mask_texture']] << 24)
+            refs.append((g, tex_index[c['texture']], c['source_info'], word12))
         parents += bytes(p & 0xff for p in r['parents']); bind += r['bind']
         name = r['name'].encode()
         if len(name) > 15:
@@ -922,7 +999,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
             raise Fail(f'package section {k}: {len(body[k])} B for {counts[k]} records')
         table.append(struct.pack('<4I', i + 1, at, len(body[k]), counts[k]))
         payload += body[k] + bytes(align32(len(body[k])) - len(body[k])); at += align32(len(body[k]))
-    skin = sum(g['counts'][6] for g in geoms)
+    skin = sum(g['counts'][6] for g in geoms if g.get('primary', True))  # mask run geometries build no skin stream
     after = b''.join(table); after += bytes(align32(PACK_HEADER + len(after)) - PACK_HEADER - len(after))
     rest = after + bytes(payload)
     total = PACK_HEADER + len(rest)

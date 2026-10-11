@@ -448,6 +448,12 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
 #endif
+#if RE4DC_NMR_MASK
+    // NATIVE_MODEL_REGISTRY_MASK: a registry plan whose masked sections draw their colour + I4 mask pair run (TR, blended,
+    // no depth write: the Leon hair's native-look material) meets the source's mask pass and second-pass needs;
+    // re4dc_registry_runs_match above proved every run, material and pair key.
+    if(registry && re4dc_registry_masked(p))implemented|=Mask|SourcePass;
+#endif
     if(leon) {
         implemented=Diffuse; // source-exact mode has no proven shader substitute
 #if RE4DC_ACTOR_LEON_NATIVE_LOOK

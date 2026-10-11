@@ -326,6 +326,12 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     b.shift=registry_position_shift(p.appearance);
 #endif
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
+#if RE4DC_NMR_SOURCE_CULL
+    // NATIVE_MODEL_REGISTRY: the selected registry bosses (bit 1 em2f) cull as the source path does (model_bridge.cpp;
+    // the plan admits CullMode 0 only), not cull none: from inside Del Lago's body the source shows no inner faces.
+    if(p.appearance>=nmr::appearance_first && ((RE4DC_NMR_SOURCE_CULL&2) && m->id==0x2F))
+        b.cull=(unsigned char)re4dc_model_cull(m->CullMode,(pG->Debug_flg[0]&0x20000000)!=0);
+#endif
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     if(!RE4DC_LEON_LIKE(p.appearance)) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
@@ -333,7 +339,8 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     }
 #elif RE4DC_NMR_SOURCE_LIGHT
     if(p.appearance>=nmr::appearance_first &&
-       (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F))) {
+       (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F) ||
+        ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)))) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }

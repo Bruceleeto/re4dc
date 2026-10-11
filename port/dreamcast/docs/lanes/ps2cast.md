@@ -259,8 +259,55 @@ PACE_MODE=off. Frame-matched stills use trace arms (PACE off: every tick present
   r119 g3 STRICT 2,705 MUST-IDENTICAL (PS2_GIGANTE). New Game 1971 / 2360, s40 1175. MISALIGN 0, HALT 0 (the
   freeze runs end in the 30 s hang screen by design).
 
+## Lane ps2cast-3 (2026-10-11): Del Lago 2440 fixed, female Ganado with hair mask, GC texture bakes
+
+Evidence: D:/Flycast-Evidence/re4-dreamcast/ps2cast-3-20261011 (sheets dl-fight-1/2, f17-r108, f17-head, gig-gctex-900,
+dl-gctex in C:/Game Dev/Emulators/ps2cast-3-20261011). Assets: re4-assets-private/ps2cast-3-20261011 (store f3bf6e7).
+
+- **Del Lago tick 2440: fixed (PS2_DELLAGO now sets RE4DC_NMR_SOURCE_CULL=2).** Cause: at 2440 the camera is inside the
+  body (vertices 7.1 m behind it, same em2f state in both arms, DLDIAG dump). The source path culls back faces
+  (model_bridge.cpp re4dc_model_cull of CullMode 0), so from inside it shows only the legs; every owner path draws with
+  cull none, so the registry Del Lago showed the body's inside over the whole screen. The registry draw of em2f now takes
+  the source cull (coarse_actor_transaction.inc). The PS2 mesh keeps the GC winding (an offline render culls the same
+  faces in both meshes). Frame-matched stills (same prepared em2f archive in both arms, logic STRICT) at 1600, 2425,
+  2440, 2470, 3500, 5000, 6500, 8000: all agree (2440 shows the claw and legs as GC; the PS2 leg strands are thinner).
+  On this fixture the boss is in view only from ~1600 to ~2470; later ticks show water and fog in both arms.
+- **PS2_GANADO_F=1 (new, default off): em17 / em16 type 0xc through the registry owner path with the PS2 mesh and the GC
+  hair mask.** NATIVE_MODEL_REGISTRY_MASK=1: a package section may carry two runs (ref word 12: opaque geometry, hair
+  geometry, colour texture, mask texture); the hair run draws with the Leon hair material (TR, blended, no depth write,
+  same-UV I4 mask, ARGB4444 pair keyed as model_mask_key). tools/ps2_mask_runs.py classifies the head's hair triangles
+  (35 of 386, distance to the GC hair cards median 1.8 mm, max 6.2), bakes the GC colour + mask onto UV islands packed
+  into a 64x128 pair (16 KiB VRAM, the size of today's GC hair pair), writes the run blobs; model_registry.py
+  "mask_runs" packages them (r108 / r118 packages 42,976 B). Coincident cross-material triangles: 0. Run geometries
+  decode on demand from the package (no static per-geometry table). r108 (Leon at 51300, 8624, -6071, the live entry
+  147): admitted 600/600, declined 0; sheet f17-r108.png / f17-head.png (hair draws masked, no notches; the PS2 body
+  reads darker than the GC source). hwproject r108 900..979 (drawn frames): 49.25 -> 46.74 ms (registry draw 1.63 ms);
+  per-tick p50 / p99 / max 47.0 / 50.3 / 50.3 -> 46.6 / 47.1 / 47.1. **Heap gate: fails alone** (s30 heap_before
+  57,504 < control 61,600; layout-sensitive: the smaller image after the table removal measured the same 57,504);
+  with UI_OS=1 both knobs give 65,696 (UI_OS=1 control 69,792). Needs a decision: stack PS2_GANADO_F with UI_OS=1, or
+  find room elsewhere.
+- **PS2_GIGANTE_GCTEX (data only, no knob):** the GC TPL baked onto the PS2 UVs (tools/ps2_gctex_bake.py; closest
+  surface median 3.7 mm, p95 23 mm), same 1024x512 VQ atlas (133,120 B VRAM, delta 0), package 82,400 B (header and
+  mesh bytes unchanged), so hw ms is unchanged by construction. Sheet gig-gctex-900.png: sharper detail (wound, eye,
+  folds); the warmer GC hue is not the texture (both atlases mean RGB 60/51/44 vs 59/51/45) but the source material
+  colour, so the bake does not close the colour gap.
+- **Del Lago GC texture bake:** same loss (the PS2 atlas uses the top 512x256 of 512x512); baked at the same size and
+  format (67,728 B, VRAM delta 0), package 54,528 B. Sheet dl-gctex.png (2470): more GC contrast pattern, modest. A UV
+  rescale to the full 512x512 would recover the GC resolution (changes the uv words; not done).
+- **Del Lago hw ms (cull fix), r10b 2340..2419 drawn frames:** control 71.35 ms (3 drawn) vs PS2_DELLAGO 67.87 ms (11
+  drawn); the pacing mix differs (control skips 9 of 12), so compare drawn frames.
+- **Gates** (knobs PS2_DELLAGO=1 PS2_GANADO_F=1, final code): knob-off identity (play knobs and default recipe vs
+  e8fa2b54, images and overlays identical, missing.txt empty); H2 ACT_CAP=0 STRICT 1450..1569, 0..740, 1218..,
+  decision_cmp MUST-IDENTICAL; r101 bell STRICT 7,483 MUST-IDENTICAL; r10b fight STRICT 6,914 (same-archive control);
+  r108 STRICT 1,100 (em17 on screen); New Game 1971 / 2360, s40 1175; MISALIGN 0; HALT 0 outside the freeze screens;
+  s30 340/340 with heap 61,600 for PS2_DELLAGO alone (= control), 57,504 with PS2_GANADO_F (see above).
+
 ## Ready to land
 
+- lane ps2cast-3: RE4DC_NMR_SOURCE_CULL under PS2_DELLAGO (the 2440 fix; PS2_DELLAGO's open defect is closed),
+  NATIVE_MODEL_REGISTRY_MASK + PS2_GANADO_F (default off; heap gate needs UI_OS=1 or a decision), tools/ps2_mask_runs.py,
+  tools/ps2_gctex_bake.py, model_registry.py mask_runs. Discs: r108 / r118 packages + pair in tex.pak
+  (re4-assets-private/ps2cast-3-20261011 em17-0c-mask2); gctex atlases are data swaps of the PS2 packages.
 - lane ps2cast-2: NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (PS2_GIGANTE lit), PS2_DELLAGO (default off, open tick-2440 defect; its disc needs the
   r10b package, the atlas and the texture-only em2f.drs from re4-assets-private/ps2cast-2-20261010), the em2f
   texture-only contract, model_registry.py source_drops. See the section above.

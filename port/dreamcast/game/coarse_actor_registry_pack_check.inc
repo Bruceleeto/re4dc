@@ -29,6 +29,8 @@ nmr::Texture pack_tex[kRegTextures];
 re4dc_material::Model pack_models[kPackModels];
 re4dc_material::Role pack_roles[kRoomRoles];
 re4dc_material::SourceBlob pack_blobs[kRoomBlobs];
+#if RE4DC_NMR_MASK
+#endif
 
 inline unsigned pu32(const unsigned char* p,unsigned at) {unsigned x;std::memcpy(&x,p+at,4);return x;}
 struct PackHash {
@@ -111,15 +113,23 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
             for(unsigned a=0;a<5 && same;++a)same=!std::memcmp(blob+pu32(q,32+a*4),blob+pu32(r,32+a*4),want[a]);
             if(same){detail=g*256+u;return kPwDuplicate;}
         }
+#if RE4DC_NMR_MASK
+#else
         skin_sum+=sk;
+#endif
     }
+#if !RE4DC_NMR_MASK
     if(skin_sum!=skin){detail=skin_sum;return kPwSize;}
+#endif
     for(unsigned i=1;i<nspans;++i)for(unsigned j=i;j>0 && spans[j-1].at>spans[j].at;--j){const PackSpan t=spans[j];spans[j]=spans[j-1];spans[j-1]=t;}
     for(unsigned i=1;i<nspans;++i)if(spans[i-1].at+spans[i-1].bytes>spans[i].at){detail=i;return kPwOverlap;}
     // ---- descriptors, their chunk references, parents and binds
     const auto* parents=reinterpret_cast<const signed char*>(p+sec[kParents].at);
     const auto* bind=reinterpret_cast<const float (*)[12]>(p+sec[kBind].at);
     unsigned refs=0,parents_used=0,binds_used=0,geom_used[kRegGeometry]={},tex_used=0;
+#if RE4DC_NMR_MASK
+    unsigned geom_primary[kRegGeometry]={};  // geometries a section draws from (only their skin streams fill the arena)
+#endif
     for(unsigned d=0;d<sec[kDesc].count;++d) {
         const unsigned char* r=p+sec[kDesc].at+d*48;detail=d;auto& desc=pack_desc[d];
         unsigned n=0;while(n<16 && r[n])++n;
@@ -143,7 +153,14 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         for(unsigned i=0;i<sections;++i) {
             const unsigned char* f=p+sec[kRef].at+(first+i)*16;detail=d*256+i;
             const unsigned g=pu32(f,0),t=pu32(f,4);
+#if RE4DC_NMR_MASK
+            // Word 12: 0, or a masked section: opaque run geometry + 1 (bits 0..7), pair run geometry + 1 (8..15), the
+            // pair's colour texture (16..23) and I4 mask texture (24..31).
+            const unsigned mw=pu32(f,12);
+            if(g>=sec[kGeom].count || t>=sec[kTex].count || pu32(f,8)!=i)return kPwRef;
+#else
             if(g>=sec[kGeom].count || t>=sec[kTex].count || pu32(f,8)!=i || pu32(f,12))return kPwRef;
+#endif
             const unsigned char* q=p+sec[kGeom].at+g*64;
             if(pu32(q,28)!=bones)return kPwRef;
             auto& c=pack_chunks[first+i];
@@ -152,12 +169,44 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
             c.positions=blob+pu32(q,32);c.normals=blob+pu32(q,36);c.uv=blob+pu32(q,40);c.stream=blob+pu32(q,44);
             c.weights=reinterpret_cast<const nmr::Weight*>(blob+pu32(q,48));
             desc.skin_bytes+=c.skin_bytes;geom_used[g]=1;tex_used|=1u<<t;
+#if RE4DC_NMR_MASK
+            c.mask_geometry[0]=c.mask_geometry[1]=c.mask_texture[0]=c.mask_texture[1]=~0u;c.pair_crc=c.pair_fnv=0;
+            if(!geom_primary[g]){geom_primary[g]=1;skin_sum+=c.skin_bytes;}
+            if(mw) {
+                const unsigned go=(mw&255u)-1u,gh=((mw>>8)&255u)-1u,tc=(mw>>16)&255u,tm=mw>>24;
+                if(go>=sec[kGeom].count || gh>=sec[kGeom].count || go==g || gh==g || go==gh || tc>=sec[kTex].count ||
+                   tm>=sec[kTex].count || tc==tm || tc==t || tm==t || pack_tex[tc].width!=pack_tex[tm].width ||
+                   pack_tex[tc].height!=pack_tex[tm].height)return kPwRef;
+                const nmr::Chunk A=registry_geom_view(p+sec[kGeom].at,blob,g);
+                // Both runs index this chunk's positions / normals / palettes: equal counts and bytes; the opaque run keeps
+                // the chunk's UV words; the runs' triangles add up to the chunk's.
+                const unsigned runs[2]={go,gh};
+                for(const unsigned x:runs) {
+                    const nmr::Chunk X=registry_geom_view(p+sec[kGeom].at,blob,x);
+                    if(X.position_count!=A.position_count || X.normal_count!=A.normal_count || X.palette_count!=A.palette_count ||
+                       pu32(p+sec[kGeom].at+x*64,28)!=bones || std::memcmp(X.positions,A.positions,A.position_count*8u) ||
+                       std::memcmp(X.normals,A.normals,A.normal_count*8u) || std::memcmp(X.weights,A.weights,A.palette_count*16u))return kPwRef;
+                }
+                const nmr::Chunk O=registry_geom_view(p+sec[kGeom].at,blob,go),Hr=registry_geom_view(p+sec[kGeom].at,blob,gh);
+                if(O.uv_bytes!=A.uv_bytes || std::memcmp(O.uv,A.uv,A.uv_bytes) || O.triangles+Hr.triangles!=A.triangles)return kPwRef;
+                c.mask_geometry[0]=go;c.mask_geometry[1]=gh;c.mask_texture[0]=tc;c.mask_texture[1]=tm;
+                // native_ui.cpp model_mask_key: CRC-32 / FNV-1a of "R4MPv001" + colour crc, fnv, mask crc, fnv (LE words).
+                const unsigned words[4]={pack_tex[tc].crc,pack_tex[tc].fnv,pack_tex[tm].crc,pack_tex[tm].fnv};
+                PackHash ph;ph.add(reinterpret_cast<const unsigned char*>("R4MPv001"),8);
+                ph.add(reinterpret_cast<const unsigned char*>(words),16);
+                c.pair_crc=ph.crc32();c.pair_fnv=ph.fnv;
+                geom_used[go]=geom_used[gh]=1;tex_used|=(1u<<tc)|(1u<<tm);
+            }
+#endif
         }
         refs+=sections;parents_used+=bones;binds_used+=bones;
     }
     detail=0;
     if(refs!=sec[kRef].count || parents_used!=sec[kParents].count || binds_used!=sec[kBind].count)return kPwDescriptor;
     for(unsigned g=0;g<sec[kGeom].count;++g)if(!geom_used[g]){detail=g;return kPwRef;}
+#if RE4DC_NMR_MASK
+    if(skin_sum!=skin){detail=skin_sum;return kPwSize;}
+#endif
     if(tex_used!=(sec[kTex].count==32?~0u:(1u<<sec[kTex].count)-1u))return kPwRef;
     // ---- source identity facts: models own contiguous part ranges; texture facts are read in place
     const auto* parts=reinterpret_cast<const re4dc_material::Part*>(p+sec[kFPart].at);
