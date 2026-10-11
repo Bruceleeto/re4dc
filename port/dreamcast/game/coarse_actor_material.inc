@@ -125,6 +125,11 @@ Error texture(const void* descriptor,const Texture& e) {
     // LOD range, bias or edge flag. Only the source-inapplicable global aniso
     // test is removed; no mipmapped descriptor gains admission here.
     if(!base_level_sampler(sampler))return Error::Sampler;
+#if RE4DC_NMR_DROP_BUMP
+    // NATIVE_MODEL_REGISTRY_DROP_BUMP: a registry row with key 0-0 is a texture the source path only binds as a bump
+    // map (never drawn, so the disc keeps its raw pixels, not an R4NREF); its exact header and sampler matched above.
+    if(!e.crc && !e.fnv && !e.palette.bytes)return clut?Error::Palette:Error::None;
+#endif
     const void* n=ptrat(h,8);const unsigned size=e.palette.bytes?64u:32u;
     if(!readable(n,size))return Error::BadRange;
     const char* magic=e.palette.bytes?"R4PREF\0":"R4NREF\0";
@@ -437,6 +442,12 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // reviewed atlas are deliberate, while all source material bytes, masks,
     // samplers, current modifiers and pass identity must still match above.
     unsigned implemented=Diffuse|SourceLighting|AtlasSampler|Specular;
+#if RE4DC_NMR_DROP_BUMP
+    // NATIVE_MODEL_REGISTRY_DROP_BUMP (PS2_DELLAGO): Del Lago's registry plan (em2f, 0x2F) draws no bump stage, which
+    // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
+    // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
+    if(registry && m->id==0x2F)implemented|=Bump;
+#endif
     if(leon) {
         implemented=Diffuse; // source-exact mode has no proven shader substitute
 #if RE4DC_ACTOR_LEON_NATIVE_LOOK

@@ -191,6 +191,67 @@ vertex (record), 0.30 us per palette switch (run), 0.93 us per palette entry, 0.
   v4-fit comparison bundles (stats only): /root/probe/lanes/ps2cast/v4fit-bundle{,-lean}.
 - No Flycast / hwproject run yet: these are modelled costs from the unit costs, not hardware ms.
 
+## Lane ps2cast-2 (2026-10-10/11): boss lighting, PS2 Del Lago, em17-0c, flat normals
+
+Tree /root/probe/lanes-20261010/ps2cast-2 (from 3cf55917), evidence D:/Flycast-Evidence/re4-dreamcast/ps2cast-2-20261010,
+sheets and scripts C:/Game Dev/Emulators/ps2cast-2-20261010, assets re4-assets-private/ps2cast-2-20261010. Arms: play
+flags (ROUTE_CH13 ROUTE_CH21 SBB_STUB ...) as lane ps2cast-all; trace arms add LOGIC_TRACE GAME_DECISION_TRACE
+PACE_MODE=off. Frame-matched stills use trace arms (PACE off: every tick presented) and the warp `freeze`.
+
+- **El Gigante shading (PS2_GIGANTE).** Cause: the registry owner path drew every non-Leon plan with the constant
+  `light` record (the approved flat Ganado look); only ACTOR_GANADO_SOURCE_LIGHT=1 (off in the play recipe) lit
+  registry plans, so the PS2 giant drew unlit (lighter, flat). Fix: NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (bit 0 em2b,
+  set by PS2_GIGANTE): the giant's registry plan takes actor_source_lighting (LightSetModel's lights, channel,
+  ambient, material colour, nrm = part.mv^-T, TEV scale), and the lit kernel folds the torch lights exactly as for
+  the source giant (GIGANTE_LIGHTS reads base.model's id: "gigante lights: folds=3502 / 2558" per 600 frames).
+  Census: planned 1075, admitted 1075, declined 0. Stills (trace arms, tick 900, gigante-lit-sheet-T.png; play
+  arms at 860 / 900 / 940 with the unlit "before", gigante-lit-sheet.png): the light falls the same way; what still
+  differs is the PS2 atlas itself (greyer, less contrast than the GC textures).
+  hw ms (hb 900:979, drawn / skipped): control 74.30 / 12.45, PS2 lit 76.68 / 11.63; the giant's own buckets
+  (RENDER actors + models) 27.62 -> 24.56 (unlit 24.37: lighting costs ~0.2 ms); the +2.4 total is outside the
+  giant (kos/irq +2.5, deferred source draws +2.3, IdSys +1.2: frame-mix noise). hb 820:899: control drawn mean
+  92.1, PS2 lit 85.0 (6 drawn ticks; the first-view tick 827 is a 181 ms upload frame in the PS2 arm, the window
+  phase moved by one frame). Flycast PACE draw ms (300-tick windows 900..3000, hb): control p50 53.5 / max 66.0,
+  PS2 lit p50 54.2 / max 62.8.
+- **Del Lago bump: today's port draws none.** trans.cpp shaderSetup -> bumpSetup (flags & 1) loads part->bumpTex and
+  sets GXSetIndTexOrder / GXSetTevIndBumpXYZ on the specular stage (on GC the bump map offsets the specular / env
+  lookup); all of it reaches the GX stubs (gx_stub.cpp). The bridge (materialSetup -> re4dc_model_material,
+  model_bridge.cpp re4dc_draw_model_part) binds the colour texture (texId) and the alpha mask only; nothing reads
+  bumpTex, and the specular stage is dropped too. No switch exists because there is nothing to switch. So the PS2
+  Del Lago without bump changes nothing visible.
+- **PS2_DELLAGO=1** (em2f type 0: 2,877 PS2 tris vs 5,820 GC, 35 bones, shift 2; one section, one 116-palette
+  chunk). Runtime: NATIVE_MODEL_REGISTRY_SHIFT=1, source lighting (bit 1) and NATIVE_MODEL_REGISTRY_DROP_BUMP: the
+  certificate counts the bump need as met for em2f's registry plan (the source draws no bump either), and a role
+  texture row with key 0-0 (model_registry.py "source_drops": ["bump"] marks bump-only textures) is proved by its
+  exact header and sampler. Data: the r10b room package (dc/native/r10b/registry.re4nmr, 54,528 B; arena 58,096)
+  and its atlas, plus a texture-only em2f archive: the r10b disc's em2f.drs had never been through the texture
+  pipeline (0 R4NREF references, so no texture row could be proved: registry_declined for every frame, ATX_INFO
+  why=6). prepare_enemy_motions.py gains an em2f texture-only contract (--keep-motion-resident; 7 images
+  externalized, body 1,624,256 -> 1,280,576 B; the DMY sub-files and the unstripped REL stay as today), then
+  aica_banks build as r119 does: only em/em2f.drs changes. Census (k3Dd): planned 1956, admitted 1956, declined 0.
+  STRICT: the knob is render-only (fb fixture, both arms on the texture-only archive: frame 0..6911 and room 010b
+  STRICT, MUST-IDENTICAL). The archive itself is a load-timing change: its read takes 363 ms instead of 413, so the
+  next reads (em27, pl0f) complete three ticks earlier and the r10b trace moves from tick 184 (e 6 -> 11 at 184
+  instead of 187); the same door-frame IO class as the r101 VQ fixture (D367_PLAY_BUILD_CHECKLIST 2b); no
+  equaliser exists for mid-room reads (dvdhold covers door cycles only).
+- **em17-0c (female Ganado, r108 / r118): stopped, needs a decision.** Converted again (1,242 tris) and a registry
+  spec written (r108 + r118 packages), but the GC head (BIN 463) materials need mask/alpha pass + source pass (the
+  hair), which no flat owner path implements; the PS2 TPL for it is fully opaque (PSMT4, alpha 128 everywhere), so
+  the PS2 model has no hair mask to draw. Options: a mask contract on the registry path, or accept the PS2 opaque
+  hair (a "source_drops"-style rule for the mask, which changes today's hair edges).
+- **PS2_GANADO house cost with flat normals.** r100 house (h2 1450:1569): the reported "+3.2 ms skip ticks" is a frame
+  mix, not cost: the window's light frames (PACE-skipped, ~22 ms) are 5 of 17 in the control and 2 of 17 in both
+  PS2 arms; the heavy frames average control 41.32 / flat normals 40.85 (full normals, lane ps2cast-all: 41.18 /
+  40.79). Flat vs full normals pixel check (trace arms, r101 square, frozen tick 1370, ganado-flatn-T.png): one
+  pixel differs (max 8 of 255): identical, as expected for the unlit cast.
+- **Gates** (both knobs). Knob-off identity: play flags and the default recipe vs 3cf55917 byte-identical images,
+  overlays identical, missing.txt empty. H2 (ACT_CAP=0) STRICT 1450..1569, 0..740, 1218..; decision_cmp
+  MUST-IDENTICAL; s30 340/340 heap_before 61,600 = control. r101 bell STRICT (7,496 / 7,483 ticks) MUST-IDENTICAL.
+  r119 g3 STRICT 2,705 MUST-IDENTICAL (PS2_GIGANTE). New Game 1971 / 2360, s40 1175. MISALIGN 0, HALT 0 (the
+  freeze runs end in the 30 s hang screen by design).
+
 ## Ready to land
 
-Nothing yet (tools only; no runtime change).
+- lane ps2cast-2: NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (PS2_GIGANTE lit), PS2_DELLAGO (default off; its disc needs the
+  r10b package, the atlas and the texture-only em2f.drs from re4-assets-private/ps2cast-2-20261010), the em2f
+  texture-only contract, model_registry.py source_drops. See the section above.

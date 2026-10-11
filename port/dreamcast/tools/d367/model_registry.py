@@ -553,6 +553,23 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             n, why = material_needs(f, len(t['textures']))
             if why:
                 raise Fail(f'{name} section {i}: {why}')
+            if 'bump' in d.get('source_drops', []) and n & BUMP:
+                # A texture the source path only binds as a bump map (bumpSetup, GX stubs) is never drawn, so the disc
+                # keeps its raw pixels instead of the texture pipeline's R4NREF reference: its row keeps the exact
+                # header / sampler facts and carries key 0-0, which a NATIVE_MODEL_REGISTRY_DROP_BUMP image proves by
+                # those facts alone (coarse_actor_material.inc texture()).
+                used, bumps = set(), set()
+                for material, *_ in f['parts']:
+                    mat = bytes.fromhex(material)
+                    used.add(mat[1])
+                    if mat[0] & 4:
+                        used.add(mat[3])
+                    if mat[0] & 1:
+                        bumps.add(mat[2])
+                for k in sorted(bumps - used):
+                    if t['textures'][k]['palette']:
+                        raise Fail(f'{name}: bump-only texture {k} is paletted')
+                    t['textures'][k]['key'] = [0, 0]
             need |= n
             sections.append(dict(role=i, kind=b['role'], bin=b['bin'], tpl=b['tpl'], bin_sha256=f['sha256'],
                                  normalized_sha256=f['normalized_sha256'], tpl_sha256=t['sha256'], needs=need_names(n)))
@@ -604,7 +621,16 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                      position_shift=int(e.get('position_shift', 4)))
         if not 1 <= entry['position_shift'] <= 4:
             raise Fail(f'{name}: position_shift {entry["position_shift"]} outside 1..4')
-        missing = need & ~FLAT_IMPLEMENTED
+        # "source_drops": ["bump"] (lane ps2cast-2): the source path itself never draws the bump stage (trans.cpp
+        # bumpSetup only feeds the GX stubs; model_bridge binds the colour texture alone), so the owner path drawing
+        # no bump is the same image; the image needs NATIVE_MODEL_REGISTRY_DROP_BUMP (the certificate's twin rule).
+        drops = 0
+        for x in d.get('source_drops', []):
+            if x != 'bump':
+                raise Fail(f'{name}: source_drops takes only "bump"')
+            drops |= BUMP
+        entry['source_drops'] = need_names(need & drops)
+        missing = need & ~(FLAT_IMPLEMENTED | drops)
         if missing:
             entry['contract'] = (f'source materials need {", ".join(need_names(missing))}; the flat owner path implements '
                                  f'{", ".join(need_names(FLAT_IMPLEMENTED))} only: needs a renderer material contract '
@@ -620,7 +646,10 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
     if nroles0 + nrows > MATERIAL_ROWS:
         raise Fail(f'role rows {nroles0}+{nrows} > {MATERIAL_ROWS} (actor_lifetime.inc Info::roles mask)')
     if not runtime:
-        raise Fail('no descriptor is admissible for the flat owner path')
+        raise Fail('no descriptor is admissible for the flat owner path: ' +
+                   '; '.join(f'{c["name"]}: {c["contract"]} (sections: ' +
+                             ', '.join(f'{x["kind"]} BIN {x["bin"]} {"/".join(x["needs"])}' for x in c['sections']) + ')'
+                             for c in contracts))
     for i, r in enumerate(runtime):
         r['appearance'] = APPEARANCE0 + i
     used_tex = sorted({c['texture'] for r in runtime for c in r['chunks']})

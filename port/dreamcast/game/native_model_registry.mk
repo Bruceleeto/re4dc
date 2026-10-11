@@ -168,6 +168,31 @@ ifneq ($(NATIVE_MODEL_REGISTRY_BONES)$(NATIVE_MODEL_REGISTRY_SHIFT),641)
 $(error PS2_GIGANTE=1 needs NATIVE_MODEL_REGISTRY_BONES=64 (or unset) and NATIVE_MODEL_REGISTRY_SHIFT=1)
 endif
 endif
+# PS2_DELLAGO=1 (lane ps2cast-2; default 0; render only): the runtime side of Del Lago's PS2 mesh (em2f type 0, 35 bones,
+#              shift 2): NATIVE_MODEL_REGISTRY_SHIFT=1 plus NATIVE_MODEL_REGISTRY_DROP_BUMP for em2f (its GC materials
+#              carry a bump stage, which the source path never draws either: trans.cpp bumpSetup only reaches the GX
+#              stubs and model_bridge binds the colour texture alone; model_registry.py "source_drops"). The mesh is disc
+#              data: the r10b room package dc/native/r10b/registry.re4nmr (model_registry.py --package-room 10b) and its
+#              atlas in dc/tex.pak. Without the package Del Lago keeps the source path.
+# Lighting (lane ps2cast-2): PS2_GIGANTE / PS2_DELLAGO also set NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (bit 0 em2b, bit 1
+#              em2f): the registry boss takes the source GX lighting record (LightSetModel's lights, ambient, material
+#              colour, TEV scale; coarse_actor_transaction.inc actor_source_lighting) instead of the constant colour, so
+#              it is lit like the source-path boss (GIGANTE_LIGHTS folds em2b the same way). Without it the boss drew
+#              unlit (flat, lighter).
+PS2_DELLAGO ?= 0
+ifeq ($(filter $(PS2_DELLAGO),0 1),)
+$(error PS2_DELLAGO must be 0 or 1)
+endif
+ifeq ($(PS2_DELLAGO),1)
+NATIVE_MODEL_REGISTRY_SHIFT ?= 1
+ifneq ($(NATIVE_MODEL_REGISTRY_SHIFT),1)
+$(error PS2_DELLAGO=1 needs NATIVE_MODEL_REGISTRY_SHIFT=1 (or unset))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_DROP_BUMP=1
+endif
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO),00)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(if $(filter 1,$(PS2_GIGANTE)),$(if $(filter 1,$(PS2_DELLAGO)),3,1),2)
+endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0
 ifeq ($(filter $(NATIVE_MODEL_REGISTRY_SHIFT),0 1),)

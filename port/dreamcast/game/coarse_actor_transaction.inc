@@ -4,7 +4,16 @@
 #include "actor_palette_arena.h"
 #include "actor_transaction_diag.h"
 #include "actor_transaction_diag_impl.inc"
-#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+// NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (native_model_registry.mk): registry plans of the selected enemy ids (bit 0: El
+// Gigante, 0x2B, set by PS2_GIGANTE; bit 1: Del Lago, 0x2F, set by PS2_DELLAGO) take the source GX lighting record
+// (actor_source_lighting below) instead of the constant colour, as ACTOR_GANADO_SOURCE_LIGHT does for every non-Leon
+// plan; the lit kernel then folds the lights as it does on the source path (GIGANTE_LIGHTS reads base.model's id).
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT || RE4DC_NMR_SOURCE_LIGHT
+#define RE4DC_ACTOR_SOURCE_LIT 1
+#else
+#define RE4DC_ACTOR_SOURCE_LIT 0
+#endif
+#if RE4DC_ACTOR_SOURCE_LIT
 extern u8 gxCsScale[];  // trans.cpp: the room's TEV colour scale per group (shaderSetup)
 #endif
 #if RE4DC_ACTOR_PROOF_LEAN
@@ -57,7 +66,7 @@ struct ActorOwnedRecord {
 #endif
     ActorOwnedPart part[kRe4dcActorRoles];
     Re4dcActorDrawRun runs[kRe4dcActorRuns];
-#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+#if RE4DC_ACTOR_SOURCE_LIT
     re4dc::render::SourceLighting lit;  // the source's GX lighting for this Ganado (both pass groups)
 #endif
 };
@@ -209,7 +218,7 @@ ActorOwnedRecord* actor_decline(ActorOwnedRecord& r,bool& failed) {
     if(!released || !re4dc_actor_stream_state(&state))failed=true;
     return nullptr;
 }
-#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
+#if RE4DC_ACTOR_SOURCE_LIT
 // ACTOR_GANADO_SOURCE_LIGHT (default 0): a Ganado's owned draw is lit as the source lights it instead of the
 // constant (flat) record. ModelTrans ran LightSetModel(m) just before commonModelTrans reached this owner, so the
 // GX state already holds this model's selected light objects, channel control, ambient and material colour
@@ -319,6 +328,12 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     if(!RE4DC_LEON_LIKE(p.appearance)) {
+        if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
+        b.lighting=&r->lit;
+    }
+#elif RE4DC_NMR_SOURCE_LIGHT
+    if(p.appearance>=nmr::appearance_first &&
+       (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F))) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }

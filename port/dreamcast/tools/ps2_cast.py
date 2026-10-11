@@ -68,13 +68,18 @@ PRESETS = {
     'ganado-em12-01': dict(archive='em12', sections=[(0x1d8, 'body'), (0x1da, 'head'), (0x1c0, 'right-hand'), (0x1c5, 'left-hand')],
                            tpl=0x1d9, rooms=['r100', 'r103'], types=[1], category='human'),
     # not in the external cast (ps2_cast_inventory.py): Em17Set / Em16Set type 0xc, Em13Set type 6 (own hands)
-    'ganado-em17-0c': _ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]),
+    # model_id: the registry descriptor's enemy id (regcast; lane ps2cast-2 draws em17 type 0xc through a registry pack)
+    'ganado-em17-0c': dict(_ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]), model_id=0x17),
     'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
                            tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
     # non-Ganado models for NATIVE_MODEL_REGISTRY packs (ps2_cast.py regcast; lane ps2cast-all): src/em2b em2b.cpp
     # type 0 (TYPE_A) modelInit(ARC 5, ARC 7) + ModInfoMgr.create(ARC 6, ARC 7): body + head, one 64-bone skeleton
     'gigante-em2b-00': dict(archive='em2b', sections=[(5, 'body'), (6, 'head')], tpl=7, rooms=['r119'], types=[0],
                             category='boss', model_id=0x2b, shift=2),
+    # src/em2f em2f.cpp type 0 (the r10b Del Lago fight): modelInit(ARC 4, ARC 5); type 1 (ARC 6 / 7) is the same
+    # model on GC and PS2 (no geometry change), so only type 0 converts (lane ps2cast-2)
+    'dellago-em2f-00': dict(archive='em2f', sections=[(4, 'body')], tpl=5, rooms=['r10b'], types=[0],
+                            category='boss', model_id=0x2f, shift=2),
 }
 
 

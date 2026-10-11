@@ -29,7 +29,12 @@ MAX_CLIP=32768
 # em10_tmpl.cpp, em11_set.cpp, the same three units; its 5.8 MB GC archive did not fit r117's heap 4 (largest cell
 # 3.1 MB: DVD: Memory allocate failed, readEmData em/em11.drs).
 GANADO=('em12.drs','em15.drs','em13.drs','em17.drs','em11.drs')
-SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs')
+SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs')
+# em2f (Del Lago, r10b; lane ps2cast-2 2026-10-10, PS2_DELLAGO discs): textures only (--keep-motion-resident). Its
+# model TPLs (ARC 5 type 0, ARC 7 type 1) reach only modelInit (src/em2f/em2f.cpp em2f_R0_Init); the source path
+# uploads their colour texels (materialSetup -> re4dc_model_material) and never reads them on the CPU. The bump map
+# (an IA8 image, bound only by bumpSetup to the GX stubs) is not a native format and stays resident. Its EFF slot
+# (ARC 8, EspDataLoad) keeps its own textures (top-level TPLs only are selected). em2f is a ROUTE_OVL room overlay.
 # Small enemies whose motions also leave the body: em21 (r100 trap dog) plays every clip through
 # MotionSetCore/MotionMove (src/em21/em21.cpp; ARC() otherwise only feeds modelInit), the leased
 # evaluators in motion.cpp. Needed for heap 4 in r100's post-house ambush (em21 + em23 + em2a).
@@ -46,7 +51,7 @@ MOTION_SMALL=('em21.drs','em23.drs','em2a.drs','em2b.drs')
 # SetRock; its EFF slot keeps its own textures. em2b is a ROUTE_OVL room overlay, so its static REL is stripped
 # with the knob-conditional module set (ROUTE_OVL_MODULES). The room's heap 4: r119 frees 3,854,656 B in two
 # cells, the largest 2,770,912 B, under the 4,689,664 B rel-stripped body.
-ROUTE_OVL_MODULES=('em2b',)
+ROUTE_OVL_MODULES=('em2b','em2f')
 # Knob-conditional static modules (Makefile `MODULES +=` under a route knob) whose archives are compacted against
 # their own registry row like the room overlays above: em11 (ROUTE_CH21, r117).
 KNOB_STATIC_MODULES=('em11',)
@@ -76,6 +81,9 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
     with tempfile.NamedTemporaryFile(mode='w') as required:
         required.write(file+'\n');required.flush()
         bad=mirror.check_required(coverage,required.name)
+    # em2f's four DMY sub-files (#50..#53) have no le_mirror handler; today's r10b disc (le_mirror of the whole tree)
+    # already ships them raw, so the texture-only package keeps them raw too (same bytes as today).
+    if name=='em2f.drs':bad=[b for b in bad if not b.endswith('no handler (tag DMY)')]
     if bad:raise ValueError('unqualified enemy: '+', '.join(bad))
     # Retain the already-implemented static REL policy; don't restore PPC code.
     converted=mirror.compact_static_rel(file,converted,coverage,mirror.static_module_ids(
@@ -113,7 +121,9 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
         local_palettes=[(o-base,d,c) for o,d,c in palettes if base<=o<base+boundary]
         texture_ranges,selected,retained=select_upload_only(body,local_palettes,Path(textures),allowed)
         if not texture_ranges:raise ValueError('no qualified enemy textures selected')
-    if rel and rel+64!=len(body):raise ValueError('expected retained 64-byte static REL descriptor')
+    # em2f: its DMY entries keep le_mirror's whole-file qualification from stripping the static REL (today's disc
+    # carries the whole REL too); it moves intact behind the tables like the 64-byte descriptor does.
+    if rel and rel+64!=len(body) and name!='em2f.drs':raise ValueError('expected retained 64-byte static REL descriptor')
     original_size,original_base=struct.unpack_from('>I4xI',original,slot+4)
     codec=mirror.motion_codec();ranges=[];entries=[];files={};oversized=[]
     for off in ([] if keep_motion_resident else sorted(set(offsets))):
