@@ -775,7 +775,12 @@ CALL_VOICE_STREAMS = [(1, 140), (1, 141), (1, 142), (1, 144), (1, 145), (1, 152)
 # (r11b, the battle and the ambush), 1:148 (the r11b radio call voice, 22 s one-shot; requested on r11b entry after
 # the Ope radio 1:3: "stream sbb=9900000 (1:148) not in aica_str.dat" without it).
 CH21_STREAMS = ROUTE_STREAMS + CALL_VOICE_STREAMS + [(0, 4), (0, 17), (1, 36), (1, 148)]
-STREAM_PRESETS = {'ch21': CH21_STREAMS}
+# The current play disc's file (r22j test 7: lane r118 snd.sh order, ch21 + 0:5 + 0:23 for r119 / r118) plus 0:29, the
+# chapter 1-3 results / save screen music in r10b (sbb 0x3480000, 60 s one-shot; "not in aica_str.dat, silent"
+# without it). `--streams ch21r`: entries 0..16 and their data bytes identical to the lane r118 file.
+CH21R_STREAMS = (ROUTE_STREAMS[:4] + [(1, 0x33)] + CALL_VOICE_STREAMS + [(0, 4), (0, 17), (1, 36), (0, 5), (1, 148),
+                 (0, 23), (0, 29)])
+STREAM_PRESETS = {'ch21': CH21_STREAMS, 'ch21r': CH21R_STREAMS}
 
 
 def nibble_to_sample(n):

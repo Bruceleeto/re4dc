@@ -1,5 +1,16 @@
 # D367 play build checklist (user, 2026-10-09 current state at top)
 
+## 2026-10-11: stream 0:29 (chapter 1-3 results music) in bgm/aica_str.dat
+
+No new flag or code. Stage **bgm/aica_str.dat built with `aica_banks.py streams --mirror <LE mirror with the .sbb>
+--out DIR --streams ch21r`** (18 streams, 25,913,344 B, sha256 15fdc870..): the lane r118 file (17 streams, the test
+7 disc) plus 0:29 appended; entries 0..16 and every data byte of the old file identical, only the header grows.
+Mirror used: /root/probe/lanes-20261010/r118/rooms/mirror-aica-r118. Runs (test 7 recipe, lane D p2d): r10b ->
+chapter 1-3 results / save -> r11b (f6s fixture): `stream 0:29 start` on the results screen, closed at the r11b room
+change, no "sbb=3480000 not in aica_str.dat" (test 7's f6 run had it); H2 old vs new file STRICT 1450..1569, 0..740,
+1218.., decision_cmp MUST-IDENTICAL (7126 ticks), s30 340/340 heap_before 56,960 both; HALT 0, MISALIGN 0.
+Check: the chapter 1-3 results screen has music.
+
 ## 2026-10-10: GIGANTE_LIGHTS (ROUTE_CH21 block)
 
 No new flag or staged file: ROUTE_CH21=1 now brings GIGANTE_LIGHTS=1 (527a23ad). El Gigante and r119's torch-lit
