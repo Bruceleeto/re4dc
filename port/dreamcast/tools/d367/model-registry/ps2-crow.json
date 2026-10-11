@@ -1,0 +1,19 @@
+{
+ "registry": "ps2-crow",
+ "about": "NATIVE_MODEL_REGISTRY descriptors for the PS2 crow (em23, Phase 2 A3, PS2_CROW; tools/ps2_cast.py regcast of the presets crow-folded / crow-spread) plus the r100 dog (dog-01, the PS2_ANIMALS flat package's descriptor), so r100 keeps one room package. Render only: the GC skeleton, motions, AI and em23SetWing (folded BIN 6 / spread BIN 7) are unchanged; the PS2 mesh replaces the GC source body and wings on the owner path. User decision 2026-10-11: the solid PS2 wing is accepted (the GC folded wing's I4 mask pass is dropped), and the GX-only bump and alternate specular (body material flag 0x80, specularSetup2) are dropped by source_drops, as the DC source path never draws them.",
+ "cast_dir": "/mnt/c/Game Dev/Emulators/re4-assets-private/p2a3-crow-20261011/regcast-crow",
+ "revision_overlay": "ps2-overlay",
+ "level": "conservative",
+ "archive_audit": "source/archive-audit.json",
+ "lighting": "dog-01: flat (as the PS2_ANIMALS package); crow: the source GX lighting record and source cull (NATIVE_MODEL_REGISTRY_SOURCE_LIGHT / RE4DC_NMR_SOURCE_CULL bit 8), as the source path draws it today",
+ "descriptors": [
+  {"name": "dog-01", "archive": "em21", "model_id": "0x21", "source_types": [1]},
+  {"name": "crow-folded", "archive": "em23", "model_id": "0x23", "source_types": [], "source_drops": ["bump", "alt-specular", "mask"],
+   "state": "em23SetWing(...,0): body BIN 5 + wing BIN 6"},
+  {"name": "crow-spread", "archive": "em23", "model_id": "0x23", "source_types": [], "source_drops": ["bump", "alt-specular", "mask"],
+   "state": "em23SetWing(...,1): body BIN 5 + wing BIN 7"}
+ ],
+ "room_packages": {
+  "100": {"descriptors": ["dog-01", "crow-folded", "crow-spread"], "evidence": "PS2_ANIMALS r100 package (dog-01) + the r100 crows (inventory r100: em23)"}
+ }
+}

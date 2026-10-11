@@ -8,7 +8,8 @@
 // Gigante, 0x2B, set by PS2_GIGANTE; bit 1: Del Lago, 0x2F, set by PS2_DELLAGO) take the source GX lighting record
 // (actor_source_lighting below) instead of the constant colour, as ACTOR_GANADO_SOURCE_LIGHT does for every non-Leon
 // plan; the lit kernel then folds the lights as it does on the source path (GIGANTE_LIGHTS reads base.model's id).
-// Bit 2: the female Ganado (0x17 / 0x16, PS2_GANADO_F); bit 4: the parasite dog (0x22, PS2_WOLF, lane ps2cast-4).
+// Bit 2: the female Ganado (0x17 / 0x16, PS2_GANADO_F); bit 3: the crow (0x23, PS2_CROW, Phase 2 A3); bit 4: the
+// parasite dog (0x22, PS2_WOLF, lane ps2cast-4).
 // PS2_GANADO_LIT (game30.mk): the cast Ganados (owner appearances below 0x100, the PS2 bundle with real normals) take
 // the same source lighting record; the kernel keeps the 3 strongest lights + ambient (RE4DC_GANADO_LIGHT_FOLD).
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT || RE4DC_NMR_SOURCE_LIGHT || RE4DC_PS2_GANADO_LIT
@@ -333,7 +334,8 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     // NATIVE_MODEL_REGISTRY: the selected registry bosses (bit 1 em2f) cull as the source path does (model_bridge.cpp;
     // the plan admits CullMode 0 only), not cull none: from inside Del Lago's body the source shows no inner faces.
     if(p.appearance>=nmr::appearance_first && (((RE4DC_NMR_SOURCE_CULL&2) && m->id==0x2F) ||
-                                               ((RE4DC_NMR_SOURCE_CULL&16) && m->id==0x22)))
+                                               ((RE4DC_NMR_SOURCE_CULL&16) && m->id==0x22) ||
+                                               ((RE4DC_NMR_SOURCE_CULL&8) && m->id==0x23)))
         b.cull=(unsigned char)re4dc_model_cull(m->CullMode,(pG->Debug_flg[0]&0x20000000)!=0);
 #endif
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
@@ -344,7 +346,8 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
 #elif RE4DC_NMR_SOURCE_LIGHT
     if(p.appearance>=nmr::appearance_first &&
        (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F) ||
-        ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)) || ((RE4DC_NMR_SOURCE_LIGHT&16) && m->id==0x22))) {
+        ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)) || ((RE4DC_NMR_SOURCE_LIGHT&16) && m->id==0x22) ||
+        ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23))) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }

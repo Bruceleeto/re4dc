@@ -52,10 +52,11 @@ APPEARANCE0 = 0x200         # registry appearances 0x200 + descriptor index (Gan
 # coarse_actor_material.inc Need bits and what the flat owner path implements for a non-Leon actor
 DIFFUSE, SPECULAR, MASK, BUMP, MORPH, SOURCE_LIGHTING, SOURCE_PASS, ATLAS_SAMPLER = 1, 2, 4, 8, 16, 32, 64, 128
 FLAT_IMPLEMENTED = DIFFUSE | SOURCE_LIGHTING | ATLAS_SAMPLER | SPECULAR
-UNKNOWN = 1 << 16          # a source material program flag outside the certificate's known set (0..7)
+UNKNOWN = 1 << 16          # a source material program flag outside the certificate's known set (0..7, 0x80)
+ALT_SPECULAR = 1 << 8      # material flag 0x80 (specularSetup2, GX only on the DC source path; Phase 2 A3 crow)
 NEED_NAMES = {DIFFUSE: 'diffuse', SPECULAR: 'specular', MASK: 'mask/alpha pass', BUMP: 'bump', MORPH: 'morph',
               SOURCE_LIGHTING: 'source lighting', SOURCE_PASS: 'source pass', ATLAS_SAMPLER: 'atlas sampler',
-              UNKNOWN: 'an unknown material program (flags outside 0..7)'}
+              ALT_SPECULAR: 'alternate specular (flag 0x80)', UNKNOWN: 'an unknown material program (flags outside 0..7, 0x80)'}
 
 
 class Fail(Exception):
@@ -343,7 +344,9 @@ def material_needs(model, texture_count):
             need |= BUMP
         if f & 0x13:
             need |= SPECULAR
-        if f & ~7:
+        if f & 0x80:
+            need |= ALT_SPECULAR  # a contract unless dropped (source_drops "alt-specular")
+        if f & ~0x87:
             need |= UNKNOWN   # the runtime certificate declines (Error::Material): a contract, not a data fault
     return need, None
 
@@ -665,11 +668,22 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
         # "source_drops": ["bump"] (lane ps2cast-2): the source path itself never draws the bump stage (trans.cpp
         # bumpSetup only feeds the GX stubs; model_bridge binds the colour texture alone), so the owner path drawing
         # no bump is the same image; the image needs NATIVE_MODEL_REGISTRY_DROP_BUMP (the certificate's twin rule).
+        # "alt-specular" (Phase 2 A3, PS2_CROW): material flag 0x80 (specularSetup2) is GX only on the DC source path too,
+        # so the owner path drawing none is the same image (the image needs RE4DC_NMR_CROW, the certificate's twin rule).
+        # "mask" (Phase 2 A3, user decision 2026-10-11: the solid PS2 crow wing): the section's I4 mask pass is replaced by
+        # the opaque PS2 section (a visible approximation the user accepted; RE4DC_NMR_CROW), never with mask_runs.
         drops = 0
         for x in d.get('source_drops', []):
-            if x != 'bump':
-                raise Fail(f'{name}: source_drops takes only "bump"')
-            drops |= BUMP
+            if x == 'bump':
+                drops |= BUMP
+            elif x == 'alt-specular':
+                drops |= ALT_SPECULAR
+            elif x == 'mask':
+                if d.get('mask_runs'):
+                    raise Fail(f'{name}: source_drops "mask" and mask_runs exclude each other')
+                drops |= MASK | SOURCE_PASS
+            else:
+                raise Fail(f'{name}: source_drops takes only "bump", "alt-specular", "mask"')
         if mask_sections:
             # every section whose source materials need the mask pass draws its pair run (NATIVE_MODEL_REGISTRY_MASK)
             for s in sections:

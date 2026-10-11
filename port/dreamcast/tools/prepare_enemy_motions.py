@@ -29,7 +29,7 @@ MAX_CLIP=32768
 # em10_tmpl.cpp, em11_set.cpp, the same three units; its 5.8 MB GC archive did not fit r117's heap 4 (largest cell
 # 3.1 MB: DVD: Memory allocate failed, readEmData em/em11.drs).
 GANADO=('em12.drs','em15.drs','em13.drs','em17.drs','em11.drs')
-SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs')
+SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs','em23.drs')
 # em2f (Del Lago, r10b; lane ps2cast-2 2026-10-10, PS2_DELLAGO discs): textures only (--keep-motion-resident). Its
 # model TPLs (ARC 5 type 0, ARC 7 type 1) reach only modelInit (src/em2f/em2f.cpp em2f_R0_Init); the source path
 # uploads their colour texels (materialSetup -> re4dc_model_material) and never reads them on the CPU. The bump map
@@ -40,6 +40,10 @@ SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs')
 # TPLs (ARC 0x3A / 0x48) only SetObj16 (cObj16 model textures, as em2b's parasite); the source path uploads their
 # colour texels and never reads them on the CPU. Its EFF slot (ARC 6, EspDataLoad) keeps its own textures (top-level
 # TPLs only are selected). The registry owner path proves its texture rows only on a texture-prepared archive.
+# em23 (crows, r100 r105 r108 r109; Phase 2 A3 2026-10-11, PS2_CROW discs): its textures too (with its motion contract
+# below, as em21). The model TPL (ARC 8) reaches only modelInit (src/em23/em23.cpp em23_R0_Init, modelInit(ARC 5, ARC 8))
+# and em23SetWing's wing info (ARC 6 / 7 with ARC 8); the source path uploads its colour texels and never reads them on
+# the CPU. Its EFF slot (ARC 4, EspDataLoad) keeps its own textures (top-level TPLs only are selected).
 # Small enemies whose motions also leave the body: em21 (r100 trap dog) plays every clip through
 # MotionSetCore/MotionMove (src/em21/em21.cpp; ARC() otherwise only feeds modelInit), the leased
 # evaluators in motion.cpp. Needed for heap 4 in r100's post-house ambush (em21 + em23 + em2a).

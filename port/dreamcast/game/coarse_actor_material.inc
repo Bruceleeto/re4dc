@@ -125,8 +125,8 @@ Error texture(const void* descriptor,const Texture& e) {
     // LOD range, bias or edge flag. Only the source-inapplicable global aniso
     // test is removed; no mipmapped descriptor gains admission here.
     if(!base_level_sampler(sampler))return Error::Sampler;
-#if RE4DC_NMR_DROP_BUMP
-    // NATIVE_MODEL_REGISTRY_DROP_BUMP: a registry row with key 0-0 is a texture the source path only binds as a bump
+#if RE4DC_NMR_DROP_BUMP || RE4DC_NMR_CROW
+    // NATIVE_MODEL_REGISTRY_DROP_BUMP (and PS2_CROW): a registry row with key 0-0 is a texture the source path only binds as a bump
     // map (never drawn, so the disc keeps its raw pixels, not an R4NREF); its exact header and sampler matched above.
     if(!e.crc && !e.fnv && !e.palette.bytes)return clut?Error::Palette:Error::None;
 #endif
@@ -213,6 +213,9 @@ struct Count { unsigned calls,hits,stores,bad,last; } c;
 } }
 #endif
 namespace re4dc_material {
+#if RE4DC_NMR_CROW
+bool crow_rows;  // PS2_CROW: compare() is proving a registry crow (model id 0x23) plan
+#endif
 #if RE4DC_ACTOR_MATERIAL_RECORD
 // archive=false: a record hit; the archive verdict (TPL and ModelPart header bytes, checked last) is the record's.
 Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic,bool archive) {
@@ -285,7 +288,14 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
         if(f&0x13)out.required|=Specular;
         // All material bytes, including alphaRef/specType/specPow/specTexOrg,
         // already matched. Unknown source flag programs remain unsupported.
+#if RE4DC_NMR_CROW
+        // PS2_CROW (Phase 2 A3): the crow body's flag 0x80 (specularSetup2) is GX only on the DC source path, so a crow
+        // registry plan (crow_rows, set by compare for model id 0x23) drawing none is the source image (model_registry.py
+        // source_drops "alt-specular").
+        if(f&~(crow_rows?0x87u:7u))return Error::Material;
+#else
         if(f&~7u)return Error::Material;
+#endif
         p+=32+want.bytes;
     }
     ++out.identity_roles;return Error::None;
@@ -310,6 +320,9 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // appearance is the exact source BIN + TPL rows every role proves below (no cModel::type table: the TPL row is
     // the authored appearance). Model-level modifiers are the Ganado rules (TEV group 0, flat native look).
     const bool registry=re4dc_registry_sections(p->appearance)!=0;
+#if RE4DC_NMR_CROW
+    crow_rows=registry && m->id==0x23;
+#endif
     if(registry ? !re4dc_registry_model(m,p) :
        ((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
         (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type)))) {
@@ -447,6 +460,12 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
+#endif
+#if RE4DC_NMR_CROW
+    // PS2_CROW (Phase 2 A3, user decision 2026-10-11): a registry crow (em23, 0x23) draws no bump stage (as the source
+    // path: bumpSetup only reaches the GX stubs) and its folded wing as the solid PS2 wing (the GC I4 mask pass and its
+    // second pass are replaced, an accepted visible approximation): model_registry.py source_drops "bump", "mask".
+    if(registry && m->id==0x23)implemented|=Bump|Mask|SourcePass;
 #endif
 #if RE4DC_NMR_MASK
     // NATIVE_MODEL_REGISTRY_MASK: a registry plan whose masked sections draw their colour + I4 mask pair run (TR, blended,

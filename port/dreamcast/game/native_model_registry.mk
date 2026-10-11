@@ -256,14 +256,33 @@ ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
 $(error PS2_WOLF=1 needs NATIVE_MODEL_REGISTRY=1 NATIVE_MODEL_REGISTRY_PACK=1)
 endif
 endif
-ifneq ($(PS2_DELLAGO)$(PS2_WOLF),00)
-# RE4DC_NMR_SOURCE_CULL bits: 2 em2f (PS2_DELLAGO), 16 em22 (PS2_WOLF)
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_CULL=$(shell echo $$(( $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
+# PS2_CROW=1 (Phase 2 A3, 2026-10-11; default 0; render only): the crow (em23; r100, r105, r108, r109) through the registry
+#              owner path with its PS2 mesh (folded 750 / spread 668 tris: body 540 + wings 210 / 128; 24 bones). Today em23
+#              draws on the source path, so its registry plan takes the source lighting record and the source cull (bit 8 of
+#              NATIVE_MODEL_REGISTRY_SOURCE_LIGHT / RE4DC_NMR_SOURCE_CULL). Its GC materials need bump + alternate specular
+#              (body flag 0x83) and the folded wing's I4 mask pass; user decision 2026-10-11: accept the solid PS2 wing and
+#              drop the GX-only bump and alternate specular (RE4DC_NMR_CROW: the certificate's twin of model_registry.py
+#              source_drops "bump", "alt-specular", "mask"). The mesh is disc data: dc/native/r100/registry.re4nmr from
+#              tools/d367/model-registry/ps2-crow.json (dog-01 + crow-folded + crow-spread: r100 keeps one package) and the
+#              crow atlas in dc/tex.pak; without a package the crow keeps the source path.
+PS2_CROW ?= 0
+ifeq ($(filter $(PS2_CROW),0 1),)
+$(error PS2_CROW must be 0 or 1)
 endif
-ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF),0000)
-# bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today; bit 4
-# (PS2_WOLF): em22 likewise.
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
+ifeq ($(PS2_CROW),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error PS2_CROW=1 needs NATIVE_MODEL_REGISTRY=1 NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_CROW=1
+endif
+ifneq ($(PS2_DELLAGO)$(PS2_WOLF)$(PS2_CROW),000)
+# RE4DC_NMR_SOURCE_CULL bits: 2 em2f (PS2_DELLAGO), 8 em23 (PS2_CROW), 16 em22 (PS2_WOLF)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_CULL=$(shell echo $$(( $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
+endif
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW),00000)
+# bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today; bit 3
+# (PS2_CROW): em23 likewise; bit 4 (PS2_WOLF): em22 likewise.
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
 endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0
