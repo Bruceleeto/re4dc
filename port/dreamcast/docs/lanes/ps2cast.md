@@ -234,6 +234,15 @@ PACE_MODE=off. Frame-matched stills use trace arms (PACE off: every tick present
   next reads (em27, pl0f) complete three ticks earlier and the r10b trace moves from tick 184 (e 6 -> 11 at 184
   instead of 187); the same door-frame IO class as the r101 VQ fixture (D367_PLAY_BUILD_CHECKLIST 2b); no
   equaliser exists for mid-room reads (dvdhold covers door cycles only).
+  Cost (fb fixture, both arms on the texture-only archive; play arms, so the timelines are not frame-locked):
+  hw ms without PACE/WAIT, hb 2340:2419 control 47.37 / PS2 40.99 (RENDER 24.32 -> 15.09), hb 4100:4179 control
+  43.21 / PS2 45.97 (RENDER 10.58 -> 8.92; kos/irq +4.6 is outside the boss). Flycast PACE draw ms (300-tick windows
+  1500..9600): control p50 35.7 / p99 38.8 / max 38.8, 26.9 fps; PS2 p50 19.7 / p99 41.1 / max 41.1, 28.8 fps.
+  **Open defect (why it stays default off):** frame-matched trace stills (dellago-sheet-T.png, ticks 2410 / 2440 /
+  2470, logic STRICT) agree at 2410 and 2470 (same arm, same light; the PS2 texture is smoother), but at 2440 the PS2
+  arm fills the screen with a close furry surface where GC shows the distant legs: some PS2 part is drawn at the
+  camera where the source draws nothing or something else (suspect: a part the source hides per frame, or a
+  part-to-bone mapping the shift-2 conversion got wrong). Not diagnosed yet.
 - **em17-0c (female Ganado, r108 / r118): stopped, needs a decision.** Converted again (1,242 tris) and a registry
   spec written (r108 + r118 packages), but the GC head (BIN 463) materials need mask/alpha pass + source pass (the
   hair), which no flat owner path implements; the PS2 TPL for it is fully opaque (PSMT4, alpha 128 everywhere), so
@@ -252,6 +261,6 @@ PACE_MODE=off. Frame-matched stills use trace arms (PACE off: every tick present
 
 ## Ready to land
 
-- lane ps2cast-2: NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (PS2_GIGANTE lit), PS2_DELLAGO (default off; its disc needs the
+- lane ps2cast-2: NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (PS2_GIGANTE lit), PS2_DELLAGO (default off, open tick-2440 defect; its disc needs the
   r10b package, the atlas and the texture-only em2f.drs from re4-assets-private/ps2cast-2-20261010), the em2f
   texture-only contract, model_registry.py source_drops. See the section above.
