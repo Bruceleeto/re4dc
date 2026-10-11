@@ -55,8 +55,30 @@ template<class T> void discard(Pool<T>* p, Chunk<T>** link) {
     Chunk<T>* c=*link;
     for(u32 i=0;i<c->count;++i) p->slots()[c->first+i]=0;
     *link=c->next;p->bytes-=c->bytes;--p->chunks_count;++p->reclaims;
+#if RE4DC_HEAP4_PARTS_RESERVE
+    if(c->reserved[0]) return;   // a slab run: its bytes stay in the slab until the pool goes
+#endif
     OSFreeToHeap(p->handle,c);
 }
+#if RE4DC_HEAP4_PARTS_RESERVE
+// HEAP4_PARTS_RESERVE: Pool::reserved[0] slab address, [1] slab bytes, [2] bytes handed out, [3] runs from it.
+template<class T> constexpr bool parts_reserve=false;
+template<> constexpr bool parts_reserve<cParts> = true;
+template<class T> void reserve_init(Pool<T>* p) {
+    if(!parts_reserve<T> || p->heap!=4 || ((u32(pG->stage_no)<<8)|pG->room_no)!=u32(RE4DC_HEAP4_PARTS_RESERVE_ROOM))return;
+    void* s=mem_alloc(RE4DC_HEAP4_PARTS_RESERVE_BYTES,"native parts reserve",0,1,p->heap);
+    if(s){p->reserved[0]=u32(s);p->reserved[1]=RE4DC_HEAP4_PARTS_RESERVE_BYTES;p->reserved[2]=p->reserved[3]=0;}
+    re4dc_log("work backing: parts reserve room=%03x bytes=%u %s\n",(unsigned)((u32(pG->stage_no)<<8)|pG->room_no),
+        (unsigned)RE4DC_HEAP4_PARTS_RESERVE_BYTES,s?"ok":"FAILED");
+}
+template<class T> Chunk<T>* reserve_take(Pool<T>* p,u32 bytes) {
+    if(!p->reserved[0] || p->reserved[1]-p->reserved[2]<bytes)return 0;
+    Chunk<T>* c=(Chunk<T>*)(p->reserved[0]+p->reserved[2]);p->reserved[2]+=bytes;++p->reserved[3];
+    re4dc_log("work backing: parts reserve run bytes=%u used=%u/%u runs=%u\n",(unsigned)bytes,(unsigned)p->reserved[2],
+        (unsigned)p->reserved[1],(unsigned)p->reserved[3]);
+    return c;
+}
+#endif
 }
 
 #if defined(RE4DC_WORKAT_INLINE) && RE4DC_WORKAT_INLINE
@@ -147,6 +169,9 @@ template<class T> int array_free(cManager<T>* m) {
     // backing after those consumers finish; roomInit instead forgets the old
     // pointer after the owning room heap has been reset by the source.
     while(p->chunks) discard(p,&p->chunks);
+#if RE4DC_HEAP4_PARTS_RESERVE
+    if(p->reserved[0]) OSFreeToHeap(p->handle,(void*)p->reserved[0]);
+#endif
     OSFreeToHeap(p->handle,p);m->pArray=0;return 1;
 }
 template<class T> int array_alloc(cManager<T>* m,u32 n) {
@@ -169,7 +194,11 @@ template<class T> int array_alloc(cManager<T>* m,u32 n) {
     if(!p) { re4dc_missing("parts slot allocation");return 0; }
     memclr_asm(p,bytes);p->capacity=n;p->bytes=bytes+64;p->peak=p->bytes;
     p->heap=MemGetCurrentHeap();p->handle=Heap[p->heap].handle;
-    m->pArray=(T*)p;register_pool(m);report(p,"init");return 1;
+    m->pArray=(T*)p;register_pool(m);report(p,"init");
+#if RE4DC_HEAP4_PARTS_RESERVE
+    reserve_init(p);
+#endif
+    return 1;
 }
 template<class T> T* work_at(cManager<T>* m,u32 no) {
     if(Frozen<T>* f=frozen(m)) return no<f->n?f->slots[no]:0;
@@ -206,8 +235,16 @@ template<class T> bool prepare_work(cManager<T>* m,u32 first,u32 count) {
         for(Chunk<T>** q=&p->chunks;*q;) { if(!retain_slots<T> && !alive(*q))discard(p,q);else q=&(*q)->next; }
         c=(Chunk<T>*)mem_alloc(bytes,"native parts run",0,1,p->heap);
     }
+#if RE4DC_HEAP4_PARTS_RESERVE
+    // The GameCube's up-front cParts array never fails here: the slab stands in for it.
+    bool slab=false;
+    if(!c && parts_reserve<T>) { c=reserve_take(p,bytes); slab=c!=0; }
+#endif
     if(!c) { ++p->failures;report(p,"allocation failed");return false; }
     memclr_asm(c,bytes);c->first=first;c->count=count;c->bytes=bytes+64;
+#if RE4DC_HEAP4_PARTS_RESERVE
+    c->reserved[0]=slab;
+#endif
     c->next=p->chunks;p->chunks=c;
     for(u32 j=0;j<count;++j)slots[first+j]=c->parts()+j;
     p->bytes+=c->bytes;++p->chunks_count;if(p->bytes>p->peak)p->peak=p->bytes;

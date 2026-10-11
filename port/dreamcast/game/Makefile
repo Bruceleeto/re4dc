@@ -914,6 +914,16 @@ PARTS_DEMAND ?= 0
 MODELINFO_DEMAND ?= 0
 OBJECT_DEMAND ?= 0
 ENEMY_DEMAND ?= 0
+# HEAP4_PARTS_RESERVE=1 (Phase 2 step 0, default 0; needs PARTS_DEMAND=1): the GameCube allocates the room's whole
+# cParts array up front, so a model's parts never fail for heap 4 there; the demand pool's runs come from heap 4 and
+# failed at H2 frame 660 (two r100 em10 spawns, e 41 instead of the GameCube's 43) whenever heap 4 was a few KB short.
+# In room HEAP4_PARTS_RESERVE_ROOM (stage << 8 | room, default 0x100) the parts pool takes a slab of
+# HEAP4_PARTS_RESERVE_BYTES (default 73728: two em10, 2 x 30 runs, 63,808 B with cell headers, + slack) from heap 4 at
+# room init; a parts run that heap 4 cannot give (after the dead-run reclaim) comes from the slab. Paid from what the
+# PS2_OBJECTS r100 dar frees (315,712 B): without that dar the slab takes the r100 s30 movie's heap.
+HEAP4_PARTS_RESERVE ?= 0
+HEAP4_PARTS_RESERVE_ROOM ?= 0x100
+HEAP4_PARTS_RESERVE_BYTES ?= 73728
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
 ifeq ($(ENEMY_DEMAND),1)
@@ -928,6 +938,7 @@ $(OBJDIR)/parts-budget.h: parts-budget-force
 	@printf '#define RE4DC_MODELINFO_DEMAND %s\n' '$(MODELINFO_DEMAND)' >> $@.tmp
 	@printf '#define RE4DC_OBJECT_DEMAND %s\n' '$(OBJECT_DEMAND)' >> $@.tmp
 	@printf '#define RE4DC_ENEMY_DEMAND %s\n' '$(ENEMY_DEMAND)' >> $@.tmp
+	@printf '#define RE4DC_HEAP4_PARTS_RESERVE %s\n#define RE4DC_HEAP4_PARTS_RESERVE_ROOM %s\n#define RE4DC_HEAP4_PARTS_RESERVE_BYTES %s\n' '$(HEAP4_PARTS_RESERVE)' '$(HEAP4_PARTS_RESERVE_ROOM)' '$(HEAP4_PARTS_RESERVE_BYTES)' >> $@.tmp
 	@cmp -s $@.tmp $@ || cp $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/parts_bridge.o: parts_bridge.cpp $(OBJDIR)/parts-budget.h
