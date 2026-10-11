@@ -182,34 +182,41 @@ static volatile unsigned ps2_mask_select=1U+RE4DC_PS2_PASS_MASK_SELECT;
 // Presets: curve, cap %, fog colour %, sky (0 culled, 1 drawn + table fog, 2 drawn unfogged), effect flags
 // (EFFECT_PS2_TOGGLE builds: 1 fade clamp, 2 PS2 haze, 4 PS2 light shafts; 7 = the play build), grade (1: the r100
 // outdoor colour match, one full-screen multiply quad, native_ui.cpp re4dc_look_grade_post), soft (PVR scaler vertical
-// filter: 0 as KOS set it at boot, 1 forced on = VSCALE 1025, 2 forced off = 1024), VMU label.
-// Disc 2 order (look study 2026-10-10): GD first (the new base), then its variants, DC last for reference.
-struct Re4dcLook { unsigned char curve,cap,rgb,sky,fx,grade,soft; char label[3]; const char* text; };
+// filter: 0 as KOS set it at boot, 1 forced on = VSCALE 1025, 2 forced off = 1024), f00 (FILTER00_DC: 1 = the room's
+// own GameCube Filter00 contrast, native_ui.cpp re4dc_post_filter00), chr (CHARBAKE_TOGGLE: charbake_variants.h row,
+// 0 = the play textures), VMU label, on-screen text.
+// User decision 2026-10-11: three presets, A (boot) = today's look, B = GameCube (GD fog + GM colour match +
+// FILTER00_DC + the CG character bake), C = B with today's characters. LOOK_TOGGLE_ALL=1 (test builds) keeps the
+// look study's 11 instead (disc 3 order: GD GM GS GA DC GX CA CS CG CV CQ).
+struct Re4dcLook { unsigned char curve,cap,rgb,sky,fx,grade,soft,f00,chr; char label[3]; const char* text; };
 static const Re4dcLook re4dc_looks[]={
-    {1,100, 70,1,7,0,0,"GD","GD: GC fog, fog colour 70%"},   // GameCube fog curve + sky / treeline, fog colour 70 %
-    {1,100, 70,1,7,1,0,"GM","GM: GD + r100 colour match"},   // GD + the r100 outdoor brightness / colour match
-    {1,100, 70,1,7,0,1,"GS","GS: GD + flicker filter on"},   // GD + the PVR vertical flicker filter forced on
-    {1,100, 70,1,7,1,1,"GA","GA: GC fog + r100 colour + filter"},   // GD + match + filter
-    {0,100,100,0,7,0,0,"DC","DC: current look"},             // the play build's look (as the knobs-off image)
-    {1,100, 70,1,7,0,2,"GX","GX: GD, flicker filter off"},   // GD with the vertical filter forced OFF
+#if defined(RE4DC_LOOK_TOGGLE_ALL)
+    {1,100, 70,1,7,0,0,0,0,"GD","GD: GC fog, fog colour 70%"},   // GameCube fog curve + sky / treeline, fog colour 70 %
+    {1,100, 70,1,7,1,0,0,0,"GM","GM: GD + r100 colour match"},   // GD + the r100 outdoor brightness / colour match
+    {1,100, 70,1,7,0,1,0,0,"GS","GS: GD + flicker filter on"},   // GD + the PVR vertical flicker filter forced on
+    {1,100, 70,1,7,1,1,0,0,"GA","GA: GC fog + r100 colour + filter"},   // GD + match + filter
+    {0,100,100,0,7,0,0,0,0,"DC","DC: current look"},             // the play build's look (as the knobs-off image)
+    {1,100, 70,1,7,0,2,0,0,"GX","GX: GD, flicker filter off"},   // GD with the vertical filter forced OFF
 #if defined(RE4DC_CHARBAKE_TOGGLE) && RE4DC_CHARBAKE_TOGGLE
-    // charbake (charbake.mk CHARBAKE_TOGGLE): the DC look with each character texture variant (re4dc_look_chr)
-    {0,100,100,0,7,0,0,"CA","CA: DC + characters AO"},     // ambient occlusion baked into Leon + Ganados
-    {0,100,100,0,7,0,0,"CS","CS: DC + characters AO + sky"},   // AO + soft sky / ground light
-    {0,100,100,0,7,0,0,"CG","CG: DC + characters GC bright"},  // SKY graded toward the GameCube (hair too)
-    {0,100,100,0,7,0,0,"CV","CV: DC + Leon VQ texture"},   // Leon atlas as VQ (66 KB VRAM, not 524), play shading
-    {0,100,100,0,7,0,0,"CQ","CQ: CG with Leon VQ"},        // CG with Leon atlas as VQ
+    // charbake (charbake.mk CHARBAKE_TOGGLE): the DC look with each character texture variant
+    {0,100,100,0,7,0,0,0,1,"CA","CA: DC + characters AO"},     // ambient occlusion baked into Leon + Ganados
+    {0,100,100,0,7,0,0,0,2,"CS","CS: DC + characters AO + sky"},   // AO + soft sky / ground light
+    {0,100,100,0,7,0,0,0,3,"CG","CG: DC + characters GC bright"},  // SKY graded toward the GameCube (hair too)
+    {0,100,100,0,7,0,0,0,4,"CV","CV: DC + Leon VQ texture"},   // Leon atlas as VQ (66 KB VRAM, not 524), play shading
+    {0,100,100,0,7,0,0,0,5,"CQ","CQ: CG with Leon VQ"},        // CG with Leon atlas as VQ
+#endif
+#else
+    {0,100,100,0,7,0,0,0,0,"A","A: Current"},                   // the play build's look (as the knobs-off image)
+    {1,100, 70,1,7,1,0,1,3,"B","B: GameCube"},                  // GD fog + GM colour match + Filter00 + CG characters
+    {1,100, 70,1,7,1,0,1,0,"C","C: GameCube scenery"},          // B with today's characters
 #endif
 };
 constexpr unsigned kLooks=sizeof(re4dc_looks)/sizeof(re4dc_looks[0]);
 #if defined(RE4DC_CHARBAKE_TOGGLE) && RE4DC_CHARBAKE_TOGGLE
 #include "../charbake_variants.h"
 extern "C" void re4dc_charbake_set(unsigned variant);  // coarse_actor.cpp (charbake.mk CHARBAKE_TOGGLE)
-// The character variant of a preset: the last kCharbakeLooks presets are charbake_variants.h rows 1.. in order,
-// every other preset draws the play textures (row 0).
-constexpr unsigned kCharbakeLooks=5;
-static_assert(re4dc_charbake::kCount==kCharbakeLooks+1,"one look preset per charbake variant");
-static unsigned re4dc_look_chr(unsigned mode){return mode+kCharbakeLooks>=kLooks ? mode+kCharbakeLooks+1-kLooks : 0;}
+static_assert(re4dc_charbake::kCount==6 && re4dc_charbake::variants[3].label[0]=='G',"chr rows: CG = GCB = row 3");
+static unsigned re4dc_look_chr(unsigned mode){return re4dc_looks[mode%kLooks].chr;}
 static unsigned re4dc_look_chr_last; // the variant the presets last set (0 at boot)
 #endif
 extern "C" { unsigned re4dc_look_mode; }
@@ -277,8 +284,8 @@ extern "C" void re4dc_look_set(unsigned mode){
     if(re4dc_look_scaler_boot==~0U)re4dc_look_scaler_boot=PVR_GET(PVR_SCALER_CFG);
     const unsigned vs=lk.soft==1?1025U:lk.soft==2?1024U:(re4dc_look_scaler_boot&0xffffU);
     const char* how=re4dc_look_scaler_request((re4dc_look_scaler_boot&~0xffffU)|vs);
-    re4dc_log("look: preset %u %s (curve %u cap %u fog colour %u%% sky %u fx %u grade %u vscale %u scaler %08x %s)\n",re4dc_look_mode,lk.label,
-        lk.curve,lk.cap,lk.rgb,lk.sky,lk.fx,lk.grade,vs,unsigned(PVR_GET(PVR_SCALER_CFG)),how);
+    re4dc_log("look: preset %u %s (curve %u cap %u fog colour %u%% sky %u fx %u grade %u f00 %u chr %u vscale %u scaler %08x %s)\n",re4dc_look_mode,lk.label,
+        lk.curve,lk.cap,lk.rgb,lk.sky,lk.fx,lk.grade,lk.f00,lk.chr,vs,unsigned(PVR_GET(PVR_SCALER_CFG)),how);
 }
 // GM / GA: the r100 outdoor cuts (fog colour 8d8775 with a negative fog start: cuts 0-3, 5-9, 12-15; the house
 // cuts 4 / 10 / 11 start at 9.8 m and match the GameCube already) get one full-screen multiply. Per channel
@@ -290,6 +297,10 @@ extern "C" unsigned re4dc_look_grade_argb(void){
 }
 extern "C" void re4dc_look_cycle(void){re4dc_look_set(re4dc_look_mode+1);}
 extern "C" const char* re4dc_look_label(void){return re4dc_looks[re4dc_look_mode%kLooks].label;}
+extern "C" int re4dc_look_filter00(void){ // FILTER00_DC (native_ui.cpp re4dc_post_filter00): this preset's switch
+    if(!re4dc_look_applied)re4dc_look_set(re4dc_look_mode);
+    return re4dc_looks[re4dc_look_mode%kLooks].f00;
+}
 static inline unsigned re4dc_look_curve(){return re4dc_looks[re4dc_look_mode%kLooks].curve;}
 static inline unsigned re4dc_look_cap(){return re4dc_looks[re4dc_look_mode%kLooks].cap;}
 static inline unsigned re4dc_look_rgb_pct(){return re4dc_looks[re4dc_look_mode%kLooks].rgb;}

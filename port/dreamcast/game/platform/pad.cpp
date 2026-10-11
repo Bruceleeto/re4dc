@@ -533,7 +533,8 @@ u32 PADRead(PADStatus* status)
 #endif
 #if defined(RE4DC_LOOK_TOGGLE)
         // Test builds (post30.mk LOOK_TOGGLE, look study 2026-10-10): a START press that begins with X held (L and R
-        // up) steps the look preset (native_static.cpp re4dc_look_cycle: DC, GC, GD, G7, SK, GH; with
+        // up) steps the look preset (native_static.cpp re4dc_look_cycle: A, B, C, or the 11 look-study
+        // presets with LOOK_TOGGLE_ALL; with
         // EFFECT_PS2_TOGGLE the preset also sets the effect look); that START is masked until released.
         if (i == 0) {
             static u8 lookStartHeld, lookChord;

@@ -2,7 +2,8 @@
  "comment": "Look gallery shots (look study 2026-10-10). dc.warp = warp.txt lines (DBG_WARP=1 test builds); the run ends frozen at dc.freeze (global tick) and the last framebuffer shot is the image. gc = the GameCube reference file in the private gallery (re4-assets-private/look-gallery-20261010/gc, Dolphin 2609 1x, copy filter on). crop = x0,y0,x1,y1 in 640x480 space (close-ups); gc_crop when the GC framing differs. base = the play-content fixture the shot stages (overlays are replaced by the arm's own).",
  "bases": {
   "play": "/root/probe/lanes-20261010/kosfix/fixtures/hw-fight-kfH.json",
-  "r10b": "/root/probe/lanes-20261010/lake/fixtures/lake-lkA1.json"
+  "r10b": "/root/probe/lanes-20261010/lake/fixtures/lake-lkA1.json",
+  "route": "/root/probe/lanes-20261010/combo/fix/pkg-cbP.json"
  },
  "shots": [
   {
@@ -143,6 +144,38 @@
     "freeze": 520,
     "warp": [
      "room 0x10b",
+     "inv default",
+     "god"
+    ]
+   }
+  },
+  {
+   "name": "r102",
+   "title": "r102 (room start, inside; Filter00 contrast x1.26)",
+   "base": "route",
+   "seconds": 50,
+   "gc": "r102.png",
+   "approx": "GC: Dolphin debug room start (ow-r102-start, filter00 study 2026-10-11); DC: the room's default start",
+   "dc": {
+    "freeze": 520,
+    "warp": [
+     "room 0x102",
+     "inv default",
+     "god"
+    ]
+   }
+  },
+  {
+   "name": "r103",
+   "title": "r103 (room start; Filter00 on)",
+   "base": "route",
+   "seconds": 50,
+   "gc": "r103.png",
+   "approx": "GC: Dolphin debug room start (ow-r103-start, dump 1900); DC: the room's default start",
+   "dc": {
+    "freeze": 520,
+    "warp": [
+     "room 0x103",
      "inv default",
      "god"
     ]

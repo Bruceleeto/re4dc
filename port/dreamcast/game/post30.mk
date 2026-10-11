@@ -8,6 +8,13 @@
 #                later translucent parts and the UI quads (the HUD, OT 0x13..0x15) are not. No texture, no VRAM.
 #   POST_F00=4   the same plus the bias: gain, invert, add h, invert = max(0, g d - h) (four quads), the exact
 #                flat-field curve above its knee (near-black stays black).
+#   FILTER00_DC=1  the GameCube Filter00 per room, Dreamcast native (2026-10-11): POST_F00=1's one full-screen gain quad
+#                (=4: POST_F00=4's four quads with the bias knee; the Dolphin on/off pairs fit the gain within
+#                0.2..0.5 of 255 of the knee, the GameCube bias is 2..9 % of white, so =1 is the candidate at a
+#                quarter of the PVR fill) driven by the room's own LightEnv blur / contrast (cLightMgr::setBlur), so only the rooms whose
+#                GameCube data turns Filter00 on get it (r101 r102 r103 r104 r105 r107 r10b; not r100 r106 r10a ...).
+#                No frame copy: the contrast acts per pixel (no half-size glow blur), blur types 0 / 1 (feedback
+#                ghosting) are not drawn. With LOOK_TOGGLE it is on in presets B and C only. Excludes POST_F00.
 #   POST_F00_DIAG=1  test builds: log per 600 frames how many UI quads were queued before the post (drawn after it,
 #                unlike the GameCube) and how many opaque packets followed it (drawn before it on the PVR).
 #   PVR_DITHER=1 assert the RGB565 write-out dither (FB_W_CTRL bit 3) after vid_set_mode and log the register.
@@ -42,7 +49,12 @@
 #                PACE page; DBG_WARP's `look <n>` sets one at load and `lookosd` keeps the label shown. Needs
 #                EFFECT_PS2_TOGGLE=1 (the same chord and the VMU label slot; a preset also sets the effect look). The
 #                draw distance stays the build's FOG_FAR (build FOG_FAR=45000 FOG_FAR_CAP=1 for a farther disc).
+#                User decision 2026-10-11: three presets, A: Current (boot), B: GameCube (GD fog + GM colour match +
+#                FILTER00_DC + the CG character bake, CHARBAKE_TOGGLE), C: GameCube scenery (B with today's
+#                characters); needs FILTER00_DC=1 (or 4). LOOK_TOGGLE_ALL=1 (test builds) restores the 11 study presets.
 POST_F00 ?= 0
+FILTER00_DC ?= 0
+LOOK_TOGGLE_ALL ?= 0
 POST_F00_DIAG ?= 0
 LOOK_TOGGLE ?= 0
 PVR_DITHER ?= 0
@@ -68,6 +80,25 @@ endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_EFFECT_PS2_TOGGLE=1
 # Issue #11: the scaler write waits for an idle PVR (KOS pvr_state.render_busy, pvr_internal.h).
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr
+endif
+ifneq ($(filter-out 0 1 4,$(FILTER00_DC))$(filter-out 0 1,$(LOOK_TOGGLE_ALL)),)
+$(error FILTER00_DC is 0, 1 or 4, LOOK_TOGGLE_ALL 0 or 1)
+endif
+ifneq ($(FILTER00_DC),0)
+ifneq ($(POST_F00),0)
+$(error FILTER00_DC is POST_F00 per room: leave POST_F00 at 0)
+endif
+ifneq ($(D349_RENDERER_STACK),1)
+$(error FILTER00_DC needs D349_RENDERER_STACK=1 (the deferred translucent queue))
+endif
+endif
+ifeq ($(LOOK_TOGGLE)$(LOOK_TOGGLE_ALL)$(FILTER00_DC),100)
+$(error LOOK_TOGGLE=1: presets B / C draw Filter00, build FILTER00_DC=1 (or LOOK_TOGGLE_ALL=1 for the 11 study presets))
+endif
+ifeq ($(LOOK_TOGGLE_ALL),1)
+ifneq ($(LOOK_TOGGLE),1)
+$(error LOOK_TOGGLE_ALL=1 needs LOOK_TOGGLE=1)
+endif
 endif
 ifneq ($(filter-out 0 1,$(LOOK_TOGGLE)),)
 $(error LOOK_TOGGLE is 0 or 1)
@@ -95,7 +126,13 @@ endif
 .PHONY: post30-force
 $(OBJDIR)/post30.h: post30-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_POST_F00 %s\n#define RE4DC_POST_F00_DIAG %s\n#define RE4DC_PVR_DITHER %s\n' '$(POST_F00)' '$(POST_F00_DIAG)' '$(PVR_DITHER)' > $@.tmp
+	@printf '#define RE4DC_POST_F00 %s\n#define RE4DC_POST_F00_DIAG %s\n#define RE4DC_PVR_DITHER %s\n' '$(if $(filter 1 4,$(FILTER00_DC)),$(FILTER00_DC),$(POST_F00))' '$(POST_F00_DIAG)' '$(PVR_DITHER)' > $@.tmp
+ifneq ($(FILTER00_DC),0)
+	@printf '#define RE4DC_FILTER00_DC 1\n' >> $@.tmp
+endif
+ifeq ($(LOOK_TOGGLE_ALL),1)
+	@printf '#define RE4DC_LOOK_TOGGLE_ALL 1\n' >> $@.tmp
+endif
 ifneq ($(FOG_CURVE),0)
 	@printf '#define RE4DC_FOG_CURVE %s\n#define RE4DC_FOG_CAP %s\n' '$(FOG_CURVE)' '$(FOG_CAP)' >> $@.tmp
 endif
