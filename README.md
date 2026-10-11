@@ -7,13 +7,13 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-combo-e7ae7fc4-20261010)** ·
+**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Decompilation](docs/DECOMPILATION.md)
 
 ## Playing
 
-The latest console test is build `e7ae7fc4`. The desktop packages below are the earlier r22j build.
+The latest console test is build `c29c4bf5`. The desktop packages below are the earlier r22j build.
 Extract the complete package for your system:
 
 | System | Download | Launch |
@@ -21,9 +21,9 @@ Extract the complete package for your system:
 | Windows (r22j) | [RE4DC-r22j.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j.zip) | Double-click `Play-r22j.cmd`. Includes Flycast and keyboard/DualSense support. |
 | Steam Deck / SteamOS (r22j) | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
 | CachyOS / Arch (r22j) | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
-| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-combo-e7ae7fc4-20261010/RE4DC-Console-Test-e7ae7fc4-20261010-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
+| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-combo-e7ae7fc4-20261010/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-combo-e7ae7fc4-20261010) · [r22j desktop checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/SHA256SUMS.txt)
+[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011) · [r22j desktop checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/SHA256SUMS.txt)
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For an r22j emulator package, open `disc/disc.cue` and keep its `disc.bin` beside it.
@@ -45,19 +45,19 @@ Fast pacing is the default. A VMU in controller slot 1 shows FPS, game speed, CP
 
 ## Status and limitations
 
-**Console test `e7ae7fc4`, October 11, 2026:** the game plays to the end of chapter two, part one
+**Console test `c29c4bf5`, October 11, 2026:** the game plays to the end of chapter two, part one
 (the lake and the boat ride, the wolves, the El Gigante fight, finding Ashley and the chapter results),
 up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
-* Music and voices rebuilt to remove crackling and clipping.
-* The lake is drawn as dark water, as on the PS2.
-* A recovery for the bridge door freeze: if the graphics chip stops on a frame, the game resets it and
-  carries on. Waiting for console confirmation.
-* Leon now uses the PS2 version's model, which looks closer to the GameCube and draws faster.
-* Look options in testing: GameCube style fog, colour and character shading, switched while you play
-  (hold X, press START).
+* PS2 models for Leon in both outfits, the villagers, El Gigante and the lake monster.
+* Look test: two options, Current and GameCube (hold X, press START). Please vote in the
+  [look test issue](https://github.com/lamb2k/re4dc/issues/22).
+* Soft shadows and blended ground layers instead of solid black shapes.
+* The bridge door freeze is fixed, confirmed on a real console.
+* Music and voices rebuilt to remove crackling and clipping; the chapter results music is back.
+* Error screens show more detail for bug reports.
 
 Known issues:
 
