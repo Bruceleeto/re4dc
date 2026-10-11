@@ -703,6 +703,30 @@ endif
 COARSE_GANADO_SRC := coarse_ganado_cast.cpp $(COARSE_ACTOR_ASSET_DIR)/ganado_cast_runtime.h
 $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_COARSE_GANADO_CAST=$(COARSE_GANADO_CAST)
 endif
+# PS2_GANADO=1 (lane ps2cast-all, 2026-10-10; render only; default 0: nothing changes): the cast Ganados draw Capcom's
+#              PS2 meshes (tools/ps2_cast.py: PS2 geometry + weights bound to the unchanged GC skeleton, the GC source
+#              signatures kept) instead of the external cast's v4-fit reductions of the GC models. PS2_GANADO_DIR is a
+#              private dir (no spaces) holding only a cast_bundle.py ganado_cast_runtime.h of the same appearances;
+#              it is searched (-iquote) before every -I dir for coarse_ganado.o, every other asset stays the play
+#              bundle's. Skeleton, motions, collision, gore (stump / hand-pose rules) and the owner path are unchanged.
+#              Each PS2 appearance has its own atlas: stage the bundle's tex/*.re4tex (dc/tex/<c>/<crc>-<fnv>.re4tex).
+PS2_GANADO ?= 0
+ifneq ($(PS2_GANADO),0)
+ifneq ($(PS2_GANADO),1)
+$(error PS2_GANADO must be 0 or 1)
+endif
+ifneq ($(COARSE_GANADO_CAST),1)
+$(error PS2_GANADO needs COARSE_GANADO_CAST=1)
+endif
+ifndef PS2_GANADO_DIR
+$(error PS2_GANADO needs PS2_GANADO_DIR (the PS2 ganado_cast_runtime.h))
+endif
+ifneq ($(words $(PS2_GANADO_DIR)),1)
+$(error PS2_GANADO_DIR must not contain spaces)
+endif
+$(OBJDIR)/coarse_ganado.o: $(PS2_GANADO_DIR)/ganado_cast_runtime.h
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -iquote $(PS2_GANADO_DIR)
+endif
 # COARSE_PREGATE=1 (needs COARSE_GANADO_CAST; render only): an actor-level cull ahead of the cast Ganado adapter's
 #                  skin work (coarse_ganado_cast.cpp): a visible chunk whose every drawable position is provably
 #                  outside one of the actor path's culling planes (a screen edge or far) is skipped before its

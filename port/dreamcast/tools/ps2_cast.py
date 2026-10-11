@@ -71,6 +71,10 @@ PRESETS = {
     'ganado-em17-0c': _ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]),
     'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
                            tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
+    # non-Ganado models for NATIVE_MODEL_REGISTRY packs (ps2_cast.py regcast; lane ps2cast-all): src/em2b em2b.cpp
+    # type 0 (TYPE_A) modelInit(ARC 5, ARC 7) + ModInfoMgr.create(ARC 6, ARC 7): body + head, one 64-bone skeleton
+    'gigante-em2b-00': dict(archive='em2b', sections=[(5, 'body'), (6, 'head')], tpl=7, rooms=['r119'], types=[0],
+                            category='boss', model_id=0x2b, shift=2),
 }
 
 
@@ -253,7 +257,7 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                            alpha_raw=sorted(st['alpha_raw_hist'])))
     sections, used = [], []
     for si, (arc, role) in enumerate(spec['sections']):
-        assert role == ROLES[si]
+        assert spec['category'] != 'human' or role == ROLES[si]
         pbin = ps2_entry(ps2, arc, 'BIN')
         gbin = gc_entry(gc, arc, 'BIN')
         m = pb.parse_bin(pbin)
@@ -413,6 +417,30 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     native = out / 'native'
     if native.exists():
         shutil.rmtree(native)
+    # The packer stores positions as s16 at 1/16 mm (+-2048 mm). A larger model (spec 'shift', the GC BIN's own
+    # position shift: El Gigante 2) packs positions / 2^(4 - shift) (normals, weights and binds unchanged) and its
+    # registry descriptor carries the shift (NATIVE_MODEL_REGISTRY_SHIFT); mesh.json keeps millimetres.
+    shift = spec.get('shift', 4)
+    val['position_shift'] = shift
+    # flat_normals (PS2CAST_FLAT_NORMALS=1, Ganado cast bundles only): every packed corner normal is one constant
+    # vector, so each chunk keeps a single normal and records merge on (position, uv). The cast Ganados draw unlit in
+    # the play recipe (ACTOR_GANADO_SOURCE_LIGHT=0: a constant-colour SourceLighting, normals never read), so the image
+    # is unchanged while the static data shrinks (the s30 heap-4 gate). A lit-Ganado image needs the normal bundle.
+    flat = os.environ.get('PS2CAST_FLAT_NORMALS') == '1'
+    val['flat_normals'] = flat
+    if flat and spec['category'] != 'human':
+        raise ValueError('PS2CAST_FLAT_NORMALS is for the unlit Ganado cast only')
+    if shift != 4 or flat:
+        pm = dict(mesh)
+        if shift != 4:
+            pm['positions_mm'] = [[x / (1 << (4 - shift)) for x in p] for p in positions]
+            pm['policy'] += f' Positions / {1 << (4 - shift)} for the s16 range (drawn at shift {shift}).'
+        if flat:
+            pm['triangles'] = [dict(t, corners=[dict(c, normal=[0.0, 1.0, 0.0]) for c in t['corners']]) for t in triangles]
+            pm['policy'] += ' Normals flattened to one constant vector (unlit cast; PS2CAST_FLAT_NORMALS=1).'
+        mpk = out / 'mesh-pack.json'
+        mpk.write_text(json.dumps(pm))
+        mp = mpk
     pk.pack(mp, sp, native, 'castmodel')
     host_fixture(native, source)
     report = json.loads((native / 'native-report.json').read_text())
@@ -525,7 +553,7 @@ def finish(out):
                  palette_runs=s['palette_runs'], meshlets=s['meshlets'], skin_stream_bytes=skin_bytes)
     man = dict(name=preset, revision='ps2-v1', source=dict(name=preset, archive=spec['archive'], rooms=spec['rooms'], types=spec['types'],
                sections=[dict(bin=a, tpl=spec['tpl'], role=r) for a, r in spec['sections']]),
-               status='PS2 conversion; needs user look review', bones=34, sections=4,
+               status='PS2 conversion; needs user look review', bones=val['sections'][0]['bones'], sections=len(val['sections']),
                source_palette_sum=sum(x['gc_palettes'] for x in val['sections']),
                ps2_palette_sum=sum(x['ps2_palettes'] for x in val['sections']),
                levels=dict(conservative=level, lean=level),
@@ -579,21 +607,86 @@ def castdir(cast, outs, hand_arcs=range(0x1c0, 0x1c9)):
     print('cast dir', cast, sorted(revs))
 
 
+def to_wsl(p):
+    s = str(p).replace('\\', '/')
+    m = re.match(r'^//wsl\.localhost/[^/]+(/.*)$', s)
+    if m:
+        return m.group(1)
+    m = re.match(r'^([A-Za-z]):(/.*)$', s)
+    return f'/mnt/{m.group(1).lower()}{m.group(2)}' if m else s
+
+
+def regcast(cast, overlay, outs):
+    """A cast dir in the external cast's registry layout for tools/d367/model_registry.py (NATIVE_MODEL_REGISTRY):
+    <cast>/<overlay>/integration-bundle/catalog.json, <cast>/<name>/{manifest,source,source-bindings}.json,
+    <cast>/<name>/ps2-v1/{revision-manifest.json, header, texture}, <cast>/source/{candidate-revisions,
+    archive-audit}.json. Paths inside are WSL paths (the generator runs in WSL). One atlas per model: every chunk
+    (source_info) binds the same package. em12 joins archive-audit.json for the generator's self-check."""
+    cast.mkdir(parents=True, exist_ok=True)
+    (cast / 'source').mkdir(exist_ok=True)
+    ib = cast / overlay / 'integration-bundle'
+    ib.mkdir(parents=True, exist_ok=True)
+    base_audit = json.loads((PRIV / 'cast-20260925' / 'source' / 'archive-audit.json').read_text())
+    audit = {'em12': {k: base_audit['em12'][k] for k in ('source', 'sha256')}}
+    catalog, revs = [], {}
+    for o in outs:
+        man = json.loads((o / 'manifest.json').read_text())
+        val = json.loads((o / 'validation.json').read_text())
+        name, preset = man['name'], val['preset']
+        spec = PRESETS[preset]
+        d = cast / name
+        if d.exists():
+            shutil.rmtree(d)
+        (d / 'ps2-v1' / 'texture').mkdir(parents=True)
+        hdr = d / 'ps2-v1' / 'castmodel_runtime.h'
+        shutil.copy2(o / 'runtime' / 'castmodel_runtime.h', hdr)
+        tp = man['texture_package']
+        pkg = d / 'ps2-v1' / 'texture' / Path(tp['package']).name
+        shutil.copy2(o / tp['package'], pkg)
+        fmt = 'VQ RGB565' if 'VQ' in tp['format'] else tp['format']
+        tex = dict(key=tp['key'], package=to_wsl(pkg), package_sha256=tp['package_sha256'], format=fmt,
+                   rectangle=[0, 0, tp['width'], tp['height']], vram_bytes=tp['vram_bytes'])
+        level = dict(runtime_header=f'{name}/ps2-v1/castmodel_runtime.h', header_sha256=sha(hdr.read_bytes()))
+        packages = {str(i): tex for i in range(man['sections'])}
+        entry = dict(name=name, revision='ps2-v1', previous_revision=None, rooms=spec['rooms'], category=spec['category'],
+                     levels=dict(conservative=level), texture_packages=packages, position_shift=val.get('position_shift', 4),
+                     status='PS2 conversion (ps2_cast.py); render-only replacement of the GC source mesh')
+        catalog.append(entry)
+        (d / 'ps2-v1' / 'revision-manifest.json').write_text(json.dumps(dict(entry, levels=dict(conservative=level)), indent=1))
+        (d / 'manifest.json').write_text(json.dumps(dict(name=name, revision='ps2-v1'), indent=1))
+        shutil.copy2(o / 'source-bindings.json', d / 'source-bindings.json')
+        src = json.loads((o / 'source.json').read_text())
+        src['source_model_id'] = spec['model_id']
+        (d / 'source.json').write_text(json.dumps(src))
+        gin = val['inputs']['gc']
+        assert sha(Path(gin['cache']).read_bytes()) == gin['sha256'], 'GC archive cache changed'
+        audit[spec['archive']] = dict(source=to_wsl(gin['cache']), sha256=gin['sha256'])
+        revs[name] = dict(revision='ps2-v1', reason='PS2 conversion (ps2_cast.py)')
+    (ib / 'catalog.json').write_text(json.dumps(catalog, indent=1))
+    (cast / 'source' / 'candidate-revisions.json').write_text(json.dumps(revs, indent=1))
+    (cast / 'source' / 'archive-audit.json').write_text(json.dumps(audit, indent=1))
+    print('registry cast dir', cast, sorted(revs))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest='cmd', required=True)
     c = sp.add_parser('convert'); c.add_argument('preset', choices=sorted(PRESETS)); c.add_argument('out', type=Path)
     c.add_argument('--ps2-iso', default=PS2_ISO); c.add_argument('--gc-iso', default=GC_ISO); c.add_argument('--poses')
+    c.add_argument('--bone-tol', type=float, default=0.001)
     f = sp.add_parser('finish'); f.add_argument('out', type=Path)
     d = sp.add_parser('castdir'); d.add_argument('cast', type=Path); d.add_argument('outs', type=Path, nargs='+')
+    r = sp.add_parser('regcast'); r.add_argument('cast', type=Path); r.add_argument('overlay'); r.add_argument('outs', type=Path, nargs='+')
     sp.add_parser('list')
     a = ap.parse_args()
     if a.cmd == 'convert':
-        convert(a.preset, a.out, a.ps2_iso, a.gc_iso, a.poses)
+        convert(a.preset, a.out, a.ps2_iso, a.gc_iso, a.poses, a.bone_tol)
     elif a.cmd == 'finish':
         finish(a.out)
     elif a.cmd == 'castdir':
         castdir(a.cast, a.outs)
+    elif a.cmd == 'regcast':
+        regcast(a.cast, a.overlay, a.outs)
     else:
         for k, v in sorted(PRESETS.items()):
             print(k, v['archive'], [(hex(x), r) for x, r in v['sections']], 'tpl', hex(v['tpl']), v['rooms'])

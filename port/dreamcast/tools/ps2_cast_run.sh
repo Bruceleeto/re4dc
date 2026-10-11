@@ -7,8 +7,10 @@
 # bundle: <store>/bundle-<tag> (tag = BUNDLE_TAG, default the presets joined) via cast_bundle.py.
 set -euo pipefail
 STORE=$1; shift
-TOOLS='//wsl.localhost/Ubuntu-24.04/root/work/lanes/ps2cast/port/dreamcast/tools'
-TOOLS_WSL=/root/work/lanes/ps2cast/port/dreamcast/tools
+# PS2CAST_TREE=<WSL checkout> (default the ps2cast lane tree)
+TREE_WSL=${PS2CAST_TREE:-/root/work/lanes/ps2cast}
+TOOLS="//wsl.localhost/Ubuntu-24.04$TREE_WSL/port/dreamcast/tools"
+TOOLS_WSL=$TREE_WSL/port/dreamcast/tools
 CAST=${CAST_POSES:-C:/Game Dev/Emulators/re4-assets-private/cast-20260925}
 CB=${CAST_BUNDLE:-/root/probe/d367-agents/coarse-actors-4k/tools/cast_bundle.py}
 to_wsl() { echo "$1" | sed -E 's#^([A-Za-z]):#/mnt/\L\1#; s#\\#/#g'; }
@@ -16,7 +18,8 @@ outs=()
 for p in "$@"; do
   o="$STORE/$p"
   poses="$CAST/$p/pose-samples.json"; [ -f "$poses" ] || poses="$CAST/ganado-em15-00/pose-samples.json"
-  python "$TOOLS/ps2_cast.py" convert "$p" "$o" --poses "$poses"
+  tol=0.001; [ "$p" = ganado-em15-0b ] && tol=${PS2CAST_TOL_0B:-2.1}   # head rest 2.0 mm off the GC (lane doc)
+  python "$TOOLS/ps2_cast.py" convert "$p" "$o" --poses "$poses" --bone-tol "$tol"
   MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash "$TOOLS_WSL/ps2_cast_native.sh" "$(to_wsl "$o")"
   python "$TOOLS/ps2_cast.py" finish "$o"
   outs+=("$o")

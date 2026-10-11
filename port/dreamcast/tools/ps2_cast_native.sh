@@ -17,9 +17,20 @@ PVRTEX=${PVRTEX:-/root/work/kos-re4dc-d336/utils/pvrtex/pvrtex}
 N="$O/native"
 mkdir -p "$H/host/dc"
 [ -f "$H/host/dc/pvr.h" ] || cp /root/probe/d367-agents/actors30/test/host/dc/pvr.h "$H/host/dc/pvr.h"
+# PS2CAST_HOST_WORKSPACE_KB=<n> (default 96, the cast test's own): the check's actor workspace. A boss-size chunk
+# (El Gigante's 3,046-triangle body, a 54 KiB GX list) does not convert in 96 KiB. The game never converts these
+# chunks at run time (they ship as prebuilt blobs), so a larger host workspace only lets the check run and write its
+# reference blobs.
+KB=${PS2CAST_HOST_WORKSPACE_KB:-96}
+TEST="$CT/test_cast_dynamic.cpp"
+if [ "$KB" != 96 ]; then
+  TEST="$H/test_cast_dynamic-ws$KB.cpp"
+  sed "s#workspace(96\*1024)#workspace($KB*1024)#" "$CT/test_cast_dynamic.cpp" > "$TEST"
+  grep -q "workspace($KB\*1024)" "$TEST" || { echo "host workspace patch failed"; exit 1; }
+fi
 # the check binary is rebuilt whenever the runtime sources or the test change (stamp = their sha256)
 STAMP=$(cat "$T/port/dreamcast/game/platform/native_actor_fast.cpp" "$T/port/dreamcast/room/pvr_geometry.cpp" \
-        "$T/port/dreamcast/room/source_lighting.cpp" "$CT/test_cast_dynamic.cpp" | sha256sum | cut -c1-16)
+        "$T/port/dreamcast/room/source_lighting.cpp" "$TEST" | sha256sum | cut -c1-16)
 if [ ! -x "$H/check-$STAMP" ]; then
   FLAGS=(-O1 -g -std=gnu++20 -DRE4DC_ACTOR_TEST -DRE4DC_D349_RENDERER_STACK=1 -DRE4DC_NATIVE_ACTOR_SKIN=1
          -DRE4DC_NATIVE_ACTOR_SKIN_LAZY=1 -DRE4DC_ACTOR_LOD_BUDGET=0 -I"$H/host" -I"$T/port/dreamcast/game/platform/include"
@@ -28,9 +39,9 @@ if [ ! -x "$H/check-$STAMP" ]; then
   for s in game/platform/native_actor_fast.cpp room/pvr_geometry.cpp room/source_lighting.cpp; do
     g++ "${FLAGS[@]}" -c "$T/port/dreamcast/$s" -o "$H/$(basename "$s")-$STAMP.o"; objs+=("$H/$(basename "$s")-$STAMP.o")
   done
-  g++ "${FLAGS[@]}" "$CT/test_cast_dynamic.cpp" "${objs[@]}" -o "$H/check-$STAMP"
+  g++ "${FLAGS[@]}" -I"$CT" "$TEST" "${objs[@]}" -o "$H/check-$STAMP"
 fi
-echo "host check $H/check-$STAMP (tree $(git -C "$T" rev-parse --short HEAD))"
+echo "host check $H/check-$STAMP (tree $(git -C "$T" rev-parse --short HEAD), workspace $KB KiB)"
 "$H/check-$STAMP" "$N" > "$N/host-check.txt"
 cat "$N/host-check.txt"
 rm -rf "$O/fitted" "$O/runtime"; mkdir -p "$O/fitted" "$O/runtime"
