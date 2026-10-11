@@ -1,5 +1,12 @@
 # D367 play build checklist (user, 2026-10-09 current state at top)
 
+## 2026-10-10: GIGANTE_LIGHTS (ROUTE_CH21 block)
+
+No new flag or staged file: ROUTE_CH21=1 now brings GIGANTE_LIGHTS=1 (527a23ad). El Gigante and r119's torch-lit
+trees keep their 3 strongest lights and fold the rest into ambient. Near identical (tree pixels only, mean 0.04 to
+0.07 per channel); r119 boss view 90.1 to 79.0 hw ms, quiet view 92.4 to 59.0. Logic STRICT (H2, bell, r119 fight).
+Check: r119 trees and the giant lit by the torches as before. Lane notes: docs/lanes/route.md "GIGANTE_LIGHTS".
+
 ## 2026-10-10: r117 (ROUTE_CH21 discs)
 
 Stage the following:

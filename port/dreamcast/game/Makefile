@@ -324,7 +324,12 @@ endif
 # per-vertex path (native_actor_fast.cpp build_lights). =2 keeps two. GIGANTE_LIGHTS_TREES=1 (the default when
 # GIGANTE_LIGHTS is on) also folds r119's cEmTree (0x49): on the boss view the exact cost is the trees, not the giant
 # (whose parts already fold), so GIGANTE_LIGHTS_TREES=0 leaves the image and the cost as GIGANTE_LIGHTS=0.
+# Default 1 with ROUTE_CH21=1 (adopted 2026-10-10: near identical, r119 boss view -11 hw ms, quiet view -33).
+ifeq ($(ROUTE_CH21),1)
+GIGANTE_LIGHTS ?= 1
+else
 GIGANTE_LIGHTS ?= 0
+endif
 GIGANTE_LIGHTS_TREES ?= 1
 ifneq ($(GIGANTE_LIGHTS),0)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GIGANTE_LIGHTS=$(GIGANTE_LIGHTS) -DRE4DC_GIGANTE_LIGHTS_TREES=$(GIGANTE_LIGHTS_TREES)
