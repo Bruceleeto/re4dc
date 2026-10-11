@@ -4941,7 +4941,7 @@ extern "C" int re4dc_subscreen_line(const Re4dcSubscreenQuad*,unsigned){return 0
 #error POST_F00: 1 (one gain quad) or 4 (gain and bias, four quads)
 #endif
 #if defined(RE4DC_FILTER00_DC) && defined(RE4DC_LOOK_TOGGLE)
-extern "C" int re4dc_look_filter00(void);  // native_static.cpp: the look preset's Filter00 switch (B / C)
+extern "C" int re4dc_look_filter00(void);  // native_static.cpp: the look preset's Filter00 switch (B)
 #endif
 namespace {
 // POST_F00 (post30.mk): Filter00's look as full-screen translucent quads blended in the PVR's 8-bit tile buffer,
@@ -5016,7 +5016,7 @@ extern "C" void re4dc_post_filter00(unsigned char rate,unsigned char type,signed
     }
     if(!frame_ready || stream_aborted || draining_parts)return;
 #if defined(RE4DC_FILTER00_DC) && defined(RE4DC_LOOK_TOGGLE)
-    if(!re4dc_look_filter00()){++post_skipped;return;}   // FILTER00_DC + LOOK_TOGGLE: presets B / C only
+    if(!re4dc_look_filter00()){++post_skipped;return;}   // FILTER00_DC + LOOK_TOGGLE: preset B only
 #endif
     if(!post_c && !post_h){++post_skipped;return;}
 #if RE4DC_POST_F00_DIAG

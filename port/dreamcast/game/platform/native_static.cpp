@@ -185,8 +185,8 @@ static volatile unsigned ps2_mask_select=1U+RE4DC_PS2_PASS_MASK_SELECT;
 // filter: 0 as KOS set it at boot, 1 forced on = VSCALE 1025, 2 forced off = 1024), f00 (FILTER00_DC: 1 = the room's
 // own GameCube Filter00 contrast, native_ui.cpp re4dc_post_filter00), chr (CHARBAKE_TOGGLE: charbake_variants.h row,
 // 0 = the play textures), VMU label, on-screen text.
-// User decision 2026-10-11: three presets, A (boot) = today's look, B = GameCube (GD fog + GM colour match +
-// FILTER00_DC + the CG character bake), C = B with today's characters. LOOK_TOGGLE_ALL=1 (test builds) keeps the
+// User decision 2026-10-11 (test 7): two presets, A (boot) = today's look, B = GameCube (GD fog + GM colour match +
+// FILTER00_DC, today's character textures; the CG character bake preset was dropped). LOOK_TOGGLE_ALL=1 (test builds) keeps the
 // look study's 11 instead (disc 3 order: GD GM GS GA DC GX CA CS CG CV CQ).
 struct Re4dcLook { unsigned char curve,cap,rgb,sky,fx,grade,soft,f00,chr; char label[3]; const char* text; };
 static const Re4dcLook re4dc_looks[]={
@@ -207,8 +207,7 @@ static const Re4dcLook re4dc_looks[]={
 #endif
 #else
     {0,100,100,0,7,0,0,0,0,"A","A: Current"},                   // the play build's look (as the knobs-off image)
-    {1,100, 70,1,7,1,0,1,3,"B","B: GameCube"},                  // GD fog + GM colour match + Filter00 + CG characters
-    {1,100, 70,1,7,1,0,1,0,"C","C: GameCube scenery"},          // B with today's characters
+    {1,100, 70,1,7,1,0,1,0,"B","B: GameCube"},                  // GD fog + GM colour match + Filter00, today's characters
 #endif
 };
 constexpr unsigned kLooks=sizeof(re4dc_looks)/sizeof(re4dc_looks[0]);

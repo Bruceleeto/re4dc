@@ -14,7 +14,7 @@
 #                quarter of the PVR fill) driven by the room's own LightEnv blur / contrast (cLightMgr::setBlur), so only the rooms whose
 #                GameCube data turns Filter00 on get it (r101 r102 r103 r104 r105 r107 r10b; not r100 r106 r10a ...).
 #                No frame copy: the contrast acts per pixel (no half-size glow blur), blur types 0 / 1 (feedback
-#                ghosting) are not drawn. With LOOK_TOGGLE it is on in presets B and C only. Excludes POST_F00.
+#                ghosting) are not drawn. With LOOK_TOGGLE it is on in preset B only. Excludes POST_F00.
 #   POST_F00_DIAG=1  test builds: log per 600 frames how many UI quads were queued before the post (drawn after it,
 #                unlike the GameCube) and how many opaque packets followed it (drawn before it on the PVR).
 #   PVR_DITHER=1 assert the RGB565 write-out dither (FB_W_CTRL bit 3) after vid_set_mode and log the register.
@@ -49,9 +49,9 @@
 #                PACE page; DBG_WARP's `look <n>` sets one at load and `lookosd` keeps the label shown. Needs
 #                EFFECT_PS2_TOGGLE=1 (the same chord and the VMU label slot; a preset also sets the effect look). The
 #                draw distance stays the build's FOG_FAR (build FOG_FAR=45000 FOG_FAR_CAP=1 for a farther disc).
-#                User decision 2026-10-11: three presets, A: Current (boot), B: GameCube (GD fog + GM colour match +
-#                FILTER00_DC + the CG character bake, CHARBAKE_TOGGLE), C: GameCube scenery (B with today's
-#                characters); needs FILTER00_DC=1 (or 4). LOOK_TOGGLE_ALL=1 (test builds) restores the 11 study presets.
+#                User decision 2026-10-11 (test 7): two presets, A: Current (boot), B: GameCube (GD fog + GM colour
+#                match + FILTER00_DC, today's character textures; the CG character bake preset was dropped); needs
+#                FILTER00_DC=1 (or 4). LOOK_TOGGLE_ALL=1 (test builds) restores the 11 study presets.
 POST_F00 ?= 0
 FILTER00_DC ?= 0
 LOOK_TOGGLE_ALL ?= 0
@@ -93,7 +93,7 @@ $(error FILTER00_DC needs D349_RENDERER_STACK=1 (the deferred translucent queue)
 endif
 endif
 ifeq ($(LOOK_TOGGLE)$(LOOK_TOGGLE_ALL)$(FILTER00_DC),100)
-$(error LOOK_TOGGLE=1: presets B / C draw Filter00, build FILTER00_DC=1 (or LOOK_TOGGLE_ALL=1 for the 11 study presets))
+$(error LOOK_TOGGLE=1: preset B draws Filter00, build FILTER00_DC=1 (or LOOK_TOGGLE_ALL=1 for the 11 study presets))
 endif
 ifeq ($(LOOK_TOGGLE_ALL),1)
 ifneq ($(LOOK_TOGGLE),1)
