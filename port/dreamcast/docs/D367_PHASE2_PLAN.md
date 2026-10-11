@@ -12,6 +12,11 @@ Goal: PS2-based look with Dreamcast-native strengths, faster frames, route to ch
 
 Every lane is coupled through heap 4: any image size change shifts the em10 parts alloc (H2 frame 660) and r10b streaming, so each landing forces an `IMAGE_PAD_BYTES` recompute and re-gates the others. **Land the fixed parts reservation** (heap 4 slab for em10 parts, sized from the worst case) so image growth no longer changes gameplay. Full tier gates (memory trigger). After it, lanes are independent.
 
+**Decision 2026-10-11:** the GameCube spawns both em10 at H2 frame 660 (its parts array is allocated up front);
+the port fails both (on-demand parts chunks in heap 4). Step 0 will match the GameCube: a fixed reservation so both
+always spawn, then the H2 control is re-recorded. It needs about 50 KB of heap 4, so it runs after wave 2 frees memory
+with the PS2 room objects. Until then the coordinator recomputes IMAGE_PAD_BYTES per test build.
+
 ## Ownership rules (prevent collisions)
 
 | Shared thing | Single owner |
@@ -38,9 +43,9 @@ Kept as is: GameCube Ashley (PS2 skeleton does not bind). Out of scope: glow via
 
 | Wave | Agent 1 | Agent 2 | Ships in |
 |---|---|---|---|
-| 1 | D0 fixed parts reservation, then D1 | A1 lit villagers, A2 mipmaps + palettes | test 8 (+ animals, wolf) |
+| 1 | D1 crash screen task detail, then D2 music | A1 lit villagers, A2 mipmaps + palettes | test 8 (+ animals, wolf) |
 | 2 | B1 objects, B2 r118 | A3 crow, then C1 vertex DMA | test 9 |
-| 3 | D3 chapter 2-2, D2 music | C2 shadows, C3 bump | test 10 → **r24** |
+| 3 | D0 reservation (match GameCube), then D3 chapter 2-2 | C2 shadows, C3 bump | test 10 → **r24** |
 
 A lane that finishes early takes the next item in its own column; no lane starts work owned by another.
 
