@@ -503,6 +503,22 @@ PVR_READY_STRICT ?= 0
 # next vblank, its frame dropped; a scene whose list-done events never all arrive gets them (TA reset first after a
 # TA error). Stop screen after 8 recoveries in a row. platform/native_ui.cpp namespace pvr_recover.
 PVR_RECOVER ?= 0
+# UI_OS=1 (issue 9 i9d, default = PVR_RECOVER, so 0: no effect): platform/native_ui.o at -Os instead of GAME_OPT
+# (-O1): 9.6 KB less .text. With LINK_TIGHT image growth costs heap 4 byte for byte (in 4 KiB arena-fit steps), and
+# latch v2 + PVR_READY_STRICT + PVR_RECOVER add 6.7 KB, which took one 8 KB step of the r100 s30 movie's heap_before;
+# with UI_OS the knobs-on image ends below the knobs-off one. Render-side code only (the logic trace is unchanged).
+UI_OS ?= $(PVR_RECOVER)
+# PVR_MID_FENCE=1 (issue 9 i9d, default = PVR_RECOVER; needs PVR_PIPELINE): the last PVR writes that could land while
+# a queued render runs wait for it first (present_fence): the NATIVE_MES glyph palette banks (pvr_set_pal_entry),
+# glyph cell texel loads and the LOOK_TOGGLE label texture. Render-only; Flycast renders at once, so the fences
+# are free there.
+PVR_MID_FENCE ?= $(PVR_RECOVER)
+# TA_HEADROOM=n (issue 9 i9d, default 0: no effect; needs PVR_STREAM): n more object-pointer overflow blocks per TA
+# bank (opb_overflow_count TA_OPB_OVERFLOW+n), paid for by a vertex buffer n x the initial OPB size smaller (rounded up
+# to 1 KiB): 640x480, OP 16 + TR 16 + PT 8 words = 48,000 B per step, vertex 2048 -> 2001 KiB for n=1, so the
+# texture pool does not shrink (measured: 2,566,912 -> 2,567,168 B free at init). r109's first scenes (TA_BIN_DIAG) need ~118.6K of the 144K pool in the
+# model, ~136K at the photo-calibrated 0.87 x hardware ratio, and 1.66 MB of vertex buffer.
+TA_HEADROOM ?= 0
 .PHONY: crash-screen-force
 $(OBJDIR)/crash-screen.h: crash-screen-force
 	@mkdir -p $(dir $@)
@@ -1003,6 +1019,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_TEX_KEEP %s\n#define RE4DC_PVR_LATCH %s\n' '$(TEX_KEEP)' '$(PVR_LATCH)' >> $@.tmp
 	@printf '#define RE4DC_MOVIE_WINDOW %s\n' '$(MOVIE_WINDOW)' >> $@.tmp
 	@printf '#define RE4DC_PVR_READY_STRICT %s\n#define RE4DC_PVR_RECOVER %s\n' '$(PVR_READY_STRICT)' '$(PVR_RECOVER)' >> $@.tmp
+	@printf '#define RE4DC_PVR_MID_FENCE %s\n#define RE4DC_TA_HEADROOM %s\n' '$(PVR_MID_FENCE)' '$(TA_HEADROOM)' >> $@.tmp
 	@if [ "$(MOVIE_WINDOW)" = 1 ] && { [ "$(VRAM_PAGES)" != 1 ] || [ "$(TEX_RESIDENT)" != 1 ]; }; then echo 'MOVIE_WINDOW=1 needs VRAM_PAGES=1 TEX_RESIDENT=1' >&2; exit 1; fi
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
@@ -1013,6 +1030,9 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/d
 endif
 ifeq ($(PVR_READY_STRICT),1)
 GAME_LDFLAGS += -Wl,--wrap=pvr_list_begin -Wl,--wrap=pvr_set_presort_mode
+endif
+ifeq ($(UI_OS),1)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -Os
 endif
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -include $(OBJDIR)/pipeline30.h
 $(OBJDIR)/native-reuse/texture_package.o: $(OBJDIR)/pipeline30.h

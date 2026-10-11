@@ -76,6 +76,18 @@
 #ifndef RE4DC_TA_OPB_OVERFLOW
 #define RE4DC_TA_OPB_OVERFLOW 3
 #endif
+#ifndef RE4DC_TA_HEADROOM
+#define RE4DC_TA_HEADROOM 0
+#endif
+#ifndef RE4DC_PVR_MID_FENCE
+#define RE4DC_PVR_MID_FENCE 0
+#endif
+#if RE4DC_TA_HEADROOM
+static unsigned ta_vertex_bytes=RE4DC_TA_VERTBUF_KB*1024U;   // TA_HEADROOM: the vertex buffer pvr_init got
+#define RE4DC_TA_VERTEX_BYTES ta_vertex_bytes
+#else
+#define RE4DC_TA_VERTEX_BYTES (unsigned(RE4DC_TA_VERTBUF_KB)*1024U)
+#endif
 // UI_VRAM=1 (default off = previous image): texture cache budget from the
 // actual PVR pool after pvr_init() minus RE4DC_UI_VRAM_RESERVE_KB (the pool
 // shrinks by 2 MiB per extra MiB of TA_VERTBUF_KB); LRU eviction against the
@@ -1340,8 +1352,26 @@ void scene_end(unsigned fr,bool present){
         if(trtri[t]>maxtr){maxtr=trtri[t];trt=t;}
         if(ent[0][t]>ent[0][opt])opt=t;
     }
+    const unsigned limit=(2*unsigned(RE4DC_TA_OPB_BINS)+blocks_words(4))*4*kTiles*unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM);
+    const unsigned param=scene_param*4;
+    const bool peak=pool>max_pool||param>max_param||maxtr>max_trtile;
+    if(peak){
+        // i9d: the overflow pool this scene needs with other OP / TR block sizes (8, 16, 32 words; PT as built), to
+        // price OPB layouts: a layout fits when op+tr+pt <= (op_n+tr_n+pt_n words) x 4 x 300 x overflow count.
+        unsigned need[2][3]={{0,0,0},{0,0,0}},pt=0;
+        for(unsigned t=0;t<kTiles;++t){
+            for(unsigned k=0;k<3;++k){
+                const unsigned n=8U<<k;
+                for(unsigned j=0;j<2;++j){const unsigned e=ent[j*2][t];if(e+1>n)need[j][k]+=((e+1-(n-1)+(n-2))/(n-1))*n*4;}
+            }
+            const unsigned n4=blocks_words(4),e4=ent[4][t];
+            if(n4 && e4+1>n4)pt+=((e4+1-(n4-1)+(n4-2))/(n4-1))*n4*4;
+        }
+        re4dc_log("tabin alt: f=%u op8=%u op16=%u op32=%u tr8=%u tr16=%u tr32=%u pt%u=%u\n",fr,need[0][0],need[0][1],need[0][2],
+                  need[1][0],need[1][1],need[1][2],blocks_words(4),pt);
+    }
     // Every 30th scene (or a new peak): the attribution of the previous scene's busiest tiles.
-    if(!(scenes%30) && hot_tile!=~0U){
+    if((!(scenes%30) || peak) && hot_tile!=~0U){
         char b[220];int n=snprintf(b,sizeof(b),"tabin hot: tr tile %u,%u",hot_tile%kTw,hot_tile/kTw);
         for(unsigned i=0;i<8 && hot[i].ra && n<int(sizeof(b));++i)
             n+=snprintf(b+n,sizeof(b)-n," %08x:%u/%08x/%08x",unsigned(reinterpret_cast<std::uintptr_t>(hot[i].ra)),hot[i].tris,hot[i].tsp,hot[i].tcw);
@@ -1353,14 +1383,11 @@ void scene_end(unsigned fr,bool present){
     }
     hot_tile=maxtr?trt:~0U;hot_op_tile=ent[0][opt]?opt:~0U;
     std::memset(hot,0,sizeof(hot));std::memset(hot_op,0,sizeof(hot_op));
-    const unsigned limit=(2*unsigned(RE4DC_TA_OPB_BINS)+blocks_words(4))*4*kTiles*unsigned(RE4DC_TA_OPB_OVERFLOW);
-    const unsigned param=scene_param*4;
     ++scenes;
-    const bool peak=pool>max_pool||param>max_param||maxtr>max_trtile;
     max_pool=std::max(max_pool,pool);max_param=std::max(max_param,param);max_trtile=std::max(max_trtile,maxtr);
     re4dc_log("tabin: f=%u p=%d obj=%u/%u/%u ent=%u/%u/%u deep=%u/%u/%u pool=%u/%u param=%u/%u trtile=%u tris=%u short=%u orphan=%u wild=%u mism=%u%s\n",
         fr,present?1:0,objs[0],objs[2],objs[4],total[0],total[2],total[4],maxent[0],maxent[2],maxent[4],pool,limit,param,
-        unsigned(RE4DC_TA_VERTBUF_KB)*1024U,maxtr,tris,shorts,orph,scene_wild,scene_mismatch,peak?" PEAK":"");
+        unsigned(RE4DC_TA_VERTEX_BYTES),maxtr,tris,shorts,orph,scene_wild,scene_mismatch,peak?" PEAK":"");
     std::memset(ent,0,sizeof(ent));std::memset(trtri,0,sizeof(trtri));
     for(auto& s:ls)s=L{};
     scene_param=scene_wild=scene_mismatch=scene_lists_seen=0;
@@ -3011,6 +3038,9 @@ int glyph_bank(const void* clut,unsigned format,unsigned entries){
         if(!glyph_banks[b].valid && free_bank<0)free_bank=int(b);
     }
     if(free_bank<0)return -1;
+#if RE4DC_PVR_MID_FENCE
+    present_fence();   // PVR_MID_FENCE: no palette RAM write while a queued render runs
+#endif
     for(unsigned i=0;i<16;++i)pvr_set_pal_entry(unsigned(free_bank)*16+i,glyph_color((p[2*i]<<8)|p[2*i+1],format));
     glyph_banks[free_bank]={clut,sum,true};
     re4dc_log("native mes: palette bank %d <- tlut %p format %u\n",free_bank,clut,format);
@@ -3062,6 +3092,9 @@ int glyph_cell(const Re4dcUiGlyph& g){
         }
     }
     const unsigned cx=unsigned(victim)&7,cy=(unsigned(victim)>>3)&7,square=unsigned(victim)>>6;
+#if RE4DC_PVR_MID_FENCE
+    present_fence();   // PVR_MID_FENCE: no texel write while a queued render runs (even into an idle cell)
+#endif
     pvr_txr_load(cell,(char*)glyph_atlas+square*32768U+((glyph_twx[cx]|glyph_twy[cy])<<9),sizeof(cell));
     c={g.sheet,g.clut,(short)g.u,(short)g.v,(unsigned char)g.cw,(unsigned char)g.ch,(unsigned char)bank,true,frame};
     glyph_hint[h]=(unsigned char)(victim+1);
@@ -3154,6 +3187,12 @@ extern "C" void re4dc_ui_glyph_fonts_changed(){
     ++glyph_font_changes;
 }
 #endif
+#if RE4DC_TA_HEADROOM && (RE4DC_TA_GUARD || !RE4DC_PVR_STREAM)
+#error TA_HEADROOM needs PVR_STREAM=1 and TA_GUARD=0 (the guard budgets the full TA_VERTBUF_KB)
+#endif
+#if RE4DC_PVR_MID_FENCE && !RE4DC_PVR_PIPELINE
+#error PVR_MID_FENCE waits in present_fence: needs PVR_PIPELINE
+#endif
 extern "C" void re4dc_ui_init(){
     if(ready)return;
     pvr_init_params_t params=pvr_default_params;
@@ -3169,6 +3208,22 @@ extern "C" void re4dc_ui_init(){
     params.opb_sizes[PVR_LIST_PT_POLY]=PVR_BINSIZE_8; // 8 words: half the OPB VRAM of 16
 #endif
     params.opb_overflow_count=RE4DC_TA_OPB_OVERFLOW;
+#if RE4DC_TA_HEADROOM
+    {
+        // TA_HEADROOM=n (issue 9 i9d): n more overflow pools per bank, each the size of the initial object pointer
+        // blocks (KOS pvr_allocate_buffers: opb_total_size x (1 + opb_overflow_count) after the vertex buffer),
+        // paid for by the vertex buffer so the texture pool does not shrink.
+        unsigned words=0;
+        for(unsigned l=0;l<PVR_OPB_COUNT;++l)words+=unsigned(params.opb_sizes[l]);
+        const unsigned step=words*4U*(640U/32U)*(480U/32U),shrink=(step*unsigned(RE4DC_TA_HEADROOM)+1023U)&~1023U;
+        params.opb_overflow_count=RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM;
+        params.vertex_buf_size=RE4DC_TA_VERTBUF_KB*1024-int(shrink);
+        ta_vertex_bytes=unsigned(params.vertex_buf_size);
+        re4dc_log("TA headroom %u: opb overflow %u -> %u (+%u B pool per bank), vertex buffer %u -> %u B per bank\n",
+            unsigned(RE4DC_TA_HEADROOM),unsigned(RE4DC_TA_OPB_OVERFLOW),unsigned(params.opb_overflow_count),
+            step*unsigned(RE4DC_TA_HEADROOM),unsigned(RE4DC_TA_VERTBUF_KB)*1024U,ta_vertex_bytes);
+    }
+#endif
 #endif
     params.autosort_disabled=1; // source OT is the UI blending order
     ready=pvr_init(&params)==0;
@@ -3208,7 +3263,7 @@ extern "C" void re4dc_ui_init(){
 #endif
 #if RE4DC_TA_GUARD || RE4DC_PERF_HUD || RE4DC_TA_VERTBUF_KB!=1024 || RE4DC_TA_DOUBLEBUF || RE4DC_TA_OPB_BINS!=16 || RE4DC_TA_OPB_OVERFLOW!=3
         re4dc_log("native VRAM layout: vertbuf=%u KiB x%u banks (%s) opb_bins=%u overflow=%u texture_pool_free=%u\n",
-            unsigned(RE4DC_TA_VERTBUF_KB),2U,RE4DC_TA_DOUBLEBUF?"double-buffered":"single-bank use",unsigned(RE4DC_TA_OPB_BINS),unsigned(RE4DC_TA_OPB_OVERFLOW),(unsigned)pvr_mem_available());
+            unsigned(RE4DC_TA_VERTEX_BYTES/1024U),2U,RE4DC_TA_DOUBLEBUF?"double-buffered":"single-bank use",unsigned(RE4DC_TA_OPB_BINS),unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM),(unsigned)pvr_mem_available());
 #endif
 #if RE4DC_NATIVE_MES
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
@@ -5022,6 +5077,9 @@ bool osd_texture(const char* text){
     if(text!=osd_loaded){
         static unsigned short buf[kOsdW*kOsdH];
         memset(buf,0,sizeof(buf));bfont_draw_str_ex(buf+4*kOsdW+4,kOsdW,0xFFFFU,0,16,1,text);
+#if RE4DC_PVR_MID_FENCE
+        present_fence();   // PVR_MID_FENCE: the previous frame's render samples this texture
+#endif
         pvr_txr_load(buf,osd_vram,sizeof(buf));osd_loaded=text;
         re4dc_log("look label: '%s' vram=%p frame=%u\n",text,(void*)osd_vram,frame);
     }
