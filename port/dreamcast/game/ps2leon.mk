@@ -35,5 +35,18 @@ ifeq ($(strip $(PS2_LEON_DIR)),)
 $(error PS2_LEON=$(PS2_LEON) needs PS2_LEON_DIR (the private dir with ps2leon_runtime.h and ps2leon_hair_runs.h))
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_LEON=$(PS2_LEON) -I$(PS2_LEON_DIR)
+# PS2_LEON=1 also covers the no-jacket costume (pl08 rooms, ACTOR_PL08=1 ACTOR_PL08_PACK=1; 2026-10-11): pl08's own
+# roles 0, 1, 8 are the PS2 pl08 sections (BIN4 body 2,890 triangles, BIN10 47, BIN16 82; tools/d367/ps2leon/
+# build_arm_a_pl08.py + pack_pl08.py) instead of the GameCube-derived 1,138 / 27 / 94. They load from the package
+# dc/native/pl08/leon_pl08_ps2.re4cp (61,184 B, validated against PS2_LEON_DIR/ps2leon_pl08_pack_identity.inc); the
+# arm's ps2leon_runtime.h carries the matching pl08 plan constants (pack_arm.py --pl08). A disc without that package
+# leaves pl08 on the source path. PS2_LEON=2 keeps today's pl08 body.
+ifeq ($(PS2_LEON)$(ACTOR_PL08),11)
+ifneq ($(ACTOR_PL08_PACK),1)
+$(error PS2_LEON=1 with ACTOR_PL08=1 needs ACTOR_PL08_PACK=1 (the PS2 pl08 body is the package leon_pl08_ps2.re4cp))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_LEON_PL08=1
+$(OBJDIR)/coarse_actor.o: $(PS2_LEON_DIR)/ps2leon_pl08_pack_identity.inc
+endif
 $(OBJDIR)/coarse_actor.o: $(PS2_LEON_DIR)/ps2leon_runtime.h $(PS2_LEON_DIR)/ps2leon_hair_runs.h
 endif

@@ -3,11 +3,13 @@
 # Builds pl08_pack_test.cpp with the target's game/actor_pl08_pack_check.inc and runs: the identity of the package
 # against the compiled frozen arrays, the lifetime scenarios, and every malformed variant (pl08_pack.py variants) with
 # its expected refusal. Exits 1 on any mismatch. The out dir holds converted meshes: keep it private.
+# PL08_TEST_FLAGS=-DRE4DC_PS2_LEON_PL08=1 with <ACTOR_PL08_DIR> = the PS2_LEON=1 arm dir: the PS2 pl08 package
+# (leon_pl08_ps2.re4cp against ps2leon_pl08_pack_identity.inc and the arm dir's slim leon_pl08_runtime.h).
 set -euo pipefail
 PKG=$1; P8=$2; L4=$3; OUT=$4
 HERE=$(cd "$(dirname "$0")" && pwd); GAME=$HERE/../../game
 mkdir -p "$OUT"
-g++ -std=gnu++20 -O1 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all -I"$GAME" -I"$P8" -I"$L4" \
+g++ ${PL08_TEST_FLAGS:-} -std=gnu++20 -O1 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all -I"$GAME" -I"$P8" -I"$L4" \
     "$HERE/pl08_pack_test.cpp" -o "$OUT/pl08_pack_test"
 "$OUT/pl08_pack_test" identity "$PKG"
 "$OUT/pl08_pack_test" life "$PKG" | tail -1

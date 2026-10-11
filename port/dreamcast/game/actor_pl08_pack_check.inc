@@ -23,7 +23,12 @@ struct Pl08PackExpect {
     unsigned layout[10];  // pos, nrm, uv, gx, weights: offset, bytes
     unsigned hash[10];    // the same arrays: CRC32, FNV-1a
 };
+#if defined(RE4DC_PS2_LEON_PL08) && RE4DC_PS2_LEON_PL08
+// ps2leon.mk PS2_LEON=1: the PS2 pl08 package (tools/d367/ps2leon/pack_pl08.py), identity from PS2_LEON_DIR.
+#include "ps2leon_pl08_pack_identity.inc"
+#else
 #include "actor_pl08_pack_identity.inc"
+#endif
 constexpr unsigned kPl08PackHeader=256u,kPl08PackTable=64u,kPl08PackEntry=64u,kPl08PlayerFile=0x5Au,kPl08Bones=119u;
 enum Pl08Why : unsigned {kP8None,kP8Size,kP8Header,kP8Hash,kP8Table,kP8Layout,kP8Array,kP8Weight,kP8Missing,kP8Read,
     kP8Alloc,kP8Preflight,kP8Count};

@@ -3,7 +3,7 @@
 existing tools only: character-prototype pack_coarse_actor.py (native arrays, palettes) and the cl lane's fastpath
 build_blob.py / verify_blob.py / patch_header.py (FE/v3 meshlet blobs), as today's play bundle was made.
 
-  pack_arm.py <mesh.json> <out dir> [--today]
+  pack_arm.py <mesh.json> <out dir> [--today] [--pl08 <leon_pl08_runtime.h>]
 
 Writes <out>/native (pack output), <out>/blob (meshlets), <out>/ps2leon_runtime.h (namespace leon4k, the
 leon4k_runtime.h API: chunks, weights, signatures, bind + the plan constants the PS2_LEON code reads) and
@@ -15,6 +15,10 @@ The signatures and the bind table are today's (the game's GC infos and skeleton 
 --today: the mesh is today's leon-hair-v2 mesh.json; the hair runs' src_uv / material are recovered from the atlas
 UVs (inverse of build_leon_4k.py's tile map) and every array is compared with the play bundle's leon4k_runtime.h and
 leon_hair_runs.h (a check that this pipeline reproduces the play assets).
+
+--pl08 <slim leon_pl08_runtime.h>: pl08's own roles 0, 1, 8 for the pl08 plan constants (2026-10-11: arm A with the PS2
+pl08 body, pack_pl08.py's output). Default: the frozen GameCube-derived pl08 header (ACTOR_PL08_PACK's
+actor_pl08_pack_identity.inc).
 """
 import hashlib, importlib.util, json, re, struct, subprocess, sys, tempfile
 from pathlib import Path
@@ -34,7 +38,7 @@ HAIR_TILE = {'ac381b1a-3ade84b1': 1, '7a9de1fd-0e415f15': 2}
 # 54/60/3/94 at source infos 0, 1, 6 = pl08 roles 0, 1, 8)
 PL08_FROZEN = ls.PRIV / 'architect-review-20261003/tools/supervisor-20261003/native-scene/pl08/leon_pl08_runtime.h'
 ARRAY = re.compile(r'alignas\(32\)\s+static\s+(?:const\s+)?unsigned\s+char\s+(\w+)\[\]\s*=\s*\{([^}]*)\};', re.S)
-WEIGHTS = re.compile(r'static const Weight (\w+)_weights\[\] = \{(.*?)\};', re.S)
+WEIGHTS = re.compile(r'static const (?:leon4k::)?Weight (\w+)_weights\[\] = \{(.*?)\};', re.S)
 
 
 def sha(b):
@@ -185,6 +189,9 @@ def main():
     a = sys.argv[1:]
     today = '--today' in a
     a = [x for x in a if x != '--today']
+    pl08_header = None
+    if '--pl08' in a:
+        k = a.index('--pl08'); pl08_header = Path(a[k + 1]); del a[k:k + 2]
     mesh_path, out = Path(a[0]), Path(a[1])
     out.mkdir(parents=True, exist_ok=True)
     mesh = json.loads(mesh_path.read_text())
@@ -210,10 +217,14 @@ def main():
     skin_shared = sum(group_bytes(rows['i%d' % i]) for i in range(2, 8))
     # pl08's own roles 0, 1, 8 (the frozen pl08 header: i0 / i1 / i6; the ACTOR_PL08_PACK package carries the same
     # tables, actor_pl08_pack_identity.inc): palettes 214, 2, 3 (coarse_actor_owner_pl08.inc)
-    p8 = weight_rows(PL08_FROZEN.read_text())
-    p8 = {'r0': p8['i0'], 'r1': p8['i1'], 'r8': p8['i6']}
+    if pl08_header:
+        p8 = weight_rows(pl08_header.read_text())
+        p8 = {k: p8[k] for k in ('r0', 'r1', 'r8')}
+    else:
+        p8 = weight_rows(PL08_FROZEN.read_text())
+        p8 = {'r0': p8['i0'], 'r1': p8['i1'], 'r8': p8['i6']}
     pl08_own = {k: len(v) for k, v in p8.items()}
-    assert pl08_own == {'r0': 214, 'r1': 2, 'r8': 3}, pl08_own
+    assert pl08_header or pl08_own == {'r0': 214, 'r1': 2, 'r8': 3}, pl08_own
     skin_pl08 = skin_shared + sum(group_bytes(p8[k]) for k in ('r0', 'r1', 'r8'))
     pl08_palette = sum(r32(len(p8[k]) * 48) for k in ('r0', 'r1', 'r8')) + shared_palette
     pl08_workspace = max([shared_workspace] + [r32(len(p8[k]) * 114) for k in ('r0', 'r1', 'r8')])
@@ -242,6 +253,7 @@ def main():
                plan_palette_bytes=plan_palette, plan_workspace_bytes=plan_workspace, pl08_plan_palette_bytes=pl08_palette,
                pl08_plan_workspace_bytes=pl08_workspace, skin_stream_pl00=skin_pl00, skin_stream_pl08=skin_pl08,
                skin_stream_bytes=skin_stream, pl08_own_palettes=pl08_own,
+               pl08_header=dict(path=str(pl08_header or PL08_FROZEN), sha256=sha((pl08_header or PL08_FROZEN).read_bytes())),
                runtime_array_bytes=sum(data.values()) + sum(16 * pals[i] for i in range(8)),
                hair_array_bytes=sum(len(v) for v in c_arrays(htext).values()),
                hair=dict(uv_entries=hrep['uv_entries'], flags=hrep['flags'], runs=hrep['runs']),

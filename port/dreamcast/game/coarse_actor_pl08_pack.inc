@@ -34,7 +34,11 @@ void pl08_hook_retire_owned() {if(pl08_pack_owned_live())re4dc_actor_transaction
 #undef P8LOG
 int pl08_hook_open() {
     pl08_hook_close();
+#if defined(RE4DC_PS2_LEON_PL08) && RE4DC_PS2_LEON_PL08
+    pl08_pack_file=fs_open("/cd/dc/native/pl08/leon_pl08_ps2.re4cp",O_RDONLY);  // PS2_LEON=1: the PS2 pl08 body
+#else
     pl08_pack_file=fs_open("/cd/dc/native/pl08/leon_pl08.re4cp",O_RDONLY);
+#endif
     if(pl08_pack_file==FILEHND_INVALID)return -1;
     return int(fs_total(pl08_pack_file));
 }
