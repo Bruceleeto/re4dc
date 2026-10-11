@@ -14,6 +14,8 @@
    "state": "em23SetWing(...,1): body BIN 5 + wing BIN 7"}
  ],
  "room_packages": {
-  "100": {"descriptors": ["dog-01", "crow-folded", "crow-spread"], "evidence": "PS2_ANIMALS r100 package (dog-01) + the r100 crows (inventory r100: em23)"}
+  "100": {"descriptors": ["dog-01", "crow-folded", "crow-spread"], "evidence": "PS2_ANIMALS r100 package (dog-01) + the r100 crows (inventory r100: em23)"},
+  "105": {"descriptors": ["crow-folded", "crow-spread"], "evidence": "inventory r105: em23 (lane p2b B3)"},
+  "109": {"descriptors": ["crow-folded", "crow-spread"], "evidence": "inventory r109: em23 (lane p2b B3)"}
  }
 }
