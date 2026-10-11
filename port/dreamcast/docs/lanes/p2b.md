@@ -86,3 +86,18 @@ hw ms, r100 house view 1450:1569 (p2bW, equalised dar), drawn tick: 191.81 -> 11
 B2: PS2_WOLF arm (p2bTw) + reg-r118 + reg-wolf-11b + em22.drs + wolf atlas: H2 STRICT 7128 ticks MUST-IDENTICAL vs
 control, s30 heap_before 56,960 = control. w1 walk reaches r118: `NMRPACK open room=0118 descriptors=2` (em17 + em22
 skins), em22.drs loads (26,496 B), 0 HALT/MISALIGN.
+
+## B3 (2026-10-11 evening, branch p2/b3-crow)
+
+- r100 with the PS2_CROW package (build 39d41f68 + PS2_CROW=1, arm p2bTcr; lane A r100 package + prepared em23.drs)
+  and the unpadded PS2_OBJECTS r100 dar (run h2-cro): NMRPACK r100 39,968 B, heap4 7,864,128 -> 7,815,296 (package
+  48,832 B vs 26,400 for the control package, +22,432); room archive 1,918,528 -> 1,602,816 (-315,712); net heap 4
+  freed at r100 entry 293,280 B. s30 340/340 heap_before 334,240 (control 56,960). 0 HALT / MISALIGN. The crow +
+  GC-objects arm (h2-cr) failed in the harness (RUN_FAILED at boot, disk guard), not rerun.
+- Crow room packages r105 / r109 (ps2-crow.json room_packages): 20,672 B on disc, arena 24,864 B each
+  (re4-assets-private\p2b-20261011\reg-crow-105 / reg-crow-109). Gates pending (warp-in pairs queued, w105 / w109).
+- r108 combined (em17 + crow, ps2-r108.json, cast regcast-r108): BLOCKED, model_registry "source blobs 26+7 > 32
+  (actor_lifetime.inc templates mask)". Needs a runtime capacity change (lane A file) or fewer blobs: a decision.
+- PS2 objects for r104 r106 r107 r10a r10b r11a r11b r117 r119 built (out/r1xxb); payload saved: r11b 46,784, r10b
+  38,624, r117 30,368, r119 9,888, r106 3,776 (SetObjSmd 0x34 PS2 is larger: skipped), r10a 2,848, r11a 2,848,
+  r107 1,984, r104 1,920. Warp-in gates pending (fixtures wi<room>-c/o, warps w<room>.txt).
