@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>] [--source-normal-length]
+  [--wide-identity]
 (D367 generic native models, 2026-10-03)
+
+--wide-identity (Phase 2 A5, 2026-10-11, default off: the output is byte-identical to before): the target image is
+the combined ACTOR_PL08 + NATIVE_MODEL_REGISTRY recipe, whose lifetime masks are wide (actor_material_records.inc
+RE4DC_ACTOR_WIDE_IDENTITY: BlobMask u64, three role words). The capacities become 64 source blobs and 96 role rows,
+and the base rows counted against them include the pl08 rows (actor_material_records_pl08_blobs.inc / _roles.inc),
+as the runtime's kBaseBlobs / kBaseRoles do. The runtime pack check (coarse_actor_registry_pack_check.inc) still
+bounds a room package by kRoomBlobs / kRoomRoles of the image it loads into.
 
 --source-normal-length (2026-10-04, default off: the output is byte-identical to before): every cast normal keeps
 its direction and takes the length of its SOURCE BIN's normals. GX transforms normals without renormalising and
@@ -32,7 +40,7 @@ other than 1.0; a stream that is not a level-zero FE/v3 blob or does not bound-c
 coarse_actor_preflight.h preflight_chunk); a chunk without a texture package, a package that is paletted /
 not one texture / not a supported format; two descriptors with the same (archive, BIN set, TPL) source identity;
 a source TPL with a mipmapped / non-base sampler; exceeding the runtime tables' capacities (source blobs <= 32,
-role rows <= 64, materials per actor <= 3, chunks per actor <= 8, palette entries per chunk <= 256).
+role rows <= 64 (64 / 96 with --wide-identity), materials per actor <= 3, chunks per actor <= 8, palette entries per chunk <= 256).
 Descriptors whose SOURCE materials need a capability the flat owner path does not implement (bump, mask/alpha
 pass) are NOT emitted for runtime; they are listed as contract entries in registry-manifest.json with the reason.
 
@@ -46,6 +54,7 @@ import hashlib, json, os, re, shutil, struct, sys, zlib
 
 MATERIAL_ROWS = 64          # actor_lifetime.inc Info::roles mask capacity
 SOURCE_BLOBS = 32           # actor_lifetime.inc Asset::templates mask capacity
+WIDE_IDENTITY = False       # --wide-identity: 64 / 96 and the pl08 base rows (RE4DC_ACTOR_WIDE_IDENTITY)
 ACTOR_MATERIALS = 3         # actor_native_owner.h kRe4dcActorMaterials
 ACTOR_CHUNKS = 8            # Re4dcActorPlan info[8]
 APPEARANCE0 = 0x200         # registry appearances 0x200 + descriptor index (Ganado 0..4, Leon 0x100)
@@ -356,6 +365,13 @@ def need_names(bits):
 
 
 # ---------------------------------------------------------------- base tables (capacities, self-check)
+def pl08_rows(tree):
+    """--wide-identity: the pl08 role / blob rows the combined recipe adds to the base tables."""
+    g = os.path.join(tree, 'port/dreamcast/game')
+    n = lambda f: len(re.findall(r'^\{', open(os.path.join(g, f)).read(), re.M))
+    return n('actor_material_records_pl08_roles.inc'), n('actor_material_records_pl08_blobs.inc')
+
+
 def base_records(tree):
     text = open(os.path.join(tree, 'port/dreamcast/game/actor_material_records.inc')).read()
     roles = re.search(r'static const Role roles\[\] = \{(.*?)\n\};', text, re.S).group(1)
@@ -414,6 +430,10 @@ def main():
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')
+    global MATERIAL_ROWS, SOURCE_BLOBS, WIDE_IDENTITY
+    if '--wide-identity' in args:
+        args.remove('--wide-identity')
+        WIDE_IDENTITY = True; MATERIAL_ROWS = 96; SOURCE_BLOBS = 64   # RE4DC_ACTOR_WIDE_IDENTITY
     if len(args) != 2:
         sys.exit(__doc__)
     spec_path, out = os.path.abspath(args[0]), os.path.abspath(args[1])
@@ -468,6 +488,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                                                    f'cast/{overlay_rel}/integration-bundle/catalog.json')}
     base_revisions = inputs.json(os.path.join(cast, 'source/candidate-revisions.json'), 'cast/source/candidate-revisions.json')
     nroles0, nblobs0, _, _, _ = base_records(tree)
+    if WIDE_IDENTITY:
+        r8, b8 = pl08_rows(tree); nroles0 += r8; nblobs0 += b8
     arcs, bins, tpls = {}, {}, {}
     runtime, contracts, seen_identity = [], [], {}
     textures = []  # (crc, fnv, w, h, package path)
