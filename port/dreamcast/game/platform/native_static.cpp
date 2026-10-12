@@ -1499,6 +1499,13 @@ namespace pc {
 struct Cell { float lo[3],hi[3]; std::uint16_t first,count; };
 struct Portal { std::uint32_t axis; float plane,u0,u1,v0,v1; }; // u = axis+1, v = axis+2 (mod 3)
 #include "include/ps2_interior_cell.inc"
+#if defined(RE4DC_PS2_PT_CUTOUT) && RE4DC_PS2_PT_CUTOUT
+// PS2_PT_CUTOUT=1 (game30.mk): the r100 package rebuilt with ps2_room_r4im.py --cutout-max-alpha 224 (only part passes
+// 2 -> 1 and those parts' texture keys differ; mesh and placements are the same), so the same cell with that sidecar CRC.
+constexpr unsigned kPcSidecarUse=0x8c31fa61U;
+#else
+constexpr unsigned kPcSidecarUse=kPcSidecarCrc;
+#endif
 constexpr float kSlack=64.0f; // mm added to every tested box (float rounding of the box and plane maths)
 constexpr unsigned kMaxFr=24; // portals per sub-cell the runtime takes
 #if RE4DC_PS2_INTERIOR_CULL==3
@@ -1643,7 +1650,7 @@ inline bool load(){
     }
     if(!why){
         std::uint32_t w[8];std::memcpy(w,b,sizeof(w));
-        if(std::memcmp(b,"PCL1",4) || w[1]!=kPcRoom || w[2]!=kPcMeshCrc || w[3]!=kPcSidecarCrc || w[4]!=kPcMeshBytes ||
+        if(std::memcmp(b,"PCL1",4) || w[1]!=kPcRoom || w[2]!=kPcMeshCrc || w[3]!=kPcSidecarUse || w[4]!=kPcMeshBytes ||
            w[5]!=kPcCellCount || w[6]!=kPcPortalCount)why="header";
     }
     const Cell* cells=b?reinterpret_cast<const Cell*>(b+32):nullptr;
@@ -3235,7 +3242,7 @@ bool ps2_open(){
     const auto& mh=ps2w.package.header();
 #if RE4DC_PS2_INTERIOR_CULL
     // The cell's portals hold for the package it was built from only.
-    pc::st.ok=ps2w.room==pc::kPcRoom && mh.crc==pc::kPcMeshCrc && h.crc==pc::kPcSidecarCrc && mh.bytes==pc::kPcMeshBytes;
+    pc::st.ok=ps2w.room==pc::kPcRoom && mh.crc==pc::kPcMeshCrc && h.crc==pc::kPcSidecarUse && mh.bytes==pc::kPcMeshBytes;
     re4dc_log("PCCULL cell room=%03x mesh_crc=%08x sidecar_crc=%08x %s cells=%u portals=%u mode=%d\n",ps2w.room,unsigned(mh.crc),unsigned(h.crc),
         pc::st.ok?"adopted":"not this package",pc::kPcCellCount,pc::kPcPortalCount,int(RE4DC_PS2_INTERIOR_CULL));
     pc::data.lent=false;

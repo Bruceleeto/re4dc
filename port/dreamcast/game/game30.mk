@@ -2161,6 +2161,17 @@ endif
 # the east wall (tris 1673/1765 of the cell build, screen column 3-5) at the stair foot shows the outdoors for 2-4 frames
 # of a whole-house walk in some runs (view-timing dependent); ray sampling cannot see raster cracks.
 # =3 (layout control, diagnostic): =1's code with PS2_INTERIOR_CULL_SELECT=0|1 (one .data word) off / on.
+# PS2_PT_CUTOUT=1 (render only, default 0: no effect): the route room packages rebuilt with ps2_room_r4im.py
+# --cutout-max-alpha 224 (the PS2 {0, 239} alpha cutouts drawn in the punch-through list instead of the translucent one;
+# docs/lanes/p2b.md lists the rooms). The packages come from the fixture; in code only the r100 interior cell's expected
+# sidecar CRC follows the rebuilt r100 package (pair it with the matching dc/native/r100/interior.cell).
+PS2_PT_CUTOUT ?= 0
+ifneq ($(filter-out 0 1,$(PS2_PT_CUTOUT)),)
+$(error PS2_PT_CUTOUT must be 0 or 1)
+endif
+ifeq ($(PS2_PT_CUTOUT),1)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PT_CUTOUT=1
+endif
 PS2_INTERIOR_CULL ?= 0
 ifneq ($(PS2_INTERIOR_CULL),0)
 ifeq ($(PS2_WORLD_MESH),0)

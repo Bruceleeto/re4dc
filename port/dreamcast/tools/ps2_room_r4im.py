@@ -275,6 +275,9 @@ def vq_encode(a, fmt):
     return cb.astype('<u2').tobytes() + idx.tobytes()
 
 
+CUTOUT_MAX_ALPHA = 0   # --cutout-max-alpha (0: off, the historical packages)
+
+
 def build_textures(room, src, out, used, gains):
     dec = tpl.cmd_decode(src / f'{room}_004.TPL', out / 'textures-source', set(used), False, False, 'gs')
     (out / 'tex').mkdir(exist_ok=True); (out / 'textures-packed').mkdir(exist_ok=True)
@@ -286,6 +289,11 @@ def build_textures(room, src, out, used, gains):
         assert w & (w - 1) == 0 and h & (h - 1) == 0 and w >= 8 and h >= 8 and w <= 1024 and h <= 1024, (t, w, h)
         alpha = np.unique(image[..., 3])
         mode = 'opaque' if alpha.min() == 255 else ('cutout' if np.all(np.isin(alpha, [0, 255])) else 'graded')
+        if mode == 'graded' and CUTOUT_MAX_ALPHA and len(alpha) == 2 and alpha[0] == 0 and alpha[1] >= CUTOUT_MAX_ALPHA:
+            # --cutout-max-alpha: a {0, max} alpha set (the PS2 cutouts store their opaque texels as 239) is a cutout:
+            # the opaque texels become 255 (ARGB1555 alpha 1) and the material goes to the punch-through pass.
+            image = image.copy(); image[..., 3] = np.where(image[..., 3] > 0, 255, 0).astype(image.dtype)
+            mode = 'cutout'
         fmt = {'opaque': 0, 'cutout': 1, 'graded': 2}[mode]
         g = gains.get(t, np.ones(3))
         target = image.astype(np.float64); target[..., :3] *= g
@@ -500,6 +508,11 @@ def main():
     ap.add_argument('--lod-floor', type=float, default=2.0)
     ap.add_argument('--lod-cluster', type=float, default=20000.0)
     ap.add_argument('--meshlet-vertices', type=int, default=64)
+    ap.add_argument('--cutout-max-alpha', type=int, default=0,
+                    help="0 (default, the historical packages): only textures whose alpha is exactly {0, 255} are "
+                         "cutouts. N (e.g. 224): a texture whose alpha set is exactly {0, max} with max >= N is a "
+                         "cutout too (the PS2 cutouts top out at 239): max becomes opaque (ARGB1555) and its blend "
+                         "materials draw in the punch-through pass instead of the translucent one (render only)")
     ap.add_argument('--vertex-alpha', choices=('off', 'tr', 'tr4'), default='off',
                     help="faces of non-blend materials with a corner alpha below 1.0 (the GS vertex-alpha overlays): "
                          "'off' keep them opaque (the historical packages, solid dark shapes); 'tr4' put them in the "
@@ -508,6 +521,8 @@ def main():
                          "the PS2 world path forces alpha 1, so it draws as 'off')")
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
+    global CUTOUT_MAX_ALPHA
+    CUTOUT_MAX_ALPHA = a.cutout_max_alpha
     if a.lod_uv_guard is not None:
         import mesh_lod  # noqa: E402 (MESH_TOOLS is on sys.path)
         mesh_lod.UV_GUARD = a.lod_uv_guard
