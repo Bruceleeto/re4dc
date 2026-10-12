@@ -273,9 +273,15 @@ extern "C" void re4dc_look_osd_toggle(void){
 #if RE4DC_RES_MODES
 extern "C" const char* re4dc_res_osd_text(void); // res_mode.cpp: the render mode's name, 3 s after a change
 #endif
+#if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
+extern "C" const char* re4dc_haze_lean_osd_text(void); // esp_sub.cpp: the haze mode's name, 3 s after a change
+#endif
 extern "C" const char* re4dc_look_osd_text(void){
 #if RE4DC_RES_MODES
     if(const char* res=re4dc_res_osd_text())return res;
+#endif
+#if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
+    if(const char* hz=re4dc_haze_lean_osd_text())return hz;
 #endif
     if(!re4dc_look_osd_always && int(re4dc_look_osd_until-re4dc_vi_retrace_count())<=0)return nullptr;
     return re4dc_looks[re4dc_look_mode%kLooks].text;
