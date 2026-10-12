@@ -13,20 +13,16 @@ lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast har
 
 ## Playing
 
-The latest console test is build `c29c4bf5`. The desktop packages below are the earlier r22j build.
-Extract the complete package for your system:
+The latest build is console test `c29c4bf5`. Desktop packages will return with a later test build;
+until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Windows (r22j) | [RE4DC-r22j.zip](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j.zip) | Double-click `Play-r22j.cmd`. Includes Flycast and keyboard/DualSense support. |
-| Steam Deck / SteamOS (r22j) | [SteamOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-SteamOS.tar.gz) | In Desktop Mode, run `play.sh`; uses Flathub Flycast. |
-| CachyOS / Arch (r22j) | [CachyOS package](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/RE4DC-r22j-CachyOS.tar.gz) | Run `./play.sh`; uses native or Flathub Flycast. |
 | Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011) · [r22j desktop checksums](https://github.com/lamb2k/re4dc/releases/download/play-r22j-audio-performance-20261007/SHA256SUMS.txt)
+[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
-For an r22j emulator package, open `disc/disc.cue` and keep its `disc.bin` beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
 No BIOS or personal VMU saves are included; keep your existing saves separately.
 
