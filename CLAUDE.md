@@ -1,5 +1,25 @@
 # RE4 Dreamcast working handoff
 
+## Outside contributors start here
+
+The rest of this file is the maintainers' own notes. It names folders on their machine
+(`/root/probe`, `/root/work`, `re4-assets-private`, `D:\Flycast-Evidence`) that you do not have and do
+not need.
+
+* **Public, in this repository:** all port code, build recipes, knobs and tools, the toolchain script
+  and Dockerfile, and the documents. Start with `port/dreamcast/CONTRIBUTING-PORT.md`, then
+  `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md` (goals and decisions) and
+  `port/dreamcast/tools/d367/README.md` (build recipe and knobs).
+* **From the test release:** the disc (GDEMU zip) and the Build-Assets zip with the generated
+  character data. `bash port/dreamcast/contrib.sh` downloads both and gives you a bootable disc.
+* **Maintainers only:** the recorded play sessions and trace harness, the hardware timing model runs,
+  the asset conversion work folders and the original game discs. You never need them.
+* **A pull request needs:** the change behind a build knob whose default is 0; the same program bytes
+  with the knob at 0 (knob off identity); the gain in milliseconds with the room, the view and the
+  enemies on screen; and no change to collision, events, game state or AI. The maintainers then check
+  that the gameplay stays identical tick by tick (STRICT) before it goes into a test build.
+* Never commit game data, disc images or extracted files.
+
 2026-10-11 Phase 2 starts: follow [the Phase 2 plan](port/dreamcast/docs/D367_PHASE2_PLAN.md).
 Base build is r22j test 7 (r23 after console confirmation). Step 0 is a fixed heap 4
 reservation for em10 parts so image size stops coupling lanes. Lanes A characters, B objects

@@ -1,5 +1,25 @@
 # RE4 Dreamcast implementation instructions
 
+## Outside contributors start here
+
+The rest of this file is the maintainers' own notes. It names folders on their machine
+(`/root/probe`, `/root/work`, `re4-assets-private`, `D:\Flycast-Evidence`) that you do not have and do
+not need.
+
+* **Public, in this repository:** all port code, build recipes, knobs and tools, the toolchain script
+  and Dockerfile, and the documents. Start with `port/dreamcast/CONTRIBUTING-PORT.md`, then
+  `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md` (goals and decisions) and
+  `port/dreamcast/tools/d367/README.md` (build recipe and knobs).
+* **From the test release:** the disc (GDEMU zip) and the Build-Assets zip with the generated
+  character data. `bash port/dreamcast/contrib.sh` downloads both and gives you a bootable disc.
+* **Maintainers only:** the recorded play sessions and trace harness, the hardware timing model runs,
+  the asset conversion work folders and the original game discs. You never need them.
+* **A pull request needs:** the change behind a build knob whose default is 0; the same program bytes
+  with the knob at 0 (knob off identity); the gain in milliseconds with the room, the view and the
+  enemies on screen; and no change to collision, events, game state or AI. The maintainers then check
+  that the gameplay stays identical tick by tick (STRICT) before it goes into a test build.
+* Never commit game data, disc images or extracted files.
+
 ## Current direction (D367): supersedes the sections below where they conflict
 
 - **Targets:** the route target is unchanged: normal menu/New Game -> r100 -> r101 -> r103 playable. The frame-time target is now 30 fps (per tick: gameplay G <= 24 + render R <= 6 + a 3.33 margin; the 2026-09-25 rethink, a coarse complete square first) on real NTSC Dreamcast hardware via GDEMU + VMU; 20 fps and a 15 fps fight fallback were the earlier targets. The SH-4 hardware model (`tools/hwmodel/hwproject.sh`) is the hardware estimate; Flycast is a proxy.

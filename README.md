@@ -11,6 +11,12 @@ lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast har
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
+## Contributing
+
+One command builds your own program and puts it on the latest test disc: `bash port/dreamcast/contrib.sh`.
+See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors and their coding agents should then read
+[CLAUDE.md](CLAUDE.md) or [AGENTS.md](AGENTS.md) (section "Outside contributors start here").
+
 ## Playing
 
 The latest build is console test `c29c4bf5`. Desktop packages will return with a later test build;

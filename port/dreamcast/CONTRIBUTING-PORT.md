@@ -1,53 +1,83 @@
 # Contributing to the Dreamcast port
 
-This page gets you from a clean Linux machine (or WSL) to your own build of the game running in
+This page gets you from a fresh clone on Linux (or WSL) to your own build of the game running in
 Flycast or on a Dreamcast with GDEMU. You build only the program. The game data comes from a
-published test release, so you never need the original discs or our private asset folders.
+published test release, so you never need the original discs.
+
+## Quick start: one command
+
+On Ubuntu 24.04 (or WSL) install the host packages once:
+
+    sudo apt install build-essential bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev \
+        libelf-dev libjpeg-dev libpng-dev git curl python3 genisoimage
+
+Then, from the repository root:
+
+    bash port/dreamcast/contrib.sh
+
+It builds the toolchain the first time (about 11 minutes, into `~/re4dc-toolchain`), downloads the
+newest test release and its Build-Assets zip from GitHub and checks them against the release's
+`SHA256SUMS.txt`, builds the program, puts it on the release disc and prints the path of
+`disc.gdi` (under `port/dreamcast/out-contrib/disc`). Options:
+
+* `--release <tag>` picks a release, for example `--release test-c29c4bf5-20261011`.
+* `--toolchain <dir>` uses or builds the toolchain there; a toolchain already in the environment
+  (`RE4DC_KOS_BASE`) is used as is.
+* `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
+
+The Build-Assets zip holds the generated character data the release program was built with, so your
+program draws the same characters as the release. Downloads are kept, so a second run only rebuilds.
+
+## Where to read next
+
+These are the documents to give yourself (or your coding agent) before changing code:
+
+* `CLAUDE.md` and `AGENTS.md` at the repository root: the working rules, with a short section for
+  outside contributors at the top.
+* `port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md`: goals, decisions and the current state.
+* `port/dreamcast/tools/d367/README.md`: the build recipe and what each knob does.
+* `port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md`: what goes into a test build.
+* `port/dreamcast/tests`: unit tests for the tools (`python3 -m unittest` in that folder).
+
+The steps below are what `contrib.sh` does, for when you want to run them by hand.
 
 ## 1. Toolchain
 
 You need the exact toolchain the maintainers use: KallistiOS commit 804b3195 with the three patches in
 `patches/`, and the KOS "stable" SH4 compiler (GCC 15.2.0, binutils 2.45.1, newlib 4.6.0.20260123).
-Pick one way.
 
-**Docker.** From the repository root:
-
-    docker build -t re4dc-toolchain -f port/dreamcast/docker/Dockerfile .
-    docker run --rm -it -v "$PWD":/src re4dc-toolchain bash port/dreamcast/build-public.sh
-
-(The Dockerfile runs the same script as below; the maintainers have tested the script, not yet the image.)
-
-**Script.** On Ubuntu 24.04 install the host packages listed at the top of
-`tools/setup-toolchain.sh`, then:
+**Script.**
 
     bash port/dreamcast/tools/setup-toolchain.sh ~/re4dc-toolchain
     . ~/re4dc-toolchain/env.sh
 
-The script took 11 minutes on 12 threads in a clean directory and needs about 6 GB free while it
-builds. The finished toolchain is 402 MB.
+It took 11 minutes on 12 threads in a clean directory and needs about 6 GB free while it builds.
+The finished toolchain is 402 MB.
+
+**Docker.** From the repository root (this image runs the same script; the maintainers have tested
+the script, not yet the image):
+
+    docker build -t re4dc-toolchain -f port/dreamcast/docker/Dockerfile .
+    docker run --rm -it -v "$PWD":/src re4dc-toolchain bash port/dreamcast/contrib.sh
 
 ## 2. Build the program
 
-    bash port/dreamcast/build-public.sh
+    ASSETS=<unpacked Build-Assets zip>/re4dc-assets bash port/dreamcast/build-public.sh
 
 This builds the current test recipe into `port/dreamcast/out-public`: `re4dc-game.elf`, the room
 overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build knob as make saw it.
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
-The public build differs from a maintainer build in a few places, because some inputs are generated
-from game data and cannot be in a public repository. `game/public-assets` holds neutral stand ins:
+Without `ASSETS` the build uses `game/public-assets`, neutral stand ins that carry no game data:
 
 * Leon and the villagers draw with their original GameCube models from the disc instead of the
-  converted meshes. They look the same as the GameCube version but cost more time to draw.
+  converted meshes. They look like the GameCube version but cost more time to draw.
 * The PS2 character models (Leon, villagers, El Gigante, Del Lago) are off.
 * The memory card messages show the GameCube wording ("Memory Card in Slot A") instead of the VMU wording.
 
-So measure your change against your own public build with the change switched off, not against the
-release numbers.
+Either way, measure your change against your own build with the change switched off.
 
 ## 3. Put it on a release disc
-
-Download a GDEMU test release from the releases page, then:
 
     python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip \
         port/dreamcast/out-public mydisc
@@ -79,6 +109,9 @@ instead: Off, VMU, Screen, Both. Hold X and press START to switch the look prese
 
 * Put every change behind a build knob whose default is 0, so the default program does not change.
   The knob goes in the makefiles under `game/` with a comment saying what it does.
+* Check the knob off identity yourself: with the knob at 0, `build-public.sh` must produce the same
+  program bytes as before your patch. Compare `sh-elf-objcopy -R .stack -O binary re4dc-game.elf p.bin`
+  of both builds with `sha256sum`.
 * Describe the gain in milliseconds per frame, and say where you measured it: the room, the camera
   view and how many enemies were on screen. Numbers from a fight with villagers in view matter most.
 * Say what the change looks like, with a screenshot pair (knob off, knob on) if it changes the picture.
@@ -86,7 +119,8 @@ instead: Off, VMU, Screen, Both. Hold X and press START to switch the look prese
 
 The maintainers then run the gameplay identity gates before a change goes into a test build. They
 replay recorded sessions and compare the game logic tick by tick, so a render change must leave the
-gameplay exactly as it was. That harness uses private recordings, so you do not need to run it.
+gameplay exactly as it was (STRICT). That harness uses private recordings, so you do not need to
+run it; a change that touches collision, events, game state or AI will not be accepted.
 
 ## 7. A full disc from your own discs
 
