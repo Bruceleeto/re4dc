@@ -269,6 +269,15 @@ PLATFORM_OBJS = $(patsubst %.cpp,$(OBJDIR)/%.o,$(PLATFORM_SRCS))
 ifeq ($(filter 1 2,$(LAKE_RIPPLES)),)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_lake.o,$(PLATFORM_OBJS))
 endif
+# VGA_SOFT=1 (Phase 2 C5, default 0: no effect, platform/vga_soft.cpp not built): on a VGA box, the PVR's vertical
+# filter (SCALER_CFG vertical scale 1025, Y_COEFF 1/4 1/2 1/4: what KOS gives 480i TV) set once after pvr_init.
+# Render only. Untested on a console VGA box (issue #11 hung one writing SCALER_CFG mid-render): console first.
+VGA_SOFT ?= 0
+ifeq ($(VGA_SOFT),1)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_VGA_SOFT=1
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/vga_soft.o,$(PLATFORM_OBJS))
+endif
 SDK_OBJS = $(patsubst platform/sdk/gen/%.c,$(OBJDIR)/sdk/%.o,$(SDK_GEN))
 NATIVE_REUSE_OBJS = $(OBJDIR)/native-reuse/source_lighting.o $(OBJDIR)/native-reuse/native_draw_plan.o $(OBJDIR)/native-reuse/pvr_geometry.o $(OBJDIR)/native-reuse/gpu_lifecycle.o $(OBJDIR)/native-reuse/texture_package.o $(OBJDIR)/native-reuse/room_storage.o $(OBJDIR)/ui_bridge.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o
 # Native static room packages (NATIVE_STATIC below); default images carry none of it.

@@ -3202,6 +3202,9 @@ extern "C" void re4dc_res_init();
 extern "C" int re4dc_res_pending();
 extern "C" void re4dc_res_apply_pending();
 #endif
+#if RE4DC_VGA_SOFT
+extern "C" void re4dc_vga_soft_init(void); // vga_soft.cpp (VGA_SOFT): the vertical filter on a VGA box, once
+#endif
 extern "C" void re4dc_ui_init(){
     if(ready)return;
     pvr_init_params_t params=pvr_default_params;
@@ -3241,6 +3244,9 @@ extern "C" void re4dc_ui_init(){
     ready=pvr_init(&params)==0;
 #if RE4DC_RES_MODES
     if(ready)re4dc_res_init();
+#endif
+#if RE4DC_VGA_SOFT
+    if(ready)re4dc_vga_soft_init(); // vga_soft.cpp (VGA_SOFT)
 #endif
     re4dc_log("native UI: PVR init %s; source ID adapter, 640x480\n",ready?"ok":"FAILED");
 #if RE4DC_POISON_RAM
