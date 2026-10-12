@@ -167,3 +167,8 @@ Recommendation:
 4. r105 crow: re-gate with a load-equalised arm (pad em23.drs read / the door rule) before shipping.
 Uncovered: rooms whose events were not reached in the existing runs (fights in r104/r106/r10e/r111/r117/r11c beyond the
 warp-in windows); the audit only covers what the evidence ran.
+
+r105 crow re-gate (load-equalised): control = same image p2bTcr with the prepared em23.drs staged but no r105 package
+(route-wc105-e) vs the crow arm (route-wc105-o): STRICT, decision_cmp MUST-IDENTICAL over 3391 ticks. The earlier
+frame 184 shift came from the different em23.drs file, not from the package or heap 4. The r105 crow package
+(reg-crow-105) passes; the prepared em23.drs is the PS2_CROW staging for every crow room.
