@@ -96,7 +96,7 @@ extern "C" void re4dc_charbake_set(unsigned variant);  // coarse_actor.cpp (char
 #endif
 
 namespace {
-struct Act { u32 frame; u16 buttons; s8 stick; u16 hold; u8 entry; };
+struct Act { u32 frame; u16 buttons; s8 stick; u16 hold; u8 entry; bool ev; };
 struct Rsf { u16 room; u8 bit; };
 // Replays a source radio call to test movie-to-subscreen resource handoff.
 // This command exists only in the DBG_WARP test rig; it does not certify route order.
@@ -132,6 +132,9 @@ struct Warp {
     u8 kill_kind;   // cDmgInfo kind of each hit (1: handgun)
     cEm* kill_em;   // the target once found (kept until its hp is gone)
     u32 kill_watch; // after the kill: state lines left
+    bool has_drop;  // `drop <item id> [num]` (issue 23): the kill target drops this item instead of its own roll
+    u16 drop_id;
+    int drop_num;
     struct Goto { u32 frame; f32 pos[3]; f32 ang; bool has_ang, done; u8 entry; } go[4];
     unsigned n_go;
     // arm <room frame> <item id>: once at that frame of the first room, ItemMgr.debugWeapon(id) (the case's armed
@@ -266,6 +269,7 @@ void load()
             a.hold = (u16) num(tok[3]);
             a.buttons = 0;
             a.stick = 0;
+            a.ev = n >= 5 && !strcmp(tok[4], "ev");  // `ev`: pressed during an event too (issue 23: answers a prompt)
             const char* b = tok[2];
             if (!strcmp(b, "a")) a.buttons = 0x0100;
             else if (!strcmp(b, "b")) a.buttons = 0x0200;
@@ -294,6 +298,10 @@ void load()
             wp.kill_frame = num(tok[2]);
             wp.kill_room = n >= 4 ? (u16) num(tok[3]) : 0;
             wp.kill_kind = n >= 5 ? (u8) num(tok[4]) : 1;
+        } else if (!strcmp(k, "drop") && n >= 2) {
+            wp.has_drop = true;
+            wp.drop_id = (u16) num(tok[1]);
+            wp.drop_num = n >= 3 ? (int) num(tok[2]) : 0;
         } else if (!strcmp(k, "goto") && n >= 5 && wp.n_go < 4) {
             Warp::Goto& g = wp.go[wp.n_go++];
             g.entry = wp.parse_entry;
@@ -429,7 +437,14 @@ void kill_poll()
         re4dc_log("warp: kill target m=%08x pos=%d,%d,%d t=%u\n", (unsigned) (uintptr_t) em, (int) em->pos.x, (int) em->pos.y,
                   (int) em->pos.z, (unsigned) pG->Frame_cnt);
     }
+    if (wp.has_drop && !(em->be_flag & 0x10000)) em->be_flag |= 0x10000;  // its own drop (EmSetDropItem) is done
     if (!(em->be_flag & 1) || em->hp <= 0) {
+        if (wp.has_drop) {
+            Vec at = em->pos;
+            const int no = SceAtCreateItemAt(&at, wp.drop_id, wp.drop_num, -1, -1, 0, -1);
+            re4dc_log("warp: drop item 0x%02x x%d at %d,%d,%d -> %d\n", (unsigned) wp.drop_id, wp.drop_num, (int) at.x,
+                      (int) at.y, (int) at.z, no);
+        }
         wp.kill_done = true;
         wp.kill_watch = 40;  // then its state every 15 room frames, 40 times (death motion, fade, removal)
         snprintf(what, sizeof(what), "kill 0x%02x hp<=0 at room frame %u after %u hits", (unsigned) wp.kill_id,
@@ -751,6 +766,12 @@ void re4dc_warp_poll(void)
                   (unsigned) pG->Status_flg[1],
                   RoomData.getRoomSavePtr(pG->room_id) ? (unsigned) RsfFlags(pG->room_id)[0] : 0u,
                   (unsigned) re4dc_vi_retrace_count());
+        if (wp.has_drop && ItemMgr.pItems) {
+            int n = 0;
+            for (int i = 0; i < ItemMgr.nItems; ++i)
+                if ((ItemMgr.pItems[i].flags & 1) && ItemMgr.pItems[i].id == wp.drop_id) n += ItemMgr.pItems[i].num;
+            re4dc_log("warp: inv item 0x%02x count %d wep %02x\n", (unsigned) wp.drop_id, n, (unsigned) ItemMgr.m_wep_id);
+        }
     }
 }
 
@@ -789,7 +810,10 @@ void re4dc_warp_pad(unsigned short* buttons, signed char* stickY)
     ++wp.pad_frames;
     // An event took the game (Status_flg[1] 0x10000000): the running action ends there, so a
     // held stick never walks Leon back into the trigger after the event (movies pause PADRead).
-    if (pG->Status_flg[1] & 0x10000000) {
+    const bool ev_act = (wp.cur_act >= 0 && wp.cur_act < (int) wp.n_act && wp.pad_frames < wp.cur_until &&
+                         wp.act[wp.cur_act].ev) ||
+                        (wp.next_act < wp.n_act && wp.act[wp.next_act].ev);
+    if ((pG->Status_flg[1] & 0x10000000) && !ev_act) {
         re4dc_warp_cut("event");
         return;
     }

@@ -18,6 +18,7 @@
 // is also what a per-link constructor pass would run.
 
 #include "re4dc_platform.h"
+#include <stdio.h>
 
 typedef unsigned long u32;
 
@@ -382,12 +383,27 @@ extern "C" void re4dc_route_overlay_room_reset()
 }
 #endif
 
+#if RE4DC_CRASH_TASK_DETAIL
+// Issue 23 (CRASH_TASK_DETAIL): the last refused link / unlink, one stop-screen row (crash_screen.cpp).
+static char g_dll_fail[80];
+static void dllFail(const void* header, const char* why)
+{
+    const u32* h = (const u32*) header;
+    snprintf(g_dll_fail, sizeof(g_dll_fail), "DLL %s hdr %08lx id %lu w1 %08lx w7 %08lx", why, (unsigned long) h,
+             h ? (unsigned long) h[0] : 0ul, h ? (unsigned long) h[1] : 0ul, h ? (unsigned long) h[7] : 0ul);
+}
+extern "C" const char* re4dc_dll_fail_line(void) { return g_dll_fail; }
+#define DLL_FAIL(h, why) dllFail(h, why)
+#else
+#define DLL_FAIL(h, why) ((void) 0)
+#endif
+
 // Binds the header the game read (include/main_sub.h OSModuleHeader: id at 0,
 // prolog at 0x34, epilog at 0x38) to the compiled module; 1 = known module.
 extern "C" int re4dc_module_bind(void* header)
 {
     if (header == 0) {
-        re4dc_log("module: null header; link failed\n");
+        re4dc_log("module: null header; link failed\n"); DLL_FAIL(header, "null");
         return 0;
     }
     u32* h = (u32*) header;
@@ -399,7 +415,7 @@ extern "C" int re4dc_module_bind(void* header)
         // Compact offline descriptor: no section, name, import or raw code fields.
         for (unsigned i = 1; i < 16; ++i) {
             if (i != 0x1c / 4 && i != 0x20 / 4 && i != 0x34 / 4 && i != 0x38 / 4 && h[i] != 0) {
-                re4dc_log("module: malformed native descriptor; link failed\n");
+                re4dc_log("module: malformed native descriptor; link failed\n"); DLL_FAIL(header, "malformed");
                 h[0x34 / 4] = h[0x38 / 4] = 0;
                 return 0;
             }
@@ -409,14 +425,14 @@ extern "C" int re4dc_module_bind(void* header)
     void (**prolog)(void) = (void (**)(void)) &h[0x34 / 4];
     void (**epilog)(void) = (void (**)(void)) &h[0x38 / 4];
     if (m == 0) {
-        re4dc_log("module: id %lu not in the image; link failed\n", h[0]);
+        re4dc_log("module: id %lu not in the image; link failed\n", h[0]); DLL_FAIL(header, "not-in-image");
         *prolog = 0;
         *epilog = 0;
         return 0;
     }
     if (h[0x1c / 4] == 0xDC000001 &&
         ((h[0x34 / 4] && *prolog != m->prolog) || (h[0x38 / 4] && *epilog != m->epilog))) {
-        re4dc_log("module: invalid native entry points; link failed\n");
+        re4dc_log("module: invalid native entry points; link failed\n"); DLL_FAIL(header, "entry");
         *prolog = 0;
         *epilog = 0;
         return 0;
@@ -428,7 +444,7 @@ extern "C" int re4dc_module_bind(void* header)
 #endif
 #if RE4DC_MODULE_OVL
     if (m->prolog == 0) {
-        re4dc_log("module: %s is an overlay that is not loaded; link failed\n", m->name);
+        re4dc_log("module: %s is an overlay that is not loaded; link failed\n", m->name); DLL_FAIL(header, "ovl-unloaded");
         *prolog = 0;
         *epilog = 0;
         return 0;
@@ -485,7 +501,10 @@ extern "C" void re4dc_module_overlay(u32 id, void (*prolog)(void), void (*epilog
 // this very header (restartRelData) is a restart rather than a fresh read.
 extern "C" int re4dc_module_unbind(void* header)
 {
-    if (header == 0) return 0;
+    if (header == 0) {
+        DLL_FAIL(header, "unlink-null");
+        return 0;
+    }
     u32* h = (u32*) header;
     const int index = moduleIndex(h[0]);
     if (index < 0 || g_state[index].header != header) {

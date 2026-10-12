@@ -60,6 +60,9 @@ struct MissingSnapshot {
 #endif
     int pending, ta_ready;
     bool valid, pvr_valid;
+#if RE4DC_CRASH_TASK_DETAIL
+    kthread_t* thread;  // issue 23: the thread that called re4dc_missing (it then sleeps: a timed wait, not traced)
+#endif
 };
 MissingSnapshot g_missing{};
 
@@ -95,6 +98,9 @@ void capture_missing(const char* name)
                     g_missing.latch[i][0] = 0;
 #endif
         }
+#if RE4DC_CRASH_TASK_DETAIL
+        g_missing.thread = thd_current;
+#endif
         g_missing.valid = true;
     }
     irq_restore(old);
@@ -200,6 +206,32 @@ void task_detail(int& row)
     }
     put_text(0, row++, line, 0xFFE0);
 }
+}  // namespace
+extern "C" const char* re4dc_dll_fail_line(void) __attribute__((weak));  // modules.cpp (issue 23)
+namespace {
+// Issue 23: the thread that stopped the game (re4dc_missing then sleeps in a timed wait, so the waiter rows
+// leave it out): tid, label, return-address candidates; and a DLL link / unlink failure's module id and reason.
+void missing_detail(int& row)
+{
+    char line[96];
+    if (re4dc_dll_fail_line && re4dc_dll_fail_line()[0]) put_text(0, row++, re4dc_dll_fail_line(), 0xFFE0);
+    const kthread_t* t = g_missing.valid ? g_missing.thread : nullptr;
+    if (!t) return;
+    const unsigned long* sp = (const unsigned long*) (t->context.r[15] & ~3ul);
+    int n = snprintf(line, sizeof(line), "Mt%d %.8s", (int) t->tid, t->label), found = 0;
+    for (int w = 0; w < 256 && found < 6; ++w) {
+        const unsigned long a = (unsigned long) (sp + w);
+        if (a < 0x8c010000ul || a >= 0x8d000000ul) break;
+        const unsigned long v = sp[w];
+        if ((v & 1) || v < 0x8c010004ul || v >= 0x8d000000ul) continue;
+        const unsigned op = *(const unsigned short*) (v - 4);
+        if ((op & 0xF0FF) != 0x400B && (op & 0xF000) != 0xB000 && (op & 0xF0FF) != 0x0003) continue;
+        if (n + 7 > kCols) break;
+        n += snprintf(line + n, sizeof(line) - n, " %06lx", v & 0xFFFFFFul);
+        ++found;
+    }
+    put_text(0, row++, line, 0xFFE0);
+}
 #endif
 #if RE4DC_RES_MODES
 extern "C" void re4dc_res_crash_display(void);  // res_mode.cpp
@@ -237,6 +269,7 @@ void show(const char* kind, const char* detail, bool wait_render)
     put_text(0, row++, line, 0xFFFF);
 #if RE4DC_CRASH_TASK_DETAIL
     task_detail(row);  // rows 4..6, before the latch rows (at most 4 + 3 + 6 + 1 of the 20 rows)
+    missing_detail(row);
 #endif
 #line 170
 #if RE4DC_PVR_LATCH

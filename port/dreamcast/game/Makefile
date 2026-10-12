@@ -529,8 +529,8 @@ $(OBJDIR)/crash-screen.h: crash-screen-force
 	@printf '#define RE4DC_CRASH_SCREEN %s\n#define RE4DC_PVR_LATCH %s\n#define RE4DC_CRASH_TASK_DETAIL %s\n' '$(CRASH_SCREEN)' '$(PVR_LATCH)' '$(CRASH_TASK_DETAIL)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
-$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o: $(OBJDIR)/crash-screen.h
-$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
+$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o $(OBJDIR)/platform/modules.o: $(OBJDIR)/crash-screen.h
+$(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
 $(OBJDIR)/src/game/scheduler.o $(OBJDIR)/sscrn_bridge.o: $(OBJDIR)/crash-screen.h
 $(OBJDIR)/src/game/scheduler.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
 .PHONY: poison-force
