@@ -229,7 +229,14 @@ template<class T> bool prepare_work(cManager<T>* m,u32 first,u32 count) {
         else c=&(*c)->next;
     }
     const u32 bytes=(sizeof(Chunk<T>)+count*m->size+31)&~31U;
+#if RE4DC_HEAP4_PARTS_RESERVE >= 2
+    // HEAP4_PARTS_RESERVE=2 (test only): the slab first, so its runs are exercised with heap 4 to spare.
+    Chunk<T>* c=parts_reserve<T>?reserve_take(p,bytes):0;
+    const bool slab_first=c!=0;
+    if(!c) c=(Chunk<T>*)mem_alloc(bytes,"native parts run",0,0,p->heap);
+#else
     Chunk<T>* c=(Chunk<T>*)mem_alloc(bytes,"native parts run",0,0,p->heap);
+#endif
     if(!c) {
         // Keep dead runs reusable normally; under heap pressure reclaim them.
         for(Chunk<T>** q=&p->chunks;*q;) { if(!retain_slots<T> && !alive(*q))discard(p,q);else q=&(*q)->next; }
@@ -238,6 +245,9 @@ template<class T> bool prepare_work(cManager<T>* m,u32 first,u32 count) {
 #if RE4DC_HEAP4_PARTS_RESERVE
     // The GameCube's up-front cParts array never fails here: the slab stands in for it.
     bool slab=false;
+#if RE4DC_HEAP4_PARTS_RESERVE >= 2
+    slab=slab_first;
+#endif
     if(!c && parts_reserve<T>) { c=reserve_take(p,bytes); slab=c!=0; }
 #endif
     if(!c) { ++p->failures;report(p,"allocation failed");return false; }

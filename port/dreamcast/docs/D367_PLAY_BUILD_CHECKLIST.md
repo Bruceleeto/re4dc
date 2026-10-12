@@ -1,5 +1,14 @@
 # D367 play build checklist (user, 2026-10-09 current state at top)
 
+## 2026-10-11: HEAP4_PARTS_RESERVE=1 + PS2_OBJECTS r100 dar (Phase 2 step 0, test 8 base)
+
+Flag **HEAP4_PARTS_RESERVE=1** and stage the **unpadded** PS2_OBJECTS st1/r100.dar (re4-assets-private\p2b-20261011\
+objects\r100b, -315,712 B heap 4 at r100). Never the flag without that dar (the 73,728 B slab then starves em2a in
+r100). New H2 baseline `d0-h2-a`: 43 enemies at frame 661 (the GameCube outcome; the old control had 41 because two
+em10 parts allocations failed), s30 heap_before ~254 KB (was 56,960). IMAGE_PAD_BYTES no longer decides the em10
+outcome (pads 0 / 4096 / 16384 STRICT). Lane doc docs/lanes/p2d.md "D0". Check: H2 `LU t=661` e=43, no
+`EM10 pEm->modelInit() failed`; s30 340/340.
+
 ## 2026-10-11: stream 0:29 (chapter 1-3 results music) in bgm/aica_str.dat
 
 No new flag or code. Stage **bgm/aica_str.dat built with `aica_banks.py streams --mirror <LE mirror with the .sbb>
