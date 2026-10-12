@@ -94,6 +94,20 @@ ifeq ($(WATER45_NATIVE),1)
 $(OBJDIR)/src/game/espgen45.o $(OBJDIR)/src/game/espgen.o $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/esp_sub.o: GAME_CPPFLAGS += -DRE4DC_WATER45_NATIVE=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_WATER45_NATIVE=1
 endif
+# LAKE_RIPPLES=n (Phase 2 C4, default 0: no effect, platform/native_lake.cpp not built; n = 1 or 2 layers; needs
+# WATER45_NATIVE=1): a moving surface on the r10b lake: n translucent layers of a small tileable ripple texture
+# (made at the first lake frame, 8 KiB VRAM) scrolled per frame over each WATER45_NATIVE cell, faded with the fog, and
+# a per-corner sun glint in the offset colour; the multiply stays. LAKE_TILE (mm per repeat), LAKE_ALPHA tune it.
+LAKE_RIPPLES ?= 0
+LAKE_TILE ?= 2800.0f
+LAKE_ALPHA ?= 0.35f
+ifneq ($(LAKE_RIPPLES),0)
+ifneq ($(WATER45_NATIVE),1)
+$(error LAKE_RIPPLES needs WATER45_NATIVE=1)
+endif
+$(OBJDIR)/src/game/espgen45.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o: GAME_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES)
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES) -DRE4DC_LAKE_TILE=$(LAKE_TILE) -DRE4DC_LAKE_ALPHA=$(LAKE_ALPHA)
+endif
 # em27ObaHitCk scans enemy slots through the sparse backing (workAt) instead of raw slot math, which read an
 # unbacked slot's 0xFF filler as a NaN position and dragged the fish to NaN (r10b dock / boss collision storm).
 $(OBJDIR)/mod/em27/src/em27/em27.o: GAME_CPPFLAGS += -DRE4DC_EM27_SLOT_FIX=1
@@ -251,6 +265,10 @@ MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))
 CENSUS_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(CENSUS_SRCS))
 PLATFORM_OBJS = $(patsubst %.cpp,$(OBJDIR)/%.o,$(PLATFORM_SRCS))
+# LAKE_RIPPLES (ROUTE_CH13 block above): native_lake.cpp is built only with the knob on (1 or 2).
+ifeq ($(filter 1 2,$(LAKE_RIPPLES)),)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_lake.o,$(PLATFORM_OBJS))
+endif
 SDK_OBJS = $(patsubst platform/sdk/gen/%.c,$(OBJDIR)/sdk/%.o,$(SDK_GEN))
 NATIVE_REUSE_OBJS = $(OBJDIR)/native-reuse/source_lighting.o $(OBJDIR)/native-reuse/native_draw_plan.o $(OBJDIR)/native-reuse/pvr_geometry.o $(OBJDIR)/native-reuse/gpu_lifecycle.o $(OBJDIR)/native-reuse/texture_package.o $(OBJDIR)/native-reuse/room_storage.o $(OBJDIR)/ui_bridge.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o
 # Native static room packages (NATIVE_STATIC below); default images carry none of it.

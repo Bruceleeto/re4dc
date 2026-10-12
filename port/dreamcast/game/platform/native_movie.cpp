@@ -708,6 +708,10 @@ extern "C" int re4dc_movie_end(void){
     return finish(m.held_end?RE4DC_MOVIE_EOF:RE4DC_MOVIE_CANCEL);
 }
 extern "C" int re4dc_movie_cancel(){return m.entered?finish(RE4DC_MOVIE_CANCEL):RE4DC_MOVIE_CANCEL;}
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+// LAKE_RIPPLES (native_lake.cpp): 1 while a movie is open (its decoder needs the CPU; the lake layers wait).
+extern "C" int re4dc_movie_open_now(){return m.entered && !m.terminal;}
+#endif
 #else
 extern "C" int re4dc_movie_available(unsigned){return 0;}
 extern "C" unsigned re4dc_movie_picture(){return 0;}

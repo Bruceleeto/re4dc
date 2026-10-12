@@ -455,6 +455,11 @@ void GXGetViewportv(f32* v);
 float re4dc_fog_amount(float z);                    // platform/native_static.cpp
 int re4dc_water45_quad(const float positions[4][3], const float rgb[4][3], const float* projection,
                        const float* viewport);      // platform/native_ui.cpp
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+int re4dc_lake_begin(void);                         // platform/native_lake.cpp (LAKE_RIPPLES)
+void re4dc_lake_cell(const float pos[4][3], const float lake[4][2], const float fog[4], const float up[3],
+                     const float sun[3], const float* projection, const float* viewport);
+#endif
 }
 // Espgen45_TransSub's surface, natively: the GX path's far border (g45_mul = 15 grid sizes, unless flag bit 0
 // bounds it to the grid) and grid as one flat plane in grid space (y 0), cut into WATER45_CELLS x WATER45_CELLS
@@ -496,6 +501,21 @@ extern "C" void re4dc_water45_draw(EspgenWork* w)
     PSMTXMultVec(vi, &eye, &eye);
     PSMTXMultVec(p->inv, &eye, &le);
     const f32 reach = 2.0f * (ex > ez ? ex : ez);   // covers the whole surface from any eye over it
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+    // LAKE_RIPPLES: each cell's world x, z corners and fog, the plane normal and a sun direction in view space.
+    const int lake = re4dc_lake_begin();
+    f32 lrow[2][WATER45_CELLS + 1][3];
+    f32 up[3] = {mv[0][1], mv[1][1], mv[2][1]};
+    f32 sun[3];
+    {
+        const f32 ul = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+        for (int q = 0; q < 3; ++q) up[q] = ul > 0.0f ? up[q] / ul : 0.0f;
+        const f32 lw[3] = {0.35f, 0.55f, -0.76f};   // world direction toward the light (low sun over the far shore)
+        for (int q = 0; q < 3; ++q) {
+            sun[q] = pG->Cam.v_mat[q][0] * lw[0] + pG->Cam.v_mat[q][1] * lw[1] + pG->Cam.v_mat[q][2] * lw[2];
+        }
+    }
+#endif
     // Two rows of corners at a time (view-space position, factor): row j - 1 and row j bound row j - 1's cells.
     const int n = WATER45_CELLS;
     f32 row[2][WATER45_CELLS + 1][6];
@@ -515,6 +535,13 @@ extern "C" void re4dc_water45_draw(EspgenWork* w)
             PSMTXMultVec(mv, &l, &v);
             cur[i][0] = v.x; cur[i][1] = v.y; cur[i][2] = v.z;
             const f32 f = v.z < 0.0f ? re4dc_fog_amount(-v.z) : 0.0f;
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+            {
+                Vec wv;   // world mm (the plane's units are grid cells: Size_base_x mm each)
+                PSMTXMultVec(p->mat, &l, &wv);
+                lrow[j & 1][i][0] = wv.x; lrow[j & 1][i][1] = wv.z; lrow[j & 1][i][2] = f;
+            }
+#endif
             for (int q = 0; q < 3; ++q) {
                 cur[i][3 + q] = c[q] + (1.0f - c[q]) * f;
             }
@@ -545,6 +572,17 @@ extern "C" void re4dc_water45_draw(EspgenWork* w)
                 continue;
             }
             re4dc_water45_quad(pos, cr, projection, viewport);
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+            if (lake) {
+                const f32* lk[4] = {lrow[(j - 1) & 1][i], lrow[(j - 1) & 1][i + 1], lrow[j & 1][i], lrow[j & 1][i + 1]};
+                f32 lxz[4][2];
+                f32 fg[4];
+                for (int q = 0; q < 4; ++q) {
+                    lxz[q][0] = lk[q][0]; lxz[q][1] = lk[q][1]; fg[q] = lk[q][2];
+                }
+                re4dc_lake_cell(pos, lxz, fg, up, sun, projection, viewport);
+            }
+#endif
         }
     }
 }

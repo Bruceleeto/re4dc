@@ -4958,6 +4958,21 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
+// LAKE_RIPPLES (native_lake.cpp): a prebuilt TR packet (headers and vertices) queued like the water quad above.
+extern "C" int re4dc_ui_tr_packet(const void* packet,unsigned bytes){
+    if(!frame_ready || stream_aborted || draining_parts || !bytes)return 0;
+    if(source_draws_finished){stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
+    const unsigned required=kSubscreenQuadNode+((bytes+31)&~31U);
+    if(required+8192>deferred_top || deferred_top-required-8192<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad))))return 0;
+    deferred_top-=required;auto* node=new(frame_storage+deferred_top) DeferredPart{};
+    node->lighting=kSubscreenQuadTag;node->changed[0]=bytes;
+    std::memcpy(frame_storage+deferred_top+kSubscreenQuadNode,packet,bytes);
+    if(deferred_last)deferred_last->next=node;else deferred_first=node;
+    deferred_last=node;++deferred_count;
+    return 1;
+}
+#endif
 #endif
 #else
 extern "C" int re4dc_subscreen_quad(const Re4dcSubscreenQuad*){return 0;}
