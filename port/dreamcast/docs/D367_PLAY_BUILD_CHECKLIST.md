@@ -772,6 +772,13 @@ on the fastest measured render pipeline, with every existing fix landed. Update 
 commit, evidence). Do not start a later step's work inside an earlier step. Before calling the build complete, re-run
 the unlanded-work sweep (every local tree's files hashed against every dreamcast-port blob) and account for every hit.
 
+## Call equaliser for H2 STRICT (2026-10-12)
+
+The s03 call movie starts on a wall-timed codec-ready poll, so two arms with different frame costs diverge there
+(lane C: frame 905 vs 907). Build both arms with CODEC_READY_FIXTURE=1 (needs DBG_WARP=1) and add
+dc/codec_ready.txt "K 20" to both fixtures: the poll then releases at request + K frames (FAIL halts the run if the
+stream is not actually ready). With it the RENDER_OPTION levels are STRICT over every H2 window.
+
 ## Play build rules (verified 2026-09-29)
 
 - Recipe: `tools/d367/build-r21.sh` plus `DBG_WARP=0 QUALITY_PICKER=0 ARENA_FIT_KOS_BYTES=147456 PACE_MODE=fast

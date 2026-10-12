@@ -1670,7 +1670,7 @@ void stream_close(bool present) {
     if(!present)++stream_discards;
 }
 #endif
-#if RE4DC_PERF_HUD
+#if RE4DC_PERF_HUD || (defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION)
 // On-screen timing for real consoles (a GDEMU/ODE setup has no serial or BBA
 // console, and the RAM log is unreadable there). Untextured TR quads at the
 // end of each presented frame; photograph or film the screen. Bars at 4 px/ms
@@ -1715,6 +1715,35 @@ void hud_number(HudBatch& b,float x,float y,unsigned value,bool tenths,std::uint
         if(d==0 && tenths)hud_rect(b,dx-3,y+H-T,2,T,argb);
     }
 }
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+// RENDER_OPTION speed display (pace.cpp): the counter at the top right (fps, game speed %, test builds CPU %) and the
+// 2 s note after R + START (four boxes: Off, VMU, Screen, Both), 7-segment quads of the PERF_HUD path.
+extern "C" int re4dc_speed_screen(unsigned v[3]);
+extern "C" int re4dc_speed_note(int* speed);
+HudBatch speed_batch;
+void speed_draw(){
+    unsigned v[3];
+    int s;
+    const bool counter=re4dc_speed_screen(v)!=0,note=re4dc_speed_note(&s)!=0;
+    if(!counter && !note)return;
+    HudBatch& b=speed_batch;b.n=1;
+    pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);
+    std::memcpy(&b.v[0],&header,sizeof(header));
+    if(counter){
+        hud_number(b,566,24,v[0],true,0xe0ffffffU);
+        hud_number(b,566,42,v[1],false,0xe0ffd0a0U);
+#if RE4DC_PACE_DEBUG
+        hud_number(b,566,60,v[2],false,0xe0a0d0ffU);
+#endif
+    }
+    if(note)for(int k=0;k<4;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
+    hud_flush(b);
+}
+#endif
+#endif
+#if RE4DC_PERF_HUD
 HudBatch hud_batch; // 4 KiB .bss (PERF_HUD only), not the caller's stack
 #ifndef RE4DC_IO_PROBE
 #define RE4DC_IO_PROBE 0
@@ -3707,6 +3736,9 @@ extern "C" void re4dc_ui_present(){
 #endif
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG && RE4DC_PVR_STREAM
     {int pace_mode;if(re4dc_pace_note(&pace_mode) && !re4dc_vi_black())pace_note_draw(pace_mode);}
+#endif
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION && RE4DC_PVR_STREAM
+    if(!re4dc_vi_black())speed_draw();
 #endif
 #if RE4DC_PERF_HUD
     if(!re4dc_vi_black()){

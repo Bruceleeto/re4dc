@@ -386,7 +386,9 @@ void PADControlMotor(int chan, u32 cmd) { (void) chan; (void) cmd; }
 void re4dc_audio_frame(void);
 int re4dc_pad_context(void);      // ui_bridge.cpp: RE4DC_PAD_CTX_* from the game state of the last frame
 int re4dc_pad_debug_state(void);  // ui_bridge.cpp: RE4DC_PAD_DBG_* (which debug chords would fire)
-#if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+extern "C" void re4dc_speed_cycle(void);  // pace.cpp: speed display Off -> VMU -> Screen -> Both (every build)
+#elif RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG
 void re4dc_pace_cycle_mode(void);  // pace.cpp: Smooth -> Fast -> Off (test builds)
 #endif
 #if defined(RE4DC_LOOK_TOGGLE)
@@ -515,7 +517,8 @@ u32 PADRead(PADStatus* status)
             u16 real = mapped.button | ((st->buttons & CONT_Z) ? PAD_TRIGGER_Z : 0);
             p->button = (u16) (re4dcBlockDebugChords(real, re4dc_pad_debug_state(), &maps[0]) | scripted);
         }
-#if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG
+#if (RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG) || (defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION)
+        // RENDER_OPTION (every build): the chord cycles the speed display (Frame pacing is an Options row).
         // Test builds: a START press that begins with R held (and L not held: L + START is the
         // debug-slot chord) cycles the frame pacing mode (pace.cpp); that START is masked until
         // released, so the game never sees the chord's press. Real bits only; fixture bits pass.
@@ -524,7 +527,11 @@ u32 PADRead(PADStatus* status)
             if (mapped.button & PAD_BUTTON_START) {
                 if (!paceStartHeld && (mapped.button & (PAD_TRIGGER_L | PAD_TRIGGER_R)) == PAD_TRIGGER_R) {
                     paceChord = 1;
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+                    re4dc_speed_cycle();
+#else
                     re4dc_pace_cycle_mode();
+#endif
                 }
                 paceStartHeld = 1;
             } else {

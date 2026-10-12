@@ -3,6 +3,8 @@
 //
 // /cd/dc/quality.txt (test fixture, wins over the VMU; skips the picker unless picker=1):
 //   mode=standard|original   features=+lod,-lod   picker=0|1   pace=0..3 (calls set_pace)
+//   render=quality|standard|fast or perf=0|1 (RENDER_OPTION; calls set_render)
+//   speed=off|vmu|screen|both (RENDER_OPTION; calls set_speed)
 // Stored choice: the 32-byte RE4DCCFG record (quality.h Re4dcQualityCfg, design-vmu layout),
 // read once at the title and stored only when the picker's choice changes, through
 // re4dc_quality_cfg_load/store. The VMU layer (design-vmu S5) owns the card file; the weak
@@ -24,6 +26,15 @@
 #ifndef RE4DC_MESH_LOD_PX
 #define RE4DC_MESH_LOD_PX 3
 #endif
+#ifndef RE4DC_RENDER_OPTION
+#define RE4DC_RENDER_OPTION 0
+#endif
+#if RE4DC_RENDER_OPTION
+extern "C" void re4dc_res_set(unsigned mode);  // res_mode.cpp
+#define RQ_KEEP (uint32_t(RQ_PACE_MASK) | uint32_t(RQ_RENDER_MASK) | uint32_t(RQ_SPEED_MASK))  // settings kept across mode presets
+#else
+#define RQ_KEEP uint32_t(RQ_PACE_MASK)
+#endif
 
 extern "C" int re4dc_fixture_read(const char* path, char* buffer, unsigned size);   // os.cpp
 extern "C" void re4dc_kos_heap_state(unsigned* free_chunks, unsigned* used, unsigned* break_room);
@@ -36,6 +47,10 @@ Re4dcQuality q = {RE4DC_QUALITY_DEFAULT, 0, RE4DC_QSRC_DEFAULT, 0, kPreset[RE4DC
 bool inited;
 int file_picker = -1;              // quality.txt picker= (-1: not given)
 int file_pace = -1;                // quality.txt pace= (-1: not given; test fixture for set_pace)
+#if RE4DC_RENDER_OPTION
+int file_render = -1;
+int file_speed = -1;               // quality.txt speed=off|vmu|screen|both (-1: not given)                // quality.txt render= / perf= (-1: not given)
+#endif
 uint32_t file_set, file_clear;     // quality.txt feature overrides
 uint8_t stored_mode = 0xFF;        // mode in the stored record (0xFF: none)
 uint32_t stored_features;
@@ -46,7 +61,7 @@ uint32_t stored_features;
 void apply(int mode)
 {
     q.mode = uint8_t(mode ? RE4DC_QUALITY_STANDARD : RE4DC_QUALITY_ORIGINAL);
-    q.features = ((kPreset[q.mode] | file_set) & ~file_clear & ~uint32_t(RQ_PACE_MASK)) | (q.features & RQ_PACE_MASK);
+    q.features = ((kPreset[q.mode] | file_set) & ~file_clear & ~RQ_KEEP) | (q.features & RQ_KEEP);
     q.lod_px = (q.features & RQ_LOD_COARSE) ? float(RE4DC_QUALITY_LOD_PX) : float(RE4DC_MESH_LOD_PX);
 }
 
@@ -77,6 +92,17 @@ void parse_file(char* t)
             else re4dc_log("quality: quality.txt unknown mode '%s'\n", s + 5);
         } else if (!strncmp(s, "pace=", 5)) {
             file_pace = atoi(s + 5) & 3;
+#if RE4DC_RENDER_OPTION
+        } else if (!strncmp(s, "render=", 7)) {  // Rendering: quality | standard | fast
+            file_render = !strcmp(s + 7, "fast") ? RE4DC_RENDER_FAST
+                          : !strcmp(s + 7, "standard") ? RE4DC_RENDER_STANDARD : RE4DC_RENDER_QUALITY;
+        } else if (!strncmp(s, "speed=", 6)) {   // speed display: off | vmu | screen | both
+            const char* v = s + 6;
+            file_speed = !strcmp(v, "vmu") ? RE4DC_SPEED_VMU : !strcmp(v, "screen") ? RE4DC_SPEED_SCREEN
+                         : !strcmp(v, "both") ? RE4DC_SPEED_BOTH : RE4DC_SPEED_OFF;
+        } else if (!strncmp(s, "perf=", 5)) {    // alias of render=: 1 standard (640x240), 0 quality
+            file_render = atoi(s + 5) ? RE4DC_RENDER_STANDARD : RE4DC_RENDER_QUALITY;
+#endif
         } else if (!strncmp(s, "picker=", 7)) {
             file_picker = atoi(s + 7) ? 1 : 0;
         } else if (!strncmp(s, "features=", 9)) {
@@ -112,7 +138,7 @@ void cfg_read()
     }
     stored_mode = r.mode;
     stored_features = r.features;
-    q.features = (q.features & ~uint32_t(RQ_PACE_MASK)) | (r.features & RQ_PACE_MASK);
+    q.features = (q.features & ~RQ_KEEP) | (r.features & RQ_KEEP);
     apply(r.mode);
     q.source = RE4DC_QSRC_VMU;
     re4dc_log("quality: RE4DCCFG mode=%s\n", r.mode == RE4DC_QUALITY_STANDARD ? "standard" : "original");
@@ -184,6 +210,11 @@ extern "C" void re4dc_quality_init(void)
     const int n = re4dc_fixture_read("/cd/dc/quality.txt", text, sizeof(text) - 1);
     if (n > 0) { text[n] = 0; parse_file(text); }
     if (file_pace >= 0) re4dc_quality_set_pace(file_pace);
+#if RE4DC_RENDER_OPTION
+    if (file_speed >= 0) re4dc_quality_set_speed(file_speed);
+    if (file_render >= 0) re4dc_quality_set_render(file_render);
+    else re4dc_res_set(re4dc_quality_render() == RE4DC_RENDER_FAST ? 4U : re4dc_quality_render() == RE4DC_RENDER_STANDARD ? 1U : 0U);
+#endif
     re4dc_kos_heap_state(&kos_free1, &used, &kos_break1);
     if (!RE4DC_QUALITY_PICKER || file_picker == 0 || (n > 0 && file_picker != 1)) q.chosen = 1;
     re4dc_log("quality: init kos_free %u->%u break %u->%u file=%d picker=%s\n", kos_free0, kos_free1, kos_break0,
@@ -225,6 +256,38 @@ extern "C" int re4dc_quality_set_pace(int pace)
     cfg_write();
     return stored_features == q.features;
 }
+
+#if RE4DC_RENDER_OPTION
+extern "C" int re4dc_quality_speed(void) { return int((q.features & RQ_SPEED_MASK) >> RQ_SPEED_SHIFT); }
+
+extern "C" int re4dc_quality_set_speed(int speed)
+{
+    static const char* const kName[4] = {"off", "vmu", "screen", "both"};
+    re4dc_quality_init();
+    speed &= 3;
+    q.features = (q.features & ~uint32_t(RQ_SPEED_MASK)) | (uint32_t(speed) << RQ_SPEED_SHIFT);
+    re4dc_log("quality: speed display=%s\n", kName[speed]);
+    if (stored_mode == q.mode && stored_features == q.features) return 1;
+    cfg_write();
+    return stored_features == q.features;
+}
+
+extern "C" int re4dc_quality_render(void) { return int((q.features & RQ_RENDER_MASK) >> RQ_RENDER_SHIFT); }
+
+extern "C" int re4dc_quality_set_render(int render)
+{
+    static const unsigned kMode[3] = {0U, 1U, 4U};  // res_mode.cpp: Quality 640x480, Standard 640x240, Fast 320x240
+    static const char* const kName[3] = {"quality", "standard", "fast"};
+    re4dc_quality_init();
+    if (render < RE4DC_RENDER_QUALITY || render > RE4DC_RENDER_FAST) render = RE4DC_RENDER_QUALITY;
+    q.features = (q.features & ~uint32_t(RQ_RENDER_MASK)) | (uint32_t(render) << RQ_RENDER_SHIFT);
+    re4dc_log("quality: render=%s\n", kName[render]);
+    re4dc_res_set(kMode[render]);
+    if (stored_mode == q.mode && stored_features == q.features) return 1;
+    cfg_write();
+    return stored_features == q.features;
+}
+#endif
 
 extern "C" void re4dc_quality_picker_done(void)
 {

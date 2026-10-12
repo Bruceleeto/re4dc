@@ -124,7 +124,18 @@ void GXPeekZ(u16 x, u16 y, u32* z) { (void) x; (void) y; *z = 0xFFFFFF; }
 
 void GXSetViewport(f32 l, f32 t, f32 w, f32 h, f32 n, f32 f) { g_viewport[0] = l; g_viewport[1] = t; g_viewport[2] = w; g_viewport[3] = h; g_viewport[4] = n; g_viewport[5] = f; }
 void GXSetViewportJitter(f32 l, f32 t, f32 w, f32 h, f32 n, f32 f, u32 field) { (void) field; GXSetViewport(l, t, w, h, n, f); }
+#if defined(RE4DC_RES_ALTERNATE) && RE4DC_RES_ALTERNATE
+// RENDER_OPTION alternating lines (res_mode.cpp): odd frames sample half a render line lower (the GameCube's
+// GXSetViewportJitter idea); re4dc_res_vjitter is the half line as a fraction of the screen height.
+extern "C" float re4dc_res_vjitter;
+void GXGetViewportv(f32* vp)
+{
+    GX_COPY(vp, g_viewport, sizeof(g_viewport));
+    vp[1] += re4dc_res_vjitter * g_viewport[3];  // re4dc_res_vjitter: render lines / screen lines (no divide here)
+}
+#else
 void GXGetViewportv(f32* vp) { GX_COPY(vp, g_viewport, sizeof(g_viewport)); }
+#endif
 void GXSetScissor(u32 l, u32 t, u32 w, u32 h) { (void) l; (void) t; (void) w; (void) h; }
 void GXSetProjection(const f32 mtx[4][4], int type)
 {

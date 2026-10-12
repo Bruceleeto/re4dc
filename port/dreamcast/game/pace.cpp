@@ -63,6 +63,9 @@
 
 extern "C" u32 re4dc_vi_retrace_count(void);
 extern "C" void* re4dc_ui_movie_texture() __attribute__((weak));   // ROUTE_MOVIES builds
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+#include "platform/quality.h"
+#endif
 extern "C" int re4dc_quality_pace(void) __attribute__((weak));      // QUALITY builds (quality.cpp)
 #if RE4DC_PACE_CHECK
 extern "C" unsigned re4dc_logic_trace_hash(void);                  // logic_trace.cpp
@@ -292,6 +295,9 @@ void vmu_try()
     v_tries = rc == MAPLE_EAGAIN ? v_tries - 1 : 0;
 }
 
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;  // the last one-second window (on-screen counter)
+#endif
 void vmu_window(unsigned cost, u32 now)
 {
     if (v_tries) vmu_try();
@@ -304,6 +310,12 @@ void vmu_window(unsigned cost, u32 now)
     // CPU: work per tick (before the vblank wait) as % of a 30 Hz tick (2 NTSC fields, 33,367 us); above 100 the
     // console is saturated even when it skips drawing (user's console readings, 2026-10-04).
     const unsigned cpu = unsigned((v_cost_us * 100ULL / v_ticks + 16683) / 33367);
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+    speed_fps10 = fps10; speed_pct = speed; speed_cpu = cpu; speed_valid = 1;
+    const bool lcd = (re4dc_quality_speed() & RE4DC_SPEED_VMU) != 0;  // speed display setting: the VMU page
+#else
+    const bool lcd = true;
+#endif
     char text[64];
 #if RE4DC_PACE_VMU_GPU
     GpuAcc a;   // the renders whose render-done interrupt arrived in this window
@@ -353,10 +365,12 @@ void vmu_window(unsigned cost, u32 now)
              kModeName[re4dc_pace_mode % 3]);
 #endif
 #endif
-    vmufb_clear(&v_lcd);
-    vmufb_print_string(&v_lcd, nullptr, text);
-    v_tries = 30;
-    vmu_try();
+    if (lcd) {
+        vmufb_clear(&v_lcd);
+        vmufb_print_string(&v_lcd, nullptr, text);
+        v_tries = 30;
+        vmu_try();
+    }
     v_vb0 = now; v_ticks = v_drawn = 0; v_cost_us = 0;
 }
 #endif
@@ -408,6 +422,35 @@ extern "C" int re4dc_pace_note(int* mode)
     *mode = re4dc_pace_mode;
     return note_until && (int) (note_until - re4dc_vi_retrace_count()) > 0;
 }
+
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+#if !RE4DC_PACE_VMU
+#error RENDER_OPTION's speed display needs PACE_VMU=1 (its one-second window)
+#endif
+// RENDER_OPTION speed display (R + START, pad.cpp, every build): Off -> VMU -> Screen -> Both, stored in RE4DCCFG
+// (quality.cpp), a 2 s note. The on-screen counter (native_ui.cpp) shows in room play only (no movie, sub screen,
+// title or crash screen: the pacing context test).
+namespace {
+u32 speed_note_until;
+}
+extern "C" void re4dc_speed_cycle(void)
+{
+    re4dc_quality_set_speed((re4dc_quality_speed() + 1) & 3);
+    speed_note_until = re4dc_vi_retrace_count() + 120;
+}
+extern "C" int re4dc_speed_note(int* speed)
+{
+    *speed = re4dc_quality_speed();
+    return speed_note_until && (int) (speed_note_until - re4dc_vi_retrace_count()) > 0;
+}
+// 1 while the counter shows: v[0] drawn fps x10, v[1] game speed %, v[2] CPU % of a tick.
+extern "C" int re4dc_speed_screen(unsigned v[3])
+{
+    if (!(re4dc_quality_speed() & RE4DC_SPEED_SCREEN) || !speed_valid || !context_ok()) return 0;
+    v[0] = speed_fps10; v[1] = speed_pct; v[2] = speed_cpu;
+    return 1;
+}
+#endif
 
 extern "C" void re4dc_pace_reset(void)
 {

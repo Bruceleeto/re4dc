@@ -100,3 +100,53 @@ Gates (test 7 recipe T arm, test 7 control H2 fixture):
   same tick as e 41 -> 36 / o 211 -> 212. The off arm logs 4 native parts run failures at 661. The reserve=1 arm
   instead logs `read.cpp(725)` 0x43660 failures: with mode 1 on this recipe, the slab starves a 275 KB read buffer.
   This is a D0 finding, not a D5 issue; the landed recipe uses mode 2, and this run used mode 1.
+
+## C6: RENDER_OPTION, the Rendering levels and the speed display (2026-10-12; private, not pushed)
+
+Knob RENDER_OPTION=1 (game30.mk; default 0 = no code; needs QUALITY=1, NATIVE_MES=1, PACE_CATCHUP, PACE_VMU=1).
+Player settings (RE4DCCFG fields, quality.cpp; quality.txt `render=quality|standard|fast`, `perf=0|1` alias,
+`speed=off|vmu|screen|both`). Test 8 default: Quality, speed display Off.
+- Rendering: Quality = 640x480 (today). Standard = 640x240 per frame, alternating lines on 480i: each frame renders
+  one parity (half-line viewport jitter, GXGetViewportv) into the matching lines of a 640x480 buffer; four
+  half-buffers in the two KOS buffers, no copy, no extra VRAM, the other half at most one frame old. Fast = 320x240,
+  pixel doubled by the video output, alternating lines on 480i. VGA: Standard / Fast are plain line doubling (the
+  Options help line says so). One memory layout (RES_MODES=19: modes 0, 1, 4; 300 tiles at most; the KOS
+  allocation), runtime switching at the safe point, a new alternating mode fills both parities while the old picture
+  is held (no garbage half). The 240-line modes clip their last line and keep it black. Plain doubling stays as the
+  RENDER_DOUBLE=1 debug fallback; the mode switch keeps a per-frame vertical offset hook (unused).
+- Options screen (option.cpp + option_rows.cpp, title and pause): rows FRAME PACING (Smooth / Fast / Off) and
+  RENDERING (Quality / Standard / Fast) below AUDIO SETUP in the message font; EXIT and the help line move down;
+  the screen's cursor colour and sounds; left / right / A change the value at once and store RE4DCCFG.
+- R + START (every RENDER_OPTION build; the game never sees that START) cycles the speed display Off -> VMU ->
+  Screen -> Both with a 2 s note (four boxes). VMU = the PACE_VMU page; Screen = a corner counter (fps, game speed
+  %, test builds CPU %) shown in room play only (no movie, sub screen, title or crash screen).
+- Test builds keep the X + D-pad down + START mode chord and the mode label; RES_CYCLE_FRAMES=n cycles the modes.
+
+Gates (evidence D:\Flycast-Evidence\re4-dreamcast\p2d-20261011, test 7 recipe):
+- Knob off: play and trace images byte identical to the base (prog.bin 3,185,952 / 3,210,124 B, overlays equal).
+- H2 with the call equaliser (CODEC_READY_FIXTURE=1, dc/codec_ready.txt "K 20", both arms): Standard vs Quality and
+  Fast vs Quality STRICT over every window (7069 / 7070 ticks); in-play switching every 97 frames (RES_CYCLE_FRAMES)
+  vs Quality STRICT outside 741..1232. Knob on vs knob off: STRICT over 0..740 and 1233..end; 741..1232 differs only
+  in om (object parts read while the sub screen backing is swapped out; image layout dependent, the D5
+  TRACE_SS_MASK case). s30 340/340 in every arm; codec ready released once, 0 FAIL.
+- New Game (Standard): 1971 / 2360 / 1175. r10b (Fast): 10b00 / 10b10 / 10b22 / 11b00 complete, the one known
+  upload failure as the base. r119 (Fast): 0 upload failures. VGA (Standard): scaler VGA doubled, s30 340/340.
+  0 HALT, 0 MISALIGN everywhere.
+- hw model (hwproject, drawn tick, nominal ms): square base 70.29 / Quality 70.90 / Standard 69.96 / Fast 70.00;
+  house 192.06 / 192.46 / (window missed the stall) / 192.59; lake 51.79 / 53.82 / 53.80 / 53.69. The levels do
+  not change CPU time (fill is GPU work). Speed counter on vs off at the square: 70.90 vs 71.00 (within noise).
+- Flycast PVR timing does not model fill (GPU 7.5 ms at the house view for all three levels): the fill saving is
+  the tile count, 300 / 150 / 75 tiles per frame, and needs a console reading.
+- Stills: c6-stills\view-{sq,house,lake}.png (display-equivalent: Quality as captured, Standard as the TV interleaves
+  it, Fast cropped and doubled; top row raw, bottom row 480i-softened); Options screen route-c6-opt5 t0177 / t0203.
+- s30 first-picture failure: only in RES_MODES=15 builds (mode 3 makes KOS allocate 600 tiles: vram_free 43,264,
+  kos_free about 11 KB at the movie start). RENDER_OPTION builds no FSAA mode (KOS 300-tile allocation): s30 340/340.
+
+Lake +2 ms (hw model is deterministic per binary): base 51.79, base padded +16 KB 51.67, base + PACE_VMU 51.79,
+base + RES_MODES=19 alone 52.74, RENDER_OPTION 52.89 (after removing a per-call divide in the viewport jitter),
+RENDER_OPTION + RENDER_DOUBLE 53.44. So about 0.95 ms is the existing RES_MODES runtime-resolution machinery (lane C
+code: screen size as variables in the render path), about 0.15 ms RENDER_OPTION itself; square +0.6, house +0.4.
+Open: fb0 row 479 (parity 1 last line) keeps a constant non-black value on Flycast in Standard although it is
+clipped and cleared (fb1 and row 478 are black); console check. The final render-only edits (jitter divide hoist,
+last-line clip, counter header) were not re-run through H2 (C: at the 16 GB staging floor); knob-off identity was
+re-checked. Pause-screen rows share the title code path but have no still.

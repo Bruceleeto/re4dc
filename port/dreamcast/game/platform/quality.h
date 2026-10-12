@@ -44,12 +44,31 @@ enum {
     // preset bit. Kept across mode changes and stored in RE4DCCFG with the mode.
     RQ_PACE_SHIFT = 16,
     RQ_PACE_MASK = 3u << 16,
+    // RENDER_OPTION (game30.mk): Rendering setting, a 2-bit field kept across mode presets and stored like pacing:
+    // 0 Quality (640x480), 1 Standard (640x240 alternating lines), 2 Fast (320x240).
+    RQ_RENDER_SHIFT = 18,
+    RQ_RENDER_MASK = 3u << 18,
+    // RENDER_OPTION: speed display (R + START cycles it), a 2-bit field: RE4DC_SPEED_*.
+    RQ_SPEED_SHIFT = 20,
+    RQ_SPEED_MASK = 3u << 20,
 };
 enum {
     RE4DC_PACE_DEFAULT = 0,   // the build's PACE_* knobs
     RE4DC_PACE_SMOOTH = 1,
     RE4DC_PACE_FAST = 2,
     RE4DC_PACE_OFF = 3,
+};
+
+enum {
+    RE4DC_SPEED_OFF = 0,     // bit 0: the VMU speed page, bit 1: the on-screen counter
+    RE4DC_SPEED_VMU = 1,
+    RE4DC_SPEED_SCREEN = 2,
+    RE4DC_SPEED_BOTH = 3,
+};
+enum {
+    RE4DC_RENDER_QUALITY = 0,
+    RE4DC_RENDER_STANDARD = 1,
+    RE4DC_RENDER_FAST = 2,
 };
 
 typedef struct Re4dcQuality {
@@ -97,6 +116,13 @@ void re4dc_quality_freeze(const char* where);
 // about 35 vblanks when the VMU layer is linked). Returns 1 when stored or unchanged.
 int re4dc_quality_pace(void);
 int re4dc_quality_set_pace(int pace);
+// RENDER_OPTION: Rendering setting (RE4DC_RENDER_*); set_render switches the render mode at the next safe point and
+// stores RE4DCCFG like set_pace.
+int re4dc_quality_render(void);
+int re4dc_quality_set_render(int render);
+// RENDER_OPTION: speed display setting (RE4DC_SPEED_*); set_speed stores RE4DCCFG like set_pace.
+int re4dc_quality_speed(void);
+int re4dc_quality_set_speed(int speed);
 // QUALITY_ASSETS: 1 when the frozen mode is Standard (select the Standard asset set).
 int re4dc_quality_std_assets(void);
 // PERF_HUD: v[0] = mode, v[1] = feature word. Returns 2.

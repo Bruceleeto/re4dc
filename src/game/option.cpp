@@ -48,6 +48,12 @@ void num(int val, int n, int mode, int base, u8 type, int reverse);
 }
 
 OptionScreen OptScrn;
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+// RENDER_OPTION (port/dreamcast/game/option_rows.cpp): the Frame pacing and Rendering rows of the top menu.
+extern "C" int re4dc_option_rows_key(s8* rno1);
+extern "C" int re4dc_option_rows_draw(OptionScreen* o, int x0, int* y0);
+extern "C" void re4dc_option_rows_hide();
+#endif
 
 // pSys->language == n (0 jpn, 1 eng(US), 2 eng(EU), 3 ger, 4 fra, 5 esp, 6 ita, 7 eng).
 static inline int isLang(u8 lang, int n)
@@ -163,6 +169,11 @@ int OptionScreen::move()
 {
     int ret = 0;
 
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+    if (_rno0 != 0) {
+        re4dc_option_rows_hide();
+    }
+#endif
     switch (_rno0) {
     case 0:
         ret = top_menu(this);
@@ -193,6 +204,9 @@ int OptionScreen::move()
 // Frees the option textures and kills both id groups.
 void OptionScreen::quit()
 {
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+    re4dc_option_rows_hide();
+#endif
     IdTexRelease(TEX_OWNER_ID_DEAD);
     IdSys.kill(0xFF, ID_OPT_BG);
     IdSys.kill(0xFF, ID_OPT);
@@ -223,6 +237,11 @@ int top_menu(OptionScreen* o)
     if (Key.trg & KEY_START) {
         return 1;
     }
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+    if (re4dc_option_rows_key(&o->_rno1)) {
+        // a new row's value, or the cursor (option_rows.cpp)
+    } else
+#endif
     if (Key.trg & KEY_B) {
         if (old == 4) {
             o->_rno0 = 1;
@@ -326,11 +345,20 @@ int top_menu(OptionScreen* o)
             u->col0[3] = 0xFF;
         }
     }
+#if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
+    int hy = y0;
+    if (!re4dc_option_rows_draw(o, x0, &hy)) {
+        u8 mes[5] = {0x81, 0x82, 0x83, 0x84, 0x85};
+
+        cMes.MesSet(mes[o->_rno1], x0, hy, o->_msg_attr, 0, 0, 4);
+    }
+#else
     {
         u8 mes[5] = {0x81, 0x82, 0x83, 0x84, 0x85};
 
         cMes.MesSet(mes[o->_rno1], x0, y0, o->_msg_attr, 0, 0, 4);
     }
+#endif
     return 0;
 }
 

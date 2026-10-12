@@ -172,6 +172,42 @@ endif
 #   n frames. Every screen mapping reads the current size (re4dc_screen.h). Default 0: nothing changes.
 RES_MODES ?= 0
 RES_MODE ?= 0
+# RENDER_OPTION=1 (Phase 2 C6, user 2026-10-12: a permanent player option, default 0): "Rendering: Quality / Standard / Fast".
+#   Quality = mode 0 (640x480), Standard = mode 1 (640x240 per frame, alternating lines on a 480i TV, doubled on
+#   VGA), Fast = mode 4 (320x240, video output pixel double; alternating lines on 480i, doubled on VGA):
+#   RES_MODES=19, boot mode 0, the KOS 300-tile allocation and fixed 640x480 buffers (no texture pool cost, one
+#   memory layout). RENDER_DOUBLE=1: debug fallback, both 240-line levels doubled everywhere. The setting is RE4DCCFG feature bit RQ_RENDER_FAST
+#   (quality.h); quality.txt render=quality|standard|fast (alias perf=0|1) overrides it; quality.cpp hands it to
+#   res_mode.cpp, which switches at the frame-start safe point (PVR idle). The Options screen (option.cpp +
+#   option_rows.cpp) gains two rows, "Frame pacing: Smooth / Fast / Off" and "Rendering: Quality / Standard / Fast"; both
+#   apply at once and are stored in RE4DCCFG. Test builds keep the LOOK_TOGGLE chord.
+RENDER_OPTION ?= 0
+ifneq ($(filter-out 0 1,$(RENDER_OPTION)),)
+$(error RENDER_OPTION must be 0 or 1)
+endif
+ifeq ($(RENDER_OPTION),1)
+ifneq ($(filter-out 0 19,$(RES_MODES))$(filter-out 0,$(RES_MODE)),)
+$(error RENDER_OPTION=1 sets RES_MODES=19 (modes 0, 1, 4) RES_MODE=0 itself)
+endif
+ifneq ($(QUALITY)$(NATIVE_MES),11)
+$(error RENDER_OPTION needs QUALITY=1 (RE4DCCFG / quality.txt) and NATIVE_MES=1 (the Options rows))
+endif
+ifeq ($(PACE_CATCHUP),0)
+$(error RENDER_OPTION needs PACE_CATCHUP (the Frame pacing row))
+endif
+override RES_MODES := 19
+GAME_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
+PLATFORM_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
+OBJS += $(OBJDIR)/option_rows.o
+# RENDER_DOUBLE=1 (debug fallback): Standard / Fast show each line twice instead of alternating lines.
+ifneq ($(RENDER_DOUBLE),1)
+PLATFORM_CPPFLAGS += -DRE4DC_RES_ALTERNATE=1
+GAME_LDFLAGS += -Wl,--wrap=pvr_begin_queued_render
+endif
+endif
+$(OBJDIR)/option_rows.o: option_rows.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
 RES_CYCLE_FRAMES ?= 0
 ifeq ($(RES_MODES),0)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/res_mode.o,$(PLATFORM_OBJS))
@@ -179,11 +215,11 @@ ifneq ($(RES_MODE)$(RES_CYCLE_FRAMES),00)
 $(error RES_MODE / RES_CYCLE_FRAMES need RES_MODES)
 endif
 else
-ifeq ($(filter $(RES_MODES),1 2 3 4 5 6 7 8 9 10 11 12 13 14 15),)
-$(error RES_MODES is a mask 1..15 of modes 0..3)
+ifeq ($(filter $(RES_MODES),$(shell seq 1 31)),)
+$(error RES_MODES is a mask 1..31 of modes 0..4)
 endif
-ifeq ($(filter $(RES_MODE),0 1 2 3),)
-$(error RES_MODE is 0..3)
+ifeq ($(filter $(RES_MODE),0 1 2 3 4),)
+$(error RES_MODE is 0..4)
 endif
 ifeq ($(shell echo $$(( ($(RES_MODES) >> $(RES_MODE)) & 1 ))),0)
 $(error RES_MODE $(RES_MODE) is not in RES_MODES $(RES_MODES))
