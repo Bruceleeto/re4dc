@@ -72,3 +72,31 @@ Proof (evidence D:\Flycast-Evidence\re4-dreamcast\p2d-20261011):
 - r10b s20 (f6) 800/800 dropped 7; New Game 1971 / 2360 / 1175; 0 HALT, 0 MISALIGN, missing.txt empty. The one f6
   upload failure is the known missing pair 18d0fd82 (open failed; test 7 has it too).
 - Knob off: play image byte identical to 56db3649 (prog.bin 3,185,952 B, overlays identical). Knob on: +608 B (W).
+
+## D5: TRACE_ALLOC / TRACE_SS_MASK (trace builds only, 2026-10-11; from lane B's B4 audit)
+
+Two knobs for logic-trace builds (game30.mk; both need LOGIC_TRACE=1; default 0 = no code; with both off the play
+image and the trace image are byte-identical to a0f0e43f, prog.bin 3,185,952 / 3,209,292 B).
+- TRACE_ALLOC=1: a failed required heap-4 allocation (main_mem.cpp mem_alloc with flag 1, the `alloc[..]:free[..]`
+  log; the native parts run in parts_bridge.cpp once its reservation fallback has also failed) bumps the must-match LU
+  field `af=<count>/<FNV of size + site tag>` and logs `LA t= n= size= site= af=`. A layout-dependent spawn change
+  then shows up as af on the tick it happens.
+- TRACE_SS_MASK=1: while the sub screen backing has room memory swapped out (sscrn_bridge.cpp swap open / close,
+  logged as `LSS ... open=1/0`), the player / enemy / object fields print `~` and the lists are not walked. Globals,
+  flags, RNG, camera and af are still recorded, and the pad fixture feed keeps its old reads. Does not combine with
+  LOGIC_TRACE_SWAPPED / LOGIC_TRACE_OWNERSHIP (those read the swapped bytes themselves).
+- Tools: tools/game30/logic_trace_diff.py (new in the repo; the d367-agents copy plus an optional discrete `af`
+  field and a `masked` count) and decision_cmp.py (accepts `~`, must field `af`, which reads `-` without the knob).
+  `~` only equals `~`. On existing traces both tools give the old verdicts: d4-h2 off/on, d0-h2 a/r, p2b wi11b c/o.
+
+Gates (test 7 recipe T arm, test 7 control H2 fixture):
+- H2, knob on (d5-h2-on) vs off (d5-h2-off), old tool: STRICT over 1450..1569, 0..739 and 1217..; decision_cmp: every
+  must field ok except af, which is missing in the off arm. 7127 ticks each; s30 340/340 with heap_before 56,960 in
+  both; 0 HALT / MISALIGN. The sub screen window is 740..1216 (`LSS`), so frame 740 is masked.
+- r11b (lane B's false MUST-DIFFER: wi11b-c vs wi11b-o, unpadded dar): with the knobs on (d5-11b-c / -o), it is
+  STRICT and MUST-IDENTICAL over 2657 ticks, with 2390 of them masked. Without the knobs it was MUST-DIFFER from
+  frame 267.
+- H2 knob on vs knob on + HEAP4_PARTS_RESERVE=1 (d5-h2-res): the first difference is tick 661, with af 5 -> 7 on the
+  same tick as e 41 -> 36 / o 211 -> 212. The off arm logs 4 native parts run failures at 661. The reserve=1 arm
+  instead logs `read.cpp(725)` 0x43660 failures: with mode 1 on this recipe, the slab starves a 275 KB read buffer.
+  This is a D0 finding, not a D5 issue; the landed recipe uses mode 2, and this run used mode 1.

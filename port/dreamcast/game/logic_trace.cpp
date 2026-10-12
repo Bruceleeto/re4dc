@@ -253,6 +253,44 @@ unsigned cur_room() { return pG ? (unsigned(pG->stage_no) << 8) | pG->room_no : 
 #endif
 }  // namespace
 
+// TRACE_ALLOC=1 (Phase 2 D5, needs LOGIC_TRACE=1): every failed required heap-4 allocation (main_mem.cpp mem_alloc
+// with flag 1, the "alloc[..]:free[..]" log; the native parts run in parts_bridge.cpp) is counted and hashed with its
+// size and site tag, and the LU record ends "af=<count>/<hash>", a must-match field. A layout-dependent spawn then
+// shows up as an allocation event on the tick it happens ("LA" line) instead of as later enemy-count drift.
+// TRACE_SS_MASK=1 (D5): while the sub screen backing has the room's memory swapped out (sscrn_bridge.cpp), the player,
+// enemy and object fields read swapped memory (layout-dependent garbage in both arms): they are printed as "~" and
+// the enemy / object lists are not walked. Globals, flags, RNG and camera are still recorded. The pad fixture feed
+// keeps its exact old reads. Both off: records and code exactly as before.
+#ifndef RE4DC_TRACE_ALLOC
+#define RE4DC_TRACE_ALLOC 0
+#endif
+#ifndef RE4DC_TRACE_SS_MASK
+#define RE4DC_TRACE_SS_MASK 0
+#endif
+#if RE4DC_TRACE_ALLOC
+#include <stdio.h>
+namespace { unsigned g_af; Fnv g_afh; }
+void re4dc_logic_trace_alloc_fail(unsigned size, const char* site)
+{
+    ++g_af;
+    g_afh.word(size);
+    for (const char* c = site ? site : ""; *c; ++c) g_afh.word((unsigned char) *c);
+    re4dc_log("LA t=%u n=%u size=%x site=%s af=%u/%08x\n", pG ? (unsigned) pG->Frame_cnt : 0u, samples, size,
+              site ? site : "", g_af, g_afh.h);
+}
+#endif
+#if RE4DC_TRACE_SS_MASK
+namespace { volatile int g_ssOpen; }
+extern "C" void re4dc_logic_trace_ss_mask(int open)  // sscrn_bridge.cpp declares it in C linkage
+{
+    g_ssOpen = open;
+    re4dc_log("LSS t=%u n=%u open=%d\n", pG ? (unsigned) pG->Frame_cnt : 0u, samples, open);
+}
+#define RE4DC_SS_MASKED (g_ssOpen != 0)
+#else
+#define RE4DC_SS_MASKED false
+#endif
+
 #if RE4DC_LOGIC_TRACE_OWNERSHIP
 // Source room lifetime sites (main_mem.h). "n" is the last logged sample: the change applies from sample n+1.
 // A publish of a domain that is already owned is an invalid sequence; it is logged ("again"), not hidden.
@@ -393,6 +431,10 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
 #elif RE4DC_LOGIC_TRACE_SWAPPED
     if (!samples) re4dc_log("LTV version=4 model_memory=borrow-vram-all\n");
 #endif
+#if RE4DC_TRACE_ALLOC || RE4DC_TRACE_SS_MASK
+    if (!samples) re4dc_log("LTV extras alloc=%d ss_mask=%d\n", RE4DC_TRACE_ALLOC, RE4DC_TRACE_SS_MASK);
+    const bool ssm = RE4DC_SS_MASKED;
+#endif
     ++samples;
     Fnv st, rf, sc, cam, ps, pf, pm, es, ef, em, os, of, om;
 #if RE4DC_LOGIC_TRACE_MASK_RENDER
@@ -431,7 +473,11 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
 #if RE4DC_LOGIC_TRACE_OWNERSHIP
     for (cUnit* u = (own & RE4DC_OWN_EM) ? (cUnit*) EmMgr.pAlive : 0; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
 #else
+#if RE4DC_TRACE_SS_MASK
+    for (cUnit* u = ssm ? 0 : (cUnit*) EmMgr.pAlive; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
+#else
     for (cUnit* u = (cUnit*) EmMgr.pAlive; u && ne < 1024; u = trace_value(&u->pNext), ++ne) {
+#endif
 #endif
         cEm* e = (cEm*) u;
         model_state(es, ef, em, e);
@@ -442,6 +488,8 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     }
 #if RE4DC_LOGIC_TRACE_OWNERSHIP
     for (cUnit* u = (own & RE4DC_OWN_OB) ? (cUnit*) ObjMgr.pAlive : 0; u && no < 1024; u = trace_value(&u->pNext), ++no)
+#elif RE4DC_TRACE_SS_MASK
+    for (cUnit* u = ssm ? 0 : (cUnit*) ObjMgr.pAlive; u && no < 1024; u = trace_value(&u->pNext), ++no)
 #else
     for (cUnit* u = (cUnit*) ObjMgr.pAlive; u && no < 1024; u = trace_value(&u->pNext), ++no)
 #endif
@@ -483,12 +531,42 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
               rf.h, sc.h, room, pl, own, g_ownGen);
     re4dc_log("LU t=%u n=%u %s %s c=%08x\n", (unsigned) pG->Frame_cnt, samples, el, ol, cam.h);
 #else
+#if RE4DC_TRACE_ALLOC
+    char afl[24];
+    snprintf(afl, sizeof(afl), " af=%u/%08x", g_af, g_afh.h);
+#else
+    const char* afl = "";
+#endif
+#if RE4DC_TRACE_SS_MASK
+    if (ssm) {
+        // Same layout, every player / enemy / object field "~"; values zeroed for the room digest below.
+        re4dc_log("LT t=%u n=%u r=%04x sy=%08x sp=%08x st=%08x rf=%08x sc=%08x rm=%04x p=~,~,~ a=~,~,~ m=~/~ ps=~ pf=~ "
+                  "pm=~\n", (unsigned) pG->Frame_cnt, samples, rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg,
+                  st.h, rf.h, sc.h, room);
+        re4dc_log("LU t=%u n=%u e=~ es=~ ef=~ em=~ o=~ os=~ of=~ om=~ c=%08x%s\n", (unsigned) pG->Frame_cnt, samples,
+                  cam.h, afl);
+        p[0] = p[1] = p[2] = a[0] = a[1] = a[2] = mf = ms = 0;
+        ps = pf = pm = Fnv();
+    } else {
+#endif
+#if RE4DC_TRACE_ALLOC || RE4DC_TRACE_SS_MASK
+    re4dc_log("LT t=%u n=%u r=%04x sy=%08x sp=%08x st=%08x rf=%08x sc=%08x rm=%04x p=%08x,%08x,%08x "
+              "a=%08x,%08x,%08x m=%08x/%x ps=%08x pf=%08x pm=%08x\n",
+              (unsigned) pG->Frame_cnt, samples, rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h,
+              rf.h, sc.h, room, p[0], p[1], p[2], a[0], a[1], a[2], mf, ms, ps.h, pf.h, pm.h);
+    re4dc_log("LU t=%u n=%u e=%u es=%08x ef=%08x em=%08x o=%u os=%08x of=%08x om=%08x c=%08x%s\n",
+              (unsigned) pG->Frame_cnt, samples, ne, es.h, ef.h, em.h, no, os.h, of.h, om.h, cam.h, afl);
+#if RE4DC_TRACE_SS_MASK
+    }
+#endif
+#else
     re4dc_log("LT t=%u n=%u r=%04x sy=%08x sp=%08x st=%08x rf=%08x sc=%08x rm=%04x p=%08x,%08x,%08x "
               "a=%08x,%08x,%08x m=%08x/%x ps=%08x pf=%08x pm=%08x\n",
               (unsigned) pG->Frame_cnt, samples, rng, (unsigned) pG->System_flg, (unsigned) pG->Stop_flg, st.h,
               rf.h, sc.h, room, p[0], p[1], p[2], a[0], a[1], a[2], mf, ms, ps.h, pf.h, pm.h);
     re4dc_log("LU t=%u n=%u e=%u es=%08x ef=%08x em=%08x o=%u os=%08x of=%08x om=%08x c=%08x\n",
               (unsigned) pG->Frame_cnt, samples, ne, es.h, ef.h, em.h, no, os.h, of.h, om.h, cam.h);
+#endif
 #endif
 #if defined(RE4DC_DECISION_TRACE) && RE4DC_DECISION_TRACE
     // Effect schema 2: ep contains discrete state, epf contains float bits.
@@ -542,7 +620,11 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     if ((samples & 3) == 0 && !(own & RE4DC_OWN_EM)) re4dc_log("LP t=%u k=- unowned\n", (unsigned) pG->Frame_cnt);
     else
 #endif
+#if RE4DC_TRACE_SS_MASK
+    if ((samples & 3) == 0 && !ssm) {
+#else
     if ((samples & 3) == 0) {
+#endif
         unsigned k = 0;
         for (cUnit* u = (cUnit*) EmMgr.pAlive; u && k < 40; u = trace_value(&u->pNext)) {
             const cEm* e = (const cEm*) u;

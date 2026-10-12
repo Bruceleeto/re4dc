@@ -2553,6 +2553,31 @@ endif
 $(OBJDIR)/logic_trace.o $(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/stage.o: GAME_CPPFLAGS += -DRE4DC_LOGIC_TRACE_OWNERSHIP=1
 endif
 
+# TRACE_ALLOC=1 (Phase 2 D5, needs LOGIC_TRACE=1): failed required heap-4 allocations (mem_alloc flag 1, native parts
+# runs) become the must-match LU field "af=<count>/<hash of size + site>" plus an "LA" event line (logic_trace.cpp).
+# TRACE_SS_MASK=1 (D5, needs LOGIC_TRACE=1, not with LOGIC_TRACE_SWAPPED / _OWNERSHIP): player / enemy / object fields
+# print "~" while the sub screen backing has room memory swapped out ("LSS" lines mark open / close).
+# tools/game30/logic_trace_diff.py and decision_cmp.py read both. 0 (default): no code, records unchanged.
+TRACE_ALLOC ?= 0
+TRACE_SS_MASK ?= 0
+ifneq ($(filter-out 0 1,$(TRACE_ALLOC) $(TRACE_SS_MASK)),)
+$(error TRACE_ALLOC and TRACE_SS_MASK must be 0 or 1)
+endif
+ifneq ($(TRACE_ALLOC)$(TRACE_SS_MASK),00)
+ifneq ($(LOGIC_TRACE),1)
+$(error TRACE_ALLOC / TRACE_SS_MASK require LOGIC_TRACE=1)
+endif
+endif
+ifeq ($(TRACE_ALLOC),1)
+$(OBJDIR)/logic_trace.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_TRACE_ALLOC=1
+endif
+ifeq ($(TRACE_SS_MASK),1)
+ifneq ($(LOGIC_TRACE_SWAPPED)$(LOGIC_TRACE_OWNERSHIP),00)
+$(error TRACE_SS_MASK does not combine with LOGIC_TRACE_SWAPPED / LOGIC_TRACE_OWNERSHIP)
+endif
+$(OBJDIR)/logic_trace.o $(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_TRACE_SS_MASK=1
+endif
+
 # Isolated timing qualification only, excluded from the clean trace patch.
 H2_EXTERNAL_DELAY ?= 0
 ifeq ($(H2_EXTERNAL_DELAY),1)

@@ -519,6 +519,15 @@ void* mem_alloc(u32 size, const char* file, int line, int flag, int heap)
     if (flag == 1 && p == NULL) {
         pLog->err(0, 0, "alloc[%x]:free[%x] %s", size, OSCheckHeap(Heap[heap].handle), str);
     }
+#if defined(RE4DC_TRACE_ALLOC) && RE4DC_TRACE_ALLOC
+    // TRACE_ALLOC=1 (logic_trace.cpp): a failed required heap-4 allocation is a must-match trace event. Native parts
+    // runs are reported by parts_bridge.cpp after its reservation fallback, so only a final failure counts.
+    if (flag == 1 && p == NULL && heap == 4 && !(file && strcmp(file, "native parts run") == 0)) {
+        extern void re4dc_logic_trace_alloc_fail(unsigned size, const char* site);
+        re4dc_logic_trace_alloc_fail(size, str);
+    }
+#endif
+#line 522
 #if defined(RE4DC_HEAP_CENSUS) && RE4DC_HEAP_CENSUS
     // Test only: the first failed heap-4 allocation logs what fills heap 4, bytes per tag.
     if (p == NULL && heap == 4) {

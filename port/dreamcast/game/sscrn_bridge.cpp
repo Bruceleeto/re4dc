@@ -496,6 +496,10 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
     // SS_PACK has restored its temporary scratch bytes. The source region is still intact here.
     re4dc_logic_trace_swap_open(wk->pBuf,kSsAramSize,packed?packed_bytes:live_bytes);
 #endif
+#if defined(RE4DC_TRACE_SS_MASK) && RE4DC_TRACE_SS_MASK
+    { extern void re4dc_logic_trace_ss_mask(int); re4dc_logic_trace_ss_mask(1); }
+#endif
+#line 499
     swapped = true;
     area_lo = lo;
     area_hi = hi;
@@ -575,6 +579,10 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
     re4dc_logic_trace_swap_close();
 #endif
     re4dc_ssb_close();
+#if defined(RE4DC_TRACE_SS_MASK) && RE4DC_TRACE_SS_MASK
+    { extern void re4dc_logic_trace_ss_mask(int); re4dc_logic_trace_ss_mask(0); }
+#endif
+#line 578
     swapped = false;
     re4dc_parts_thaw();
     restore_message_state(u32(wk->pBuf), u32(wk->pBuf) + kSsAramSize);

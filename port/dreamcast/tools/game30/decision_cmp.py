@@ -19,14 +19,18 @@ differing tick and fields listed).
 """
 import argparse, json, re, struct, sys
 
+# "~": TRACE_SS_MASK=1 masked field (sub screen backing swapped out); af: TRACE_ALLOC=1 (game30.mk, Phase 2 D5).
 LT = re.compile(r"LT t=(\d+) n=(\d+) r=(\w+) sy=(\w+) sp=(\w+) st=(\w+) rf=(\w+) sc=(\w+) rm=(\w+) "
-                r"p=(\w+),(\w+),(\w+) a=(\w+),(\w+),(\w+) m=(\w+)/(\w+) ps=(\w+) pf=(\w+) pm=(\w+)")
-LU = re.compile(r"LU t=(\d+) n=(\d+) e=(\d+) es=(\w+) ef=(\w+) em=(\w+) o=(\d+) os=(\w+) of=(\w+) om=(\w+) c=(\w+)")
+                r"p=([\w~]+),([\w~]+),([\w~]+) a=([\w~]+),([\w~]+),([\w~]+) m=([\w~]+)/([\w~]+) ps=([\w~]+) "
+                r"pf=([\w~]+) pm=([\w~]+)")
+LU = re.compile(r"LU t=(\d+) n=(\d+) e=([\d~]+) es=([\w~]+) ef=([\w~]+) em=([\w~]+) o=([\d~]+) os=([\w~]+) "
+                r"of=([\w~]+) om=([\w~]+) c=(\w+)(?: af=(\w+/\w+))?")
 LX = re.compile(r"LX t=(\d+) n=(\d+) ec=(\w+)/(\d+) sl=(\w+)/(\d+) sa=(\w+)/(\d+) dm=(\w+)/(\d+)"
                 r"(?: lq=(\w+)/(\d+) lp=(\w+))?(?: sq=(\w+)/(\d+))?(?: ep=([\w-]+)(?:/(\d+))?)?(?: eg=([\w-]+)(?:/(\d+))?)?")
 LP = re.compile(r"LP t=(\d+) k=(\d+) (\w\w):(\w{8}),(\w{8}),(\w{8}) (\w\w):(\w{8}),(\w{8}),(\w{8}) (\w\w):(\w{8}),(\w{8}),(\w{8})")
 
-MUST = ["r", "sy", "sp", "st", "rf", "sc", "rm", "ms", "ps", "e", "es", "o", "os", "ec", "sa", "dm", "lq", "ep", "eg"]
+MUST = ["r", "sy", "sp", "st", "rf", "sc", "rm", "ms", "ps", "e", "es", "o", "os", "ec", "sa", "dm", "lq", "ep", "eg",
+        "af"]
 INFO = ["sl", "lp", "sq", "p", "a", "mf", "pf", "pm", "ef", "em", "of", "om", "c"]
 
 
@@ -45,7 +49,7 @@ def load(path):
     for m in LU.finditer(txt):
         g = m.groups()
         rec.setdefault(int(g[0]), {}).update(e=g[2], es=g[3], ef=g[4], em=g[5], o=g[6], os=g[7], of=g[8],
-                                             om=g[9], c=g[10])
+                                             om=g[9], c=g[10], af=g[11] or "-")
     for m in LX.finditer(txt):
         g = m.groups()
         rec.setdefault(int(g[0]), {}).update(ec=g[2] + "/" + g[3], sl=g[4] + "/" + g[5], sa=g[6] + "/" + g[7],
@@ -68,7 +72,7 @@ def load(path):
 def anchor(rec, room):
     for t in sorted(rec):
         r = rec[t]
-        if r.get("rm", "").lower() == room and r.get("p") not in (None, ("00000000", "00000000", "00000000")):
+        if r.get("rm", "").lower() == room and r.get("p") not in (None, ("00000000", "00000000", "00000000"), ("~", "~", "~")):
             return t
     return None
 
@@ -121,6 +125,8 @@ def main():
     mp = 0.0
     for t in ticks:
         for j in range(3):
+            if "~" in (AA[t]["p"][j], BB[t]["p"][j]):
+                continue                   # TRACE_SS_MASK masked tick
             mp = max(mp, abs(f32(AA[t]["p"][j]) - f32(BB[t]["p"][j])))
     PA = {(t - da, s): v for (t, s), v in pa.items()}
     PB = {(t - db, s): v for (t, s), v in pb.items()}

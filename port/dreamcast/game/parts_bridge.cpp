@@ -250,6 +250,10 @@ template<class T> bool prepare_work(cManager<T>* m,u32 first,u32 count) {
 #endif
     if(!c && parts_reserve<T>) { c=reserve_take(p,bytes); slab=c!=0; }
 #endif
+#if defined(RE4DC_TRACE_ALLOC) && RE4DC_TRACE_ALLOC
+    if(!c && p->heap==4) { extern void re4dc_logic_trace_alloc_fail(unsigned,const char*); re4dc_logic_trace_alloc_fail(bytes,"native parts run"); }
+#endif
+#line 253
     if(!c) { ++p->failures;report(p,"allocation failed");return false; }
     memclr_asm(c,bytes);c->first=first;c->count=count;c->bytes=bytes+64;
 #if RE4DC_HEAP4_PARTS_RESERVE
