@@ -101,3 +101,24 @@ skins), em22.drs loads (26,496 B), 0 HALT/MISALIGN.
 - PS2 objects for r104 r106 r107 r10a r10b r11a r11b r117 r119 built (out/r1xxb); payload saved: r11b 46,784, r10b
   38,624, r117 30,368, r119 9,888, r106 3,776 (SetObjSmd 0x34 PS2 is larger: skipped), r10a 2,848, r11a 2,848,
   r107 1,984, r104 1,920. Warp-in gates pending (fixtures wi<room>-c/o, warps w<room>.txt).
+
+### B3 gates (warp-in pairs, same image p2bT; crow pairs p2bT/p2bTcr)
+
+| room | heap 4 freed | warp-in STRICT |
+|---|---:|---|
+| r10b | 38,624 | MUST-IDENTICAL 2851 ticks |
+| r11b | 46,784 | unpadded MUST-DIFFER at frame 267 (enemies 1 vs 8, objects 1 vs 12: heap 4 layout coupling); padded (r11bp) MUST-IDENTICAL 2658 ticks |
+| r117 | 30,368 | MUST-IDENTICAL 3719 |
+| r119 | 9,888 | MUST-IDENTICAL 1420 |
+| r106 | 3,776 | MUST-IDENTICAL 2700 |
+| r10a / r11a | 2,848 each | MUST-IDENTICAL 2907 / 3025 |
+| r107 | 1,984 | MUST-IDENTICAL 1925 |
+| r104 | 1,920 | MUST-IDENTICAL 2411 |
+
+All 0 HALT / MISSING / MISALIGN, room identities ok with the new archive bytes.
+
+Crow packages: r109 (bridge walk r108 -> r109, package 20,672 B, heap 4 -24,992) MUST-IDENTICAL 3156 ticks vs control.
+r105: MUST-DIFFER at frame 184 (System_flg 0x2000, enemies 16 vs 20) against both controls (p2bT and the same image
+p2bTcr without the package, wc105-k; c vs k is STRICT, so it is the package, not the image). The package takes 24,992 B
+of heap 4 at r105 entry before the room archive; same class as the r100 / r11b heap 4 layout coupling. r105 crow not
+ready (needs D0-style reservation or an equalised check).
