@@ -770,12 +770,13 @@ struct Emitter {
         const float* p=d.p.projection;const float* v=d.p.viewport;
 #if RE4DC_HW_LEAN && defined(__sh__)
         // 1/|z| by fsrra(z*z): the clipper only keeps corners with depth=-z >= near > 0.
-        // The viewport terms are per part (proj_setup): v[2]*.5*640/v[2] = 320, v[3]*.5*480/v[3] = 240.
+        // The viewport terms are per part (proj_setup): v[2]*.5*W/v[2] = W/2, v[3]*.5*H/v[3] = H/2 for the current
+        // render size (RES_MODES: 320/120 in a 240-line mode; the defaults are the 640x480 constants).
         float inv=z*z;
         __asm__("fsrra %0" : "+f"(inv));
         (void)v;
-        x=320.f*(p[1]*x+p[2]*z)*inv+d.proj_bx;
-        y=-240.f*(p[3]*y+p[4]*z)*inv+d.proj_by;
+        x=RE4DC_SCREEN_HALF_WF*(p[1]*x+p[2]*z)*inv+d.proj_bx;
+        y=-RE4DC_SCREEN_HALF_HF*(p[3]*y+p[4]*z)*inv+d.proj_by;
         z=inv;
         return;
 #else
@@ -921,7 +922,7 @@ struct Emitter {
                 const float y=mvq[4]*c.x+mvq[5]*c.y+mvq[6]*c.z+mvq[7];
                 const float z=mvq[8]*c.x+mvq[9]*c.y+mvq[10]*c.z+mvq[11];
                 const float W=-z;
-                const float X=320.f*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-240.f*(pp[3]*y+pp[4]*z)+proj_by*W;
+                const float X=RE4DC_SCREEN_HALF_WF*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-RE4DC_SCREEN_HALF_HF*(pp[3]*y+pp[4]*z)+proj_by*W;
                 all&=(X<0.0f?1U:0U)|(X>RE4DC_SCREEN_WF*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>RE4DC_SCREEN_HF*W?8U:0U)|
                      (W<near?16U:0U)|(W>far?32U:0U);
             }
