@@ -9,7 +9,7 @@ lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast har
 
 **[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
-[Port notes](port/dreamcast/README.md) · [Decompilation](docs/DECOMPILATION.md)
+[Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
 ## Playing
 

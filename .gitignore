@@ -36,3 +36,6 @@ tools/research/mwccdbg/retrowin32
 /port/dreamcast/**/*.elf
 /port/dreamcast/**/romdisk.img
 /port/dreamcast/**/__pycache__/
+
+# port/dreamcast/build-public.sh output
+/port/dreamcast/out-public/

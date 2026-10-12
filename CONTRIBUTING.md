@@ -1,5 +1,8 @@
 # Contributing
 
+This page covers the GameCube decompilation. To build and test the Dreamcast port, see
+[port/dreamcast/CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md).
+
 The tree is complete: every unit compiles to the original bytes. Work now is on readability (names,
 comments, notes) and on tooling. The one rule that covers everything: the bytes do not change.
 

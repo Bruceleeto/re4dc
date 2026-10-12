@@ -102,7 +102,7 @@ ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 mkdir -p "$OBJDIR" "$OUT"
 cd "$ROOT"
 export RE4DC_KOS_BASE=${RE4DC_KOS_BASE:-/root/work/kos-re4dc-d367}
-export PATH=$RE4DC_KOS_BASE/utils/build_wrappers:/opt/toolchains/dc/sh-elf/bin:/usr/bin:/bin
+export PATH=$RE4DC_KOS_BASE/utils/build_wrappers:${RE4DC_KOS_CC_BASE:-/opt/toolchains/dc/sh-elf}/bin:/usr/bin:/bin
 source port/dreamcast/kos-env.sh
 R21=(
   MESH_PRIME_LAZY=1 ACTOR_FOG_GATE=1 ACTOR_LEON_NATIVE_LOOK=1 ACTOR_SKIN_FTRV=1 ACTOR_SWAP=0 ACTOR_TRANSACTION=1
@@ -171,7 +171,7 @@ for kv in "${R21[@]}" "$@"; do
   case "$kv" in [A-Z]*=*) k=${kv%%=*}; grep -qx -- "$k" <<<"$KNOWN" || DEAD="$DEAD $k" ;; esac
 done
 [ -z "$DEAD" ] || { echo "build-r21.sh: knobs no makefile reads (dead or misspelled):$DEAD" >&2; exit 1; }
-make -C port/dreamcast/game -j4 all "${R21[@]}" "$@"
+make -C port/dreamcast/game -j"${JOBS:-4}" all "${R21[@]}" "$@"
 # The knobs as make resolved them (defaults, this line, the caller's overrides, Makefile overrides).
 NAMES=$(sed -nE 's/^(override +)?([A-Z][A-Z0-9_]*) *[?:]?=( .*)?$/\2/p' port/dreamcast/game/Makefile port/dreamcast/game/*.mk | sort -u | tr '\n' ' ')
 make -s -C port/dreamcast/game re4dc-knobs "${R21[@]}" "$@" KNOBS_FILE="$OUT/resolved-knobs.txt" KNOB_NAMES="$NAMES"
