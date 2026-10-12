@@ -13,16 +13,18 @@
 extern "C" {
 #endif
 extern int re4dc_screen_w, re4dc_screen_h;
-extern float re4dc_screen_wf, re4dc_screen_hf, re4dc_ui_sx, re4dc_ui_sy;
+extern float re4dc_screen_wf, re4dc_screen_hf, re4dc_ui_sx, re4dc_ui_sy, re4dc_screen_half_wf, re4dc_screen_half_hf;
 #ifdef __cplusplus
 }
 #endif
-#define RE4DC_SCREEN_W re4dc_screen_w
-#define RE4DC_SCREEN_H re4dc_screen_h
+// Every RE4DC_SCREEN_W / _H use is a float context (clip bounds, outcodes, projection rows): the float globals,
+// so the per-vertex paths do not convert an int each time; the half sizes are set with the mode (no multiply).
+#define RE4DC_SCREEN_W re4dc_screen_wf
+#define RE4DC_SCREEN_H re4dc_screen_hf
 #define RE4DC_SCREEN_WF (re4dc_screen_wf)
 #define RE4DC_SCREEN_HF (re4dc_screen_hf)
-#define RE4DC_SCREEN_HALF_WF (re4dc_screen_wf * 0.5f)
-#define RE4DC_SCREEN_HALF_HF (re4dc_screen_hf * 0.5f)
+#define RE4DC_SCREEN_HALF_WF (re4dc_screen_half_wf)
+#define RE4DC_SCREEN_HALF_HF (re4dc_screen_half_hf)
 #define RE4DC_UI_X(x) ((x) * re4dc_ui_sx)
 #define RE4DC_UI_Y(y) ((y) * re4dc_ui_sy)
 #else

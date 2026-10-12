@@ -142,11 +142,20 @@ Gates (evidence D:\Flycast-Evidence\re4-dreamcast\p2d-20261011, test 7 recipe):
 - s30 first-picture failure: only in RES_MODES=15 builds (mode 3 makes KOS allocate 600 tiles: vram_free 43,264,
   kos_free about 11 KB at the movie start). RENDER_OPTION builds no FSAA mode (KOS 300-tile allocation): s30 340/340.
 
-Lake +2 ms (hw model is deterministic per binary): base 51.79, base padded +16 KB 51.67, base + PACE_VMU 51.79,
-base + RES_MODES=19 alone 52.74, RENDER_OPTION 52.89 (after removing a per-call divide in the viewport jitter),
-RENDER_OPTION + RENDER_DOUBLE 53.44. So about 0.95 ms is the existing RES_MODES runtime-resolution machinery (lane C
-code: screen size as variables in the render path), about 0.15 ms RENDER_OPTION itself; square +0.6, house +0.4.
-Open: fb0 row 479 (parity 1 last line) keeps a constant non-black value on Flycast in Standard although it is
-clipped and cleared (fb1 and row 478 are black); console check. The final render-only edits (jitter divide hoist,
-last-line clip, counter header) were not re-run through H2 (C: at the 16 GB staging floor); knob-off identity was
-re-checked. Pause-screen rows share the title code path but have no still.
+C6 follow-up (2026-10-12):
+- Quality cost of the RES_MODES runtime path: every effect sprite / line was copied and scaled even at 640x480
+  (now skipped when the scale is 1: -0.28 ms at the lake); RE4DC_SCREEN_W / _H are the float globals in RES_MODES
+  builds (no int conversion per vertex), the half sizes are set with the mode, MeshDraw hoists them per strip and
+  project() reads them per part. A padded base (+16 KB) and base + PACE_VMU are unchanged (51.67 / 51.79 ms). The
+  rest of the lake difference is not render code: the lake fixture window is not logic-identical between binaries
+  (the largest per-function deltas are PenClothMove and cModel::getPartsPtr, game logic, as frame timing differs),
+  so lake drawn-tick ms compare different game states; MeshDraw::draw is +31k cycles per drawn tick (0.16 ms).
+- Standard showed a static noise row at the bottom (rows 478 / 479; the "top edge" stripe in the earlier sheets
+  was this row against the softened panel). Row 0 of every half buffer is black. The 240-line modes clip and clear
+  their last line, and the alternating display shows 239 lines per field: row 479 is the last row of KOS buffer 0
+  and holds data that is not ours when no 480-line render overwrites it (Quality overwrites it every frame; worth
+  a VRAM-map check outside C6).
+- Final code: knob off byte identical; H2 with the call equaliser Standard vs Quality STRICT over all 7071 ticks
+  (fin2), Fast vs Quality STRICT over 7052 (fin, one display-register edit earlier), base vs Quality STRICT 0..740
+  and 1233..; s30 340/340, codec released once, 0 FAIL / HALT / MISALIGN. Sheets c6-stillsiew-{sq,house,lake}.png
+  refreshed from the final views (route-c6-fv-*).

@@ -4880,9 +4880,8 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     }
     if((s->color>>24)==0){++fx_culled;return 0;}
 #if RE4DC_RES_MODES
-    Re4dcEffectSprite scaled=*s;   // esp_sub.cpp projects to 640x480: the current render size
-    for(unsigned i=0;i<4;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}
-    s=&scaled;
+    Re4dcEffectSprite scaled;      // esp_sub.cpp projects to 640x480: the current render size (no copy at 640x480)
+    if(re4dc_ui_sy!=1.0f || re4dc_ui_sx!=1.0f){scaled=*s;for(unsigned i=0;i<4;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}s=&scaled;}
 #endif
 #if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST
     {   // ESP_SPRITE_FAST: std::isfinite on the bits (UI_QUAD_LEAN's test): an all-ones exponent carries into bit
@@ -4957,9 +4956,8 @@ extern "C" int re4dc_effect_line(const Re4dcEffectLine* s){
     if(!s || !frame_ready || stream_aborted || draining_parts)return 0;
     if(s->blend_mode>1){++unsupported;return 0;}
 #if RE4DC_RES_MODES
-    Re4dcEffectLine scaled=*s;   // projected to 640x480 by its owner: the current render size
-    for(unsigned i=0;i<2;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}
-    s=&scaled;
+    Re4dcEffectLine scaled;      // projected to 640x480 by its owner: the current render size (no copy at 640x480)
+    if(re4dc_ui_sy!=1.0f || re4dc_ui_sx!=1.0f){scaled=*s;for(unsigned i=0;i<2;++i){scaled.x[i]*=re4dc_ui_sx;scaled.y[i]*=re4dc_ui_sy;}s=&scaled;}
 #endif
     for(unsigned i=0;i<2;++i)
         if(!re4dc::render::is_finite(s->x[i]) || !re4dc::render::is_finite(s->y[i]) ||

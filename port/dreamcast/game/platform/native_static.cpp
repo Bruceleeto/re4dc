@@ -766,8 +766,14 @@ struct Emitter {
 #endif
 #if RE4DC_HW_LEAN
     float proj_bx=0,proj_by=0; // project()'s viewport offsets in 640x480 pixels
+#if RE4DC_RES_MODES
+    float proj_hw=320,proj_hh=240; // RES_MODES: the render size's halves per part (project() reads no globals)
+#endif
     void set_clip(){
         const float* v=p.viewport;
+#if RE4DC_RES_MODES
+        proj_hw=RE4DC_SCREEN_HALF_WF;proj_hh=RE4DC_SCREEN_HALF_HF;
+#endif
         proj_bx=(v[0]+v[2]*.5f)*RE4DC_SCREEN_WF/v[2];proj_by=(v[1]+v[3]*.5f)*RE4DC_SCREEN_HF/v[3];
         clip={near,far,RE4DC_SCREEN_W,RE4DC_SCREEN_H,project,this};
     }
@@ -785,8 +791,13 @@ struct Emitter {
         float inv=z*z;
         __asm__("fsrra %0" : "+f"(inv));
         (void)v;
+#if RE4DC_RES_MODES
+        x=d.proj_hw*(p[1]*x+p[2]*z)*inv+d.proj_bx;
+        y=-d.proj_hh*(p[3]*y+p[4]*z)*inv+d.proj_by;
+#else
         x=RE4DC_SCREEN_HALF_WF*(p[1]*x+p[2]*z)*inv+d.proj_bx;
         y=-RE4DC_SCREEN_HALF_HF*(p[3]*y+p[4]*z)*inv+d.proj_by;
+#endif
         z=inv;
         return;
 #else
@@ -897,12 +908,13 @@ struct Emitter {
         if(count<=limit){
             if(count>limit-used && !flush())return submitted?-1:0;
             unsigned outside=15;
+            const float screen_w=RE4DC_SCREEN_WF,screen_h=RE4DC_SCREEN_HF; // RES_MODES: one load per strip, not per corner
             const bool ready=re4dc::render::prepare_direct_strip(dst+used,count,near,far,
                 [&](std::uint32_t local,re4dc::render::DirectStripVertex& out){
                     out=re4dc::render::prepare_static_vertex(corner(base[index[local]]),batch,0.0f);
                     out.u=u(out.u);out.v=v(out.v);
                     if(!vertex_alpha)out.argb=(out.argb&0xffffffU)|alpha;
-                    outside&=(out.x<0?1U:0U)|(out.x>RE4DC_SCREEN_WF?2U:0U)|(out.y<0?4U:0U)|(out.y>RE4DC_SCREEN_HF?8U:0U);
+                    outside&=(out.x<0?1U:0U)|(out.x>screen_w?2U:0U)|(out.y<0?4U:0U)|(out.y>screen_h?8U:0U);
                     return true;
                 });
             stats.vertices+=count;
@@ -933,6 +945,7 @@ struct Emitter {
         // clip_vertex once, not once per triangle that uses it (the same values, reused).
         {
             const float* pp=p.projection;
+            const float screen_w=RE4DC_SCREEN_WF,screen_h=RE4DC_SCREEN_HF,half_w=RE4DC_SCREEN_HALF_WF,half_h=RE4DC_SCREEN_HALF_HF;
             unsigned all=0x3fU;
             for(unsigned i=0;i<count && all;++i){
                 const auto c=corner(base[index[i]]);
@@ -940,8 +953,8 @@ struct Emitter {
                 const float y=mvq[4]*c.x+mvq[5]*c.y+mvq[6]*c.z+mvq[7];
                 const float z=mvq[8]*c.x+mvq[9]*c.y+mvq[10]*c.z+mvq[11];
                 const float W=-z;
-                const float X=RE4DC_SCREEN_HALF_WF*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-RE4DC_SCREEN_HALF_HF*(pp[3]*y+pp[4]*z)+proj_by*W;
-                all&=(X<0.0f?1U:0U)|(X>RE4DC_SCREEN_WF*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>RE4DC_SCREEN_HF*W?8U:0U)|
+                const float X=half_w*(pp[1]*x+pp[2]*z)+proj_bx*W, Y=-half_h*(pp[3]*y+pp[4]*z)+proj_by*W;
+                all&=(X<0.0f?1U:0U)|(X>screen_w*W?2U:0U)|(Y<0.0f?4U:0U)|(Y>screen_h*W?8U:0U)|
                      (W<near?16U:0U)|(W>far?32U:0U);
             }
             if(all){++stats.strips_culled;return 1;}

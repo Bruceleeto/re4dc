@@ -62,6 +62,7 @@ static_assert((RE4DC_RES_MODES & ~31) == 0 && (RE4DC_RES_MODES >> RE4DC_RES_MODE
 extern "C" {
 int re4dc_screen_w = 640, re4dc_screen_h = 480;
 float re4dc_screen_wf = 640.0f, re4dc_screen_hf = 480.0f, re4dc_ui_sx = 1.0f, re4dc_ui_sy = 1.0f;
+float re4dc_screen_half_wf = 320.0f, re4dc_screen_half_hf = 240.0f;
 // Viewport top offset in render lines for the scene being built: -0.5 on odd alternating frames, else 0
 // (gx_stub.cpp GXGetViewportv adds it, scaled to the viewport's units).
 float re4dc_res_vjitter = 0.0f;
@@ -128,7 +129,10 @@ uint32_t fb_size_of(unsigned kind, unsigned width)
     const uint32_t words = width * 2U / 4U;
     if (kind == 0) return boot_fb_size;
     if (kind == 1) return (words - 1U) | (239U << 10) | (1U << 20);
-    return (words - 1U) | (239U << 10) | ((words + 1U) << 20);  // one line skipped between the lines of a field
+    // One line skipped between the lines of a field; 239 lines per field: the last line pair (rows 478 / 479) is not
+    // shown. Row 479 is the last row of the first KOS buffer, and on Flycast it holds data that is not ours whenever no
+    // full 480-line render overwrites it (it showed as a noise line in Standard; c6-fv stills).
+    return (words - 1U) | (238U << 10) | ((words + 1U) << 20);
 }
 void write_display(const Display& d)
 {
@@ -287,6 +291,8 @@ void apply(unsigned m)
     re4dc_screen_h = M.lines;
     re4dc_screen_wf = float(M.w);
     re4dc_screen_hf = float(M.lines);
+    re4dc_screen_half_wf = float(M.w) * 0.5f;
+    re4dc_screen_half_hf = float(M.lines) * 0.5f;
     re4dc_ui_sx = float(M.w) / 640.0f;
     re4dc_ui_sy = float(M.lines) / 480.0f;
     re4dc_res_vjitter = 0.0f;
