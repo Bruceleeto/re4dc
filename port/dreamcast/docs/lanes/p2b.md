@@ -127,3 +127,43 @@ hw ms (hwproject, p2bW, drawn / skipped tick nominal; few drawn ticks per window
 - r11b entry view 600:719 (padded dar): 41.20 / 40.96 -> 32.55 / 32.23.
 - r117 entry view 600:719: 36.92 / 36.69 -> 36.91 / 36.70 (no change; the set piece is not in view).
 - r10b Del Lago fb 2340:2419: 69.51 / 69.03 -> 69.70 / 69.17 (no change, within noise).
+
+## B4 heap 4 shortage audit (2026-10-11)
+
+Scanned every control and test run log on D: (p2b-20261011: H2, warp-in pairs for r103 r104 r105 r106 r107 r108 r109
+r10a r10b r117 r118 r119 r11a r11b, r118 walk; test7-20261011: all route-* runs incl. H2 and bell) for
+`allocate was failed`, `modelInit() failed`, `createSat() memory alloc failed`, `work backing: allocation failed`,
+`*Init() failed` and `alloc[need]:free[have]` lines (render-only staging / motion-residency retries excluded: they
+recover by eviction and do not touch logic).
+
+| room | frame | allocation site | need vs free (heap 4) | arm that succeeds | GameCube |
+|---|---|---|---|---|---|
+| r100 | H2 660 (em10 x2 spawn) | ModelInit Parts (native parts run) | 0x3ee0 vs 0x3600..0x4600, 0x200 | more heap (PS2_OBJECTS unpadded, s30 332,288) | succeeds: parts array allocated up front (D0 decision); the more-heap arm matches |
+| r100 | H2 660 | createSat() (atari.cpp 2621) | 0x2a0 vs 0x640..0x820 (fragmented: fails after the parts) | more heap | succeeds (same) |
+| r100 | H2 660 | work backing grow (size 472, 4 failures) | 472 B chunks | more heap | n/a (port structure) |
+| all other route rooms in the evidence | - | none logged | - | - | - |
+
+The two other divergences are NOT heap 4 shortages:
+- r11b (unpadded, frame 267, enemies 1 vs 8, objects 1 vs 12, Leon p = ffffffff): a trace artifact. In that warp a sub
+  screen opens at frame 267 and stays open for the rest of the run (`work backing ... frozen while the sub screen is
+  open`); while it is open the logic trace reads player / enemy memory that the sub screen backing has swapped out,
+  so the values are layout-dependent garbage in BOTH arms (control p = 187334ff... is garbage too) and never change
+  again. Proof: the r11b lane's a1 walk fixture (no sub screen) with the unpadded dar is STRICT MUST-IDENTICAL over
+  2007 ticks (route-wa11b-c / -o). The unpadded r11b dar (46,784 B freed) is safe to ship.
+- r105 crow (frame 184, System_flg 0x2000 cleared 2 frames earlier, enemies 16 vs 20): the room-entry load bit.
+  The crow arm stages the prepared em23.drs (a different file and size than the control's em23.drs), so the
+  room-entry load finishes at a different wall time; loads are wall-timed (the door rule), so this needs a
+  load-equalised arm, not a heap reservation. No allocation failure is logged in either arm.
+
+Recommendation:
+1. The only real heap 4 shortage on the route evidence is r100 H2 660 (em10 parts + createSat), already covered by D0
+   (fixed reservation, GameCube behaviour). No other per-room reservation is indicated.
+2. General rule instead of per-room reservations: add a logic-trace guard so a failed game allocation on heap 4
+   (`allocate was failed`, `modelInit() failed`, `createSat` failure) is logged as a must-field event (e.g. an `af=`
+   counter in LT), so any future layout-dependent spawn shows up as an allocation event in decision_cmp rather than as
+   enemy-count drift. Lane D owns mem code.
+3. Trace hygiene: skip or mark LT/LU fields while the sub screen backing is open (frozen), or the swapped memory
+   produces false MUST-DIFFER verdicts (r11b).
+4. r105 crow: re-gate with a load-equalised arm (pad em23.drs read / the door rule) before shipping.
+Uncovered: rooms whose events were not reached in the existing runs (fights in r104/r106/r10e/r111/r117/r11c beyond the
+warp-in windows); the audit only covers what the evidence ran.
