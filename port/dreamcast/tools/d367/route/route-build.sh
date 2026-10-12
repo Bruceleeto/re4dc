@@ -56,11 +56,16 @@ for line in subprocess.check_output(['/opt/toolchains/dc/sh-elf/bin/sh-elf-nm', 
 assert len(syms) >= 3, syms
 (out / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage')) + '\n')
 (elf.parent / 'syms.txt').write_text(' '.join(hex(syms[n] - 0x8c000000) for n in ('_re4dc_logbuf', '_re4dc_log_head', '_re4dc_stage', '_re4dc_pcs') if n in syms) + '\n')
+import fcntl, os
+# Concurrent builds share this file: lock (on ext4, where flock is reliable) around the
+# read-modify-write and replace atomically, else a parallel build drops this arm's entry.
+lock = open('/root/probe/lanes/route/programs-route.lock', 'w'); fcntl.flock(lock, fcntl.LOCK_EX)
 report = json.loads(pj.read_text()) if pj.exists() else {}
 report[arm] = dict(elf=str(elf), elf_sha256=sha(elf), overlay_sha256=sha(ovl), symbols=syms,
                    resolved_knobs=str(elf.parent / 'resolved-knobs.txt'),
                    files={p.name: dict(bytes=p.stat().st_size, sha256=sha(p)) for p in out.iterdir() if p.is_file()})
-pj.write_text(json.dumps(report, indent=2) + '\n')
+tmp = pj.with_name(pj.name + '.tmp%d' % os.getpid())
+tmp.write_text(json.dumps(report, indent=2) + '\n'); os.replace(tmp, pj)
 PY
 rm -f $O/prog.bin
 echo "built route$L $(cut -c1-16 $O/elf.sha256)"
