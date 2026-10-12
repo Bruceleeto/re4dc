@@ -122,3 +122,8 @@ r105: MUST-DIFFER at frame 184 (System_flg 0x2000, enemies 16 vs 20) against bot
 p2bTcr without the package, wc105-k; c vs k is STRICT, so it is the package, not the image). The package takes 24,992 B
 of heap 4 at r105 entry before the room archive; same class as the r100 / r11b heap 4 layout coupling. r105 crow not
 ready (needs D0-style reservation or an equalised check).
+
+hw ms (hwproject, p2bW, drawn / skipped tick nominal; few drawn ticks per window, low confidence):
+- r11b entry view 600:719 (padded dar): 41.20 / 40.96 -> 32.55 / 32.23.
+- r117 entry view 600:719: 36.92 / 36.69 -> 36.91 / 36.70 (no change; the set piece is not in view).
+- r10b Del Lago fb 2340:2419: 69.51 / 69.03 -> 69.70 / 69.17 (no change, within noise).
