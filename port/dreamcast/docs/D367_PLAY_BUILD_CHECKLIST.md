@@ -1,5 +1,12 @@
 # D367 play build checklist (user, 2026-10-09 current state at top)
 
+## 2026-10-11: DVD_READ_SAFE=1 (disc stream reads recover from KOS's stuck DMA flag)
+
+Flag **DVD_READ_SAFE=1**; no staged file. Lets the El Gigante GC texture bake (reg-gig-gctex) back in: with it, r119
+after the boss no longer loses every later texture read to "Previous DMA request is in progress". Image +608 B (check
+heap 4 / IMAGE_PAD as for any image change). Check: no "upload FAILED" next to "Previous DMA" in r119; a
+"dvd read safe: ... recovered" line is the fix working. Lane doc docs/lanes/p2d.md "D4".
+
 ## 2026-10-11: HEAP4_PARTS_RESERVE=1 + PS2_OBJECTS r100 dar (Phase 2 step 0, test 8 base)
 
 Flag **HEAP4_PARTS_RESERVE=1** and stage the **unpadded** PS2_OBJECTS st1/r100.dar (re4-assets-private\p2b-20261011\

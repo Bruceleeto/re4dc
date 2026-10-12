@@ -567,6 +567,24 @@ else
 GAME_LDFLAGS += -Wl,--wrap=fs_read -Wl,--wrap=fs_open -Wl,--wrap=thd_sleep -Wl,--wrap=genwait_wait
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request -Wl,--wrap=cdrom_read_sectors_ex
 endif
+# DVD_READ_SAFE=1 (Phase 2 D4, default 0): platform/dvd_read_safe.cpp wraps cdrom_stream_start / _request. KOS's
+# dma_in_progress can stay set while a stream command runs, and then every later stream request fails ("Previous DMA
+# request is in progress": r119 GC-bake texture uploads, tex.pak index reads, until the end of the run). A refused
+# request is retried for 10 ms, then the stale flag is cleared (cdrom_abort_cmd with abort_dma), the stream restarted
+# where it stood and the request repeated. DVD_STUCK_TEST=<seconds> + DVD_STUCK_ADDR=<address of KOS dma_in_progress>
+# (test discs only) set the flag on demand. Not with IO_PROBE=1 (it wraps the same entry points).
+DVD_READ_SAFE ?= 0
+DVD_STUCK_TEST ?= 0
+DVD_STUCK_ADDR ?= 0
+ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST),00)
+ifeq ($(IO_PROBE),1)
+$(error DVD_READ_SAFE / DVD_STUCK_TEST and IO_PROBE=1 wrap the same cdrom entry points)
+endif
+GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DVD_READ_SAFE=$(DVD_READ_SAFE) -DRE4DC_DVD_STUCK_TEST=$(DVD_STUCK_TEST) -DRE4DC_DVD_STUCK_ADDR=$(DVD_STUCK_ADDR)
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
+endif
 .PHONY: io-probe-force
 $(OBJDIR)/io-probe.h: io-probe-force
 	@mkdir -p $(dir $@)

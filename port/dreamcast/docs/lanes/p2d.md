@@ -45,3 +45,30 @@ The s30 movie (after 1217) plays 340/340 in every arm.
 Other gates (reserve arms, unpadded dar): bell p2d0rT vs p2d0oT STRICT frame (5158) and room (4976), MUST-IDENTICAL;
 r10b s20 (f6s, p2d0rW) 800/800, dropped 7, smooth (test 7: 12); New Game (p2d0rP) intros 1971/2360, s40 1175;
 0 HALT, 0 MISSING, 0 MISALIGN everywhere; missing.txt empty.
+
+## D4: DVD_READ_SAFE (2026-10-11, disc reader robustness; unblocks the El Gigante GC texture bake)
+
+Failure. Test 7 recipe + the GC-bake r119 package (reg-gig-gctex), g3 fixture (r119 boss): after the r119 s20
+movie every disc stream request was refused ("cdrom_stream_request: Previous DMA request is in progress") until the
+end of the run: 249 texture uploads failed, every tex.pak index re-read failed (d4-g3-off, reproduces test 7's
+f1-g3 exactly). KOS's dma_in_progress (hardware/cdrom.c) stays set while a stream command runs: the vblank handler
+leaves it alone for a streaming command and only a G1 DMA completion clears it. It is timing dependent: the same
+configuration passes with the image 384 B larger (d4-g3-pad).
+
+Fix. DVD_READ_SAFE=1 (default 0; platform/dvd_read_safe.cpp, built only with the knob) wraps cdrom_stream_start /
+cdrom_stream_request. A refused request is retried for 10 ms; if still refused the flag is stale: the G1 ATA semaphore
+is taken, cdrom_abort_cmd(1000, abort_dma=true) clears the flag and the stream command, the stream is started again
+where it stood (sector granular) and the request repeated. A request that succeeds first time takes the old path.
+DVD_STUCK_TEST=<s> + DVD_STUCK_ADDR=<KOS dma_in_progress address> (test only) set the flag before the first stream
+start after <s> seconds.
+
+Proof (evidence D:\Flycast-Evidence\re4-dreamcast\p2d-20261011):
+- d4-g3-s (fix, the failing configuration): one real refusal episode at the same point (6 refusals), "recovered after a
+  stream restart"; 0 upload failures, 0 index read errors (off: 249 / 237).
+- Injected stuck flag at 150 s, same point: off (d4-g3-x2) `DVDReadAsyncPrio: short read /cd/em/em21.drs got=0
+  errno=5`; on (d4-g3-y2) "recovered after a stream restart", em21.drs read, no short read.
+- H2 knob on vs knob off (test 7 control fixture): STRICT 1450..1569, 0..740, 1218.., decision_cmp MUST-IDENTICAL,
+  7128 ticks both (door timings unchanged), s30 340/340 heap_before 56,960 both.
+- r10b s20 (f6) 800/800 dropped 7; New Game 1971 / 2360 / 1175; 0 HALT, 0 MISALIGN, missing.txt empty. The one f6
+  upload failure is the known missing pair 18d0fd82 (open failed; test 7 has it too).
+- Knob off: play image byte identical to 56db3649 (prog.bin 3,185,952 B, overlays identical). Knob on: +608 B (W).
