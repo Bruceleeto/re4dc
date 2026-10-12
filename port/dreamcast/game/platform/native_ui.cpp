@@ -179,6 +179,11 @@ extern "C" {
 #include "../../room/room_storage.hpp"
 #include "../../room/gpu_lifecycle.hpp"
 #include "../../room/pvr_geometry.hpp"
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+#if !RE4DC_PVR_STREAM || !RE4DC_TA_DIRECT || !RE4DC_D349_RENDERER_STACK || !RE4DC_WORLD_AUTOSORT || !RE4DC_PS2_WORLD_DRAW
+#error SHADOW_BLOB needs PVR_STREAM=1, TA_DIRECT=1, D349_RENDERER_STACK=1, WORLD_AUTOSORT=1 and PS2_WORLD_DRAW=1
+#endif
+#endif
 #if RE4DC_MV_SHADOWS
 #if !RE4DC_PVR_STREAM || !RE4DC_TA_DIRECT || !RE4DC_D349_RENDERER_STACK || !RE4DC_TA_HEADROOM
 #error MV_SHADOWS needs PVR_STREAM=1, TA_DIRECT=1, D349_RENDERER_STACK=1 (stream_select) and TA_HEADROOM>=1
@@ -1619,9 +1624,19 @@ extern "C" void re4dc_mv_emit(unsigned frame);
 unsigned mv_sends,mv_bytes,mv_scenes;
 bool mv_open;
 #endif
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+// SHADOW_BLOB (game30.mk; blob_shadow.cpp): the ground blobs go into the TR list at the end of a presented scene whose
+// world sorts per pixel (WORLD_AUTOSORT), before the MV_SHADOWS volume list closes it. re4dc_blob_emit calls
+// re4dc_ui_blob_send once per caster (a header and its strips).
+extern "C" void re4dc_blob_emit(unsigned frame);
+unsigned blob_sends,blob_bytes;
+#endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
     if(!stream_scene)stream_open();
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+    if(present && !stream_aborted && !direct_open && world_autosort)re4dc_blob_emit(frame);
+#endif
 #if RE4DC_MV_SHADOWS
     if(present && !stream_aborted && !direct_open){mv_open=false;re4dc_mv_emit(frame);if(mv_open)++mv_scenes;}
 #endif
@@ -4367,6 +4382,21 @@ extern "C" int re4dc_ui_mv_send(const void* data,unsigned bytes){
 }
 extern "C" void re4dc_ui_mv_stats(unsigned* sends,unsigned* bytes,unsigned* scenes,unsigned* receivers){
     *sends=mv_sends;*bytes=mv_bytes;*scenes=mv_scenes;*receivers=mv_receivers;
+}
+#endif
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+// blob_shadow.cpp, inside stream_close only: one caster's blob (a TR header and its strips, 32-byte multiples). Only
+// into an open or not yet used TR list (a closed list is never reopened).
+extern "C" int re4dc_ui_blob_send(const void* data,unsigned bytes){
+    if(!stream_scene || stream_aborted || direct_open || !world_autosort || !bytes || (bytes&31))return 0;
+    if(stream_list!=PVR_LIST_TR_POLY){
+        if(stream_closed_lists&(1u<<unsigned(PVR_LIST_TR_POLY)))return 0;
+        stream_select(PVR_LIST_TR_POLY);
+        if(stream_aborted || stream_list!=PVR_LIST_TR_POLY)return 0;
+    }
+    stream_send(data,bytes);
+    ++blob_sends;blob_bytes+=bytes;
+    return 1;
 }
 #endif
 #if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT

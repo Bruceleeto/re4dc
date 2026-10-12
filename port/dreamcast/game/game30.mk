@@ -261,6 +261,28 @@ $(OBJDIR)/mv_shadow.o: mv_shadow.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) $(MV_DEFS) -Iplatform/include -MMD -MP -c $< -o $@
 endif
+# SHADOW_BLOB=1 (Phase 2; render only, default 0; blob_shadow.cpp): soft dark ground blobs under Leon and the drawn
+#   characters with a foot shadow table or a Ganado id (the game's own foot shadow set; FX_LEAN cuts the source
+#   sprites). At cEm::pos (the floor point DrawFootShadow uses) + SHADOW_BLOB_LIFT mm (25), radius SHADOW_BLOB_RADIUS
+#   mm (400) stretched toward the root joint, centre alpha SHADOW_BLOB_ALPHA (120) scaled by Shd_color, a
+#   SHADOW_BLOB_SIDES-gon (10); nearest SHADOW_BLOB_MAX (12) near the view within SHADOW_BLOB_RANGE_M metres (25), fading over the
+#   last third. Untextured TR strips sent at scene close while the world sorts per pixel (WORLD_AUTOSORT), so they sort
+#   over the translucent ground layers. No floor query; reads game state only.
+SHADOW_BLOB ?= 0
+ifneq ($(SHADOW_BLOB),0)
+SHADOW_BLOB_SIDES ?= 10
+SHADOW_BLOB_RADIUS ?= 400
+SHADOW_BLOB_ALPHA ?= 120
+SHADOW_BLOB_LIFT ?= 25
+SHADOW_BLOB_RANGE_M ?= 25
+SHADOW_BLOB_MAX ?= 12
+BLOB_DEFS := -DRE4DC_SHADOW_BLOB=1 -DRE4DC_SHADOW_BLOB_SIDES=$(SHADOW_BLOB_SIDES) -DRE4DC_SHADOW_BLOB_RADIUS=$(SHADOW_BLOB_RADIUS)   -DRE4DC_SHADOW_BLOB_ALPHA=$(SHADOW_BLOB_ALPHA) -DRE4DC_SHADOW_BLOB_LIFT=$(SHADOW_BLOB_LIFT)   -DRE4DC_SHADOW_BLOB_RANGE_M=$(SHADOW_BLOB_RANGE_M) -DRE4DC_SHADOW_BLOB_MAX=$(SHADOW_BLOB_MAX)
+PLATFORM_CPPFLAGS += $(BLOB_DEFS)
+PLATFORM_OBJS += $(OBJDIR)/blob_shadow.o
+$(OBJDIR)/blob_shadow.o: blob_shadow.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) $(BLOB_DEFS) -Iplatform/include -MMD -MP -c $< -o $@
+endif
 # ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
 #                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
 ACTOR_STATS_LEAN ?= 0

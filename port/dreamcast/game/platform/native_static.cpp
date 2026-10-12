@@ -417,6 +417,14 @@ float re4dc_mv_projection[7],re4dc_mv_viewport[6];
 unsigned re4dc_mv_camera_frame=~0U;
 }
 #endif
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+// SHADOW_BLOB (game30.mk; blob_shadow.cpp): the perspective projection and viewport of the frame's first MeshDraw part
+// are kept for the ground blobs (the same camera MV_SHADOWS keeps).
+extern "C" {
+float re4dc_blob_projection[7],re4dc_blob_viewport[6];
+unsigned re4dc_blob_camera_frame=~0U;
+}
+#endif
 
 namespace {
 using re4dc::room::Package;
@@ -830,6 +838,13 @@ struct Emitter {
             std::memcpy(re4dc_mv_projection,p.projection,sizeof(re4dc_mv_projection));
             std::memcpy(re4dc_mv_viewport,p.viewport,sizeof(re4dc_mv_viewport));
             re4dc_mv_camera_frame=re4dc_ui_frame();
+        }
+#endif
+#if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
+        if(p.projection[0]==0 && p.viewport[2]>0 && p.viewport[3]>0 && re4dc_blob_camera_frame!=re4dc_ui_frame()){
+            std::memcpy(re4dc_blob_projection,p.projection,sizeof(re4dc_blob_projection));
+            std::memcpy(re4dc_blob_viewport,p.viewport,sizeof(re4dc_blob_viewport));
+            re4dc_blob_camera_frame=re4dc_ui_frame();
         }
 #endif
 #if RE4DC_MESH_DIRECT
