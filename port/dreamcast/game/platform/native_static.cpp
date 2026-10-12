@@ -2340,10 +2340,39 @@ extern "C" void re4dc_fog_note_far(float far){
 #endif
     fog_now.far=far;
 }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+// EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): the fog table carries about 55 % of the PS2 haze's mean veil, which ramps in
+// from 1 to 5 m (Monte Carlo of the PS2 haze), so the sparse haze subset only adds the drifting blotches.
+// re4dc_haze_key (esp_sub.cpp): (fade step 0..8 << 4) | room (1 r100, 2 r101, 3 r103), 0 without haze.
+extern "C" unsigned re4dc_haze_key(void);
+namespace {
+unsigned haze_loaded=~0U;
+float haze_veil(unsigned key,float z){
+    static const float kB[4]={0.0f,0.034f,0.025f,0.035f};
+    static const float kz[7]={500.0f,1000.0f,1500.0f,2000.0f,3000.0f,4000.0f,5000.0f};
+    static const float ks[7]={0.0f,0.04f,0.09f,0.20f,0.47f,0.87f,1.0f};
+    const unsigned room=key&15U,step=key>>4;
+    if(!room || room>3 || !step)return 0.0f;
+    float s=1.0f;
+    if(z<=kz[0])s=0.0f;
+    else for(unsigned i=1;i<7;++i)if(z<kz[i]){s=ks[i-1]+(ks[i]-ks[i-1])*(z-kz[i-1])/(kz[i]-kz[i-1]);break;}
+    return kB[room]*s*float(step)/8.0f;
+}
+void haze_table(float* table,float tfar,unsigned key){
+    for(unsigned j=0;j<129;++j){
+        const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
+        table[j]=1.0f-(1.0f-table[j])*(1.0f-haze_veil(key,tfar/v));
+    }
+}
+}
+#endif
 #if RE4DC_FOG_TA_DOUBLEBUF
 // With a double-buffered TA the previous scene may still render at frame start and reads the fog
 // registers: native_ui fences only when this frame changes them.
 extern "C" int re4dc_fog_frame_pending(){
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    if(fog_now.type && re4dc_haze_key()!=haze_loaded)return 1;
+#endif
     return fog_now.type && !(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
         fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba);
 }
@@ -2382,8 +2411,17 @@ extern "C" void re4dc_fog_frame(){
     const unsigned curve=re4dc_look_curve(),rgb_pct=re4dc_look_rgb_pct();const float cap=float(re4dc_look_cap())/100.0f;
     static unsigned look_loaded=~0U;
     const unsigned look_key=curve|rgb_pct<<4|unsigned(re4dc_look_cap())<<12;
-    if(look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    const unsigned haze_key=re4dc_haze_key();
+    if(haze_key==haze_loaded &&
+#else
+    if(
+#endif
+       look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
        fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    haze_loaded=haze_key;
+#endif
     look_loaded=look_key;
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
@@ -2406,13 +2444,25 @@ extern "C" void re4dc_fog_frame(){
         }
         table[j]=f;
     }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    haze_table(table,tfar,haze_key);
+#endif
     pvr_fog_table_color(1.0f,r,g,b);
     pvr_fog_far_depth(tfar);
     pvr_fog_table_custom(table);
 #else
     if(!fog_now.type)return;
-    if(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    const unsigned haze_key=re4dc_haze_key();
+    if(haze_key==haze_loaded &&
+#else
+    if(
+#endif
+       fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    haze_loaded=haze_key;
+#endif
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
     const float r=float((fog_now.rgba>>24)&255U)/255.0f,g=float((fog_now.rgba>>16)&255U)/255.0f,
@@ -2426,6 +2476,9 @@ extern "C" void re4dc_fog_frame(){
         if(ramp>0){const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);f+=(1.0f-f)*s;}
         table[j]=f;
     }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+    haze_table(table,far,haze_key);
+#endif
     pvr_fog_table_color(1.0f,r,g,b);
     pvr_fog_far_depth(far);
     pvr_fog_table_custom(table);

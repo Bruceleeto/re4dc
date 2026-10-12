@@ -4825,6 +4825,43 @@ void fx_send(unsigned char* packet,bool screen){
 #endif
     stream_send(packet,kSpritePacket);
 }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
+// EFFECT_HAZE_LEAN bit 4 (STUDY2 M2): a PS2 haze sprite (esp_sub.cpp sets pad 1) as a regular octagon inscribed in
+// its square (apothem 0.9 of the half side: 67 % of the pixels), one textured strip of 8 vertices with the sprite's
+// texture, blend, depth and fog. The soft blob's corners are near 0, so the look barely changes.
+DeferredLighting* const kOctTag=reinterpret_cast<DeferredLighting*>(7); // unique: see kGradeTag
+constexpr unsigned kOctPacket=sizeof(pvr_poly_hdr_t)+8*sizeof(pvr_vertex_t);
+void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
+    const auto& t=e->package.textures()[0];
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,re4dc::texture::pvr_format(t),t.width,t.height,
+                                      const_cast<void*>(e->package.pvr_texture(0)),PVR_FILTER_BILINEAR);
+    c.gen.culling=PVR_CULLING_NONE;
+    c.depth.comparison=PVR_DEPTHCMP_GEQUAL;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    c.blend.src=(pvr_blend_mode_t)s.src;c.blend.dst=(pvr_blend_mode_t)s.dst;
+    c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.uv_clamp=PVR_UVCLAMP_UV;
+#if RE4DC_NATIVE_FOG
+    c.gen.fog_type=PVR_FOG_TABLE;
+#endif
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(out),&c);
+    // Local (p, q) of the corners A(0,1) B(1,1) C(1,0) D(0,0): point = D + p (C - D) + q (A - D); strip order
+    // 0 1 7 2 6 3 5 4 over the octagon's vertices at 22.5 + 45 k degrees, radius 0.45 / cos 22.5.
+    static const float kp[8]={0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f,0.68637f,0.95f};
+    static const float kq[8]={0.68637f,0.95f,0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f};
+    static const unsigned char order[8]={0,1,7,2,6,3,5,4};
+    const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
+    auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
+    for(unsigned i=0;i<8;++i){
+        const unsigned k=order[i];const float p=kp[k],q=kq[k];
+        v[i].flags=i==7?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
+        v[i].x=s.x[3]+p*(s.x[2]-s.x[3])+q*(s.x[0]-s.x[3]);
+        v[i].y=s.y[3]+p*(s.y[2]-s.y[3])+q*(s.y[0]-s.y[3]);
+        v[i].z=s.z[0];
+        v[i].u=(s.u[3]+p*(s.u[2]-s.u[3])+q*(s.u[0]-s.u[3]))*su;
+        v[i].v=(s.v[3]+p*(s.v[2]-s.v[3])+q*(s.v[0]-s.v[3]))*sv;
+        v[i].argb=s.color;v[i].oargb=0;
+    }
+}
+#endif
 void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     const auto& t=e->package.textures()[0];
     auto* h=reinterpret_cast<pvr_poly_hdr_t*>(out);
@@ -4926,6 +4963,30 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fx_resident_only=false;fx_new_loads+=load_opens-opens;
 #endif
     if(!e){++fx_missing;return 0;}
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
+    if(s->pad==1 && !s->screen){
+        if(source_draws_finished){
+            alignas(32) unsigned char packet[kOctPacket];oct_packet(*s,e,packet);
+            stream_select(PVR_LIST_TR_POLY);stream_send(packet,kOctPacket);
+            ++fx_direct;++fx_count;return 1;
+        }
+        const unsigned required=kSpriteNode+kOctPacket,margin=8192;
+        unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
+        if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
+            if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
+            if(!deferred_spill || required>deferred_spill_top){++fx_dropped;return 0;}
+            storage=deferred_spill;top=&deferred_spill_top;
+        }
+        *top-=required;
+        auto* node=new(storage+*top) DeferredPart{};node->lighting=kOctTag;
+        oct_packet(*s,e,storage+*top+kSpriteNode);
+        if(deferred_last)deferred_last->next=node;else deferred_first=node;
+        deferred_last=node;++deferred_count;++fx_queued;++fx_count;
+        fx_peak=std::max(fx_peak,fx_count);
+        frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
+        return 1;
+    }
+#endif
     if(source_draws_finished){
         alignas(32) unsigned char packet[kSpritePacket];fx_packet(*s,e,packet);
         stream_select(PVR_LIST_TR_POLY);fx_send(packet,s->screen);
@@ -5722,6 +5783,12 @@ extern "C" void re4dc_model_finish_source_draws(){
             const bool screen=deferred_first->changed[0]!=0;
             deferred_first=deferred_first->next;fx_send(packet,screen);continue;
         }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
+        if(deferred_first->lighting==kOctTag){
+            const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
+            deferred_first=deferred_first->next;stream_send(packet,kOctPacket);continue;
+        }
+#endif
 #if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
         if(deferred_first->lighting==kLineTag){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;

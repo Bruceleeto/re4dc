@@ -197,6 +197,21 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
     }
     return NULL;
 }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && RE4DC_EFFECT_HAZE_LEAN
+// EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): about 30 % of the PS2 subset (pool slot % every2 instead of % every) at alpha
+// x1.5; the fog table carries the rest of the veil (native_static.cpp re4dc_fog_frame, from re4dc_haze_key()).
+static u8 Ps2fxEvery2(u16 room)
+{
+    return room == 0x100 ? 16 : room == 0x101 ? 7 : room == 0x103 ? 3 : 0;
+}
+// The haze fade (the GC indoor fade counter, 1 outdoors) in 8 steps and the room (1 r100, 2 r101, 3 r103), as the
+// draw last saw it: (step << 4) | room, 0 without a haze room this frame. Read once per frame by the fog code.
+static u32 s_haze_key, s_haze_key_frame;
+extern "C" unsigned re4dc_haze_key(void)
+{
+    return (pG->Frame_cnt - s_haze_key_frame) <= 2 ? s_haze_key : 0;
+}
+#endif
 // esp15.cpp's work (cEsp15::m_Free), read for the indoor fade counter.
 struct Ps2fxEsp15Work {
     f32 Range;
@@ -286,9 +301,26 @@ static int Ps2fxClass(cEsp* esp)
             return 0;
         }
         const u32 slot = (u32) ((u8*) esp - (u8*) g_pEspSys->pEspBuf) / 0x150;
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+        const u8 every2 = Ps2fxEvery2(h->room);
+        if (every2) {
+            const Ps2fxEsp15Work* w = &static_cast<cPs2fxEsp15*>(esp)->m_Free;
+            f32 fade = 1.0f;
+            if (w->Room_del_frame != 0 && w->Room_del_cnt != 0) {
+                const u32 cnt = w->Room_del_cnt < w->Room_del_frame ? w->Room_del_cnt : w->Room_del_frame;
+                fade = 1.0f - (f32) cnt / w->Room_del_frame;
+            }
+            s_haze_key = ((u32) (fade * 8.0f + 0.5f) << 4) | (h->room == 0x100 ? 1U : h->room == 0x101 ? 2U : 3U);
+            s_haze_key_frame = pG->Frame_cnt;
+        }
+        if (slot % (every2 ? every2 : h->every)) {
+            return 1;
+        }
+#else
         if (slot % h->every) {
             return 1;
         }
+#endif
         // esp15.cpp's box axes: the camera side (view x), Cam.up and the view axis
         Vec v, d, up;
         PSMTXMultVec(pG->Cam.v_mat, &esp->m_Pos, &v);
@@ -420,6 +452,11 @@ static void EspSpriteEmit(cEsp* esp)
             const f32 rate = 1.0f - (3000.0f - d) / 2500.0f;
             fa *= rate > 0.0f ? rate : 0.0f;
         }
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
+        if (Ps2fxEvery2(hz->room)) {
+            fa *= 1.5f;   // M3: the sparse subset carries the drifting blotches
+        }
+#endif
         u32 hr = hz->r, hg = hz->g, hb = hz->b, ha = fa > 0.0f ? (u32) fa : 0;
         if (!(esp->m_Flg & 4) && EffIsSetFinalCol()) {
             GXColor fin;
@@ -436,7 +473,11 @@ static void EspSpriteEmit(cEsp* esp)
         s.src = esp->xA5 & 7;
         s.dst = esp->xA6 & 7;
         s.screen = 0;
+#if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
+        s.pad = 1;   // M2: native_ui draws a haze sprite as an octagon
+#else
         s.pad = 0;
+#endif
         re4dc_effect_sprite(&s);
         return;
     }
@@ -632,6 +673,9 @@ static void Ps2fxShafts(cEsp* anchor)
     }
 }
 #endif
+#if RE4DC_EFFECT_SPRITES && defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 1)
+extern "C" void re4dc_log(const char* fmt, ...);
+#endif
 void EspCommonTrans(cEsp* esp)
 {
     static int s_proj_type;
@@ -692,6 +736,26 @@ void EspCommonTrans(cEsp* esp)
         ((esp->info.owner == 0xD0 && (esp->m_Tex_id == 0xf2 || esp->m_Tex_id == 0xf6 || esp->m_Tex_id == 0xcb ||
                                       esp->m_Tex_id == 0x1d || esp->m_Tex_id == 0xff)) ||
          (esp->info.owner == 0x01 && esp->m_Id == 0 && esp->m_Tex_id == 0))) {
+        s_proj_type = -1;
+        s_tex_no = -1;
+        return;
+    }
+#endif
+#if RE4DC_EFFECT_SPRITES && defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 1)
+    // EFFECT_HAZE_LEAN bit 1 (STUDY2 M1): the GameCube mist sheets (id 0x48: tex f6 / cb / d0 / f3 / 33) of r100, r101
+    // and r103, which the PS2 release deleted from all three rooms (it keeps r100's small 0x48 / d9 sparks), are not
+    // drawn while the PS2 haze look is on. Render only: the generators and the sheets themselves still run.
+    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->info.owner == 0xD0 && esp->m_Id == 0x48 &&
+        (G_ROOM_ID == 0x100 || G_ROOM_ID == 0x101 || G_ROOM_ID == 0x103) &&
+        (esp->m_Tex_id == 0xf6 || esp->m_Tex_id == 0xcb || esp->m_Tex_id == 0xd0 || esp->m_Tex_id == 0xf3 ||
+         esp->m_Tex_id == 0x33)) {
+        static u32 s_seen[3];
+        const u32 ri = G_ROOM_ID == 0x100 ? 0 : G_ROOM_ID == 0x101 ? 1 : 2;
+        const u32 bit = esp->m_Tex_id == 0xf6 ? 1 : esp->m_Tex_id == 0xcb ? 2 : esp->m_Tex_id == 0xd0 ? 4 : esp->m_Tex_id == 0xf3 ? 8 : 16;
+        if (!(s_seen[ri] & bit)) {
+            s_seen[ri] |= bit;
+            re4dc_log("haze lean: r%03x mist sheet tex %02x not drawn\n", (unsigned) G_ROOM_ID, (unsigned) esp->m_Tex_id);
+        }
         s_proj_type = -1;
         s_tex_no = -1;
         return;

@@ -98,6 +98,14 @@ endif
 #                    streak) over the built ones (START is masked while the chord is down; L/R must be up: R + START
 #                    paces, L + START is the debug slot); the PACE_VMU page shows the look after its GPU (or MODE)
 #                    line; DBG_WARP's warp.txt `fxmode <flags>` (1 clamp, 2 haze, 4 streak) sets it at load.
+#   EFFECT_HAZE_LEAN=<mask> (Phase 2 B6, STUDY2 section 1; needs EFFECT_PS2_HAZE=1; render only, default 0): cheaper
+#                    outdoor haze in r100 / r101 / r103 while the PS2 haze look is on. 1 (M1): the GameCube mist
+#                    sheets (id 0x48: f6 / cb / d0 / f3 / 33) the PS2 deleted are not drawn. 2 (M3): the fog table
+#                    carries ~55 % of the haze's mean veil (1 -> 5 m ramp; r100 0.034, r101 0.025, r103 0.035 x the
+#                    indoor fade in 8 steps) and only ~30 % of the PS2 subset draws (slot % 16 / 7 / 3) at alpha x1.5.
+#                    4 (M2): each haze sprite is an octagon (apothem 0.9 of the half side: -33 % pixels). Generators,
+#                    Rnd() and sprite motion are untouched (draw-time choices only).
+EFFECT_HAZE_LEAN ?= 0
 EFFECT_PS2_HAZE ?= 0
 EFFECT_PS2_STREAK ?= 0
 EFFECT_FADE_CLAMP ?= 0
@@ -123,6 +131,18 @@ endif
 ifeq ($(EFFECT_PS2_STREAK),2)
 ifneq ($(EFFECT_FADE_CLAMP),1)
 $(error EFFECT_PS2_STREAK=2 needs EFFECT_FADE_CLAMP=1 (the shafts' near fade))
+endif
+endif
+ifneq ($(EFFECT_HAZE_LEAN),0)
+ifeq ($(filter $(EFFECT_HAZE_LEAN),1 2 3 4 5 6 7),)
+$(error EFFECT_HAZE_LEAN is a mask 1..7)
+endif
+ifneq ($(EFFECT_PS2_HAZE),1)
+$(error EFFECT_HAZE_LEAN needs EFFECT_PS2_HAZE=1)
+endif
+ifneq ($(filter 2 3 6 7,$(EFFECT_HAZE_LEAN)),)
+$(OBJDIR)/platform/native_static.o: $(OBJDIR)/effects30.h
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/effects30.h
 endif
 endif
 ifeq ($(EFFECT_PS2_TOGGLE),1)
@@ -151,6 +171,9 @@ ifneq ($(EFFECT_FADE_CLAMP),0)
 endif
 ifneq ($(EFFECT_PS2_TOGGLE),0)
 	@printf '#define RE4DC_EFFECT_PS2_TOGGLE %s\n' '$(EFFECT_PS2_TOGGLE)' >> $@.tmp
+endif
+ifneq ($(EFFECT_HAZE_LEAN),0)
+	@printf '#define RE4DC_EFFECT_HAZE_LEAN %s\n' '$(EFFECT_HAZE_LEAN)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
