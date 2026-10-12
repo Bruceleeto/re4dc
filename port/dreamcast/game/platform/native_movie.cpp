@@ -26,6 +26,11 @@
 #include "native_io.h"
 #include "native_movie.h"
 #include "../../room/room_storage.hpp"
+#if RE4DC_MOVIE_DISC_QUIET
+// MOVIE_DISC_QUIET: 1 while a route movie is open (it owns the GD drive); audio_aica.cpp's disc stream reader
+// holds back any stream prefill meanwhile. Timing of sound reads only; game state never reads it.
+extern "C" { volatile int re4dc_movie_disc_owner; }
+#endif
 #if RE4DC_ROUTE_MOVIES
 #ifndef RE4DC_ROUTE_MOVIE_YUV
 #define RE4DC_ROUTE_MOVIE_YUV 1      // full-range movies go through the PVR YUV converter
@@ -369,6 +374,9 @@ int finish(int status){
     memory("retired");
     movie_state(4,status);
     m=Movie{};
+#if RE4DC_MOVIE_DISC_QUIET
+    re4dc_movie_disc_owner=0;
+#endif
     return status;
 }
 bool open(unsigned id){
@@ -382,6 +390,9 @@ bool open(unsigned id){
         re4dc_log("route movie heap: test ballast %u B %s\n",(unsigned)RE4DC_MOVIE_BALLAST_TEST,m.ballast?"held":"FAILED");}
 #endif
     m.id=id;m.entered=timer_us_gettime64();m.heap_before=re4dc_ui_heap_free();m.vram_before=pvr_mem_available();
+#if RE4DC_MOVIE_DISC_QUIET
+    re4dc_movie_disc_owner=1;  // audio_aica.cpp: no disc stream prefill while the movie reads
+#endif
     path_for(id,m.path,sizeof(m.path));
     movie_state(0,(int)(id&0xffff));
     {Re4dcIoScope owner;m.file=fs_open(m.path,O_RDONLY);}
@@ -648,6 +659,15 @@ int iterate(RouteMoviePictureTick tick,bool stepped){
         return finish(RE4DC_MOVIE_EOF);
     }
     if(timer_us_gettime64()-m.start>m.duration_us+10000000ULL){MOVIE_WHY("stalled");return finish(RE4DC_MOVIE_ERROR);} // stalled media
+#if RE4DC_MOVIE_DISC_QUIET
+    // A stepped movie that ran dry retries its decode at every pass (the movie-owned loop does it below). Without
+    // this a starved stepped movie never decodes again: r10b s20 froze at picture 520 and its QTE ended it (terminal 4).
+    if(stepped&&m.starve_since&&!m.pending&&m.frames<m.expected_frames){
+        m.pending=decode_next();
+        if(m.pending)m.starve_since=0;
+        else if(timer_us_gettime64()-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
+    }
+#endif
     if(stepped)return RE4DC_MOVIE_RUNNING;
     auto t=timer_us_gettime64();
     while(re4dc_vi_retrace_count()==now&&timer_us_gettime64()-t<2000){} // ahead: wait (bounded) for the next field

@@ -142,6 +142,9 @@ void cb_str_voice_drop(void* voice);                   // the stream player's AX
 void re4dc_audio_pend_run(void);
 int re4dc_strm_advance(u16* addr, f32 samples, f32* frac);
 extern u32 re4dc_strm_reads_skipped, re4dc_strm_dmas;
+#if RE4DC_MOVIE_DISC_QUIET
+extern volatile int re4dc_movie_disc_owner;            // native_movie.cpp: 1 while a route movie is open
+#endif
 }
 #ifndef RE4DC_AICA_STREAMS
 #define RE4DC_AICA_STREAMS 0   // Makefile AICA_STREAMS=1: play disc streams from bgm/aica_str.dat
@@ -1071,6 +1074,9 @@ void str_flush(RegWriter& w)
     u32 key = str_key(*s.e);
     if (s.dead) {
         str_keyoff(w);
+#if RE4DC_MOVIE_DISC_QUIET
+        s.gen = s.gen + 1;   // a prefill in flight for this stream stops at its next read
+#endif
         s.state = kStrIdle;
         s.dead = 0;
         s.want = 0;
@@ -1309,6 +1315,9 @@ const u32 kStrCacheBytes = 8 * 1024;
 u32 g_strCacheOfs = 0xFFFFFFFFu, g_strCacheLen;
 file_t g_strFile = -1;
 const u32* g_strMissShd;
+#if RE4DC_MOVIE_DISC_QUIET
+u32 g_strMovieGen = 0xFFFFFFFFu;   // the stream generation whose wait was logged
+#endif
 
 bool str_index_load()
 {
@@ -1417,6 +1426,9 @@ void str_fill(u32 h, u32 gen)
     u64 t0 = timer_us_gettime64();
     u32 io0 = S.str_io_us;
     while (need && s.gen == gen) {
+#if RE4DC_MOVIE_DISC_QUIET
+        if (s.state == kStrPrep && re4dc_movie_disc_owner) break;   // the prefill restarts after the movie
+#endif
         if (s.ended) {   // one-shot played out: alternating +/- steps hold the level (muted once reached)
             for (u32 c = 0; c < s.nch; c++) spu_memset(g_strRing + c * kStrChBytes + dst, 0x80808080u, need);
             break;
@@ -1454,6 +1466,19 @@ __attribute__((unused)) void* str_main(void*)
         Stream& s = g_str;
         if (s.state == kStrIdle) str_scan();
         u32 gen = s.gen;
+#if RE4DC_MOVIE_DISC_QUIET
+        // MOVIE_DISC_QUIET: a stream stopped (or claimed) while a route movie reads waits with its prefill (two
+        // 12 KB halves from the stream start, a far GD seek) until the movie closes. r10b s20: the boss music
+        // stopped one flush before it closed, the prefill's seek stalled the movie reader 364 ms and s20 lost
+        // 279 pictures. A playing stream keeps refilling (r119 s10/s30, r10b s10 play over a running stream).
+        if (s.state == kStrPrep && re4dc_movie_disc_owner) {
+            if (g_strMovieGen != gen) {
+                g_strMovieGen = gen;
+                re4dc_log("aica: t=%u stream prefill waits for the route movie\n", (unsigned) g_nowMs);
+            }
+            continue;
+        }
+#endif
         if (s.state == kStrPrep) {
             s.region = s.pos = 0;
             s.ended = 0;

@@ -727,6 +727,15 @@ ROUTE_MOVIE_DIAG ?= 0
 # ROUTE_QTE_FRAMES=<n>: test builds hold a route QTE cut (r104 s00 cut 0x1E) for n game frames instead of the
 #   event's own (60), so a timed screenshot catches the prompt over the movie. 0 (default) = the event's.
 ROUTE_QTE_FRAMES ?= 0
+# MOVIE_DISC_QUIET=1 (default 0; ROUTE_MOVIES=1, sound timing only, logic STRICT): while a route movie is open the
+#   AICA disc stream reader holds back stream prefills (a stream stopped or claimed then refills after the movie;
+#   a playing stream keeps refilling), and a stepped movie that ran dry retries its decode every game frame.
+#   r10b s20 lost 279 of 515 pictures (364 ms read) when the boss music's stop raced its close and the prefill
+#   seeked the GD mid-movie, then froze at picture 520 for the rest of the QTE (terminal 4).
+MOVIE_DISC_QUIET ?= 0
+ifneq ($(MOVIE_DISC_QUIET),0)
+$(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_DISC_QUIET=1
+endif
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
 	@mkdir -p $(dir $@)
