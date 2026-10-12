@@ -26,3 +26,7 @@ $(OBJDIR)/tahash.h: tahash-force
 TAHASH_PLATFORM = $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_actor_fast.o
 $(TAHASH_PLATFORM): $(OBJDIR)/tahash.h
 $(TAHASH_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/tahash.h
+ifeq ($(TA_BIN_DIAG),1)
+# The translucent fill split (native_ui.cpp tabin "fill"): esp_sub.cpp tags haze / mist sheet sprites.
+$(OBJDIR)/src/game/esp_sub.o: GAME_CPPFLAGS += -DRE4DC_TA_BIN_DIAG=1
+endif

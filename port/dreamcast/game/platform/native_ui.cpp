@@ -1270,6 +1270,29 @@ struct L{ unsigned hdr_words,vtx_words,param_words; bool sprite,vtx64,half,hdr64
 L ls[5];
 unsigned scene_param,scene_wild,scene_mismatch,scene_lists_seen;
 unsigned max_pool,max_param,max_trtile,scenes;
+// Translucent fill (Phase 2 B6): the screen area (pixels, clipped to 640x480) of every translucent triangle / sprite
+// the tiler model sees, and of the effect sprites by kind (re4dc_effect_sprite: pad bit 2 PS2 haze, bit 4 GameCube
+// mist sheet, else other effects; an M2 octagon counts 0.671 of its square). Logged per scene as "tabin fill:".
+// fill_tr counts translucent polygons only: PVR sprites (the effect sprites) and the M2 octagon strips (skip_fill)
+// are counted at re4dc_effect_sprite, so the scene total is tr + haze + mist + fx.
+float fill_tr,fill_haze,fill_mist,fill_fx;bool skip_fill;
+float clip_area(const float* xs,const float* ys,unsigned n){
+    float ax[12],ay[12],bx[12],by[12];unsigned m=n;
+    for(unsigned i=0;i<n;++i){ax[i]=xs[i];ay[i]=ys[i];}
+    for(unsigned e=0;e<4 && m;++e){
+        unsigned k=0;
+        for(unsigned i=0;i<m;++i){
+            const unsigned j=(i+1)%m;
+            const float pi=e==0?ax[i]:e==1?640.0f-ax[i]:e==2?ay[i]:480.0f-ay[i];
+            const float pj=e==0?ax[j]:e==1?640.0f-ax[j]:e==2?ay[j]:480.0f-ay[j];
+            if(pi>=0 && k<12){bx[k]=ax[i];by[k]=ay[i];++k;}
+            if((pi>=0)!=(pj>=0) && k<12){const float t=pi/(pi-pj);bx[k]=ax[i]+t*(ax[j]-ax[i]);by[k]=ay[i]+t*(ay[j]-ay[i]);++k;}
+        }
+        m=k;for(unsigned i=0;i<m;++i){ax[i]=bx[i];ay[i]=by[i];}
+    }
+    float a=0;for(unsigned i=0;i<m;++i){const unsigned j=(i+1)%m;a+=ax[i]*ay[j]-ax[j]*ay[i];}
+    return a<0?-a*0.5f:a*0.5f;
+}
 // The previous scene's busiest translucent tile: which callers of re4dc_ta_hash (return address) put triangles
 // there, and the header words (TSP, TCW) of the biggest contributor.
 void* cur_ra;
@@ -1367,6 +1390,8 @@ void feed_block(unsigned list,const std::uint32_t* q){
         if(s.tri_in_obj==0||s.tri_in_obj==6){ obj_begin(s); scene_param+=2*s.vtx_words; }
         ++s.tri_in_obj; ++s.tris; scene_param+=s.vtx_words;
         add_box(list,std::min({x,s.x[0],s.x[1]}),std::max({x,s.x[0],s.x[1]}),std::min({y,s.y[0],s.y[1]}),std::max({y,s.y[0],s.y[1]}),1);
+        if(list==2 && !skip_fill){const float tx[3]={s.x[0],s.x[1],x},ty[3]={s.y[0],s.y[1],y};
+                     if(x==x&&y==y&&s.x[0]==s.x[0]&&s.x[1]==s.x[1])fill_tr+=clip_area(tx,ty,3);}
     }
     s.x[0]=s.x[1];s.y[0]=s.y[1];s.x[1]=x;s.y[1]=y;++s.nv;
     if(pcw&(1u<<28)){ if(s.nv<3)++s.short_strips; s.nv=0; s.tri_in_obj=0; }
@@ -1445,6 +1470,8 @@ void scene_end(unsigned fr,bool present){
     re4dc_log("tabin: f=%u p=%d obj=%u/%u/%u ent=%u/%u/%u deep=%u/%u/%u pool=%u/%u param=%u/%u trtile=%u tris=%u short=%u orphan=%u wild=%u mism=%u%s\n",
         fr,present?1:0,objs[0],objs[2],objs[4],total[0],total[2],total[4],maxent[0],maxent[2],maxent[4],pool,limit,param,
         unsigned(RE4DC_TA_VERTEX_BYTES),maxtr,tris,shorts,orph,scene_wild,scene_mismatch,peak?" PEAK":"");
+    re4dc_log("tabin fill: f=%u poly=%u haze=%u mist=%u fx=%u\n",fr,unsigned(fill_tr),unsigned(fill_haze),unsigned(fill_mist),unsigned(fill_fx));
+    fill_tr=fill_haze=fill_mist=fill_fx=0;
     std::memset(ent,0,sizeof(ent));std::memset(trtri,0,sizeof(trtri));
     for(auto& s:ls)s=L{};
 #if RE4DC_MV_SHADOWS
@@ -4993,11 +5020,24 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fx_resident_only=false;fx_new_loads+=load_opens-opens;
 #endif
     if(!e){++fx_missing;return 0;}
+#if RE4DC_TA_BIN_DIAG
+    {
+        const float xs[4]={s->x[0],s->x[1],s->x[2],s->x[3]},ys[4]={s->y[0],s->y[1],s->y[2],s->y[3]};
+        float a=tabin::clip_area(xs,ys,4);
+        if((s->pad&1) && !s->screen)a*=0.671f;
+        (s->pad&2?tabin::fill_haze:s->pad&4?tabin::fill_mist:tabin::fill_fx)+=a;
+    }
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
-    if(s->pad==1 && !s->screen){
+    if((s->pad&1) && !s->screen){
         if(source_draws_finished){
             alignas(32) unsigned char packet[kOctPacket];oct_packet(*s,e,packet);
-            stream_select(PVR_LIST_TR_POLY);stream_send(packet,kOctPacket);
+            stream_select(PVR_LIST_TR_POLY);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;stream_send(packet,kOctPacket);tabin::skip_fill=false;
+#else
+            stream_send(packet,kOctPacket);
+#endif
             ++fx_direct;++fx_count;return 1;
         }
         const unsigned required=kSpriteNode+kOctPacket,margin=8192;
@@ -5816,7 +5856,14 @@ extern "C" void re4dc_model_finish_source_draws(){
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
         if(deferred_first->lighting==kOctTag){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
-            deferred_first=deferred_first->next;stream_send(packet,kOctPacket);continue;
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;
+#endif
+            deferred_first=deferred_first->next;stream_send(packet,kOctPacket);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=false;
+#endif
+            continue;
         }
 #endif
 #if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER

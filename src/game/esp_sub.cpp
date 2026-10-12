@@ -501,6 +501,9 @@ static void EspSpriteEmit(cEsp* esp)
 #else
         s.pad = 0;
 #endif
+#if RE4DC_TA_BIN_DIAG
+        s.pad |= 2;   // TA_BIN_DIAG fill: a PS2 haze sprite
+#endif
         re4dc_effect_sprite(&s);
         return;
     }
@@ -521,6 +524,13 @@ static void EspSpriteEmit(cEsp* esp)
     s.dst = esp->xA6 & 7;
     s.screen = ortho;
     s.pad = 0;
+#if RE4DC_TA_BIN_DIAG
+    if (esp->info.owner == 0xD0 && esp->m_Id == 0x48 &&   // TA_BIN_DIAG fill: a GameCube mist sheet (EFFECT_HAZE_LEAN M1's)
+        (esp->m_Tex_id == 0xf6 || esp->m_Tex_id == 0xcb || esp->m_Tex_id == 0xd0 || esp->m_Tex_id == 0xf3 ||
+         esp->m_Tex_id == 0x33)) {
+        s.pad |= 4;
+    }
+#endif
     re4dc_effect_sprite(&s);
 }
 #if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
