@@ -276,7 +276,13 @@ extern "C" const char* re4dc_res_osd_text(void); // res_mode.cpp: the render mod
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
 extern "C" const char* re4dc_haze_lean_osd_text(void); // esp_sub.cpp: the haze mode's name, 3 s after a change
 #endif
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+extern "C" const char* re4dc_blob_osd_text(void); // blob_shadow.cpp: the blob strength's name, 3 s after a change
+#endif
 extern "C" const char* re4dc_look_osd_text(void){
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+    if(const char* bl=re4dc_blob_osd_text())return bl;
+#endif
 #if RE4DC_RES_MODES
     if(const char* res=re4dc_res_osd_text())return res;
 #endif

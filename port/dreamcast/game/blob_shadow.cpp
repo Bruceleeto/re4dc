@@ -50,6 +50,31 @@ int re4dc_ui_blob_send(const void* data, unsigned bytes);         // native_ui.c
 void re4dc_log(const char* fmt, ...);
 }
 
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+// SHADOW_BLOB_TOGGLE (test builds; watch discs): the blob strength at run time. pad.cpp X + D-pad left + START steps
+// OFF -> alpha 120 r400 -> alpha 180 r400 -> alpha 180 r550 -> alpha 230 r550; native_static.cpp shows the name 3 s.
+extern "C" unsigned re4dc_vi_retrace_count(void);
+static unsigned s_blob_step = 1, s_blob_osd_until;
+static const unsigned short kBlobAlpha[5] = {0, 120, 180, 180, 230}, kBlobRadius[5] = {0, 400, 400, 550, 550};
+static const char* const kBlobText[5] = {"Shadows: off", "Shadows: alpha 120 r400", "Shadows: alpha 180 r400",
+                                         "Shadows: alpha 180 r550", "Shadows: alpha 230 r550"};
+extern "C" void re4dc_blob_cycle(void)
+{
+    s_blob_step = (s_blob_step + 1) % 5;
+    s_blob_osd_until = re4dc_vi_retrace_count() + 180U;
+    re4dc_log("blob shadows: %s\n", kBlobText[s_blob_step]);
+}
+extern "C" const char* re4dc_blob_osd_text(void)
+{
+    return (int) (s_blob_osd_until - re4dc_vi_retrace_count()) > 0 ? kBlobText[s_blob_step] : 0;
+}
+#define BLOB_ALPHA ((float) kBlobAlpha[s_blob_step])
+#define BLOB_RADIUS ((float) kBlobRadius[s_blob_step])
+#else
+#define BLOB_ALPHA ((float) RE4DC_SHADOW_BLOB_ALPHA)
+#define BLOB_RADIUS ((float) RE4DC_SHADOW_BLOB_RADIUS)
+#endif
+
 namespace {
 constexpr int kSides = RE4DC_SHADOW_BLOB_SIDES;
 static_assert(kSides >= 6 && kSides <= 16, "SHADOW_BLOB_SIDES 6..16");
@@ -164,7 +189,7 @@ void add(Caster* list, int& n, cEm* e, float radius, const V3& cam)
     if (len > 1.0f) { c.ax = ox / len; c.az = oz / len; } else { c.ax = 1; c.az = 0; }
     c.b = radius; c.a = radius + len * 0.5f;
     const float dist = __builtin_sqrtf(d2);
-    float alpha = (float) RE4DC_SHADOW_BLOB_ALPHA * (float) (255 - e->Shd_color) / 255.0f;
+    float alpha = BLOB_ALPHA * (float) (255 - e->Shd_color) / 255.0f;
     if (dist > kFade0) alpha *= (kRange - dist) / (kRange - kFade0);
     if (!(alpha >= 2.0f)) return;
     c.alpha = alpha > 255.0f ? 255.0f : alpha;
@@ -182,6 +207,9 @@ extern "C" void re4dc_blob_emit(unsigned frame)
     if (!pG || re4dc_blob_camera_frame != frame) return;   // no world part drew with a perspective camera this frame
     if (pG->Disp_flg & 0x02000000) return;
     if (pG->Status_flg[1] & 0x100) return;
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+    if (!s_blob_step) return;
+#endif
     memcpy(M, &pG->Cam.v_mat[0][0], sizeof(M));
     memcpy(P, re4dc_blob_projection, sizeof(P));
     memcpy(VP, re4dc_blob_viewport, sizeof(VP));
@@ -214,9 +242,9 @@ extern "C" void re4dc_blob_emit(unsigned frame)
         ++g_seen; g_table += table; g_ids += ganado;
         if (!(e->be_flag & 2)) continue;   // not drawn this frame
         if ((cEm*) pPL == e) pl_listed = true;
-        add(list, n, e, (float) RE4DC_SHADOW_BLOB_RADIUS, cam);
+        add(list, n, e, BLOB_RADIUS, cam);
     }
-    if (pPL && !pl_listed && (pPL->be_flag & 2)) add(list, n, pPL, (float) RE4DC_SHADOW_BLOB_RADIUS * 0.9f, cam);
+    if (pPL && !pl_listed && (pPL->be_flag & 2)) add(list, n, pPL, BLOB_RADIUS * 0.9f, cam);
     for (int i = 0; i < n; ++i) blob(list[i]);
     if (!(++g_frames % 600))
         re4dc_log("blob shadows: frames=%u casters=%u skipped=%u failed=%u seen=%u table=%u ganado_ids=%u\n",

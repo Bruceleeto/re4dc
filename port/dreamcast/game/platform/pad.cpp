@@ -397,6 +397,9 @@ extern "C" void re4dc_look_cycle(void);  // native_static.cpp (post30.mk LOOK_TO
 extern "C" void re4dc_haze_lean_cycle(void);  // esp_sub.cpp (effects30.mk EFFECT_HAZE_LEAN_TOGGLE)
 #endif
 extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp: the preset label always shown / 3 s
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+extern "C" void re4dc_blob_cycle(void);  // blob_shadow.cpp (game30.mk SHADOW_BLOB_TOGGLE)
+#endif
 #if RE4DC_RES_MODES
 extern "C" void re4dc_res_cycle(void);  // res_mode.cpp (game30.mk RES_MODES)
 #endif
@@ -560,6 +563,11 @@ u32 PADRead(PADStatus* status)
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_UP)) {
                     lookChord = 1;
                     re4dc_haze_lean_cycle();  // X + D-pad up + START: the next haze mode (esp_sub.cpp, EFFECT_HAZE_LEAN_TOGGLE)
+#endif
+#if defined(RE4DC_SHADOW_BLOB_TOGGLE)
+                } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_LEFT)) {
+                    lookChord = 1;
+                    re4dc_blob_cycle();  // X + D-pad left + START: the next blob shadow strength (blob_shadow.cpp)
 #endif
 #if RE4DC_RES_MODES
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_DOWN)) {
