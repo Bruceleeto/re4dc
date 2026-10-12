@@ -200,6 +200,10 @@ extern "C" int re4dc_coarse_actor_texture_key(const Re4dcUiImage*,unsigned*,unsi
 #endif
 extern "C" int re4dc_fixture_read(const char* path,char* buffer,unsigned size);   // os.cpp (dc/crashtest.txt test aid)
 #endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+extern "C" void re4dc_lbx_open(int list,void (*send)(const void*,unsigned)); // platform/letterbox_clip.cpp
+extern "C" void re4dc_lbx_close(void);
+#endif
 namespace {
 constexpr unsigned kQuadCount=256, kTextureCount=RE4DC_TEX_RESIDENT?RE4DC_TEX_SLOTS:RE4DC_PVR_STREAM?80:48, kSourceCount=RE4DC_PVR_STREAM?128:256, kVramBudget=4*1024*1024;
 #if RE4DC_UI_VRAM
@@ -1453,6 +1457,9 @@ void scene_end(unsigned fr,bool present){
 // stream_open fenced already).
 bool ta_double=true,ta_double_wanted=false;
 #endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+void stream_send(const void* data,unsigned bytes);
+#endif
 void stream_open() {
 #if RE4DC_PACE_CATCHUP
     // A movie presents its own picture (re4dc_ui_movie_present_now) even inside a skipped tick.
@@ -1510,6 +1517,9 @@ void stream_open() {
     // Do not retain the main thread's SQ mutex across source task dispatch or
     // file/audio services. Each synchronous packet transfer reacquires it.
     sq_unlock();stream_scene=true;
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    re4dc_lbx_open(int(stream_list),stream_send); // platform/letterbox_clip.cpp: the opaque bars
+#endif
 #if RE4DC_WORLD_AUTOSORT
     // list_begin, not scene_begin, waits for and acquires this TA bank.
     // Set its tiles only after that wait, never while the old bank renders.
@@ -1555,6 +1565,9 @@ void stream_select(pvr_list_t list){
     sq_unlock();stream_list=list;
 #if RE4DC_TA_HASH
     ta_hash_marker(list);
+#endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    re4dc_lbx_open(int(list),stream_send); // a frame whose first list was not the opaque one
 #endif
 }
 #endif
@@ -1627,6 +1640,9 @@ void stream_close(bool present) {
 #endif
 #if RE4DC_PVR_LATCH>=2
     latch::scene_close();
+#endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    re4dc_lbx_close(); // platform/letterbox_clip.cpp: tile row clip in the region array of the bank being filled
 #endif
     sq_lock((void*)PVR_TA_INPUT);
     if(pvr_list_finish()<0 || pvr_scene_finish()<0)re4dc_missing("native stream finish failed");

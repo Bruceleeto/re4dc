@@ -73,6 +73,9 @@ static void uql_check(f32 x, f32 y, f32 cx, f32 cy, const f32* pm)
 }
 #endif
 #endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+extern "C" void re4dc_lbx_note(unsigned cls,unsigned tex_id,unsigned tex_no,unsigned argb,const float* xy);
+#endif
 extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
     TexWk* wk = IdGetTexWk(u->texId, 1);
     if (!wk || !wk->pTpl || u->texNo >= wk->pTpl->numDescriptors) return;
@@ -121,6 +124,10 @@ extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
 #if RE4DC_UI_QUAD_LEAN >= 2
     if ((++uql_quads & 2047) == 0)
         re4dc_log("UQL xy quads=%u corners=%u perspective=%u mismatch=%u\n", uql_quads, uql_corners, uql_persp, uql_mismatch);
+#endif
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    re4dc_lbx_note(u->classNo,u->texId,u->texNo,((unsigned)(u8)u->col[3]<<24)|((unsigned)(u8)u->col[0]<<16)|
+                   ((unsigned)(u8)u->col[1]<<8)|(u8)u->col[2],q.xy);  // platform/letterbox_clip.cpp
 #endif
     const float uv[8]={u->u0,u->v0,u->u1,u->v0,u->u1,u->v1,u->u0,u->v1};
     for(unsigned i=0;i<8;++i) q.uv[i]=uv[i];

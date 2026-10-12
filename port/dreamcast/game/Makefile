@@ -278,6 +278,21 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_VGA_SOFT=1
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/vga_soft.o,$(PLATFORM_OBJS))
 endif
+# LETTERBOX_CLIP=1 (Phase 2 B5, default 0: platform/letterbox_clip.cpp not built; render only): while the gameplay
+# letterbox bars are opaque, two black opaque polygons at the nearest depth open the frame's opaque list (the ISP rejects
+# the fill behind them) and, at a 640x480 render, tile row 0 renders the opaque list only (region array of the bank being
+# filled, written at scene close). =2 also clips tile row 14 (measurement arm: subtitles there would vanish).
+LETTERBOX_CLIP ?= 0
+ifeq ($(filter $(LETTERBOX_CLIP),0 1 2),)
+$(error LETTERBOX_CLIP must be 0, 1 or 2)
+endif
+ifeq ($(LETTERBOX_CLIP),0)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/letterbox_clip.o,$(PLATFORM_OBJS))
+else
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/letterbox_clip.o: PLATFORM_CPPFLAGS += -DRE4DC_LETTERBOX_CLIP=$(LETTERBOX_CLIP)
+$(OBJDIR)/platform/letterbox_clip.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_LETTERBOX_CLIP=$(LETTERBOX_CLIP)
+endif
 SDK_OBJS = $(patsubst platform/sdk/gen/%.c,$(OBJDIR)/sdk/%.o,$(SDK_GEN))
 NATIVE_REUSE_OBJS = $(OBJDIR)/native-reuse/source_lighting.o $(OBJDIR)/native-reuse/native_draw_plan.o $(OBJDIR)/native-reuse/pvr_geometry.o $(OBJDIR)/native-reuse/gpu_lifecycle.o $(OBJDIR)/native-reuse/texture_package.o $(OBJDIR)/native-reuse/room_storage.o $(OBJDIR)/ui_bridge.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o
 # Native static room packages (NATIVE_STATIC below); default images carry none of it.
