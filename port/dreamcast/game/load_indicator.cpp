@@ -31,6 +31,9 @@
 
 extern "C" void re4dc_log(const char* fmt, ...);
 extern "C" void re4dc_draw_id_quad(const IdUnit*);  // ui_bridge.cpp
+#if defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE
+extern "C" void re4dc_ui_door_mark(void);  // platform/native_ui.cpp
+#endif
 extern cTexSys* g_pIdTexSys;
 int IdTexDataLoad(void* data, int id);
 void IdTexRelease(int id);
@@ -207,6 +210,11 @@ void re4dc_loadind_frame()
         }
     }
     IdSys.trans();
+#if defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE
+    if (n) {
+        re4dc_ui_door_mark();  // native_ui.cpp: the door's frozen picture and fades go under the banner
+    }
+#endif
     for (int k = 0; k < n; k++) {
         IdUnit* u = mine[k];
         u->be_flag = (u8) ((u->be_flag | 0x8) & ~0x10);

@@ -3596,6 +3596,9 @@ constexpr unsigned kDoorW=320,kDoorH=240,kDoorBytes=kDoorW*kDoorH*2,kDoorMargin=
 // The picture's size: 320x240, else (fragmented VRAM: r101 -> r103 had 0.9 MB free and no 150 KiB block) 160x240, 160x120.
 unsigned door_w=kDoorW,door_h=kDoorH,door_tw=512,door_th=256;
 pvr_ptr_t door_tex;unsigned door_frame=~0U,door_steps,door_captures,door_draws,door_held_frames;bool door_held;
+// LOAD_INDICATOR + DOOR_FREEZE: the first UI quad drawn after FadeControl (the PS2 loading banner); the picture and the
+// fades go under it, as the PS2 draws the banner after the fade. ~0U = none this frame (draw order unchanged).
+unsigned door_ui_mark=~0U;
 void door_release(const char* why){
     if(!door_tex)return;
 #if RE4DC_PVR_PIPELINE
@@ -3715,9 +3718,12 @@ extern "C" int re4dc_ui_door_capture(){
 }
 // filter09.cpp every frame the filter is in use: draw the picture after `steps` feedback steps at this frame's present.
 extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=steps;}
+// load_indicator.cpp (LOAD_INDICATOR with DOOR_FREEZE): the banner's quads start here.
+extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;}
 #endif
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+    door_ui_mark=~0U;
 #if RE4DC_TEX_RESIDENT
     if(door_tex && (!re4dc_door_in_use() || preload_pending))door_release(preload_pending?"preload due":"filter off");
 #else
@@ -3962,11 +3968,19 @@ extern "C" void re4dc_ui_present(){
 #else
     constexpr bool movie_override=false;
 #endif
+#if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+    // The door picture goes over the UI drawn before the loading banner and under the banner (door_ui_mark).
+    bool door_done=false;
+#define RE4DC_DOOR_SPLIT(i) if((i)==door_ui_mark && !stream_aborted){door_draw();door_done=true;}
+#else
+#define RE4DC_DOOR_SPLIT(i)
+#endif
 #if RE4DC_SS_UI_ORDER
     if(frame%120==0)re4dc_log("native UI order: frame=%u active=%u flushed=%u queued=%u\n",frame,unsigned(ui_order),quads_flushed,nquad);
-    for(unsigned i=quads_flushed;i<nquad && !movie_override && !re4dc_vi_black();++i)ui_draw_quad(i);
+    for(unsigned i=quads_flushed;i<nquad && !movie_override && !re4dc_vi_black();++i){RE4DC_DOOR_SPLIT(i)ui_draw_quad(i);}
 #else
     for(unsigned i=0;i<nquad && !movie_override && !re4dc_vi_black();++i){
+        RE4DC_DOOR_SPLIT(i)
         if(!handles[i])continue;
 #if RE4DC_NATIVE_MES
         if(handles[i]==kGlyphRun){glyph_draw_run(quads[i].image.width,quads[i].image.height);continue;}
@@ -4009,7 +4023,7 @@ extern "C" void re4dc_ui_present(){
     }
 #endif
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
-    if(!re4dc_vi_black() && !stream_aborted)door_draw(); // over the frame's world and UI, as Render() ends with it
+    if(!door_done && !re4dc_vi_black() && !stream_aborted)door_draw(); // over the frame's world and UI, as Render() ends with it
 #endif
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG && RE4DC_PVR_STREAM
     {int pace_mode;if(re4dc_pace_note(&pace_mode) && !re4dc_vi_black())pace_note_draw(pace_mode);}

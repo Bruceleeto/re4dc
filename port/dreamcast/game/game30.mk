@@ -311,7 +311,7 @@ $(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/read.o: G
 PLATFORM_OBJS += $(OBJDIR)/load_indicator.o
 $(OBJDIR)/load_indicator.o: load_indicator.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -MMD -MP -c $< -o $@
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -DRE4DC_DOOR_FREEZE=$(DOOR_FREEZE) -Iplatform/include -MMD -MP -c $< -o $@
 else ifneq ($(LOAD_INDICATOR),0)
 $(error LOAD_INDICATOR is 0 or 1)
 endif
