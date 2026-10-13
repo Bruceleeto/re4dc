@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <dc/spu.h>
 #include <dc/sound/sound.h>
+#include <arch/timer.h>
 extern "C" unsigned char re4dc_dvd_buff[0x20000];
 #pragma GCC push_options
 #pragma GCC optimize("Os")  // cold loader code: size, not speed (image bytes are heap 4)
@@ -40,7 +41,7 @@ unsigned aica;               // the cells' base (0: not allocated)
 int cell_blob[4]={-1,-1,-1,-1};   // 0 right home, 1 right other, 2 left home, 3 left other
 int refill[4]={-1,-1,-1,-1};      // what the cells held when they were freed
 unsigned cell_used[4],use_clock;   // LRU per side: the least recently drawn cell of the side is replaced
-unsigned reads,read_bytes,copies,hits,misses,yields,refills,alloc_fails;
+unsigned reads,read_bytes,copies,hits,misses,yields,refills,alloc_fails,hit_max_us;
 inline unsigned r32(unsigned x){return (x+31u)&~31u;}
 unsigned blob_bytes(const Blob& b){unsigned n=0;for(unsigned i=0;i<5;++i)n+=r32(b.size[i]);return n;}
 unsigned cell_offset(unsigned c){return (c>>1)*2u*kSlotBytes[0]+(c&1u)*kSlotBytes[c>>1];}
@@ -119,14 +120,16 @@ bool load(unsigned side,int b) {
     if(slot_blob[side]==b)return true;
     const Blob& x=blobs[b];
     const int c=cell_of(b);
-    if(c>=0){spu_memread(slot[side],aica+cell_offset(unsigned(c)),blob_bytes(x));++copies;++hits;cell_used[c]=++use_clock;}
+    const unsigned t0=unsigned(timer_us_gettime64());
+    if(c>=0){spu_memread(slot[side],aica+cell_offset(unsigned(c)),blob_bytes(x));++copies;++hits;cell_used[c]=++use_clock;
+        const unsigned us=unsigned(timer_us_gettime64())-t0;if(us>hit_max_us)hit_max_us=us;}
     else {
         ++misses;
         slot_blob[side]=-1;
         if(!read_at(unsigned(x.offset32)*32u,slot[side],blob_bytes(x)))return false;
         // The hitch check reads these: a disc read while drawing (a pose not in the cache).
-        if(misses<=64)re4dc_log("LHPACK miss blob=%u role=%u cells=%d/%d/%d/%d aica=%u\n",unsigned(b),5u+side,
-            cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3],aica?1u:0u);
+        if(misses<=64)re4dc_log("LHPACK miss blob=%u role=%u cells=%d/%d/%d/%d aica=%u us=%u\n",unsigned(b),5u+side,
+            cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3],aica?1u:0u,unsigned(timer_us_gettime64())-t0);
         cache(b,slot[side]);
     }
     unsigned char* p=slot[side];const unsigned char* a[5];
@@ -186,8 +189,8 @@ inline unsigned leon_hand_key(unsigned costume,int right,int left) {
 extern "C" void re4dc_leon_hands_room_enter() {
     using namespace leon_hand_pack;
     prefetch_home();refill_now();
-    re4dc_log("LHPACK room reads=%u bytes=%u copies=%u hits=%u misses=%u yields=%u refills=%u cells=%d/%d/%d/%d\n",
-        reads,read_bytes,copies,hits,misses,yields,refills,cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3]);
+    re4dc_log("LHPACK room reads=%u bytes=%u copies=%u hits=%u misses=%u yields=%u refills=%u hit_max_us=%u cells=%d/%d/%d/%d\n",
+        reads,read_bytes,copies,hits,misses,yields,refills,hit_max_us,cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3]);
 }
 // Weapon equip (read.cpp ReadWepData, after the weapon archive read): the weapon's own hand BINs into the other cells.
 extern "C" void re4dc_leon_hands_weapon(const char* name) {
