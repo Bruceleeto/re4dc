@@ -2369,6 +2369,9 @@ static int MakeWeightPalette(Weight* w0, int n)
 #if RE4DC_PS2_FX_COMMON_HAZE
 extern "C" void re4dc_ps2_fx_common_render(int coarse,int skipping);
 #endif
+#if RE4DC_PS2_FX_ADDITIONS
+extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping);
+#endif
 
 // Per frame, the draw pass: runs the ordering tables in order (render textures, shadow setup,
 // far sub screen, scroll, sub screen, models, shadow draw, near sub screen, effects, world, VU1
@@ -2394,6 +2397,9 @@ void Render()
 #if RE4DC_PS2_FX_COMMON_HAZE && RE4DC_PACE_CATCHUP
     // Retire a skipped image's pending token even when Render returns early.
     if(re4dc_pace_skipping)re4dc_ps2_fx_common_render(0,1);
+#endif
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_PACE_CATCHUP
+    if(re4dc_pace_skipping)re4dc_ps2_fx_stage1_render(0,1);
 #endif
 #if RE4DC_PACE_CATCHUP >= 2
     // Skipped whole: the letterbox bit below is set here and cleared at the end of Render().
@@ -2451,6 +2457,13 @@ void Render()
     re4dc_ps2_fx_common_render(coarse,0);
 #else
     re4dc_ps2_fx_common_render(0,0);
+#endif
+#endif
+#if RE4DC_PS2_FX_ADDITIONS
+#if RE4DC_COARSE
+    re4dc_ps2_fx_stage1_render(coarse,0);
+#else
+    re4dc_ps2_fx_stage1_render(0,0);
 #endif
 #endif
     ClearZbuf();

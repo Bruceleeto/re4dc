@@ -1064,6 +1064,9 @@ extern EspgenWork* EspgenArray;
 extern u32 nEspgen;
 extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
 static ps2fx::HazeAddition s_fx_addition;
+// Shared by additions and each puzzle colour, sequentially. No heap allocation
+// or 50-sprite SH4 stack frame; the native queue retains copies, never pointers.
+static Re4dcEffectSprite s_stage1_sprites[50];
 static const ps2fx::HazeRecipe kPs2Addition118 = {
     2000.0f, {5.0f,0.0f,0.0f}, {0.20000001788139343f,0.20000000298023224f,0.20000000298023224f},
     0x118c0defU, 30,145,155,155,34 // private seed: the source SST uses engine RNG
@@ -1161,7 +1164,7 @@ static void Ps2fxAdditionsDraw()
         } else {
             const TEXDescriptor* td=TEXGet(tw->pTpl,0);
             const TEXHeader* th=td->textureHeader;
-            Re4dcEffectSprite sprite;
+            Re4dcEffectSprite sprite;unsigned count=0;
             sprite.image.pixels=th->data; sprite.image.palette=NULL;
             sprite.image.width=th->width; sprite.image.height=th->height; sprite.image.format=th->format;
             sprite.image.palette_format=0xffffffffU; sprite.image.palette_bytes=0;
@@ -1204,7 +1207,12 @@ static void Ps2fxAdditionsDraw()
 #if RE4DC_TA_BIN_DIAG
                 sprite.pad|=2;
 #endif
-                draws+=re4dc_effect_sprite(&sprite)!=0;
+                s_stage1_sprites[count++]=sprite;
+            }
+            if(!(issues&0x4000)){
+                unsigned submitted=0;
+                if(re4dc_effect_stage1_batch(s_stage1_sprites,count,5,&submitted))draws=submitted;
+                else issues|=0x8000;
             }
         }
     }
@@ -1312,10 +1320,14 @@ static void Ps2fxPuzzleDraw()
         if(group.evidence.count && !group.evidence.complete()) issues|=8U<<color;
         if((issues&7) || !group.evidence.complete() || !group.anchor) continue;
         cEsp* source=group.anchor;
-        s_puzzle_active|=1U<<color;
-        if(!Ps2fxPuzzleVisible(source)) continue;
+        if(!Ps2fxPuzzleVisible(source)) {
+            unsigned draws=0;
+            if(re4dc_effect_stage1_batch(s_stage1_sprites,0,1,&draws))s_puzzle_active|=1U<<color;
+            else issues|=0x100U<<color;
+            continue;
+        }
         const TEXDescriptor* td=TEXGet(tw->pTpl,0);const TEXHeader* th=td->textureHeader;
-        Re4dcEffectSprite sprite;
+        Re4dcEffectSprite sprite;unsigned count=0;
         sprite.image.pixels=th->data;sprite.image.palette=NULL;
         sprite.image.width=th->width;sprite.image.height=th->height;sprite.image.format=th->format;
         sprite.image.palette_format=0xffffffffU;sprite.image.palette_bytes=0;
@@ -1356,8 +1368,12 @@ static void Ps2fxPuzzleDraw()
                 sprite.v[i]=tw->mtx[1][0]*u[i]+tw->mtx[1][1]*v[i]+tw->mtx[1][3];
             }
             sprite.color=(a<<24)|(r<<16)|(g<<8)|b;sprite.src=4;sprite.dst=1;sprite.screen=0;sprite.pad=0;
-            submitted+=re4dc_effect_sprite(&sprite)!=0;
+            s_stage1_sprites[count++]=sprite;
         }
+        unsigned draws=0;
+        if(re4dc_effect_stage1_batch(s_stage1_sprites,count,1,&draws)){
+            s_puzzle_active|=1U<<color;submitted+=draws;
+        }else issues|=0x100U<<color;
     }
     if(!reported || last_active!=s_puzzle_active || last_issues!=issues) {
         re4dc_log("PS2FXPUZZLE f=%u active=%x source=%u/%u/%u points=%u candidates=%u submitted=%u issues=%x\n",
@@ -1365,6 +1381,36 @@ static void Ps2fxPuzzleDraw()
             point_count,candidates,submitted,issues);
         reported=1;last_active=s_puzzle_active;last_issues=issues;
     }
+}
+// Trans prepares image k after Render(k-1). The next Render consumes it while
+// Frame_cnt is still k, after native begin/coarse drawing and before effect OTs.
+struct Ps2fxStage1Pending {
+    u8* pool;EspgenWork* generators;u32 frame;u16 room;
+    unsigned slots,generation,generator_count;bool pending;
+};
+static Ps2fxStage1Pending s_stage1_pending={};
+static void Ps2fxStage1Prepare()
+{
+    s_puzzle_active=0;s_stage1_pending={};
+    if(!pG || !g_pEspSys || !g_pEspSys->pEspBuf || g_pEspSys->nEsp>2048 ||
+       nEspgen>512 || (nEspgen && !EspgenArray) ||
+       (G_ROOM_ID!=0x117 && G_ROOM_ID!=0x118 && G_ROOM_ID!=0x11c))return;
+    unsigned generation=0,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || !generation)return;
+    s_stage1_pending={g_pEspSys->pEspBuf,EspgenArray,(u32)pG->Frame_cnt,(u16)G_ROOM_ID,
+        g_pEspSys->nEsp,generation,nEspgen,true};
+}
+extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping)
+{
+    const Ps2fxStage1Pending ticket=s_stage1_pending;s_stage1_pending={};
+    // Consume first. A duplicate call cannot replay or revoke a committed colour.
+    if(!ticket.pending || !coarse || skipping || !pG || !g_pEspSys ||
+       ticket.frame!=(u32)pG->Frame_cnt || ticket.room!=G_ROOM_ID ||
+       ticket.pool!=g_pEspSys->pEspBuf || ticket.slots!=g_pEspSys->nEsp ||
+       ticket.generators!=EspgenArray || ticket.generator_count!=nEspgen)return;
+    unsigned generation=0,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || generation!=ticket.generation)return;
+    Ps2fxAdditionsDraw();Ps2fxPuzzleDraw();
 }
 #endif
 #if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
@@ -1397,8 +1443,7 @@ extern "C" void re4dc_esp_sprite_pass_begin()
     Ps2fxCommonHazePrepare();
 #endif
 #if RE4DC_PS2_FX_ADDITIONS
-    Ps2fxAdditionsDraw();
-    Ps2fxPuzzleDraw();
+    Ps2fxStage1Prepare();
 #endif
 }
 #endif

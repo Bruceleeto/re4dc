@@ -50,6 +50,11 @@ int re4dc_effect_sprite(const Re4dcEffectSprite*);
 // Modifies private scratch coordinates for render resolution. Never uploads.
 int re4dc_effect_haze_batch(Re4dcEffectSprite*, unsigned count, unsigned* submitted);
 #endif
+#if defined(RE4DC_PS2_FX_ADDITIONS) && RE4DC_PS2_FX_ADDITIONS
+// One resident-only atomic batch: src4/dst5 up to10, or src4/dst1 up to50.
+// Coordinates are private scratch and may be scaled even after a refusal.
+int re4dc_effect_stage1_batch(Re4dcEffectSprite*, unsigned count, unsigned dst, unsigned* submitted);
+#endif
 int re4dc_effect_line(const Re4dcEffectLine*);
 void re4dc_ui_glyph(const Re4dcUiGlyph*);
 void re4dc_ui_glyph_fonts_changed();
