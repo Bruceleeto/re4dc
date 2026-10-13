@@ -160,17 +160,31 @@ static int EspSpriteEligible(cEsp* esp)
 // steady-state size ratio: Size_base x (1 + Size_plus / (1 - D_size_plus)), PS2 / GC), the PS2 colour and
 // alpha with the PS2 fades (near: Work8 30 / 5 -> 3.0 m to 0.5 m; far: the last 30 % of the box) and the
 // GC's indoor fade counter. Expected sprites in view = live / every x (range_ps2 / range_gc)^3, the PS2 count.
+#ifndef RE4DC_PS2_FX_ROOMS
+#define RE4DC_PS2_FX_ROOMS 0
+#endif
 struct Ps2fxHaze {
     u16 room;
     u8 every;
     u8 r, g, b, a;
     f32 range;
     f32 scale;
+#if RE4DC_PS2_FX_ROOMS
+    // PS2_FX_ROOMS: the GC generator's box (R_pos.z) this row takes (0: any; r106 has two haze sets) and the PS2 near
+    // fade (Work8[0] / Work8[1] x 10 mm; 0: 3000 / 500, the r100 / r101 / r103 rows).
+    f32 gc_range;
+    f32 near_far, near_near;
+#endif
 };
 #if RE4DC_WATER45_NATIVE
-#define PS2FX_HAZE_ROOMS 4
+#define PS2FX_HAZE_ROOMS0 4
 #else
-#define PS2FX_HAZE_ROOMS 3
+#define PS2FX_HAZE_ROOMS0 3
+#endif
+#if RE4DC_PS2_FX_ROOMS
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
+#else
+#define PS2FX_HAZE_ROOMS PS2FX_HAZE_ROOMS0
 #endif
 static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r100: GC 60 x 1283.056 mm (+0.011), alpha 70, R 5090.2; PS2 11 x 2000 mm (+0.010), (235,235,210,34), R 5000
@@ -183,7 +197,34 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r10b (ROUTE_CH13 WATER45_NATIVE): GC 80 x 1731.403 mm, alpha 20, R 12093.6; PS2 30 x 2100 mm, (180,185,175,30), R 5000
     {0x10b, 1, 180, 185, 175, 30, 5000.0f, 2100.0f / 1731.403f},
 #endif
+#if RE4DC_PS2_FX_ROOMS
+    // PS2_FX_ROOMS (worldfx cache r106 / r10a .gc / .ps2 EFF json; steady size Size_base x (1 + Size_plus / 0.01)):
+    // r106 sst 0x01 (area 0): GC 30 x 2600 mm (+0.002), (255,255,245,30), R 6500.045, Work8 30/10/30/30;
+    //                         PS2 10 x 2000 mm (+0.010), (255,255,245,40), R 5000, Work8 30/5/30/30
+    {0x106, 1, 255, 255, 245, 40, 5000.0f, (2000.0f * 2.0f) / (2600.0f * 1.2f), 6500.045f, 3000.0f, 500.0f},
+    // r106 sst 0x03 (area 1): GC 30 x 2600 mm (+0.002), (255,253,245,25), R 6484.946, Work8 30/10/30/25;
+    //                         PS2 10 x 2000 mm (+0.010), (255,255,245,35), R 4000, Work8 20/10/30/25
+    {0x106, 1, 255, 255, 245, 35, 4000.0f, (2000.0f * 2.0f) / (2600.0f * 1.2f), 6484.946f, 2000.0f, 1000.0f},
+    // r10a sst 0x04: GC 41 x 1334.167 mm (+0.020), (250,250,235,20), R 6283.557, Work8 40/10/20/15;
+    //                PS2 10 x 1700 mm (+0.010), (255,255,238,20), R 4000, Work8 20/10/30/30
+    {0x10a, 1, 255, 255, 238, 20, 4000.0f, (1700.0f * 2.0f) / (1334.167f * 3.0f), 0.0f, 2000.0f, 1000.0f},
+#endif
 };
+#if RE4DC_PS2_FX_ROOMS
+// esp15.cpp's work (cEsp15::m_Free), read for the generator's box (PS2_FX_ROOMS) and the indoor fade counter.
+struct Ps2fxEsp15Work {
+    f32 Range;
+    f32 Del_ratio;
+    f32 Base_alpha;
+    f32 Min_y;
+    u8 Room_del_frame;
+    u8 Room_del_cnt;
+};
+class cPs2fxEsp15 : public cEsp {
+public:
+    Ps2fxEsp15Work m_Free;
+};
+#endif
 static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
 {
     if (!(re4dc_ps2fx & PS2FX_HAZE) || esp->m_Id != 0x15 || esp->info.owner != 0xD0) {
@@ -192,6 +233,14 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
     const u16 room = G_ROOM_ID;
     for (int i = 0; i < PS2FX_HAZE_ROOMS; ++i) {
         if (kPs2Haze[i].room == room) {
+#if RE4DC_PS2_FX_ROOMS
+            if (kPs2Haze[i].gc_range != 0.0f) {
+                const f32 dr = static_cast<cPs2fxEsp15*>(esp)->m_Free.Range - kPs2Haze[i].gc_range;
+                if (dr > 1.0f || dr < -1.0f) {
+                    continue;
+                }
+            }
+#endif
             return &kPs2Haze[i];
         }
     }
@@ -235,6 +284,7 @@ extern "C" unsigned re4dc_haze_key(void)
     return (pG->Frame_cnt - s_haze_key_frame) <= 2 ? s_haze_key : 0;
 }
 #endif
+#if !RE4DC_PS2_FX_ROOMS
 // esp15.cpp's work (cEsp15::m_Free), read for the indoor fade counter.
 struct Ps2fxEsp15Work {
     f32 Range;
@@ -248,6 +298,7 @@ class cPs2fxEsp15 : public cEsp {
 public:
     Ps2fxEsp15Work m_Free;
 };
+#endif
 #endif
 #if RE4DC_EFFECT_PS2_STREAK
 // EFFECT_PS2_STREAK: r100's house window streaks (sst 0x09, area 2: records 5, 8 and 13 are Esp0a type 0, which
@@ -265,6 +316,19 @@ static const Ps2fxStreak kPs2Streak[3] = {
     {0x1f, 200, 100, {-73739.398f, 4998.185f, -32454.699f}},   // record 8: the stairs window glare
     {0x32, 260, 100, {-82371.102f, 2484.679f, -29994.271f}},   // record 13: the back window
 };
+#if RE4DC_PS2_FX_ROOMS
+// PS2_FX_ROOMS: the other rooms' Esp0a type 0 window streaks the PS2 EFF removed (their static id-0 copies keep
+// the record's tex, additive blend and Del_far / Del_near x 10; no other id-0 record of the room has those dels).
+struct Ps2fxStreakCut {
+    u16 room;
+    u8 tex;
+    u16 del_far, del_near;
+};
+static const Ps2fxStreakCut kPs2StreakCut[2] = {
+    {0x106, 0x32, 120, 70},   // r106 sst 0x08 records 2/3, sst 0x09 records 2/3 (windows, alpha 6)
+    {0x106, 0x32, 100, 40},   // r106 sst 0x0b record 5 (alpha 4)
+};
+#endif
 #if RE4DC_EFFECT_PS2_STREAK >= 2
 struct Ps2fxShaft {
     Vec pos;
@@ -374,6 +438,18 @@ static int Ps2fxClass(cEsp* esp)
             }
         }
     }
+#if RE4DC_PS2_FX_ROOMS
+    if ((re4dc_ps2fx & PS2FX_STREAK) && esp->m_Id == 0 && esp->m_Life_max == 0 && esp->m_Blend_type == 1) {
+        const u16 room = G_ROOM_ID;
+        for (int i = 0; i < 2; ++i) {
+            const Ps2fxStreakCut* c = &kPs2StreakCut[i];
+            if (c->room == room && esp->m_Tex_id == c->tex && esp->m_Del_far == c->del_far &&
+                esp->m_Del_near == c->del_near) {
+                return 1;
+            }
+        }
+    }
+#endif
 #endif
     return 0;
 }
@@ -471,10 +547,19 @@ static void EspSpriteEmit(cEsp* esp)
         if (d > hz->range * 0.7f) {
             fa *= 1.0f - (d - hz->range * 0.7f) / (hz->range * 0.3f);
         }
+#if RE4DC_PS2_FX_ROOMS
+        const f32 nf = hz->near_far != 0.0f ? hz->near_far : 3000.0f;
+        const f32 nn = hz->near_far != 0.0f ? hz->near_near : 500.0f;
+        if (d < nf) {
+            const f32 rate = 1.0f - (nf - d) / (nf - nn);
+            fa *= rate > 0.0f ? rate : 0.0f;
+        }
+#else
         if (d < 3000.0f) {
             const f32 rate = 1.0f - (3000.0f - d) / 2500.0f;
             fa *= rate > 0.0f ? rate : 0.0f;
         }
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
         if (RE4DC_HZ(2) && Ps2fxEvery2(hz->room)) {
             fa *= 1.5f;   // M3: the sparse subset carries the drifting blotches

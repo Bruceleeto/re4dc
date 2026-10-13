@@ -107,6 +107,26 @@ endif
 #                    Rnd() and sprite motion are untouched (draw-time choices only).
 #   EFFECT_HAZE_LEAN_TOGGLE=1 (test builds; needs EFFECT_HAZE_LEAN=7 and LOOK_TOGGLE=1): the haze mode at run time,
 #                    X + D-pad up + START steps W (as off) -> M1 -> M2 -> M3 -> all; the name shows top left for 3 s.
+#   PS2_FX_ROOMS=1 (lane psfx 2026-10-13, user option A; needs EFFECT_PS2_HAZE=1 and EFFECT_PS2_STREAK>=1; render only,
+#                    default 0): the PS2 haze recipe and the PS2's removed window streaks in more route rooms, from
+#                    the PS2 rNNN.dat EFF (re4-ps2-table-survey-20261013 WORLD-FX.md). r106: both haze sets (GC 30 x
+#                    2.6 m, R 6.5 m, alpha 30 / 25 -> PS2 10 x 2.0 m, R 5.0 / 4.0 m, alpha 40 / 35; near fades 3.0 ->
+#                    0.5 m / 2.0 -> 1.0 m) and its five Esp0a window streak records (sst 0x08 / 0x09 / 0x0b: their
+#                    id-0 copies are not drawn). r10a: GC 41 x 1.33 m, R 6.3 m, alpha 20 -> PS2 10 x 1.7 m, R 4.0 m,
+#                    alpha 20 (near 2.0 -> 1.0 m). As EFFECT_PS2_HAZE: the generators, their Rnd() draws, the pool
+#                    and every sprite's motion run as before; only the draw changes.
+PS2_FX_ROOMS ?= 0
+ifneq ($(PS2_FX_ROOMS),0)
+ifneq ($(PS2_FX_ROOMS),1)
+$(error PS2_FX_ROOMS is 0 or 1)
+endif
+ifneq ($(EFFECT_PS2_HAZE),1)
+$(error PS2_FX_ROOMS needs EFFECT_PS2_HAZE=1)
+endif
+ifeq ($(filter 1 2,$(EFFECT_PS2_STREAK)),)
+$(error PS2_FX_ROOMS needs EFFECT_PS2_STREAK=1 or 2)
+endif
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -189,6 +209,9 @@ ifneq ($(EFFECT_HAZE_LEAN),0)
 endif
 ifneq ($(EFFECT_HAZE_LEAN_TOGGLE),0)
 	@printf '#define RE4DC_EFFECT_HAZE_LEAN_TOGGLE 1\n' >> $@.tmp
+endif
+ifneq ($(PS2_FX_ROOMS),0)
+	@printf '#define RE4DC_PS2_FX_ROOMS %s\n' '$(PS2_FX_ROOMS)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
