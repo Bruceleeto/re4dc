@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>] [--source-normal-length]
-  [--wide-identity]
+  [--wide-identity] [--ch23-facts]
 (D367 generic native models, 2026-10-03)
+
+--ch23-facts (default off): target ROUTE_CH23=1 allows 48 source material part
+facts per room package instead of 32. The complete closed/open merchant needs
+35 facts. All other package capacities and default output remain unchanged.
 
 --wide-identity (Phase 2 A5, 2026-10-11, default off: the output is byte-identical to before): the target image is
 the combined ACTOR_PL08 + NATIVE_MODEL_REGISTRY recipe, whose lifetime masks are wide (actor_material_records.inc
@@ -427,6 +431,9 @@ def main():
         i = args.index('--pack-bones'); PACK_BONES = int(args[i + 1]); del args[i:i + 2]
         if PACK_BONES not in (48, 64, 80, 96, 128):
             sys.exit('model_registry: --pack-bones takes 48, 64, 80, 96 or 128 (NATIVE_MODEL_REGISTRY_BONES)')
+    if '--ch23-facts' in args:
+        args.remove('--ch23-facts')
+        PACK_CAPACITY['fpart'] = 48  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')

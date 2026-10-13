@@ -11,7 +11,13 @@ constexpr unsigned kPackMaxBytes=192u*1024u;  // model_registry.py PACK_MAX_BYTE
 constexpr unsigned kPackHeader=64,kPackKinds=12,kPackPayload=kPackHeader+kPackKinds*16;
 enum PackKind : unsigned {kDesc,kRef,kGeom,kBlob,kTex,kParents,kBind,kFModel,kFPart,kFTex,kRole,kSBlob};
 constexpr unsigned kPackRecord[kPackKinds]={48,16,64,1,16,1,48,96,32,68,32,32};
+// CH23 merchant closed/open coat descriptors need 35 exact source material
+// facts. These facts stay in the validated room package; no added static arena.
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+constexpr unsigned kPackModels=8,kPackParts=48,kPackTexFacts=16;
+#else
 constexpr unsigned kPackModels=8,kPackParts=32,kPackTexFacts=16;
+#endif
 constexpr unsigned kPackCapacity[kPackKinds]={kRegDescriptors,kRegChunks,kRegGeometry,kPackMaxBytes,kRegTextures,
     kRegDescriptors*kRegBones,kRegDescriptors*kRegBones,kPackModels,kPackParts,kPackTexFacts,kRoomRoles,kRoomBlobs};
 static_assert(sizeof(re4dc_material::Part)==32 && offsetof(re4dc_material::Part,bytes)==16,"package part fact records");
