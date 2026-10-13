@@ -1765,7 +1765,13 @@ int greThrowCheck()
 // something else in front.
 int isTarget(cSubLuis* luis, cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    // GetWepTargetList2's priority argument is not a capacity: flag-0x20 hit boxes
+    // expand it up to 20. Keep the original priority/order, with room for every result.
+    WepTarget list[20];
+#else
     WepTarget list[2];
+#endif
     Vec hit;
     Vec nrm;
     u32 attr;
