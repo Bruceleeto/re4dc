@@ -696,6 +696,16 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
     return seen==(1u<<p->material_count)-1u;
 }
 #endif
+#if RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23
+// em18_R0_Init sets 0x20 only on its robe (source BIN0xE/TPL0xF).
+// This nominates the exact certified role; info() still requires white color,
+// no modifiers and exact visibility/pass bits, and source lighting checks it.
+extern "C" int re4dc_registry_merchant_robe(unsigned appearance,unsigned role,unsigned bin,unsigned tpl) {
+    const auto* desc=registry_descriptor(appearance);
+    return desc && desc->model_id==0x18u && desc->bones==61u && desc->sections==7u &&
+        role==1u && bin==0xEu && tpl==0xFu;
+}
+#endif
 extern "C" int re4dc_registry_model(const cModel* m,const Re4dcActorPlan* p) {
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
     return desc && m && m->id==desc->model_id && m->nParts==desc->bones && p->count==desc->sections && !m->ot_type;

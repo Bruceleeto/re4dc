@@ -236,6 +236,12 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     unsigned expected=1;
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==3)expected|=2;
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==7)expected|=0x40;
+#if RE4DC_NATIVE_MODEL_REGISTRY && (RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23)
+    // The source merchant explicitly gives this robe its own material color.
+    // Exact source-role ownership was proved before info(); all color/modifier
+    // checks immediately below and the transaction lighting check still apply.
+    if(re4dc_registry_merchant_robe(row.appearance,row.role,row.source_bin,row.source_tpl))expected|=0x20u;
+#endif
     if((i->be_flag&~8u)!=expected)return Error::PassGroup;
     if(i->invisible_factor!=1.0f || i->blend_mode || i->colorWord!=0xffffffffu ||
        i->color2[0] || i->color2[1] || i->color2[2] || i->color2[3] ||
