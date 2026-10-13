@@ -144,12 +144,14 @@ public:
         }
         return Membership::Unknown;
     }
-#if RE4DC_ACTOR_EARLY_COARSE
+#if RE4DC_ACTOR_EARLY_COARSE || RE4DC_ACTOR_SKIN_RESERVE
     bool planned_path(const FrameIdentity& now,const ModelIdentity& model,ModelPath& path)const {
         if(!valid(now) || (phase_!=Sealed && phase_!=Claimed && phase_!=Ready))return false;
         for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model){path=entries_[k].path;return true;}
         return false;
     }
+#endif
+#if RE4DC_ACTOR_EARLY_COARSE
     bool attach_coarse_ticket(const FrameIdentity& now,const ModelIdentity& model,const Re4dcActorEarlyTicket& ticket) {
         if(!valid(now) || phase_!=Building || !ticket.texture.slot || !ticket.texture.serial || !ticket.binding_revision)return false;
         for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model){

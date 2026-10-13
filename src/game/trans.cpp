@@ -721,23 +721,52 @@ ModelPath sourceActorPath(cModel* m) {
 #endif
 }
 #if RE4DC_ACTOR_SKIN_RESERVE
-// Storage priority after a sealed source plan, before its ordinary callbacks.
-// Read only the current player's main-info links; original preparation order,
-// visibility, morph work and native owner admission all remain downstream.
-static int sourceActorReservePlayer(const FrameIdentity& planned,const ModelIdentity& player) {
+#if RE4DC_NATIVE_MODEL_REGISTRY
+extern "C" int re4dc_registry_candidate(const cModel*);
+#endif
+// The same nomination predicate is used here and at the original OT callback.
+// This grants storage priority only; every later owner proof still applies.
+static bool sourceActorNativeOwner(cModel* m) {
+#if RE4DC_NATIVE_MODEL_REGISTRY
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
+        re4dc_registry_candidate(m))));
+#else
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && m->id>=0x10 && m->id<=0x20));
+#endif
+}
+// Collect all current source-plan native nominees before ordinary callbacks.
+// Each main-info chain remains bounded by the existing per-owner role limit;
+// shared source infos occupy one key in the existing 64-slot source table.
+static int sourceActorReserveNative(const FrameIdentity& planned,const ModelIdentity& player) {
     FrameIdentity now{};
     if(!sourceActorActive || !pPL || !sourceActorRam(pPL) ||
        !sourceActorIdentity(now) || !(now==planned) || !(sourceActorModel((cModel*)pPL)==player))return 0;
-    const void* infos[kRe4dcActorRoles];unsigned n=0;
-    for(cModelInfo* info=pPL->pModelInfo;info;info=info->pList) {
-        if(n==kRe4dcActorRoles)return 0;
+    const void* infos[kRe4dcActorSkinKeys];unsigned n=0,count=0;
+    bool player_seen=false;
+    for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
+        if(!sourceActorRam(u) || count>=EmMgr.nArray || count>=sourceActorCount ||
+           count>=re4dc_source::FrameLedger::MaxEntries)return 0;
+        ++count;
+        cModel* m=(cModel*)u;ModelPath path{};
+        if(!sourceActorLedger.planned_path(now,sourceActorModel(m),path))return 0;
+        player_seen|=m==(cModel*)pPL;
+        if(path!=ModelPath::Source || !sourceActorNativeOwner(m))continue;
+        const void* chain[kRe4dcActorRoles];unsigned roles=0;
+        for(cModelInfo* info=m->pModelInfo;info;info=info->pList) {
+            if(roles==kRe4dcActorRoles)return 0;
 #if defined(__sh__)
-        const auto a=reinterpret_cast<std::uintptr_t>(info);
-        if((a&3u) || a<RE4_MEM_LO || a>RE4_MEM_HI-sizeof(cModelInfo))return 0;
+            const auto a=reinterpret_cast<std::uintptr_t>(info);
+            if((a&3u) || a<RE4_MEM_LO || a>RE4_MEM_HI-sizeof(cModelInfo))return 0;
 #endif
-        for(unsigned i=0;i<n;++i)if(infos[i]==info)return 0;
-        infos[n++]=info;
+            for(unsigned i=0;i<roles;++i)if(chain[i]==info)return 0;
+            chain[roles++]=info;
+            bool seen=false;for(unsigned i=0;i<n;++i)seen|=infos[i]==info;
+            if(!seen){if(n==kRe4dcActorSkinKeys)return 0;infos[n++]=info;}
+        }
+        if(!roles)return 0;
     }
+    if(count!=sourceActorCount || !player_seen || !sourceActorIdentity(now) || !(now==planned) ||
+       !(sourceActorModel((cModel*)pPL)==player))return 0;
     return n && re4dc_actor_skin_reserve(planned.frame,infos,n);
 }
 #endif
@@ -794,7 +823,7 @@ int sourceActorPlan() {
     sourceActorCount=count;sourceActorActive=true;
 #if RE4DC_ACTOR_SKIN_RESERVE
     // Failure leaves the complete original source path available.
-    sourceActorReservePlayer(now,reserved_player);
+    sourceActorReserveNative(now,reserved_player);
 #endif
     return 1;
 }
