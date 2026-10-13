@@ -96,6 +96,47 @@ static void r11f_ps2AreaInit();
 static void r11f_ps2Area9();
 #endif
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH23
+// PS2 s00 camera cuts: 0x10 starts at picture 1295 (125 pictures), then 0x11
+// lasts 45. The actual s00c cancel clip is those 170 pictures. Keep the source
+// callback's random chord and its cut-0x11/frame-20 prompt; only the movie's
+// relative frame is translated here. No shared transport or gameplay state changes.
+#include "route_movie.h"
+#define R11F_ROUTE_MOVIES 1
+#define R11F_MOVIES_OWN() (re4dc_movie_available(0x11f00) && \
+    re4dc_movie_available(0x11f00 | RE4DC_MOVIE_CANCEL_CLIP) && \
+    re4dc_movie_available(0x11f01) && re4dc_movie_available(0x11f02))
+static void r11fMovieS00Func(Event* e)
+{
+    if (e->funcMode == 3) {
+        // Source mode 3 restarts the skipped cut's event stream. The real s00c
+        // movie supplies that same sound; there is no live EVD stream to restart.
+        return;
+    }
+    if (e->funcMode == 1) {
+        const unsigned frame = e->NowFrame;
+        e->NowCut = frame < 125 ? 0x10 : 0x11;
+        e->NowFrame = frame < 125 ? frame : frame - 125;
+    }
+    Evt_R11FS00_Func(e);
+}
+static void r11fMovieS02Tick(unsigned picture)
+{
+    if (picture == 585) {
+        // PS2 cut 0xB/frame 0: persistent room fire reset, beyond movie presentation.
+        alignas(8) static u8 storage[sizeof(Event)] = {};
+        Event* e = (Event*) storage;
+        e->funcMode = 1;
+        e->NowCut = 0xB;
+        e->NowFrame = 0;
+        Evt_R11FS02_Func(e);
+    }
+}
+#else
+#define R11F_ROUTE_MOVIES 0
+#define R11F_MOVIES_OWN() 0
+#endif
+
 // Room init (the chief's barn, Mendez): before the meeting (Room_flg bit 0) pre-load evd r11fs00,
 // area 0x18 = the s00 event, the five event callbacks, the intact doors shown, Ashley initialised as the
 // following partner (Status_flg[3] 0x04000000), area 8 off; afterwards the broken doors (DoorReplace)
@@ -109,6 +150,10 @@ void R11fInit()
 #line 64 "D:/Bio4/Prog/r11f.cpp"
     r11f_work = (R11fWork*) MEM_CALLOC(sizeof(R11fWork), 1, 0xD);
     if (RsfCheck(G_ROOM_ID, 0) == 0) {
+#if R11F_ROUTE_MOVIES
+        if (!R11F_MOVIES_OWN())
+#endif
+#line 66
         EvtMgr.EvtReadAram("event/evd/r11fs00.evd", 0, 0, 0, 0);
         SceAtDataSet_exec(0x18, SCE_LEVEL10, 0, r11f_EventS00, 0, 1);
         EvtMgr.SetFunc("evt_r11fs00_func", (void*) Evt_R11FS00_Func);
@@ -252,11 +297,32 @@ static void r11f_EventS00()
     SndRoomBgmVolSet(1, 1, 600);
     SceEventStart(0);
     SubCharCtrl(SCC_KILL, 0);
+#if R11F_ROUTE_MOVIES
+    const int movie = R11F_MOVIES_OWN();
+    if (movie) {
+        RouteMoviePlayQte(0x11f00, ROUTE_MOVIE_SND_EVENT, r11fMovieS00Func, 0x10, 1295, 170);
+    } else
+#endif
+#line 209
     EvtMgr.EvtReadExec("event/evd/r11fs00.evd", 0, 0);
     r11f_DoorReplace();
     if (!(pG->Room_flg[0] & 0x80000000)) {
+#if R11F_ROUTE_MOVIES
+        if (movie) {
+            // Source flags 2: the failed dodge is a died-demo event, as in r104/r10b.
+            RouteMoviePlay(0x11f01, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11FS01_Func, 0);
+            DiedemoExec(0, 1);
+        } else
+#endif
+#line 212
         EvtMgr.EvtReadExec("event/evd/r11fs01.evd", 0, 2);
     } else {
+#if R11F_ROUTE_MOVIES
+        if (movie) {
+            RouteMoviePlay(0x11f02, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11FS02_Func, r11fMovieS02Tick);
+        } else
+#endif
+#line 214
         EvtMgr.EvtReadExec("event/evd/r11fs02.evd", 0, 0);
         if (r11f_work->em0.setEm(0xF8, -1, 1, 1, 1)) {
             Cckpt.m_LifeMeter.flags = (u32) r11f_work->em0.getPtr();
