@@ -1540,6 +1540,7 @@ include demo_candidate.mk
 include post30.mk
 # D367 lane crowd (CROWD_CULL, CROWD_CENSUS, CROWD_DRAW_MAX / _M; default off: no effect).
 include crowd.mk
+include actor_ganado_ps2_stump.mk
 # D367 generic native models (NATIVE_MODEL_REGISTRY; default off: no effect).
 include native_model_registry.mk
 # D367 charbake (CHARBAKE_HAIR, CHARBAKE_TOGGLE; default off: no effect).
