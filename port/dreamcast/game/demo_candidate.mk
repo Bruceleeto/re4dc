@@ -124,3 +124,16 @@ $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_SKIN_RESERVE=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_SKIN_RESERVE=1
 $(OBJDIR)/platform/native_actor_fast.o: platform/include/native_actor_skin_reserve.inc
 endif
+
+# Exact existing source-selected appearance-zero grip roles; candidate, default off.
+ACTOR_GANADO_APP0_GRIP ?= 0
+ifeq ($(filter $(ACTOR_GANADO_APP0_GRIP),0 1),)
+$(error ACTOR_GANADO_APP0_GRIP must be 0 or 1)
+endif
+ifeq ($(ACTOR_GANADO_APP0_GRIP),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_GANADO_APP0_GRIP requires ACTOR_TRANSACTION=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_APP0_GRIP=1
+$(OBJDIR)/coarse_actor.o: actor_material_records_app0_grip.inc
+endif
