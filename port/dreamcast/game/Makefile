@@ -176,7 +176,7 @@ $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
 $(OBJDIR)/src/game/snd.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/pl14/src/pl14/pl14.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
 ROUTE_CH22_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r111.o $(OBJDIR)/mod/st1_3/src/st1/r112.o \
     $(OBJDIR)/mod/st1_3/src/st1/r113.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o
-$(ROUTE_CH22_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+$(ROUTE_CH22_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
 ifeq ($(PS2_ENEMY_RULES),1)
 ifeq ($(wildcard $(PS2_ENEMY_CH22_DIR)/ps2_enemy_ch22_data.inc),)
 $(error ROUTE_CH22 with PS2_ENEMY_RULES needs qualified PS2_ENEMY_CH22_DIR/ps2_enemy_ch22_data.inc)
