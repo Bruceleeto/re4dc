@@ -142,6 +142,9 @@ extern "C" void re4dc_model_unbind_draw_owner(const void*){}
 extern "C" void re4dc_prepare_model_assets(){}
 extern "C" void re4dc_model_retire_draw_plans(){}
 extern "C" void re4dc_model_preparation_owner(void*){}
+extern "C" void re4dc_actor_archive_adopt(const void*,void*,unsigned,unsigned){}
+extern "C" void re4dc_actor_archive_retire(const void*){}
+extern "C" void re4dc_actor_archive_retire_transient(){}
 unsigned allocs=0,last_alloc=0,raw_bytes=0,raw_calls=0,linear_calls=0;int ta=0,render=0,render_calls=0;
 void* pvr_mem_malloc(std::size_t n){++allocs;last_alloc=n;return malloc((n+31)&~std::size_t(31));}
 void pvr_mem_free(void* p){assert(allocs);--allocs;free(p);}
@@ -347,7 +350,24 @@ render=0;assert(re4dc::gpu::quiesce()==FenceResult::ready);
         first=source.index("#if RE4DC_TEX_RESIDENT\n// Least-recently-REQUESTED")
         loader=source[first:source.index("\n}\n#if RE4DC_PVR_PIPELINE\n// Called by room/texture_package.cpp",source.index("Entry* load(",first))+1]
         # The room-entry preload (identity tables, timer) is not part of this fixture.
-        loader=re.sub(r"#if RE4DC_TEX_RESIDENT\n// Room-entry preload.*?\n#endif\n","",loader,flags=re.S)
+        # This section contains nested conditionals; stop at its matching endif.
+        start=loader.index("#if RE4DC_TEX_RESIDENT\n// Room-entry preload")
+        depth=0;end=start
+        for line in loader[start:].splitlines(keepends=True):
+            if re.match(r"\s*#if(?:\s|def|ndef)",line):depth+=1
+            elif re.match(r"\s*#endif\b",line):depth-=1
+            end+=len(line)
+            if depth==0:break
+        assert depth==0
+        loader=loader[:start]+loader[end:]
+        # Preserve the runtime's ordinary pin predicate in this isolated loader.
+        pin_start=source.index("#if RE4DC_ACTOR_TRANSACTION\nre4dc_actor::TextureLeases")
+        pin_end=source.index("#endif",pin_start)+len("#endif")
+        loader=source[pin_start:pin_end]+"\n"+loader
+        # The SH-4-only ABI assertion includes four 32-bit pointers; the host
+        # fixture exercises behavior using its native 64-bit pointers instead.
+        loader=loader.replace("static_assert(sizeof(Handle)==32 && kTextureCount<65536);",
+                              "static_assert(kTextureCount<65536);")
         commit=source[source.index('extern "C" void re4dc_model_packet_commit('):source.index('extern "C" void re4dc_model_result(')]
         fixture=r"""
 #include "native_ui.h"
@@ -358,6 +378,7 @@ render=0;assert(re4dc::gpu::quiesce()==FenceResult::ready);
 #include <cstring>
 #include <algorithm>
 #define re4dc_log(...) ((void)0)
+#define RE4DC_FX_EVICTED() ((void)0)
 unsigned uploads=0,closes=0,alloc_fails=0;bool upload_fails=false;const char* upload_error="fixture";
 namespace re4dc::texture {
 constexpr unsigned kPayloadVq=1;
@@ -376,7 +397,8 @@ unsigned pvr_format(const Texture&){return 0;}
 }
 struct Key{unsigned crc=0,fnv=0;bool operator==(const Key& b)const{return crc==b.crc&&fnv==b.fnv;}};
 struct Entry{re4dc::texture::Package package;Key key;unsigned frame=0;bool valid=false;};
-Entry entries[2],*model_handle=nullptr;unsigned frame=5,used=0,peak=0,loads=0;
+constexpr unsigned kTextureCount=2;
+Entry entries[kTextureCount],*model_handle=nullptr;unsigned frame=5,used=0,peak=0,loads=0;
 unsigned model_used=0,model_pending=1,model_peak=0;
 constexpr unsigned kVramBudget=128;
 unsigned vram_budget=1000,vram_retries=0,vram_rejects=0,reclaimed=0,keys=0;

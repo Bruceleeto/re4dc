@@ -22,6 +22,10 @@ extern "C" void re4dc_pvr_vram_fence();
 #define RE4DC_TREE_IMPOSTOR 0
 #endif
 
+#ifndef RE4DC_TEX_PAL4_ALPHA
+#define RE4DC_TEX_PAL4_ALPHA 0
+#endif
+
 namespace re4dc::texture {
 namespace {
 inline void vram_fence() {
@@ -381,7 +385,18 @@ bool Package::validate() {
 #else
 #define RE4DC_VQ_INDICES (pixels / 4U)
 #endif
-#if RE4DC_TREE_IMPOSTOR
+#if RE4DC_TEX_PAL4_ALPHA
+        const bool pal4_alpha = texture.format == kPal4Argb4444 &&
+            texture.payload == kPayloadTwiddled && !(texture.flags & kMipmap);
+        const bool pal4_vq = RE4DC_TREE_IMPOSTOR && texture.format == kPal4 &&
+            texture.payload == kPayloadVq && !(texture.flags & kMipmap);
+        const std::uint64_t expected = pal4_alpha ? pixels / 2U + 32U :
+            pal4_vq ? 2048U + pixels / 16U + 32U :
+            texture.payload == kPayloadVq ? 2048U + RE4DC_VQ_INDICES : pixels * 2U;
+        if(!dimensions || texture.payload > kPayloadVq || texture.reserved_0 != 0 ||
+           texture.data_size != expected ||
+           (texture.format > kArgb4444 && !pal4_alpha && !pal4_vq) ||
+#elif RE4DC_TREE_IMPOSTOR
         // kPal4: 256 8-byte codebook entries of 4x4 texels, one index byte
         // per 4x4 block, then the 16-entry palette.
         const bool pal4 = texture.format == kPal4 && texture.payload == kPayloadVq;
@@ -409,7 +424,72 @@ bool Package::validate() {
     return true;
 }
 
-#if RE4DC_TREE_IMPOSTOR
+#if RE4DC_TEX_PAL4_ALPHA
+namespace {
+bool palettes_initialized;
+std::uint64_t palette_reserved, palette_banks;
+bool uses_palette(const Texture& texture) {
+    return texture.format == kPal4Argb4444 ||
+        (RE4DC_TREE_IMPOSTOR && texture.format == kPal4);
+}
+// Check the whole transaction before allocating VRAM or writing palette RAM.
+// Aliased descriptors deliberately own separate banks, as in the legacy path.
+bool palettes_available(const Package& package) {
+    unsigned needed = 0, available = 0;
+    for(std::uint32_t i = 0; i < package.header().texture_count; ++i)
+        if(uses_palette(package.textures()[i])) ++needed;
+    if(!needed) return true;
+    if(!palettes_initialized) return false;
+    for(unsigned bank = 0; bank < 64U; ++bank)
+        if(!(palette_banks & (std::uint64_t(1) << bank))) ++available;
+    return needed <= available;
+}
+std::uint32_t palette_argb8888(std::uint16_t value, bool alpha4) {
+    if(alpha4) return ((value >> 12U) * 17U << 24U) |
+        (((value >> 8U) & 15U) * 17U << 16U) |
+        (((value >> 4U) & 15U) * 17U << 8U) | ((value & 15U) * 17U);
+    const unsigned r = (value >> 10U) & 31U;
+    const unsigned g = (value >> 5U) & 31U, b = value & 31U;
+    return (value & 0x8000U ? 0xff000000U : 0U) |
+        (((r << 3U) | (r >> 2U)) << 16U) |
+        (((g << 3U) | (g >> 2U)) << 8U) | (b << 3U) | (b >> 2U);
+}
+bool bind_palettes(Package& package) {
+    // upload() fenced before any writes; repeat capacity validation before
+    // committing so exhaustion never leaves a partial bank reservation.
+    if(!palettes_available(package)) return false;
+    for(std::uint32_t i = 0; i < package.header().texture_count; ++i) {
+        auto& texture = const_cast<Texture&>(package.textures()[i]);
+        if(!uses_palette(texture)) continue;
+        unsigned bank = 0;
+        while(palette_banks & (std::uint64_t(1) << bank)) ++bank;
+        palette_banks |= std::uint64_t(1) << bank;
+        texture.reserved_0 = bank + 1U;
+        const auto* entries = reinterpret_cast<const volatile std::uint16_t*>(
+            static_cast<const std::uint8_t*>(package.pvr_texture(i)) + texture.data_size - 32U);
+        for(unsigned k = 0; k < 16U; ++k)
+            pvr_set_pal_entry(bank * 16U + k,
+                palette_argb8888(entries[k], texture.format == kPal4Argb4444));
+    }
+    return true;
+}
+void release_palettes(const Package& package) {
+    for(std::uint32_t i = 0; i < package.header().texture_count; ++i) {
+        auto& texture = const_cast<Texture&>(package.textures()[i]);
+        if(!uses_palette(texture) || !texture.reserved_0) continue;
+        palette_banks &= ~(std::uint64_t(1) << (texture.reserved_0 - 1U));
+        texture.reserved_0 = 0;
+    }
+}
+} // namespace
+bool initialize_palettes(std::uint64_t reserved_banks) {
+    if(palettes_initialized) return reserved_banks == palette_reserved;
+    palette_reserved = palette_banks = reserved_banks;
+    pvr_set_pal_format(PVR_PAL_ARGB8888);
+    palettes_initialized = true;
+    return true;
+}
+#elif RE4DC_TREE_IMPOSTOR
 namespace {
 // Game TREE_IMPOSTOR=1: each uploaded kPal4 texture owns one of the 64
 // 16-entry banks of PVR palette RAM (ARGB1555, the only palette user), and
@@ -445,6 +525,10 @@ void release_palettes(const Package& package) {
 #endif
 
 std::uint32_t pvr_format(const Texture& texture) {
+#if RE4DC_TEX_PAL4_ALPHA
+    if(texture.format == kPal4Argb4444)
+        return PVR_TXRFMT_PAL4BPP | PVR_TXRFMT_4BPP_PAL(texture.reserved_0 - 1U) | PVR_TXRFMT_TWIDDLED;
+#endif
 #if RE4DC_TREE_IMPOSTOR
     if(texture.format == kPal4) // reserved_0: palette bank + 1 (bind_palettes)
         return PVR_TXRFMT_PAL4BPP | PVR_TXRFMT_4BPP_PAL(texture.reserved_0 - 1U) | PVR_TXRFMT_VQ_ENABLE;
@@ -477,6 +561,12 @@ bool Package::upload() {
         error_ = "previous upload did not complete; close and load again";
         return false;
     }
+#if RE4DC_TEX_PAL4_ALPHA
+    if(!palettes_available(*this)) {
+        error_ = "PVR palette manager uninitialized or banks exhausted";
+        return false;
+    }
+#endif
     vram_fence();
 #if RE4DC_UI_VRAM
     pvr_textures_ = static_cast<pvr_ptr_t*>(std::calloc(2U * header_->texture_count, sizeof(pvr_ptr_t)));
@@ -557,7 +647,7 @@ bool Package::upload() {
         }
         vram_bytes_ += texture.data_size;
     }
-#if RE4DC_TREE_IMPOSTOR
+#if RE4DC_TREE_IMPOSTOR || RE4DC_TEX_PAL4_ALPHA
     if(!bind_palettes(*this)) {
         error_ = "PVR palette banks exhausted";
         return false;
@@ -628,12 +718,17 @@ bool Package::release_payload() {
 }
 
 void Package::close() {
-#if RE4DC_TREE_IMPOSTOR
+#if RE4DC_TREE_IMPOSTOR && !RE4DC_TEX_PAL4_ALPHA
     // Before the fence: the next kPal4 upload fences before it rewrites a bank.
     if(header_ != nullptr) release_palettes(*this);
 #endif
     if(pvr_textures_ != nullptr) {
         vram_fence();
+#if RE4DC_TEX_PAL4_ALPHA
+        // Only a completed upload owns banks. Malformed descriptors and
+        // failed uploads cannot release another package's reservation.
+        if(header_ != nullptr && upload_complete_) release_palettes(*this);
+#endif
         if(header_ != nullptr) {
             for(std::uint32_t index = 0; index < header_->texture_count; ++index) {
                 // Borrowed pointers are aliases of an owner's allocation;

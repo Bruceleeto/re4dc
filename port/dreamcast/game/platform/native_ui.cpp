@@ -3419,7 +3419,9 @@ void glyph_init(){
     if(!glyph_atlas){re4dc_log("native mes: glyph atlas allocation FAILED (free=%u); message text off\n",before);return;}
     alignas(32) static const unsigned char zero[512]={};
     for(unsigned n=0;n<kGlyphAtlasBytes;n+=sizeof(zero))pvr_txr_load(zero,(char*)glyph_atlas+n,sizeof(zero));
+#if !RE4DC_TEX_PAL4_ALPHA
     pvr_set_pal_format(PVR_PAL_ARGB8888);
+#endif
     re4dc_log("native mes: glyph atlas 256x%u PAL4 at %p, %u B (pool %u -> %u before the UI budget), %u cells, %u glyphs/frame\n",
         kGlyphAtlasH,glyph_atlas,kGlyphAtlasBytes,before,(unsigned)pvr_mem_available(),kGlyphCells,kGlyphCapacity);
 }
@@ -3708,6 +3710,11 @@ extern "C" void re4dc_ui_init(){
 #if RE4DC_TA_GUARD || RE4DC_PERF_HUD || RE4DC_TA_VERTBUF_KB!=1024 || RE4DC_TA_DOUBLEBUF || RE4DC_TA_OPB_BINS!=16 || RE4DC_TA_OPB_OVERFLOW!=3
         re4dc_log("native VRAM layout: vertbuf=%u KiB x%u banks (%s) opb_bins=%u overflow=%u texture_pool_free=%u\n",
             unsigned(RE4DC_TA_VERTEX_BYTES/1024U),2U,RE4DC_TA_DOUBLEBUF?"double-buffered":"single-bank use",unsigned(RE4DC_TA_OPB_BINS),unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM),(unsigned)pvr_mem_available());
+#endif
+#if RE4DC_TEX_PAL4_ALPHA
+        // One global format and bank owner for message glyphs and packages.
+        if(!re4dc::texture::initialize_palettes(RE4DC_NATIVE_MES ? 0xffU : 0U))
+            re4dc_missing("native palette configuration changed");
 #endif
 #if RE4DC_NATIVE_MES
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
