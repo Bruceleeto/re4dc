@@ -54,6 +54,9 @@ namespace { void* plm_alloc(size_t n); }
 extern "C" int re4dc_movie_stream_initialized();
 extern "C" unsigned re4dc_movie_stream_active();
 extern "C" unsigned re4dc_movie_stream_staged;
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+extern "C" void re4dc_leon_hands_yield();  // coarse_actor_leon_hands.inc
+#endif
 extern "C" void re4dc_pad_consume_movie_skip(unsigned);
 // Fixture state reports are optional: the pad-script fixture defines this
 // (uncommitted pad.cpp work); without it the movie reports nothing.
@@ -433,6 +436,9 @@ bool open(unsigned id){
 #else
     if(m.owns_service)if(void* room=stage_alloc(Ring+32))re4dc_ui_stage_free(room);
 #endif
+#endif
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+    re4dc_leon_hands_yield();  // the stream takes the whole AICA movie reserve: Leon's hand cache refills after the movie
 #endif
     if(snd_stream_init_ex(2,Ring)<0)return false;
     m.stream=snd_stream_alloc(audio,Ring);if(m.stream<0)return false;

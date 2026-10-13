@@ -105,6 +105,36 @@ $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_HAND_TABLE=1 -I$(LEON_HA
 $(OBJDIR)/coarse_actor.o: $(LEON_HAND_DIR)/ps2leon_hands.h
 endif
 endif
+# LEON_HAND_PACK=1 (issue #26 follow-up, 2026-10-13; default 0: no effect; render only; needs LEON_HAND_POSES=1, PS2_LEON=1,
+#              ACTOR_PL08=1, no LEON_HAND_DIR): the hands with no image growth. Every hand pose of the outfit, the
+#              standard hands included, is the disc package dc/native/pl00/leon_hands_pl00.re4hp (tools/d367/ps2leon/
+#              hands_pack.py pack; pl08's hands are byte-identical to pl00's); the image keeps two fixed draw slots
+#              (6,144 + 6,400 B) instead of the standard hands' arrays (hands_pack.py derive builds the arm header
+#              without them) and a 1.6 KB directory. A 4-cell cache in AICA RAM (25,088 B: per side the home pose, pl00
+#              arc 0x12 / 0x14, and the last other pose) makes real-time swaps a G2 copy; prefetch at room load and at
+#              each weapon equip (ReadWepData); other poses are read from the disc when first drawn. The cells are
+#              freed at movie open (the stream takes the whole 64 KiB movie reserve) and before a runtime sound bank
+#              conversion, and refilled on the next Leon draw (coarse_actor_leon_hands.inc).
+LEON_HAND_PACK ?= 0
+ifeq ($(filter $(LEON_HAND_PACK),0 1),)
+$(error LEON_HAND_PACK must be 0 or 1)
+endif
+ifeq ($(LEON_HAND_PACK),1)
+ifneq ($(LEON_HAND_POSES)$(PS2_LEON)$(ACTOR_PL08),111)
+$(error LEON_HAND_PACK needs LEON_HAND_POSES=1 PS2_LEON=1 ACTOR_PL08=1)
+endif
+ifneq ($(LEON_HAND_DIR),)
+$(error LEON_HAND_PACK replaces LEON_HAND_DIR: unset LEON_HAND_DIR)
+endif
+LEON_HAND_PACK_HDR := $(OBJDIR)/leon_hands/ps2leon_runtime_handpack.h
+$(LEON_HAND_PACK_HDR): $(PS2_LEON_DIR)/ps2leon_runtime.h ../tools/d367/ps2leon/hands_pack.py
+	@mkdir -p $(dir $@)
+	python3 ../tools/d367/ps2leon/hands_pack.py derive $< $@
+$(OBJDIR)/coarse_actor.o: $(LEON_HAND_PACK_HDR)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_HAND_PACK=1 -I$(OBJDIR)/leon_hands
+$(OBJDIR)/src/game/read.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_LEON_HAND_PACK=1
+$(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_HAND_PACK=1
+endif
 ifeq ($(filter $(ACTOR_PL08),0 1),)
 $(error ACTOR_PL08 must be 0 or 1)
 endif

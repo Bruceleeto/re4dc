@@ -23,6 +23,13 @@ import ps2_bin as pb  # noqa: E402
 
 RIGHT, LEFT = {9, 10}, {15, 16}
 HAND_BONES = RIGHT | LEFT | {0, 1, 100}
+# Ada's weapon modules (src/wep30..wep40: Ada's hand grenade, handgun, TMP, rifle): their hand BINs bind texture 6 of
+# Ada's arc-5 TPL (pl0b), which Leon's hand TPL (player arc 0x11, 2 images) does not have; Leon never shows them.
+# Listed with ada_only=True; build_hands.py / hands_pack.py leave them out (no PS2 pose: the standard hand).
+ADA_ONLY = {'wep30', 'wep38', 'wep39', 'wep40'}
+# Room archives whose BINs the room script hands to setRightHand / setLeftHand as a model pointer:
+# r10f arc 0x22 (src/st1/r10f.cpp: pl->setRightHand(ROOM_ARC_PTR(pG->pRoom, 0x22))).
+ROOM_HANDS = [('St1/r10f.das', 'r10f', 0x22)]
 
 
 def word(b, o):
@@ -95,8 +102,27 @@ def main():
                 continue
             p = ps2.get(arc - 4) if ps2 else None
             out.append(dict(file=n, arc=arc, side=s, key=key, gc_sha256=hashlib.sha256(d).hexdigest(), gc_bytes=len(d),
-                            ps2=bool(p and p[0] == 'BIN'), ps2_bytes=len(p[1]) if p else 0))
-            print(n, hex(arc), s, key, 'ps2' if out[-1]['ps2'] else '-')
+                            ps2=bool(p and p[0] == 'BIN'), ps2_bytes=len(p[1]) if p else 0, ada_only=n in ADA_ONLY))
+            print(n, hex(arc), s, key, 'ps2' if out[-1]['ps2'] else '-', 'ada-only' if n in ADA_ONLY else '')
+    for path, n, arc in ROOM_HANDS:
+        # The room's tagged archive (room_smd.decode_das: needs the WSL PowerPC decoder); RE4_ROOM_ARC_DIR=<dir> with
+        # <room>.arc.bin (decoded once in WSL) for the Windows host Python.
+        import os
+        import room_smd as rs
+        pre = os.environ.get('RE4_ROOM_ARC_DIR')
+        a = (Path(pre) / ('%s.arc.bin' % n)).read_bytes() if pre else rs.decode_das(iso.read(path))
+        ents = rs.tagged_entries(a, rs.archive_endian(a))
+        tag, s0, s1 = ents[arc - 4]
+        assert tag == b'BIN\0', (path, arc, tag)
+        d = a[s0:s1]
+        key, bones = gc_key(d)
+        s = side(bones)
+        assert s, (path, arc, sorted(bones))
+        ps2 = {i: (t, b) for i, t, b in pb.dat_entries(pb.afs_read(ls.PS2_ISO, '%s.dat' % n))}
+        p = ps2.get(arc - 4)
+        out.append(dict(file=n, arc=arc, side=s, key=key, gc_sha256=hashlib.sha256(d).hexdigest(), gc_bytes=len(d),
+                        ps2=bool(p and p[0] == 'BIN'), ps2_bytes=len(p[1]) if p else 0, ada_only=False, room=True))
+        print(n, hex(arc), s, key, 'ps2' if out[-1]['ps2'] else '-', 'room')
     Path(sys.argv[1]).write_text(json.dumps(out, indent=1))
 
 

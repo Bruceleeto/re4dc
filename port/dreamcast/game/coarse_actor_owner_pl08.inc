@@ -13,7 +13,7 @@ const leon4k::Chunk* const pl08_chunk[9]={&pl08_pack_chunks[0],&pl08_pack_chunks
 const leon4k::Chunk* const pl08_chunk[9]={&leon_pl08::chunks[0],&leon_pl08::chunks[1],&leon4k::chunks[2],&leon4k::chunks[3],
     &leon4k::chunks[4],&leon4k::chunks[5],&leon4k::chunks[6],&leon4k::chunks[7],&leon_pl08::chunks[2]};
 #endif
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
 // LEON_HAND_DIR: the pl08 plan's role chunks with roles 5 / 6 following the hand poses, and their skin key.
 const leon4k::Chunk* pl08_cur[9]={pl08_chunk[0],pl08_chunk[1],pl08_chunk[2],pl08_chunk[3],pl08_chunk[4],pl08_chunk[5],
     pl08_chunk[6],pl08_chunk[7],pl08_chunk[8]};
@@ -86,15 +86,16 @@ extern "C" int re4dc_actor_plan_pl08(cModel* m,Re4dcActorPlan* out) {
 #define RE4DC_PL08_OWN(role,prefix,k) re4dc_actor::plan_chunk(p,role,pl08_infos[role],leon_pl08::chunks[k],RE4DC_OWNER_INPUT(leon_pl08,prefix,leon_pl08::chunks[k],119))
 #endif
 #define RE4DC_PL08_SHARED(role,prefix) re4dc_actor::plan_chunk(p,role,pl08_infos[role],leon4k::chunks[role],RE4DC_OWNER_INPUT(leon4k,prefix,leon4k::chunks[role],119))
-#if RE4DC_LEON_HAND_TABLE
-    const LeonHandPick hand5=leon_hand_pick(5,pl08_infos[5],leon4k::chunks[5],RE4DC_OWNER_INPUT(leon4k,i5,leon4k::chunks[5],119));
-    const LeonHandPick hand6=leon_hand_pick(6,pl08_infos[6],leon4k::chunks[6],RE4DC_OWNER_INPUT(leon4k,i6,leon4k::chunks[6],119));
+#if RE4DC_LEON_HAND_ANY
+    const LeonHandPick hand5=leon_hand_pick(5,pl08_infos[5],leon4k::chunks[5],RE4DC_LEON_STD_INPUT(5));
+    const LeonHandPick hand6=leon_hand_pick(6,pl08_infos[6],leon4k::chunks[6],RE4DC_LEON_STD_INPUT(6));
+    if(!hand5.chunk || !hand6.chunk)return 0;
     RE4DC_PL08_OWN(0,r0,0);RE4DC_PL08_OWN(1,r1,1);RE4DC_PL08_SHARED(2,i2);RE4DC_PL08_SHARED(3,i3);RE4DC_PL08_SHARED(4,i4);
     re4dc_actor::plan_chunk(p,5,pl08_infos[5],*hand5.chunk,hand5.input);re4dc_actor::plan_chunk(p,6,pl08_infos[6],*hand6.chunk,hand6.input);
     RE4DC_PL08_SHARED(7,i7);RE4DC_PL08_OWN(8,r8,2);
     pl08_cur[5]=hand5.chunk;pl08_cur[6]=hand6.chunk;pl08_cur_key=leon_hand_key(1,hand5.pose,hand6.pose);
     const unsigned hand_palette=leon_r32(hand5.chunk->palette_count*48u)+leon_r32(hand6.chunk->palette_count*48u)
-        -leon_r32(leon4k::chunks[5].palette_count*48u)-leon_r32(leon4k::chunks[6].palette_count*48u);
+        -leon_r32(RE4DC_LEON_STD_PAL(5)*48u)-leon_r32(RE4DC_LEON_STD_PAL(6)*48u);
 #else
     RE4DC_PL08_OWN(0,r0,0);RE4DC_PL08_OWN(1,r1,1);RE4DC_PL08_SHARED(2,i2);RE4DC_PL08_SHARED(3,i3);RE4DC_PL08_SHARED(4,i4);
     RE4DC_PL08_SHARED(5,i5);RE4DC_PL08_SHARED(6,i6);RE4DC_PL08_SHARED(7,i7);RE4DC_PL08_OWN(8,r8,2);
@@ -104,7 +105,7 @@ extern "C" int re4dc_actor_plan_pl08(cModel* m,Re4dcActorPlan* out) {
     // Palette/workspace bytes of the nine role chunks (palettes 214,2,1,61,29,2,2,229,3).
 #if RE4DC_PS2_LEON
     // PS2_LEON: roles 2..7 are the arm's (pl08's own 0, 1, 8 unchanged); totals precomputed in ps2leon_runtime.h.
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
     if(p.palette_bytes!=leon4k::pl08_plan_palette_bytes+hand_palette || p.workspace_bytes!=leon4k::pl08_plan_workspace_bytes)return 0;
 #else
     if(p.palette_bytes!=leon4k::pl08_plan_palette_bytes || p.workspace_bytes!=leon4k::pl08_plan_workspace_bytes)return 0;
@@ -122,7 +123,7 @@ extern "C" int re4dc_actor_plan_pl08(cModel* m,Re4dcActorPlan* out) {
         mat.mask_ref=0;mat.mask_same_uv=1;mat.wrap_s=mat.wrap_t=1;
     }
     for(unsigned i=2;i<8;++i)p.immutable_asset_id[i]=i+1;  // pl00's IDs: the same arrays
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
     p.immutable_asset_id[5]=hand5.asset;p.immutable_asset_id[6]=hand6.asset;
 #endif
     p.immutable_asset_id[0]=kActorPl08Asset0;p.immutable_asset_id[1]=kActorPl08Asset0+1u;p.immutable_asset_id[8]=kActorPl08Asset0+2u;

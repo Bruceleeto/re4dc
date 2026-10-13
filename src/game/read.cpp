@@ -108,6 +108,9 @@ void ContinueWepData();
 }
 void* GetDataExt(void* arc, const char* tag, int no);
 
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+extern "C" void re4dc_leon_hands_weapon(const char* name);  // coarse_actor_leon_hands.inc
+#endif
 static void* in_data_addr;
 u32 out_data_size;
 u8 oldWepId;
@@ -1352,6 +1355,10 @@ void ReadWepData(u32 no, u32 type)
     WepReadModule.pModule = pModule;
     WepReadModule.pArc = data;
     pG->pWep = data;
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+    // LEON_HAND_PACK (render only): the weapon's PS2 hands into Leon's hand cache with the weapon load.
+    re4dc_leon_hands_weapon(FileTbl[e->file].name);
+#endif
 }
 
 // After a continue: if the weapon changed since the module was loaded, reloads the weapon.

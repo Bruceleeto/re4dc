@@ -111,6 +111,9 @@ def main():
         if e['key']['vertex_hash'] == STANDARD[role]:
             e['pose'] = 'standard'
             continue
+        if e.get('ada_only'):   # hands_inventory ADA_ONLY: never on Leon; the standard hand if it ever shows
+            e['pose'] = 'ada-only'
+            continue
         if k not in by_key:
             by_key[k] = len(poses)
             poses.append(dict(role=role, file=e['file'], arc=e['arc'], keys=[], sources=[]))

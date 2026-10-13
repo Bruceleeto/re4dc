@@ -42,6 +42,9 @@
 #include <string.h>
 
 #include "re4dc_platform.h"
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+extern "C" void re4dc_leon_hands_yield();  // coarse_actor_leon_hands.inc: Leon's AICA hand cache gives way to sound
+#endif
 
 #ifndef RE4DC_AICA_VERIFY
 #define RE4DC_AICA_VERIFY 0   // 1: log an FNV of every block as it sits in AICA RAM (debug)
@@ -557,6 +560,9 @@ bool blk_begin(int t, u32 dst)
     // free (other AICA users: streams, movie audio), stepping the rate cap down.
     static const u16 caps[] = { 32000, 22050, 16000, 11025, 8000 };
     u32 total = 0, cap = 0;
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+    re4dc_leon_hands_yield();  // sound first: the hand cache is refilled on Leon's next draw, after this bank
+#endif
     for (u32 c = 0; c < 5 && !b.aica; c++) {
         if (caps[c] > pref_cap(t)) continue;
         total = 0;

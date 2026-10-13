@@ -72,7 +72,17 @@ inline unsigned leon_hand_key(unsigned costume,int right,int left) {
     return costume|unsigned(right+1)<<8|unsigned(left+1)<<16;
 }
 }
+#define RE4DC_LEON_STD_INPUT(r) RE4DC_OWNER_INPUT(leon4k,i##r,leon4k::chunks[r],119)
+#define RE4DC_LEON_STD_PAL(r) leon4k::chunks[r].palette_count
+#elif RE4DC_LEON_HAND_PACK
+#if !RE4DC_LEON_HAND_POSES || !RE4DC_ACTOR_PL08 || !RE4DC_PS2_LEON
+#error LEON_HAND_PACK needs LEON_HAND_POSES=1, ACTOR_PL08=1 and PS2_LEON
 #endif
+#include "coarse_actor_leon_hands.inc" // LEON_HAND_PACK: the hands from the outfit's package through a small cache
+#define RE4DC_LEON_STD_INPUT(r) re4dc_source::ChunkInput{}
+#define RE4DC_LEON_STD_PAL(r) leon_hand_pack::std_pal(r)
+#endif
+#define RE4DC_LEON_HAND_ANY (RE4DC_LEON_HAND_TABLE || RE4DC_LEON_HAND_PACK)
 #if !RE4DC_COARSE_SOURCE_ACTORS || !RE4DC_COARSE_ONE_SUBMIT || RE4DC_COARSE_SKIN_FTRV != 1 || !RE4DC_NATIVE_ACTOR_FAST
 #error ACTOR_TRANSACTION requires the source ledger, ONE_SUBMIT and SKIN_FTRV=1 native path
 #endif
@@ -155,7 +165,7 @@ unsigned owner_leon_bind_why(cModel* m,unsigned* detail) {
 }
 #endif
 int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
     if(!owner_leon_bind(m) || !skin_build(leon_cur_key,leon_cur,8))return 0;
     for(unsigned i=0;i<8;++i)if(p.input[i].palette_count!=leon_cur[i]->palette_count)return 0;
 #else
@@ -170,7 +180,7 @@ int owner_leon_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) 
     }
     re4dc_coarse_skin_bones(invx,skin_jobs,skin_used);
     for(unsigned i=0;i<8;++i) {
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
         re4dc_coarse_skin_groups(skin_stream+skin_first[i],skin_groups[i],&bone_T[0][0],output[i],p.input[i].palette_count);
         for(unsigned j=0;j<p.input[i].palette_count*12;++j)if(!coarse_finite(output[i][j]))return 0;
 #else
@@ -189,21 +199,22 @@ extern "C" int re4dc_actor_plan_leon(cModel* m,Re4dcActorPlan* out) {
     Re4dcActorPlan p{};p.count=8;p.appearance=0x100;p.image=image;p.crc=crc;p.fnv=fnv;p.palettes=owner_leon_palettes;
 #define RE4DC_LEON_OWNER(role,prefix) re4dc_actor::plan_chunk(p,role,infos[role],leon4k::chunks[role],RE4DC_OWNER_INPUT(leon4k,prefix,leon4k::chunks[role],119))
     RE4DC_LEON_OWNER(0,i0);RE4DC_LEON_OWNER(1,i1);RE4DC_LEON_OWNER(2,i2);RE4DC_LEON_OWNER(3,i3);
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
     // LEON_HAND_DIR: roles 5 / 6 draw the PS2 hand of the current pose (leon_hand_pick); the plan bytes follow.
-    const LeonHandPick hand5=leon_hand_pick(5,infos[5],leon4k::chunks[5],RE4DC_OWNER_INPUT(leon4k,i5,leon4k::chunks[5],119));
-    const LeonHandPick hand6=leon_hand_pick(6,infos[6],leon4k::chunks[6],RE4DC_OWNER_INPUT(leon4k,i6,leon4k::chunks[6],119));
+    const LeonHandPick hand5=leon_hand_pick(5,infos[5],leon4k::chunks[5],RE4DC_LEON_STD_INPUT(5));
+    const LeonHandPick hand6=leon_hand_pick(6,infos[6],leon4k::chunks[6],RE4DC_LEON_STD_INPUT(6));
+    if(!hand5.chunk || !hand6.chunk)return 0;
     RE4DC_LEON_OWNER(4,i4);re4dc_actor::plan_chunk(p,5,infos[5],*hand5.chunk,hand5.input);
     re4dc_actor::plan_chunk(p,6,infos[6],*hand6.chunk,hand6.input);RE4DC_LEON_OWNER(7,i7);
     leon_cur[5]=hand5.chunk;leon_cur[6]=hand6.chunk;leon_cur_key=leon_hand_key(0,hand5.pose,hand6.pose);
     const unsigned hand_palette=leon_r32(hand5.chunk->palette_count*48u)+leon_r32(hand6.chunk->palette_count*48u)
-        -leon_r32(leon4k::chunks[5].palette_count*48u)-leon_r32(leon4k::chunks[6].palette_count*48u);
+        -leon_r32(RE4DC_LEON_STD_PAL(5)*48u)-leon_r32(RE4DC_LEON_STD_PAL(6)*48u);
     if(p.palette_bytes!=leon4k::plan_palette_bytes+hand_palette || p.workspace_bytes!=leon4k::plan_workspace_bytes)return 0;
 #else
     RE4DC_LEON_OWNER(4,i4);RE4DC_LEON_OWNER(5,i5);RE4DC_LEON_OWNER(6,i6);RE4DC_LEON_OWNER(7,i7);
 #endif
 #undef RE4DC_LEON_OWNER
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
 #elif RE4DC_PS2_LEON
     // The arm's palette / workspace bytes (ps2leon_runtime.h, from its chunks' palette counts).
     if(p.palette_bytes!=leon4k::plan_palette_bytes || p.workspace_bytes!=leon4k::plan_workspace_bytes)return 0;
@@ -224,12 +235,12 @@ extern "C" int re4dc_actor_plan_leon(cModel* m,Re4dcActorPlan* out) {
         // from GC depthwrite+alpha-test. Exact-source policy stays unadmitted.
     }
     for(unsigned i=0;i<8;++i)p.immutable_asset_id[i]=i+1;
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
     p.immutable_asset_id[5]=hand5.asset;p.immutable_asset_id[6]=hand6.asset;
 #endif
     for(unsigned i=0;i<7;++i) {
         const auto& c=p.input[i];auto& r=p.runs[p.run_count++];
-#if RE4DC_LEON_HAND_TABLE
+#if RE4DC_LEON_HAND_ANY
         r.role=i;r.immutable_asset_id=p.immutable_asset_id[i];r.triangles=c.triangles;r.uv=c.uv;r.stream=c.stream;
 #else
         r.role=i;r.immutable_asset_id=i+1;r.triangles=c.triangles;r.uv=c.uv;r.stream=c.stream;
@@ -282,6 +293,9 @@ extern "C" unsigned re4dc_actor_material_runs_capability(const Re4dcActorPlan* p
 #include "coarse_actor_geometry_once.inc"
 #if RE4DC_LEON_HAND_TABLE
 namespace { unsigned leon_hand_asset(unsigned pose) {return kLeonHandAsset0+pose;} }
+#elif RE4DC_LEON_HAND_PACK
+// LEON_HAND_PACK: a slot change re-qualifies its role's chunk (IDs 6 / 7 hold the slot's current bytes).
+namespace leon_hand_pack { void reset_role_ids(unsigned role) {actor_immutable_chunks[role]={};} }
 #endif
 #if RE4DC_ACTOR_PL08_PACK
 #include "coarse_actor_pl08_pack.inc" // ACTOR_PL08_PACK: the pl08-only chunks from a costume-resident heap-4 cell

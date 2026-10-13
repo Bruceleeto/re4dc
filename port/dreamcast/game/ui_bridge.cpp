@@ -362,6 +362,9 @@ extern "C" void re4dc_registry_room_leave();
 extern "C" void re4dc_pl08_pack_room_enter();               // coarse_actor_pl08_pack.inc
 extern "C" void re4dc_pl08_pack_room_leave();
 #endif
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+extern "C" void re4dc_leon_hands_room_enter();              // coarse_actor_leon_hands.inc
+#endif
 extern "C" void re4dc_room_leave(){
     unsigned generation,cells,bytes,stale,refused;
     if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused))return;
@@ -417,6 +420,9 @@ extern "C" void re4dc_room_enter(){
 #endif
 #if RE4DC_ACTOR_PL08_PACK
     re4dc_pl08_pack_room_enter();                        // reload the pl08 costume package if pl08 is bound
+#endif
+#if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
+    re4dc_leon_hands_room_enter();                       // Leon's home hand poses into the AICA hand cache
 #endif
     room_frames=0;steady_logged=false;
     audit(0);
