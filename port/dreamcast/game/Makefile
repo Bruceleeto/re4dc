@@ -162,6 +162,32 @@ $(OBJDIR)/mod/st1_3/src/st1/r117.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 ROUTE_MOVIE_GAME_CH21 = $(OBJDIR)/mod/st1_2/src/st1/r11b.o $(OBJDIR)/mod/st1_2/src/st1/r119.o $(OBJDIR)/mod/st1_3/src/st1/r117.o
 endif
 endif
+# ROUTE_CH23=1 (default 0): chapter 2-3 room code and missing vehicle/boss/stage modules.
+# The two enemy overlays append after the existing route overlays. st2_0 is resident because
+# stage modules survive room changes, whereas route overlays are released on every room reset.
+ROUTE_CH23 ?= 0
+PS2_ENEMY_CH23_DIR ?=
+ifneq ($(ROUTE_CH23),0)
+ifneq ($(ROUTE_CH23)$(ROUTE_CH21)$(ROUTE_OVL),111)
+$(error ROUTE_CH23 must be 0 or 1 and needs ROUTE_CH21=1 ROUTE_OVL=1)
+endif
+MODULES += em3b:ovl em35:ovl st2_0
+export RE4DC_LINK_OVERLAY += .ovl_em3b .ovl_em35
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+ROUTE_CH23_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r10f.o $(OBJDIR)/mod/st1_3/src/st1/r11d.o \
+    $(OBJDIR)/mod/st1_3/src/st1/r11e.o $(OBJDIR)/mod/st1_3/src/st1/r11f.o $(OBJDIR)/mod/st2_0/src/st2/r200.o
+$(ROUTE_CH23_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/em3b/src/em3b/em3b.o $(OBJDIR)/mod/em35/src/em35/em35.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+# Existing export alias needed by r200, without enabling the unrelated world-test module set.
+$(OBJDIR)/src/game/EtcModel.o: GAME_CPPFLAGS += -DRE4DC_WORLD_STAGE_MODULES=1
+ifeq ($(PS2_ENEMY_RULES),1)
+ifeq ($(wildcard $(PS2_ENEMY_CH23_DIR)/ps2_enemy_ch23_data.inc),)
+$(error ROUTE_CH23 with PS2_ENEMY_RULES needs qualified PS2_ENEMY_CH23_DIR/ps2_enemy_ch23_data.inc)
+endif
+$(OBJDIR)/mod/st1_3/src/st1/r10f.o $(OBJDIR)/mod/st1_3/src/st1/r11d.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=1
+$(OBJDIR)/platform/ps2_enemy_ch23.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH23=1 -DRE4DC_PS2_ENEMY_RULES=1 -I$(PS2_ENEMY_CH23_DIR)
+$(OBJDIR)/platform/ps2_enemy_ch23.o: $(PS2_ENEMY_CH23_DIR)/ps2_enemy_ch23_data.inc
+endif
+endif
 # WEAPON_MODULES=1 (issue #1 2026-10-05, default 0: no effect): Leon's other stage-1 weapons, so equipping one in the
 # inventory (SubScreenExit -> ReadWepData -> DLL_Link) finds its module instead of halting "DLL link/unlink failed":
 # wep01 (module 3, Punisher; the merchant's medallion reward), wep07 (54, shotgun; r101 house), wep09 (62, rifle; its
@@ -277,6 +303,9 @@ MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))
 CENSUS_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(CENSUS_SRCS))
 PLATFORM_OBJS = $(patsubst %.cpp,$(OBJDIR)/%.o,$(PLATFORM_SRCS))
+ifneq ($(ROUTE_CH23)$(PS2_ENEMY_RULES),11)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/ps2_enemy_ch23.o,$(PLATFORM_OBJS))
+endif
 # LAKE_RIPPLES (ROUTE_CH13 block above): native_lake.cpp is built only with the knob on (1 or 2).
 ifeq ($(filter 1 2,$(LAKE_RIPPLES)),)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_lake.o,$(PLATFORM_OBJS))

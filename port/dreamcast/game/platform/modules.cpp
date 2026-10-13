@@ -50,6 +50,9 @@ MODULE(pl11)
 MODULE(st2_2)
 MODULE(em1f)
 #endif
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+MODULE(st2_0)
+#endif
 MODULE(st1_0)
 MODULE(st1_1)
 MODULE(st1_2)
@@ -127,6 +130,11 @@ static const Re4dcModule g_modules[] = {
 #if defined(RE4DC_WORLD_ROOM_MODULES) && RE4DC_WORLD_ROOM_MODULES
     MODULE(83, st2_2), // WORLD_ROOM_MODULES: r211..r219
     MODULE(109, em1f), // WORLD_ROOM_MODULES: the St4 Ganados (r406, r40a, r40b, r40d, r410)
+#endif
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    MODULE(75, st2_0), // chapter 2-3 castle approach (r200)
+    {63, "em3b", 0, 0, 0, 0, 0, 0, 0}, // vehicles, room overlay
+    {61, "em35", 0, 0, 0, 0, 0, 0, 0}, // Mendez, room overlay
 #endif
     MODULE(74, st1_0),
     MODULE(73, st1_1),
@@ -285,7 +293,11 @@ struct RouteOverlayHeader {
 };
 constexpr u32 kRouteOverlayMagic = 0x4F344552;  // "RE4O"
 struct RouteOverlay { u8* block; u32 image_bytes; unsigned loads; };
-#if defined(RE4DC_ROUTE_CH21) && RE4DC_ROUTE_CH21
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+RouteOverlay g_route_ovl[7];  // retain the old five slots, then em3b and em35
+#define ROUTE_OVL_SLOT(id) ((id) == 43 ? 0 : (id) == 39 ? 1 : (id) == 5 ? 2 : (id) == 30 ? 3 : (id) == 47 ? 4 : (id) == 63 ? 5 : 6)
+#define ROUTE_OVL_ID(id) ((id) == 43 || (id) == 39 || (id) == 5 || (id) == 30 || (id) == 47 || (id) == 63 || (id) == 61)
+#elif defined(RE4DC_ROUTE_CH21) && RE4DC_ROUTE_CH21
 RouteOverlay g_route_ovl[5];  // 0 = pl0f, 1 = em2f, 2 = em22 (ROUTE_CH21: r11b), 3 = em2b (r119), 4 = pl11 (r117 on)
 #define ROUTE_OVL_SLOT(id) ((id) == 43 ? 0 : (id) == 39 ? 1 : (id) == 5 ? 2 : (id) == 30 ? 3 : 4)
 #define ROUTE_OVL_ID(id) ((id) == 43 || (id) == 39 || (id) == 5 || (id) == 30 || (id) == 47)
