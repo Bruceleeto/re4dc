@@ -7,7 +7,7 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)** ·
+**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-d4bc5f45-20261012)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
@@ -19,14 +19,14 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test `c29c4bf5`. Desktop packages will return with a later test build;
+The latest build is console test `d4bc5f45` (r22j test 8). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
+| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-d4bc5f45-20261012/RE4DC-r22j-Test8-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)
+[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-d4bc5f45-20261012/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-d4bc5f45-20261012)
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -41,13 +41,14 @@ No BIOS or personal VMU saves are included; keep your existing saves separately.
 | Knife | L |
 | Inventory | Y |
 | Pause / options | START |
-| Frame pacing: Smooth → Fast → Off | Hold R, press START |
+| Speed display: Off → VMU → Screen → Both | Hold R, press START |
 
-Fast pacing is the default. A VMU in controller slot 1 shows FPS, game speed, CPU percentage and pacing.
+Options has the Frame pacing and Rendering (Quality, Standard, Fast) rows; Fast pacing and Quality are the defaults.
+The speed display shows the frame rate and game speed on a VMU in controller slot 1, on screen, or both.
 
 ## Status and limitations
 
-**Console test `c29c4bf5`, October 11, 2026:** the game plays to the end of chapter two, part one
+**Console test `d4bc5f45` (r22j test 8), October 12, 2026:** the game plays to the end of chapter two, part one
 (the lake and the boat ride, the wolves, the El Gigante fight, finding Ashley and the chapter results),
 up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
