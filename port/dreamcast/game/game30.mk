@@ -2275,6 +2275,22 @@ endif
 ifeq ($(PS2_PT_CUTOUT),1)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PT_CUTOUT=1
 endif
+# PS2_R100_SMX=1 (render only, default 0: no effect; needs PS2_PT_CUTOUT=1): the r100 PS2 world package rebuilt with
+# ps2_room_r4im.py --color-light ps2 --tev-scale 1 --vc-clamp 2.0 on top of the PT_CUTOUT args: COLOR corners =
+# PS2 vertex colour (GS 0x80 = 1, up to 2) x the group's SMX ColorRGB / 255, the PS2 rule (r100 / r104 / r10c / r117
+# author 1.99 exactly on the low-SMX groups, so the product, not the vertex colour, is the shade: the gate hedge and
+# the birch trunks). Package: re4-assets-private\look-20261013\r100-smx (ps2-world.* + interior.cell + tex). In code
+# only the r100 interior cell's expected mesh CRC / sidecar CRC / mesh bytes follow the rebuilt package.
+PS2_R100_SMX ?= 0
+ifneq ($(filter-out 0 1,$(PS2_R100_SMX)),)
+$(error PS2_R100_SMX must be 0 or 1)
+endif
+ifeq ($(PS2_R100_SMX),1)
+ifneq ($(PS2_PT_CUTOUT),1)
+$(error PS2_R100_SMX=1 needs PS2_PT_CUTOUT=1 (the package is built on the cutout args))
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_R100_SMX=1
+endif
 PS2_INTERIOR_CULL ?= 0
 ifneq ($(PS2_INTERIOR_CULL),0)
 ifeq ($(PS2_WORLD_MESH),0)
