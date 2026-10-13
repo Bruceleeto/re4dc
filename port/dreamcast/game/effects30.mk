@@ -160,6 +160,7 @@ endif
 ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
 $(error PS2_FX_COMMON_HAZE needs COARSE_FX_SPRITES=1 or 2)
 endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_FX_COMMON_HAZE=1
 endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
