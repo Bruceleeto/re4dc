@@ -287,6 +287,15 @@ Key missing_keys[32]; unsigned nmissing;
 #if RE4DC_UI_VRAM && RE4DC_UI_FRAG_LATCH
 constexpr unsigned kFragRetryFrames=120;
 Key frag_key{}; unsigned frag_frame,frag_latched;
+#if RE4DC_UI_FRAG_RESERVE
+// UI_FRAG_RESERVE: the block wanted for frag_key (bytes; taken at the next frame start) and the block held for it.
+unsigned frag_want,frag_held_frame,frag_reserves,frag_handoffs,frag_expired;pvr_ptr_t frag_held;
+void frag_release(const char* why){
+    if(!frag_held)return;
+    pvr_mem_free(frag_held);frag_held=nullptr;++frag_expired;
+    re4dc_log("native UI: frag reserve dropped (%s) key=%08x-%08x\n",why,frag_key.crc,frag_key.fnv);
+}
+#endif
 #endif
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
 constexpr unsigned kOverlaySlabBytes=RE4DC_UI_OVERLAY_SLAB_KB*1024U;
@@ -2112,7 +2121,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     for(const auto& m:missing_keys) if(m.crc|m.fnv) if(m==key) return nullptr;
 #endif
 #if RE4DC_UI_VRAM && RE4DC_UI_FRAG_LATCH
+#if RE4DC_UI_FRAG_RESERVE
+    if(key==frag_key && !frag_held && frame-frag_frame<kFragRetryFrames){++frag_latched;return nullptr;} // before any eviction
+#else
     if(key==frag_key && frame-frag_frame<kFragRetryFrames){++frag_latched;return nullptr;} // before any eviction
+#endif
 #endif
     Entry* slot=nullptr;
     for(auto& e:entries) if(!e.valid){slot=&e;break;}
@@ -2163,6 +2176,13 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     bool ok=RE4DC_OPEN_PACKAGE();
     if(!ok) {RE4DC_PROFILE_COUNT(TextureOpenFailures,1);re4dc_log("native UI: package rejected: %s\n",slot->package.error());}
+#if RE4DC_UI_FRAG_RESERVE
+    if(frag_held && key==frag_key){
+        // Free the held block just before this upload: the best fit takes it (nothing else allocates in between).
+        pvr_mem_free(frag_held);frag_held=nullptr;++frag_handoffs;frag_key=Key{};
+        re4dc_log("native UI: frag reserve handed over: %ux%u frame=%u\n",image.width,image.height,frame);
+    }
+#endif
 #if RE4DC_TEX_RESIDENT || RE4DC_SUBSCREEN
 #if RE4DC_TEX_PACK
     // The pack failing to open is a read error of the pack, not a missing package.
@@ -2234,6 +2254,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
             frag_key=key;frag_frame=frame;
             re4dc_log("native UI: no contiguous block for %ux%u (need=%u free=%u): latched %u frames\n",image.width,image.height,need,(unsigned)pvr_mem_available(),kFragRetryFrames);
+#if RE4DC_UI_FRAG_RESERVE
+            if(!frag_held)frag_want=need;
+#endif
 #if RE4DC_VRAM_CENSUS && RE4DC_VRAM_PAGES
             {void vram_frag_dump(unsigned);vram_frag_dump(need);}
 #endif
@@ -2526,6 +2549,9 @@ void preload_identities(){
     re4dc_iowrap_reset(); // IO_PROBE (test only): this pass's IO tables ("iowrap: preload" below)
 #endif
 #if RE4DC_UI_VRAM && RE4DC_UI_FRAG_LATCH
+#if RE4DC_UI_FRAG_RESERVE
+    frag_release("room");frag_want=0;
+#endif
     frag_key=Key{}; // a new room: the pool has a new shape
 #endif
     const std::uint64_t start=timer_us_gettime64();
@@ -3592,6 +3618,20 @@ extern "C" void re4dc_ui_begin(){
 #else
     actor_texture_leases.retire_frame(); // submitted pins retain normal GPU fencing
 #endif
+#endif
+#if RE4DC_UI_FRAG_RESERVE
+    // UI_FRAG_RESERVE: nothing is pinned by this frame yet. Fence the previous render (it may read the
+    // uploads released here), release the cheapest window of unpinned uploads (leases stay), and hold the block.
+    if(frag_held && frame-frag_held_frame>kFragRetryFrames)frag_release("unused");
+    if(frag_want && !frag_held){
+        const unsigned want=frag_want;frag_want=0;
+        present_fence();
+        unsigned wb=0;const unsigned wr=movie_window_release(want,false,wb);
+        frag_held=pvr_mem_malloc(want);frag_held_frame=frame;
+        if(frag_held){++frag_reserves;frag_frame=0;}
+        re4dc_log("native UI: frag reserve %s: need=%u released=%u entries/%u B free=%u frame=%u\n",frag_held?"held":"FAILED",
+                  want,wr,wb,(unsigned)pvr_mem_available(),frame);
+    }
 #endif
 #if RE4DC_NATIVE_MES
     nglyph=0;

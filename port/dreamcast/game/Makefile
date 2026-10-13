@@ -1077,6 +1077,17 @@ UI_VRAM_RESERVE_KB ?= 64
 # UI_OVERLAY_SLAB_KB=n: an n KiB contiguous block held from init for a large overlay that finds no
 # contiguous block in play (taken before anything is evicted, returned when it closes). Needs TEX_RESIDENT.
 UI_FRAG_LATCH ?= 0
+# UI_FRAG_RESERVE=1 (needs UI_FRAG_LATCH=1, TEX_RESIDENT=1, MOVIE_WINDOW=1; default 0): a texture refused for
+# fragmentation while every resident upload is used by the frame gets its block reserved at the next frame start
+# (previous render fenced, the cheapest window of unpinned uploads released, then held), and the block is handed
+# to that texture when the scene asks for it again. Was: refused to the end of the room (r11b 7506e95f after the
+# chapter end: 15 refusals, 2.2 MB free, largest hole ~508 KiB; r118 em22 after r119). Render only.
+UI_FRAG_RESERVE ?= 0
+ifeq ($(UI_FRAG_RESERVE),1)
+ifneq ($(UI_FRAG_LATCH)$(TEX_RESIDENT)$(MOVIE_WINDOW),111)
+$(error UI_FRAG_RESERVE needs UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1)
+endif
+endif
 UI_OVERLAY_SLAB_KB ?= 0
 # MOVIE_WINDOW=1 (needs VRAM_PAGES=1 and TEX_RESIDENT=1): a route movie's VRAM claim releases the cheapest
 # page-aligned window of room textures instead of LRU uploads until a hole appears (r100 s44: 0.5-1.1 MB and
@@ -1108,6 +1119,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_TA_VERTBUF_KB %s\n#define RE4DC_TA_DOUBLEBUF %s\n#define RE4DC_TA_OPB_BINS %s\n#define RE4DC_TA_OPB_OVERFLOW %s\n#define RE4DC_TA_GUARD %s\n#define RE4DC_PERF_HUD %s\n' '$(TA_VERTBUF_KB)' '$(TA_DOUBLEBUF)' '$(TA_OPB_BINS)' '$(TA_OPB_OVERFLOW)' '$(TA_GUARD)' '$(PERF_HUD)' >> $@.tmp
 	@printf '#define RE4DC_UI_VRAM %s\n#define RE4DC_UI_VRAM_RESERVE_KB %s\n' '$(UI_VRAM)' '$(UI_VRAM_RESERVE_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_LATCH %s\n#define RE4DC_UI_OVERLAY_SLAB_KB %s\n' '$(UI_FRAG_LATCH)' '$(UI_OVERLAY_SLAB_KB)' >> $@.tmp
+	@printf '#define RE4DC_UI_FRAG_RESERVE %s\n' '$(UI_FRAG_RESERVE)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
