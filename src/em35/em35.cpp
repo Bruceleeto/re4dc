@@ -168,7 +168,12 @@ extern "C" void _unresolved()
 // does the per-type setup on the first move.
 void Em35Init(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    // Preserve the archive installed by cEmMgr::construct before base construction.
+    new (em) cEm35;
+#else
     new (em) cEm35();
+#endif
 }
 
 // Damage reaction of the whole body (type 0), from move(). The area damage manager (kinds 1 / 4 /

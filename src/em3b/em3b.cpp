@@ -97,7 +97,12 @@ extern "C" void _unresolved()
 // EmInitFunc: placement-constructs the vehicle in the cEm work.
 void Em3bInit(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    // Preserve the archive installed by cEmMgr::construct before base construction.
+    new (em) cEm3b;
+#else
     new (em) cEm3b();
+#endif
 }
 
 // Truck damage of the frame: consumes cEm::dmHit (grenades / flash / mines ignored); hp loss by
@@ -875,7 +880,14 @@ void em3bRunDownCkTruck(cEm3b* em)
     }
     p = em->getPartsPtr(0);
     for (i = 0; i < EmMgr.nArray; i++) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+        cEm* e = EmMgr.workAt(i);
+        if (!e) {
+            continue;
+        }
+#else
         cEm* e = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         int zero = 0;
 
         if ((e->be_flag & 0x201) != 1) {
@@ -926,7 +938,14 @@ void em3bRunDownCkCart(cEm3b* em)
     }
     p = em->getPartsPtr(1);
     for (i = 0; i < EmMgr.nArray; i++) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+        cEm* e = EmMgr.workAt(i);
+        if (!e) {
+            continue;
+        }
+#else
         cEm* e = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         int zero = 0;
 
         if ((e->be_flag & 0x201) != 1) {
