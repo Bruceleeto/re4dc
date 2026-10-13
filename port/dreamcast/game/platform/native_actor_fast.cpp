@@ -1308,6 +1308,9 @@ SkinEntry* find_skin(const void* info, const void* positions) {
 
 #if RE4DC_ACTOR_TRANSACTION
 #include "include/native_actor_owner_registry.inc"
+#if RE4DC_ACTOR_SKIN_RESERVE
+#include "include/native_actor_skin_reserve.inc"
+#endif
 #endif
 
 // ---------------------------------------------------------- info context --
@@ -3947,6 +3950,9 @@ extern "C" void re4dc_skin_palette_resolve(const float* palette);  // trans.cpp 
 extern "C" const float* re4dc_actor_skin_palette(const void* info, const void* position_buffer, unsigned* entries) {
     const SkinEntry* e = find_skin(info, position_buffer);
     if (!e || e->materialized) { *entries = 0; return nullptr; }
+#if RE4DC_ACTOR_SKIN_RESERVE
+    if(!e->palette || !e->entries){*entries=0;return nullptr;} // inert reservation
+#endif
 #if RE4DC_SKIN_PALETTE_LAZY
     re4dc_skin_palette_resolve(e->palette);  // the caller reads it (prepare_frame's skin Frame)
 #endif
@@ -3958,6 +3964,9 @@ extern "C" void re4dc_actor_materialize(const Re4dcModelPart* p) {
     if (!p) return;
     SkinEntry* e = find_skin(p->info, p->positions);
     if (!e || e->materialized) return;
+#if RE4DC_ACTOR_SKIN_RESERVE
+    if(!e->palette || !e->entries)return; // no source palette was deferred
+#endif
     re4dc_skin_materialize(e->info, e->palette);
     e->materialized = 1;
     ++stats.materialized_infos;
@@ -3971,6 +3980,9 @@ extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p) {
     if (!p || p->positions) return 1;
     SkinEntry* e = find_skin(p->info, nullptr);
     if (!e) return 0;
+#if RE4DC_ACTOR_SKIN_RESERVE
+    if(!e->palette || !e->entries)return 0; // never materialize a placeholder
+#endif
     if (!e->materialized) {
         if (!re4dc_skin_materialize(e->info, e->palette)) return 0;
         e->materialized = 1;

@@ -720,6 +720,27 @@ ModelPath sourceActorPath(cModel* m) {
         ?ModelPath::Coarse:ModelPath::Source;
 #endif
 }
+#if RE4DC_ACTOR_SKIN_RESERVE
+// Storage priority after a sealed source plan, before its ordinary callbacks.
+// Read only the current player's main-info links; original preparation order,
+// visibility, morph work and native owner admission all remain downstream.
+static int sourceActorReservePlayer(const FrameIdentity& planned,const ModelIdentity& player) {
+    FrameIdentity now{};
+    if(!sourceActorActive || !pPL || !sourceActorRam(pPL) ||
+       !sourceActorIdentity(now) || !(now==planned) || !(sourceActorModel((cModel*)pPL)==player))return 0;
+    const void* infos[kRe4dcActorRoles];unsigned n=0;
+    for(cModelInfo* info=pPL->pModelInfo;info;info=info->pList) {
+        if(n==kRe4dcActorRoles)return 0;
+#if defined(__sh__)
+        const auto a=reinterpret_cast<std::uintptr_t>(info);
+        if((a&3u) || a<RE4_MEM_LO || a>RE4_MEM_HI-sizeof(cModelInfo))return 0;
+#endif
+        for(unsigned i=0;i<n;++i)if(infos[i]==info)return 0;
+        infos[n++]=info;
+    }
+    return n && re4dc_actor_skin_reserve(planned.frame,infos,n);
+}
+#endif
 // 1=selective plan; 0=early full-source safety image; -1=malformed source list.
 int sourceActorPlan() {
 
@@ -742,6 +763,9 @@ int sourceActorPlan() {
     void* storage=count?re4dc_prim_tail(unsigned(bytes),16*1024):nullptr;
     if(count && !storage){sourceActorFailure(5);return 0;}
     if(!sourceActorLedger.begin(storage,bytes,count,now)){sourceActorFailure(6);return 0;}
+#if RE4DC_ACTOR_SKIN_RESERVE
+    ModelIdentity reserved_player{};
+#endif
     for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
         cModel* m=(cModel*)u;
 #if RE4DC_ACTOR_EARLY_COARSE
@@ -760,11 +784,18 @@ int sourceActorPlan() {
             sourceActorFailure(7);sourceActorLedger.retire();return -1;
         }
 #endif
+#if RE4DC_ACTOR_SKIN_RESERVE
+        if(m==(cModel*)pPL)reserved_player=sourceActorModel(m);
+#endif
     }
     if(!sourceActorLedger.seal(now)){sourceActorFailure(8);sourceActorLedger.retire();return -1;}
     sourceActorPrimBase=unsigned(pG->prim_cnt);sourceActorPrimBytes=unsigned(pG->nPrim);
     sourceActorPrimBuffer=unsigned(pG->vtx_buf_no);
     sourceActorCount=count;sourceActorActive=true;
+#if RE4DC_ACTOR_SKIN_RESERVE
+    // Failure leaves the complete original source path available.
+    sourceActorReservePlayer(now,reserved_player);
+#endif
     return 1;
 }
 bool sourceActorPrepare() {
