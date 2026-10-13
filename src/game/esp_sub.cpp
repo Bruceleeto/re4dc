@@ -163,6 +163,9 @@ static int EspSpriteEligible(cEsp* esp)
 #ifndef RE4DC_PS2_FX_ROOMS
 #define RE4DC_PS2_FX_ROOMS 0
 #endif
+#ifndef RE4DC_PS2_FX_STAGE1
+#define RE4DC_PS2_FX_STAGE1 0
+#endif
 struct Ps2fxHaze {
     u16 room;
     u8 every;
@@ -175,13 +178,20 @@ struct Ps2fxHaze {
     f32 gc_range;
     f32 near_far, near_near;
 #endif
+#if RE4DC_PS2_FX_STAGE1
+    // Source start RGB disambiguates r105's two generators with the same box. Zero means any RGB.
+    // These are spawn fields, not the current colour/alpha or the indoor fade state.
+    u8 gc_r, gc_g, gc_b;
+#endif
 };
 #if RE4DC_WATER45_NATIVE
 #define PS2FX_HAZE_ROOMS0 4
 #else
 #define PS2FX_HAZE_ROOMS0 3
 #endif
-#if RE4DC_PS2_FX_ROOMS
+#if RE4DC_PS2_FX_STAGE1
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 6)
+#elif RE4DC_PS2_FX_ROOMS
 #define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
 #else
 #define PS2FX_HAZE_ROOMS PS2FX_HAZE_ROOMS0
@@ -208,6 +218,20 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r10a sst 0x04: GC 41 x 1334.167 mm (+0.020), (250,250,235,20), R 6283.557, Work8 40/10/20/15;
     //                PS2 10 x 1700 mm (+0.010), (255,255,238,20), R 4000, Work8 20/10/30/30
     {0x10a, 1, 255, 255, 238, 20, 4000.0f, (1700.0f * 2.0f) / (1334.167f * 3.0f), 0.0f, 2000.0f, 1000.0f},
+#endif
+#if RE4DC_PS2_FX_STAGE1
+    // First decoded stage-1 group, from the GC/PS2 EFF records audited by tools/audit_ps2_fx_recipes.py.
+    // The pool-slot stride approximates PS2 counts after source-box clipping; generators and motion stay GC.
+    // r102: GC sst 02/0 59 x 1099.956 (+.01), R4000.199 -> PS2 sst 00/1 10 x 1700 (+.01), R5000.
+    {0x102, 6, 255, 235, 215, 40, 5000.0f, 1700.0f / 1099.956f, 4000.199f, 3000.0f, 500.0f, 255, 235, 215},
+    // r104: GC sst 00/0 21 x 1887.222 (+.03), R5090.199 -> PS2 sst 00/1 11 x 2500 (+.01), R5300.
+    {0x104, 2, 225, 225, 200, 46, 5300.0f, (2500.0f * 2.0f) / (1887.222f * 4.0f), 5090.199f, 3500.0f, 500.0f, 225, 225, 200},
+    // r105: sst 04/0 (area 0), 05/0 (area 1); each GC 51 x 1283.056 -> PS2 10 x 2100; all +.01.
+    {0x105, 5, 225, 225, 205, 36, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 225, 225, 205},
+    {0x105, 5, 255, 255, 235, 28, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 255, 255, 235},
+    // r107: GC sst 00/0 (global) -> PS2 09/2; GC sst 08/0 (area 3) -> PS2 08/0.
+    {0x107, 4, 235, 235, 210, 30, 5000.0f, (2000.0f * 2.0f) / (1283.056f * 4.0f), 5090.199f, 3000.0f, 500.0f, 225, 225, 190},
+    {0x107, 5, 255, 255, 225, 30, 5000.0f, 2100.0f / 1374.622f, 5853.189f, 3000.0f, 500.0f, 255, 255, 225},
 #endif
 };
 #if RE4DC_PS2_FX_ROOMS
@@ -239,6 +263,13 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
                 if (dr > 1.0f || dr < -1.0f) {
                     continue;
                 }
+            }
+#endif
+#if RE4DC_PS2_FX_STAGE1
+            const Ps2fxHaze* h = &kPs2Haze[i];
+            if ((h->gc_r || h->gc_g || h->gc_b) &&
+                (esp->m_Col_start_r != h->gc_r || esp->m_Col_start_g != h->gc_g || esp->m_Col_start_b != h->gc_b)) {
+                continue;
             }
 #endif
             return &kPs2Haze[i];
@@ -324,9 +355,19 @@ struct Ps2fxStreakCut {
     u8 tex;
     u16 del_far, del_near;
 };
-static const Ps2fxStreakCut kPs2StreakCut[2] = {
+#if RE4DC_PS2_FX_STAGE1
+#define PS2FX_STREAK_CUTS 5
+#else
+#define PS2FX_STREAK_CUTS 2
+#endif
+static const Ps2fxStreakCut kPs2StreakCut[PS2FX_STREAK_CUTS] = {
     {0x106, 0x32, 120, 70},   // r106 sst 0x08 records 2/3, sst 0x09 records 2/3 (windows, alpha 6)
     {0x106, 0x32, 100, 40},   // r106 sst 0x0b record 5 (alpha 4)
+#if RE4DC_PS2_FX_STAGE1
+    {0x102, 0x08, 250, 100}, // GC sst 01/14 removed; PS2 retains the other two streak signatures.
+    {0x104, 0x1e, 800, 600}, // GC sst 00/6 removed; no PS2 Esp0a record.
+    {0x107, 0x1e, 800, 600}, // GC sst 03/2 removed; no PS2 Esp0a record.
+#endif
 };
 #endif
 #if RE4DC_EFFECT_PS2_STREAK >= 2
@@ -381,6 +422,14 @@ static int Ps2fxClass(cEsp* esp)
     if (esp->info.owner != 0xD0) {
         return 0;
     }
+#if RE4DC_PS2_FX_STAGE1
+    // Both rooms have exactly two GC Esp48/d0 mist generators and no PS2 Esp48 record. Keep all
+    // source emissions, RNG and pool ownership; only their common native-sprite draw is omitted.
+    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48 && esp->m_Tex_id == 0xd0 &&
+        (G_ROOM_ID == 0x105 || G_ROOM_ID == 0x107)) {
+        return 1;
+    }
+#endif
 #if RE4DC_EFFECT_PS2_HAZE
     if (esp->m_Id == 0x15) {
         const Ps2fxHaze* h = Ps2fxHazeFor(esp);
@@ -441,7 +490,7 @@ static int Ps2fxClass(cEsp* esp)
 #if RE4DC_PS2_FX_ROOMS
     if ((re4dc_ps2fx & PS2FX_STREAK) && esp->m_Id == 0 && esp->m_Life_max == 0 && esp->m_Blend_type == 1) {
         const u16 room = G_ROOM_ID;
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < PS2FX_STREAK_CUTS; ++i) {
             const Ps2fxStreakCut* c = &kPs2StreakCut[i];
             if (c->room == room && esp->m_Tex_id == c->tex && esp->m_Del_far == c->del_far &&
                 esp->m_Del_near == c->del_near) {
