@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
+from audit_ps2_fx_recipes import core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
 
 
 def sample_eff(endian='<'):
@@ -142,6 +142,47 @@ class EffectRecipeAuditTests(unittest.TestCase):
         self.assertEqual(0, haze_indoor_selector([global_haze], global_haze))
         # EST sharing the signature cannot collide with the room-SST owner gate.
         self.assertEqual(0, haze_indoor_selector([global_haze, dict(global_haze, table='est')], global_haze))
+
+    def test_bounded_ear_decoder_preserves_relocated_area(self):
+        for endian in ('<','>'):
+            data = bytearray(0x20+0x10+0x98)
+            struct.pack_into(endian+'I',data,0,1)
+            struct.pack_into(endian+'I',data,16,0x20)
+            data[20:24] = bytes([69,65,82,0])
+            struct.pack_into(endian+'II',data,0x20,1,0)
+            data[0x30:0x33] = bytes([7,1,5])
+            data[0x35] = 1
+            struct.pack_into(endian+'11f',data,0x38,-2000,1500,3500,
+                             -100,-100,100,-100,100,100,-100,100)
+            result = decode_room_ear(data,endian)
+            self.assertEqual(5,result['rows'][0]['area'])
+            self.assertEqual(-2000,result['rows'][0]['floor'])
+            self.assertEqual([100,100],result['rows'][0]['points'][2])
+            with self.assertRaisesRegex(ValueError,'truncated EAR'):
+                decode_room_ear(data[:-1],endian)
+            struct.pack_into(endian+'I',data,0,100)
+            with self.assertRaisesRegex(ValueError,'table outside'):
+                decode_room_ear(data,endian)
+
+    def test_core_haze_contract_and_corrupt_tables(self):
+        for endian,magic in (('>',0x20AF30),('<',0x1000)):
+            data = bytearray(0x200)
+            struct.pack_into(endian+'12I',data,0,0xB,0x40,0,0,0,0,0x60,0x70,0,0,0,0)
+            struct.pack_into(endian+'I',data,0x40,2)
+            struct.pack_into(endian+'H',data,0x44,0x1e)
+            struct.pack_into(endian+'H',data,0x4c,0x1f)
+            struct.pack_into(endian+'III',data,0x60,2,0x40,0x60)
+            struct.pack_into(endian+'III',data,0x70,2,0x90,0xB0)
+            for offset in (0xa0,0xc0): struct.pack_into(endian+'II',data,offset,magic,1)
+            for offset in (0x100,0x120): struct.pack_into(endian+'HHhhHBBB',data,offset,128,128,0,0,1,1,1,0)
+            self.assertEqual({0x1e,0x1f},set(core_haze_animations(data,endian)))
+            struct.pack_into(endian+'h',data,0x104,1)
+            with self.assertRaisesRegex(ValueError,'animation contract'):
+                core_haze_animations(data,endian)
+            struct.pack_into(endian+'h',data,0x104,0)
+            struct.pack_into(endian+'I',data,0x74,0x200)
+            with self.assertRaisesRegex(ValueError,'outside bounds'):
+                core_haze_animations(data,endian)
 
     def test_population_lifecycle_and_trigger_changes_are_rejected(self):
         gc, ps2 = self.record(), self.record()

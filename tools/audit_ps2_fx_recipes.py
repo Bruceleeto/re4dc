@@ -39,6 +39,8 @@ REMAINING_HAZE_PAIRS = (
     ('r200', (0, 'est', 2, 0), (0, 'est', 2, 0)),
 )
 POPULATION_HAZE_PAIRS = (('r11b', (0, 'sst', 0, 0), (0, 'sst', 0, 1)),)
+STRUCTURAL_HAZE_PAIRS = (('r112', (0, 'sst', 2, 0), (0, 'sst', 8, 0)),
+                         ('r10f', (0, 'sst', 0, 1), (0, 'sst', 0, 1)))
 STREAK_CUTS = (
     ('r102', (0, 'sst', 1, 14), 1),
     ('r104', (0, 'sst', 0, 6), 1),
@@ -160,13 +162,13 @@ def steady_size(record):
     return result
 
 
-def haze_recipe(gc, ps2):
+def haze_recipe(gc, ps2, texture_qualification=None):
     for record in (gc, ps2):
         if record['id'] != 0x15 or record['kind'] != 1 or record['generator'] != 0:
             raise ValueError('expected camera-haze generator 0')
         if not math.isfinite(record['range']) or record['range'] <= 0:
             raise ValueError('invalid haze source box')
-    if gc['tex'] != ps2['tex']:
+    if gc['tex'] != ps2['tex'] and not (texture_qualification and gc['tex']==0x1e and ps2['tex']==0x1f):
         raise ValueError('texture changed; size-only recipe needs separate texture audit')
     # The existing renderer clips source positions; a larger PS2 box cannot
     # create source particles outside the GC box. This is a count estimate.
@@ -191,17 +193,21 @@ def haze_recipe(gc, ps2):
     }
 
 
-def population_recipe(gc, ps2):
+def population_recipe(gc, ps2, area_qualification=None, texture_qualification=None):
     """Qualify one immutable emitter identity; count exactness is a draw-selection property."""
-    haze_recipe(gc, ps2)
+    haze_recipe(gc, ps2, texture_qualification)
     expected = {'generator_type':0, 'generator_flags':0, 'generator_wait':0,
                 'generator_wait_random':0, 'generator_life':1, 'life_max':0,
                 'parts':0xFE, 'tool_flags':0, 'type':0}
     for record in (gc, ps2):
         for name, value in expected.items():
+            if name == 'tool_flags' and record is gc and texture_qualification:
+                value = 0x80
             if record[name] != value:
                 raise ValueError('unsupported population lifecycle: '+name)
-    if gc['area'] != ps2['area'] or gc['table'] != ps2['table']:
+    area_mapped = (area_qualification and gc['area']==0xFFFF and ps2['area']==5 and
+                   gc['table']==ps2['table']=='sst')
+    if (gc['area'] != ps2['area'] and not area_mapped) or gc['table'] != ps2['table']:
         raise ValueError('population mapping requires separate area or trigger qualification')
     source, target = gc['count_per_emission'], ps2['count_per_emission']
     if not 0 < target <= source <= 255:
@@ -228,12 +234,108 @@ def haze_indoor_selector(records, gc):
     return gc['work8'][3]+1
 
 
+def decode_room_ear(data, endian):
+    def read(fmt, offset):
+        width = struct.calcsize(endian+fmt)
+        if offset < 0 or offset+width > len(data):
+            raise ValueError('room/EAR field outside bounds')
+        return struct.unpack_from(endian+fmt, data, offset)
+    count, = read('I', 0)
+    if count > (len(data)-16)//8:
+        raise ValueError('room archive table outside bounds')
+    offsets = read('I'*count, 16)
+    matches = [i for i in range(count) if data[16+count*4+i*4:19+count*4+i*4]==b'EAR']
+    if len(matches) != 1:
+        raise ValueError('expected exactly one room EAR')
+    offset = offsets[matches[0]]
+    limit = min([x for x in offsets if x > offset]+[len(data)])
+    number, version = read('II', offset)
+    if version != 0 or offset+16+number*0x98 > limit:
+        raise ValueError('unsupported or truncated EAR records')
+    rows = []
+    for i in range(number):
+        e = offset+16+i*0x98
+        no, be, area = read('3B', e)
+        typ, = read('B', e+5)
+        floor, height, radius = read('3f', e+8)
+        points = [list(read('2f', e+20+8*j)) for j in range(4)]
+        flag, = read('I', e+0x34)
+        if not all(math.isfinite(v) for v in [floor,height,radius]+[v for xy in points for v in xy]):
+            raise ValueError('nonfinite EAR geometry')
+        rows.append({'index':i,'no':no,'be':be,'area':area,'type':typ,'floor':floor,
+                     'height':height,'radius':radius,'points':points,'flag':flag})
+    return {'offset':offset,'bytes':limit-offset,'version':version,'rows':rows}
+
+
+def qualify_area112(cache):
+    evidence = {}
+    for side, endian in (('gc','>'),('ps2','<')):
+        path = cache/('r112.'+side)
+        raw = path.read_bytes()
+        evidence[side] = dict(decode_room_ear(raw,endian),path=str(path),sha256=sha(raw))
+    gc = [r for r in evidence['gc']['rows'] if r['area']==5]
+    ps2 = [r for r in evidence['ps2']['rows'] if r['area']==5]
+    if gc or len(ps2)!=1 or ps2[0]['type']!=1 or ps2[0]['flag']!=0 or ps2[0]['be']!=1:
+        raise ValueError('r112 relocated area identity changed')
+    # These are the exact native float constants in the guarded renderer.
+    area = ps2[0]
+    if (area['floor'],area['height'],area['points']) != (
+            -22269.951171875,20741.060546875,
+            [[-20988.728515625,-14207.736328125],[5959.01904296875,-8866.1044921875],
+             [3484.49560546875,59716.26953125],[-21288.494140625,51728.37109375]]):
+        raise ValueError('r112 area constants no longer match runtime recipe')
+    evidence['scope'] = 'Read-only PS2 area5 draw activation; GC EAR and simulation area state are unchanged.'
+    return evidence
+
+
+def core_haze_animations(data, endian):
+    def read(fmt, offset):
+        width = struct.calcsize(endian+fmt)
+        if offset < 0 or offset+width > len(data):
+            raise ValueError('core texture field outside bounds')
+        return struct.unpack_from(endian+fmt,data,offset)
+    header = read('12I',0)
+    if header[0]!=0xB or not all(header[i] for i in (1,6,7)):
+        raise ValueError('missing core texture tables')
+    ids,tpls,anms = header[1],header[6],header[7]
+    counts = [read('I',x)[0] for x in (ids,tpls,anms)]
+    if len(set(counts))!=1 or counts[0]>(len(data)-ids-4)//8:
+        raise ValueError('core texture counts invalid')
+    result = {}
+    for i in range(counts[0]):
+        tex, = read('H',ids+4+8*i)
+        if tex not in (0x1e,0x1f): continue
+        if tex in result: raise ValueError('duplicate core haze texture')
+        anm = anms+read('I',anms+4+4*i)[0]
+        tpl = tpls+read('I',tpls+4+4*i)[0]
+        animation = read('HHhhHBBB',anm)
+        magic,num = read('II',tpl)
+        if magic != (0x20AF30 if endian=='>' else 0x1000) or num != 1:
+            raise ValueError('unsupported core haze TPL')
+        if animation != (128,128,0,0,1,1,1,0):
+            raise ValueError('core haze animation contract changed')
+        result[tex] = {'animation':animation,'anm_offset':anm,'tpl_offset':tpl}
+    if set(result)!={0x1e,0x1f}: raise ValueError('missing core haze textures')
+    return result
+
+
+def qualify_texture10f(gc_path, ps2_path):
+    if gc_path is None or ps2_path is None:
+        raise ValueError('structural audit requires --gc-core and --ps2-core')
+    result = {}
+    for side,path,endian in (('gc',gc_path,'>'),('ps2',ps2_path,'<')):
+        data = path.read_bytes()
+        result[side] = {'path':str(path),'sha256':sha(data),'textures':core_haze_animations(data,endian)}
+    result['scope'] = 'Use already resident GC core texture1f for PS2 source texture id1f; unchanged centered single-frame quad contract. No PS2 pixels are loaded.'
+    return result
+
+
 def streak_signature(record):
     return (record['tex'], record['blend'], record['del_far'], record['del_near'])
 
 
-def audit(cache, remaining=False, population=False):
-    haze_pairs = HAZE_PAIRS + (REMAINING_HAZE_PAIRS if remaining else ()) + (POPULATION_HAZE_PAIRS if population else ())
+def audit(cache, remaining=False, population=False, structural=False, gc_core=None, ps2_core=None):
+    haze_pairs = HAZE_PAIRS + (REMAINING_HAZE_PAIRS if remaining else ()) + (POPULATION_HAZE_PAIRS if population else ()) + (STRUCTURAL_HAZE_PAIRS if structural else ())
     streak_cuts = STREAK_CUTS + (REMAINING_STREAK_CUTS if remaining else ())
     sheet_cuts = SHEET_CUTS + (REMAINING_SHEET_CUTS if remaining else ())
     rooms = sorted({row[0] for row in haze_pairs + streak_cuts + sheet_cuts} | ({'r10d'} if remaining else set()))
@@ -259,14 +361,20 @@ def audit(cache, remaining=False, population=False):
             raise ValueError('reference is not unique: %s %s %r' % (room, side, reference))
         return found[0]
 
+    area112 = qualify_area112(cache) if structural else None
+    texture10f = qualify_texture10f(gc_core,ps2_core) if structural else None
     haze = []
     for room, gc_ref, ps_ref in haze_pairs:
         gc, ps2 = select(room, 'gc', gc_ref), select(room, 'ps2', ps_ref)
-        recipe = haze_recipe(gc, ps2)
+        area = area112 if room == 'r112' else None
+        texture = texture10f if room == 'r10f' else None
+        recipe = haze_recipe(gc, ps2, texture)
         recipe['gc_indoor_frames_plus_one'] = haze_indoor_selector(records[room, 'gc'], gc)
         recipe['owner'] = 0xD0 if gc['table']=='sst' else 1
         if population:
-            recipe['population'] = population_recipe(gc, ps2)
+            recipe['population'] = population_recipe(gc, ps2, area, texture)
+        if area: recipe['area_qualification'] = area
+        if texture: recipe['texture_qualification'] = texture
         haze.append({'room': room, 'gc': gc, 'ps2': ps2, 'recipe': recipe})
     streaks = []
     for room, ref, expected_count in streak_cuts:
@@ -386,11 +494,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'inventory'), default='first-group')
+    parser.add_argument('--gc-core', type=Path)
+    parser.add_argument('--ps2-core', type=Path)
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population'), args.scope == 'population')
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural'),
+             args.scope in ('population','structural'), args.scope=='structural', args.gc_core,args.ps2_core)
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

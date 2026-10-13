@@ -59,6 +59,7 @@ extern f32 ZFAR;
 #error PS2_FX_POPULATION needs PS2_FX_STAGE1 and EFFECT_PS2_HAZE
 #endif
 #include "ps2_fx_population.h"
+#include "area.h"
 #endif
 #ifndef RE4DC_EFFECT_PS2_HAZE
 #define RE4DC_EFFECT_PS2_HAZE 0
@@ -205,7 +206,7 @@ struct Ps2fxHaze {
 #define PS2FX_HAZE_ROOMS0 3
 #endif
 #if RE4DC_PS2_FX_STAGE1
-#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 19 + RE4DC_PS2_FX_POPULATION)
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 19 + 3 * RE4DC_PS2_FX_POPULATION)
 #elif RE4DC_PS2_FX_ROOMS
 #define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
 #else
@@ -283,6 +284,12 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r11b needs the population remap: clipping the GC box alone admits only about 2.47 of the 10 targets.
     {0x11b, 1, 178, 185, 185, 30, 5000.0f, (2000.0f * 2.0f) / (1731.402588f * 3.0f),
      12093.557f, 3000.0f, 500.0f, 178, 185, 185, 0, 0 PS2FX_POP_COUNTS(35, 10)},
+    // r112 moves the global GC source into PS2 EAR area 5 (read-only draw gate below).
+    {0x112, 6, 255, 255, 255, 34, 5000.0f, 1900.0f / 1099.955566f,
+     4000.199f, 3000.0f, 500.0f, 255, 255, 255, 0, 0 PS2FX_POP_COUNTS(59, 10)},
+    // r10f replaces source tex1e/RGBx4 with the already-resident centered tex1f in the selected draw.
+    {0x10f, 5, 165, 165, 165, 40, 4000.0f, 1900.0f / 1300.0f,
+     3800.0f, 3000.0f, 500.0f, 155, 155, 155, 0, 0 PS2FX_POP_COUNTS(48, 10)},
 #endif
 #endif
 };
@@ -343,6 +350,26 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
     return NULL;
 }
 #if RE4DC_PS2_FX_POPULATION
+// PS2 r112 EAR entry 6 (no 7, area 5), absent from the GC EAR. Use the existing read-only area test.
+static AreaXZ4 kPs2Area112 = {
+    -22269.951171875f, 20741.060546875f, 3500.0f,
+    {{-20988.728515625f, -14207.736328125f}, {5959.01904296875f, -8866.1044921875f},
+     {3484.49560546875f, 59716.26953125f}, {-21288.494140625f, 51728.37109375f}}
+};
+static int s_fx_area112;
+static int Ps2fxArea112()
+{
+    if (g_pEspSys && (g_pEspSys->Add_area_bit & (1U << 5))) return 1;
+    Vec pos;
+    if ((pG->Status_flg[2] & 0x10000) == 0) {
+        if (!pPL) return 0;
+        pos = pPL->pos;
+        pos.y += 100.0f;
+    } else {
+        pos = pG->Cam.param.pos;
+    }
+    return areaHitCheck_xz4(&kPs2Area112, &pos);
+}
 static ps2fx::Population s_fx_population;
 static u32 s_fx_population_frame, s_fx_population_slots;
 static u16 s_fx_population_room;
@@ -365,14 +392,18 @@ struct Ps2fxPopulationReader {
         key.source_count = h->gc_count;
         key.target_count = h->ps2_count;
         // An unexpected instance of the signature is explicit fallback, never accepted as the source emitter.
-        if (esp->m_Life_max || esp->m_Parts_no != 0xFE || esp->m_Tool_flg ||
-            esp->m_Type || esp->parent != pEffParentWorld) key.source_count = 0;
+        const u32 expected_tool = h->room == 0x10f ? 0x80U : 0U;
+        const u8 expected_tex = h->room == 0x10f ? 0x1e : 0x1f;
+        if (esp->m_Life_max || esp->m_Parts_no != 0xFE || esp->m_Tool_flg != expected_tool ||
+            esp->m_Tex_id != expected_tex || esp->m_Type || esp->parent != pEffParentWorld) key.source_count = 0;
         return true;
     }
 };
 static void Ps2fxPopulationBuild()
 {
     s_fx_population_valid = 1;
+    if (G_ROOM_ID != 0x112 || s_fx_population_room != G_ROOM_ID) s_fx_area112 = 0;
+    if (G_ROOM_ID == 0x112 && !(pG->Stop_flg & 0x20)) s_fx_area112 = Ps2fxArea112();
     s_fx_population_frame = pG->Frame_cnt;
     s_fx_population_room = G_ROOM_ID;
     s_fx_population_pool = g_pEspSys ? g_pEspSys->pEspBuf : NULL;
@@ -391,13 +422,15 @@ static void Ps2fxPopulationBuild()
     s_fx_population.build(s_fx_population_slots, Ps2fxPopulationReader());
     static ps2fx::Population::Stats last;
     static u16 last_room;
-    static int reported;
+    static int reported, last_area;
+    const int area_active = G_ROOM_ID == 0x112 ? s_fx_area112 : 1;
     const ps2fx::Population::Stats& st = s_fx_population.stats;
-    if (!reported || last_room != G_ROOM_ID || !(last == st)) {
-        re4dc_log("PS2FXPOP f=%u r=%03x slots=%u candidates=%u groups=%u selected=%u fallback=%u issues=%u\n",
+    if (!reported || last_room != G_ROOM_ID || last_area != area_active || !(last == st)) {
+        re4dc_log("PS2FXPOP f=%u r=%03x slots=%u candidates=%u groups=%u selected=%u fallback=%u issues=%u area=%d\n",
             (unsigned)pG->Frame_cnt, (unsigned)G_ROOM_ID, st.slots, st.candidates, st.groups,
-            st.selected, st.fallback, st.issues);
+            st.selected, st.fallback, st.issues, area_active);
         last = st;
+        last_area = area_active;
         last_room = G_ROOM_ID;
         reported = 1;
     }
@@ -655,6 +688,7 @@ static int Ps2fxClass(cEsp* esp)
         }
 #if RE4DC_PS2_FX_POPULATION
         const int population = Ps2fxPopulationState(esp, h);
+        if (h->room == 0x112 && !s_fx_area112) return 1;
         if (population >= 0) return population ? 0 : 1;
 #endif
         const u32 slot = (u32) ((u8*) esp - (u8*) g_pEspSys->pEspBuf) / 0x150;
@@ -731,7 +765,14 @@ static void EspSpriteEmit(cEsp* esp)
     // Local corners of g_EspCommonDisplayList in PVR sprite order A(0,1) B(1,1) C(1,0) D(0,0).
     static const f32 cx[4] = {0.0f, 1.0f, 1.0f, 0.0f}, cy[4] = {1.0f, 1.0f, 0.0f, 0.0f};
     static const f32 cu[4] = {0.0f, 1.0f, 1.0f, 0.0f}, cv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+#if RE4DC_PS2_FX_POPULATION
+    const Ps2fxHaze* population_haze = Ps2fxHazeFor(esp);
+    const int population_selected = Ps2fxPopulationState(esp, population_haze) == 1;
+    const unsigned draw_tex = population_selected && population_haze->room == 0x10f ? 0x1f : esp->m_Tex_id;
+    EspTexWk* tw = &g_pEspSys->Esp_tex_tbl[draw_tex];
+#else
     EspTexWk* tw = &g_pEspSys->Esp_tex_tbl[esp->m_Tex_id];
+#endif
     if (tw->Owner == 0xD2 || !tw->pTpl || esp->m_Ptn_no >= tw->pTpl->numDescriptors) {
         return;
     }
@@ -760,10 +801,8 @@ static void EspSpriteEmit(cEsp* esp)
     const f32 near_d = ortho ? 0.0f : P[6] / (P[5] - 1.0f), far_d = ortho ? 0.0f : P[6] / P[5];
     const Mtx& m = esp->m_Mat;
 #if RE4DC_PS2_FX_POPULATION
-    const Ps2fxHaze* population_haze = ortho ? NULL : Ps2fxHazeFor(esp);
-    const int population_selected = Ps2fxPopulationState(esp, population_haze) == 1;
     f32 shift_x = 0.0f, shift_y = 0.0f, shift_z = 0.0f;
-    if (population_selected) {
+    if (!ortho && population_selected) {
         // Remap only the camera-relative centre. Quad dimensions and every source particle field stay intact.
         const f32 change = population_haze->range / population_haze->gc_range - 1.0f;
         shift_x = (m[0][0] * 0.5f + m[0][1] * 0.5f + m[0][2] + m[0][3]) * change;
@@ -834,7 +873,11 @@ static void EspSpriteEmit(cEsp* esp)
         const f32 d = 1.0f / s.z[0];
         const Ps2fxEsp15Work* w = &static_cast<cPs2fxEsp15*>(esp)->m_Free;
         f32 fa = (f32) hz->a;
-        if (w->Room_del_frame != 0 && w->Room_del_cnt != 0) {
+        if (w->Room_del_frame != 0 && w->Room_del_cnt != 0
+#if RE4DC_PS2_FX_POPULATION
+            && hz->room != 0x112 // PS2 source Work8[3] is zero: no indoor fade for its area-5 haze.
+#endif
+            ) {
             const u32 cnt = w->Room_del_cnt < w->Room_del_frame ? w->Room_del_cnt : w->Room_del_frame;
             fa *= 1.0f - (f32) cnt / w->Room_del_frame;
         }

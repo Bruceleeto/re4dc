@@ -243,3 +243,34 @@ and interleaved pools, independent immutable identities, partial/ambiguous
 groups, every bound, repeated builds and byte-identical source inputs.
 Thirteen source-audit tests also reject lifecycle/trigger changes. No game
 build, replay, still, heap or device-cost gate is established by those tests.
+
+## Qualified area and texture changes
+
+The population knob additionally covers r112 and r10f (22 haze recipes total):
+
+- r112 keeps its 59 GC particles alive but selects ten haze draws only inside
+  PS2 EAR area 5. This polygon is absent from the GC EAR. The renderer uses the
+  exact PS2 float coordinates and the existing read-only `areaHitCheck_xz4`,
+  player/camera selection, player Y offset, forced area bit and stopped-area
+  behavior. It does not modify either EAR or the simulation area state. The
+  PS2 source has zero indoor-fade duration, so this recipe omits GC indoor fade.
+  `PS2FXPOP area=0/1` records activation changes as well as population changes.
+- r10f selects ten of 48 source haze particles and remaps their range to
+  4000 mm. Its selected native draw reads resident core texture 0x1f while the
+  source remains texture 0x1e. Both GC textures and their PS2 counterparts have
+  identical 128x128, centered, one-frame animation contracts. Source Tool_flg
+  0x80 (GC RGB x4) is explicitly qualified; PS2 haze draws use their supplied
+  RGBA without that multiplication. No texture upload or PS2 effect load is
+  added, and source texture/flags/motion remain unchanged.
+
+The source audit checks room-archive/EAR bounds, exact r112 polygon constants,
+core texture table counts and all four animation contracts. Fifteen host tests
+include truncated EAR, invalid table offsets and changed texture anchors.
+
+```sh
+python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --scope structural --gc-core /path/to/private/gc-core.EFF --ps2-core /path/to/private/ps2-core.EFF --output /path/to/new-structural-recipes.json
+```
+
+These are source qualifications. Runtime area transitions, missing-texture
+fallback, projected sprite appearance, all gates and device cost still require
+integration validation. r118's new haze and r11c's extra EST haze remain open.
