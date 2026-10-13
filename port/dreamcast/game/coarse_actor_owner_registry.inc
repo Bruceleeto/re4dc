@@ -768,13 +768,15 @@ extern "C" int re4dc_registry_covered_roles(const cModel* m,const Re4dcActorPlan
 }
 #endif
 #if RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23
-// em18_R0_Init sets 0x20 only on its robe (source BIN0xE/TPL0xF).
+// em18_R0_Init sets 0x20 on its robe (BIN0xE/TPL0xF), and
+// em18ClothPartsSet sets it on the closed/open coat (BIN0xC/0xB, TPL0xF).
 // This nominates the exact certified role; info() still requires white color,
 // no modifiers and exact visibility/pass bits, and source lighting checks it.
 extern "C" int re4dc_registry_merchant_robe(unsigned appearance,unsigned role,unsigned bin,unsigned tpl) {
     const auto* desc=registry_descriptor(appearance);
     return desc && desc->model_id==0x18u && desc->bones==61u && desc->sections==7u &&
-        role==1u && bin==0xEu && tpl==0xFu;
+        tpl==0xFu && ((role==1u && bin==0xEu) ||
+                     (role==5u && (bin==0xBu || bin==0xCu)));
 }
 #endif
 extern "C" int re4dc_registry_model(const cModel* m,const Re4dcActorPlan* p) {

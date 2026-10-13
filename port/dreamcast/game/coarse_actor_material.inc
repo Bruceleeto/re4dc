@@ -237,7 +237,7 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==3)expected|=2;
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==7)expected|=0x40;
 #if RE4DC_NATIVE_MODEL_REGISTRY && (RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23)
-    // The source merchant explicitly gives this robe its own material color.
+    // The source merchant explicitly gives its robe and selected coat their own material color.
     // Exact source-role ownership was proved before info(); all color/modifier
     // checks immediately below and the transaction lighting check still apply.
     if(re4dc_registry_merchant_robe(row.appearance,row.role,row.source_bin,row.source_tpl))expected|=0x20u;
