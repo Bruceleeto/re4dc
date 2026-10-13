@@ -38,6 +38,15 @@
 #include "fade.h"
 #include "snd.h"
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH23_PS2_ROOM 1
+#include "libgpu.h"
+#include "dolphin/os.h"
+#else
+#define CH23_PS2_ROOM 0
+#endif
+
 // Room 1-0f (D:/Bio4/Prog/r10f.cpp): the cable car; the ten gondola objects, getting on / off
 // with the partner, the Ganados riding along, the false-eye door and the lockers.
 
@@ -45,6 +54,9 @@ struct R10fWork {
     cObjGondola* gondola[10];  // 0x00
     int idx;                   // 0x28  gondola the player rides
     int pad_2C;
+#if CH23_PS2_ROOM
+    cEmWrap ps2Em[5]; // held 2E/2F/30, plus the 3D/49 visibility watchers
+#endif
 };
 
 // The work pointer as a one-member struct: every store through it reloads the pointer (Init's
@@ -81,6 +93,11 @@ static void r10f_LockerOpen(int id);
 static void r10f_LockerOpened(int id);
 static void r10f_TreasureBoxOpen(int id);
 static void r10f_TreasureBoxOpened(int id);
+#if CH23_PS2_ROOM
+static void r10f_ps2HeldArea();
+static void r10f_ps2Visibility();
+static void r10f_ps2Init();
+#endif
 
 // Room init: the three locked doors (area 2 = the false-eye door with its key-use watcher, area 0 -> door
 // 0x11D, area 3 -> 0x11E, each until its door_unlock[0] bit), ten cObjGondola cars with their loop
@@ -155,7 +172,86 @@ void R10fInit()
     SceSetItemEvent(0xB, 0x8E, 2, 0xF, (void (*)(int)) r10f_LockerOpen, (void (*)()) r10f_LockerOpened, 0x36, 0);
     SceSetItemEvent(0xC, 0x8D, 3, 0xE, (void (*)(int)) r10f_LockerOpen, (void (*)()) r10f_LockerOpened, 0x38, 0);
     SceSetItemEvent(0xE, 0x87, 4, 0x10, (void (*)(int)) r10f_TreasureBoxOpen, (void (*)()) r10f_TreasureBoxOpened, 0x5E, 0);
+#if CH23_PS2_ROOM
+    r10f_ps2Init();
+#endif
 }
+
+
+#if CH23_PS2_ROOM
+// PS2 USA st1_3.rel: R10fInit 0x66f0, held task 0x6d10, visibility
+// task 0x6bc0. r10f_015.AEV record 0x16 is type 2, player inside + once.
+static AreaData r10fPs2HeldArea = {1, AREA_TYPE_XZ4, 0, {{-18245.6914f, 1000.0f, 750.0f, {{19920.1445f, -154118.438f}, {23499.9902f, -154045.422f}, {23488.2246f, -148645.969f}, {19892.6465f, -148486.891f}}}}};
+
+// Append a PS2-only AEV record after its authored predecessor. Keep the free
+// native number: restored item areas may already use the PS2 logical numbers.
+// Runtime creation owns allocation/cleanup; the callbacks use save/event flags.
+static SceAtWork* r10f_ps2Area(SceAtWork* prev, AreaData* area, int type)
+{
+    if (prev == 0 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch23 r10f: unexpected AEV boundary");
+        return 0;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = area->u.xz4.p[i].x;
+        corners[i].y = area->u.xz4.floor;
+        corners[i].z = area->u.xz4.p[i].z;
+    }
+    int at = SceAtCreateExecAt(pPL, corners, 0, type == 4 ? 1 : 0x81,
+                             1, area->u.xz4.height, 2, 0.0f, 0.0f,
+                             0, 0, 0, 0, 0);
+    SceAtWork* w = at >= 0 ? SceAtPtr(at) : 0;
+    if (w == 0) {
+        OSPanic(__FILE__, __LINE__, "ch23 r10f: PS2 AEV allocation failed");
+        return 0;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) w);
+    w->area = *area;
+    w->type = type;
+    w->pParent = 0;
+    w->parentParts = 0;
+    w->angleRange = 45;
+    AddPrim((u32*) prev, (u32*) w);
+    return w;
+}
+
+static void r10f_ps2Init()
+{
+    SceAtWork* at = r10f_ps2Area(SceAtPtr(0x15), &r10fPs2HeldArea, 2);
+    if (at != 0 && RsfCheck(G_ROOM_ID, 6) == 0) {
+        SceAtDataSet_exec(at->no, SCE_LEVEL10, 0, (TaskFunc) r10f_ps2HeldArea, 0, 1);
+    }
+    SceExec(0x12, (TaskFunc) r10f_ps2Visibility, 0, 0, SCE_PRIO_DEF_2, 0);
+}
+
+static void r10f_ps2HeldArea()
+{
+    RsfSet(G_ROOM_ID, 6);
+    r10f_work.p->ps2Em[0].setEm(0x2E, -1, 0, 1, 1);
+    r10f_work.p->ps2Em[1].setEm(0x2F, -1, 0, 1, 1);
+    r10f_work.p->ps2Em[2].setEm(0x30, -1, 0, 1, 1);
+    SceExit();
+}
+
+static void r10f_ps2Visibility()
+{
+    SceSleep(2);
+    r10f_work.p->ps2Em[3].setPtr(0x3D, -1, 0);
+    r10f_work.p->ps2Em[4].setPtr(0x49, -1, 0);
+    for (;;) {
+        for (int i = 0; i < 2; i++) {
+            cEmWrap& em = r10f_work.p->ps2Em[3 + i];
+            if (em.isAlive()) {
+                int on = (pG->Room_flg[2] & (0x80000000u >> i)) != 0;
+                em.setMove(on);
+                em.setTrans(on);
+            }
+        }
+        SceSleep(1);
+    }
+}
+#endif
 
 // Per-frame room main: nothing.
 void R10fMain()
