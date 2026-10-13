@@ -30,6 +30,7 @@
 #include <string.h>
 
 extern "C" void re4dc_log(const char* fmt, ...);
+extern "C" void re4dc_draw_id_quad(const IdUnit*);  // ui_bridge.cpp
 extern cTexSys* g_pIdTexSys;
 int IdTexDataLoad(void* data, int id);
 void IdTexRelease(int id);
@@ -188,10 +189,30 @@ void re4dc_loadind_end()
 }
 
 // Main loop (main.cpp), after FadeControl(1): the PS2's second IdSys move/trans call.
+// The room set-up releases the frame's primitive buffer (pG->prim_cnt), so AddOtDirect overflows for most of a load
+// and an OT entry would never draw (test 9 stills: no banner; "AddOtDirect():PrimBuffer OVERFLOW!!" on every loading
+// frame). The indicator's units are therefore kept out of IdSys.trans (visible bit cleared around the call) and drawn
+// directly through the native id quad (ui_bridge.cpp, what IdCommonTrans does on the Dreamcast), on top of the fade.
 void re4dc_loadind_frame()
 {
     frames++;
     IdSys.move();
+    IdUnit* mine[4];
+    int n = 0;
+    for (int i = 0; i < IdSys.m_maxId && n < 4; i++) {
+        IdUnit* u = &IdSys.pUnit[i];
+        if (u->be_flag != 0xFF && u->classNo == kClass && (u->be_flag & 0x8)) {
+            u->be_flag &= ~0x8;
+            mine[n++] = u;
+        }
+    }
     IdSys.trans();
+    for (int k = 0; k < n; k++) {
+        IdUnit* u = mine[k];
+        u->be_flag = (u8) ((u->be_flag | 0x8) & ~0x10);
+        if ((u->be_flag & 0x1) && u->pParent == 0 && u->texId != 0xFF) {
+            re4dc_draw_id_quad(u);
+        }
+    }
 }
 }
