@@ -3576,7 +3576,128 @@ extern "C" void re4dc_ui_end_frame_skip(){
     re4dc_pcs_frame(frame+pace_skipped_frames);
 }
 #endif
+#if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+// DOOR_FREEZE=1 (Makefile, default 0; render only): the door transition's stop filter (src/game/filter09.cpp, the
+// GameCube's Filter09: the last picture frozen, spreading outwards, under the 120-frame fade while the next room loads;
+// Render() draws it every frame, also while System_flg 0x100000 stops Trans()).
+// Capture: the picture on screen (any RES mode: read through the display registers) into a 320x240 RGB565 stride
+// texture (150 KiB, pvr_mem_malloc). Draw: per frame the feedback terms as layered quads inside the source's scissor
+// band (y 56..424 of 480), then the source fades over them. Free: at the first frame start where the filter is off
+// (Filter09SetbUse(0) / FilterRoomInit) or a room texture preload is due, before any of the next room's uploads.
+extern "C" int re4dc_door_in_use(void);                        // filter09.cpp
+extern "C" unsigned re4dc_door_fades(unsigned* argb,unsigned max); // filter09.cpp
+namespace {
+constexpr unsigned kDoorW=320,kDoorH=240,kDoorBytes=kDoorW*kDoorH*2,kDoorMargin=32768,kDoorLayers=8;
+pvr_ptr_t door_tex;unsigned door_frame=~0U,door_steps,door_captures,door_draws;
+void door_release(const char* why){
+    if(!door_tex)return;
+#if RE4DC_PVR_PIPELINE
+    present_fence();
+#endif
+    if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready){re4dc_log("door freeze: release fence pending\n");return;}
+    pvr_mem_free(door_tex);door_tex=nullptr;
+    re4dc_log("door freeze: released (%s) frame=%u draws=%u free=%u\n",why,frame,door_draws,(unsigned)pvr_mem_available());
+}
+// One textured quad: the picture scaled by (kx, ky) about the screen centre, clipped to x 0..640, y 56..425 (the
+// source's GXSetScissor(0, 56, W, H - 111)), alpha a.
+void door_quad(float kx,float ky,unsigned a){
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565|PVR_TXRFMT_NONTWIDDLED|PVR_TXRFMT_X32_STRIDE,
+        512,256,door_tex,PVR_FILTER_BILINEAR);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    c.blend.src=PVR_BLEND_SRCALPHA;c.blend.dst=PVR_BLEND_INVSRCALPHA;c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.uv_clamp=PVR_UVCLAMP_NONE;
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);
+    alignas(32) pvr_vertex_t packet[5]{};std::uint32_t count;
+    re4dc::render::begin_pvr_packet(packet,count,header);
+    // Screen x = 320 + (u' - 0.5) * 640 kx for picture u' in 0..1; inverted at the clipped edges.
+    const float x0=0,x1=640,y0=56,y1=425;
+    const float u0=0.5f+(x0-320)/(640*kx),u1=0.5f+(x1-320)/(640*kx),v0=0.5f+(y0-240)/(480*ky),v1=0.5f+(y1-240)/(480*ky);
+    const float su=float(kDoorW)/512,sv=float(kDoorH)/256,layer=overlay_depth();
+    const float xs[]={x0,x1,x0,x1},ys[]={y0,y0,y1,y1},us[]={u0,u1,u0,u1},vs[]={v0,v0,v1,v1};
+    for(unsigned i=0;i<4;++i){auto& v=packet[count+i];v.flags=i==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
+        v.x=RE4DC_UI_X(xs[i]);v.y=RE4DC_UI_Y(ys[i]);v.z=layer;v.u=us[i]*su;v.v=vs[i]*sv;v.argb=(a<<24)|0xffffffU;v.oargb=0;}
+    stream_send(packet,sizeof(packet));
+}
+void door_fade(unsigned argb){
+    alignas(32) pvr_vertex_t v[5];
+    pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);std::memcpy(&v[0],&header,sizeof(header));
+    // fade.cpp fadeDraw: x 0..fbWidth, y 56..xfbHeight - 55.
+    const float xs[]={0,640,0,640},ys[]={56,56,425,425},layer=overlay_depth();
+    for(unsigned j=0;j<4;++j){auto& q=v[1+j];q.flags=j==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;q.x=RE4DC_UI_X(xs[j]);q.y=RE4DC_UI_Y(ys[j]);
+        q.z=layer;q.u=q.v=0;q.argb=argb;q.oargb=0;}
+    stream_send(v,sizeof(v));
+}
+void door_draw(){
+    if(!door_tex || door_frame!=frame)return;
+    // Terms j = 0..n of B(n): weight C(n,j) (1-a)^(n-j) a^j, scale S^j; past kDoorLayers the tail is folded into the
+    // last layer. Drawn back to front with "over" blending: alpha_j = w_j / sum_{i<=j} w_i.
+    const float a=64.0f/255.0f,sx=680.0f/640.0f,sy=520.0f/480.0f;
+    const unsigned n=door_steps;
+    float w[kDoorLayers+1]{};unsigned m=0;float c=1;
+    for(unsigned j=0;j<=n;++j){
+        if(j)c=c*float(n-j+1)/float(j);
+        float t=c;for(unsigned k=0;k<j;++k)t*=a;for(unsigned k=j;k<n;++k)t*=1-a;
+        if(j<=kDoorLayers)w[m++]=t;else w[kDoorLayers]+=t;
+    }
+    float sum=0,kx=1,ky=1;
+    for(unsigned j=0;j<m;++j){
+        sum+=w[j];
+        const unsigned al=j?unsigned(255.0f*w[j]/sum+0.5f):255U;
+        if(al)door_quad(kx,ky,al>255?255:al);
+        kx*=sx;ky*=sy;
+    }
+    unsigned fades[8];const unsigned nf=re4dc_door_fades(fades,8);
+    for(unsigned i=0;i<nf;++i)if(fades[i]>>24)door_fade(fades[i]);
+    ++door_draws;
+#if defined(RE4DC_DOOR_FREEZE_SLOW_MS) && RE4DC_DOOR_FREEZE_SLOW_MS
+    // Stills arms only (DOOR_FREEZE_SLOW_MS, test builds): every drawn door frame logged and held, so periodic
+    // framebuffer shots land about every 10 frames. Changes door wall time: never in a gate arm.
+    re4dc_log("door freeze: draw frame=%u steps=%u layers=%u fade0=%08x\n",frame,n,m,nf?fades[0]:0U);
+    {const auto t=timer_us_gettime64();while(timer_us_gettime64()-t<RE4DC_DOOR_FREEZE_SLOW_MS*1000ULL){}}
+#else
+    if(door_draws%30==1)re4dc_log("door freeze: draw frame=%u steps=%u layers=%u fade0=%08x\n",frame,n,m,nf?fades[0]:0U);
+#endif
+}
+}
+// filter09.cpp Filter09DrawBuffer on the capture frame (inside Render(), the frame's scene is open).
+extern "C" int re4dc_ui_door_capture(){
+    if(!ready)return 0;
+    const auto t0=timer_us_gettime64();
+    if(!door_tex){
+        const unsigned avail=unsigned(pvr_mem_available());
+        if(avail>=kDoorBytes+kDoorMargin)door_tex=pvr_mem_malloc(kDoorBytes);
+        if(!door_tex){re4dc_log("door freeze: no texture (free=%u)\n",avail);return 0;}
+    }
+    // The displayed field 1: start, words per line, lines, modulus (FB_R_SIZE), 16-bit RGB565 (FB_R_CTRL depth 1).
+    const std::uint32_t sof=PVR_GET(PVR_FB_ADDR)&(PVR_RAM_SIZE-1),size=PVR_GET(PVR_FB_SIZE),cfg=PVR_GET(PVR_FB_CFG_1);
+    const unsigned words=(size&0x3ffU)+1,lines=((size>>10)&0x3ffU)+1,mod=(size>>20)&0x3ffU;
+    const unsigned stride=(words+(mod?mod:1)-1)*4,pixels=words*2;
+    if(((cfg>>2)&3U)!=1U){re4dc_log("door freeze: frame buffer depth %u not RGB565\n",unsigned((cfg>>2)&3U));pvr_mem_free(door_tex);door_tex=nullptr;return 0;}
+    alignas(32) std::uint16_t row[kDoorW];
+    for(unsigned dy=0;dy<kDoorH;++dy){
+        const volatile std::uint16_t* src=reinterpret_cast<const volatile std::uint16_t*>(PVR_RAM_BASE+sof+(dy*lines/kDoorH)*stride);
+        if(pixels==640)for(unsigned dx=0;dx<kDoorW;++dx)row[dx]=src[2*dx];
+        else for(unsigned dx=0;dx<kDoorW;++dx)row[dx]=src[dx*pixels/kDoorW];
+        pvr_txr_load(row,reinterpret_cast<char*>(door_tex)+dy*kDoorW*2,kDoorW*2);
+    }
+    PVR_SET(PVR_TEXTURE_MODULO,kDoorW/32); // X32_STRIDE textures: 320 texels per row (no other stride user)
+    ++door_captures;
+    re4dc_log("door freeze: capture %u frame=%u fb=%06x size=%08x (%ux%u stride %u) us=%u free=%u\n",door_captures,frame,
+        unsigned(sof),unsigned(size),pixels,lines,stride,unsigned(timer_us_gettime64()-t0),(unsigned)pvr_mem_available());
+    return 1;
+}
+// filter09.cpp every frame the filter is in use: draw the picture after `steps` feedback steps at this frame's present.
+extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=steps;}
+#endif
 extern "C" void re4dc_ui_begin(){
+#if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+#if RE4DC_TEX_RESIDENT
+    if(door_tex && (!re4dc_door_in_use() || preload_pending))door_release(preload_pending?"preload due":"filter off");
+#else
+    if(door_tex && !re4dc_door_in_use())door_release("filter off");
+#endif
+#endif
 #if RE4DC_PACE_CATCHUP
     pace_skip_frame=false;
 #endif
@@ -3860,6 +3981,9 @@ extern "C" void re4dc_ui_present(){
 #endif
         ++drawn;
     }
+#endif
+#if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+    if(!re4dc_vi_black() && !stream_aborted)door_draw(); // over the frame's world and UI, as Render() ends with it
 #endif
 #if RE4DC_PACE_CATCHUP && RE4DC_PACE_DEBUG && RE4DC_PVR_STREAM
     {int pace_mode;if(re4dc_pace_note(&pace_mode) && !re4dc_vi_black())pace_note_draw(pace_mode);}

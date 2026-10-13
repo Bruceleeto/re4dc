@@ -25,7 +25,9 @@ extern "C" {
 void GXSetScissor(u32 left, u32 top, u32 wd, u32 ht);
 void Filter09Render();
 void Filter09GetEFB(int div, int div2);
+#if !(defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE)
 static void Filter09GXDraw(f32 x, f32 y, f32 z, f32 u, f32 v, f32 alpha, f32 s, f32 ofs, int div);
+#endif
 void Filter09DrawBuffer();
 void Filter09GetEFB_801D19E0();
 void Filter09SetbUse(int use, int spred);
@@ -88,11 +90,13 @@ void Filter09Render()
         return;
     }
     filter09_buff = GetDrawTmpBufAddr(12);
+#if !(defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE)  // DOOR_FREEZE: the picture is a PVR texture
     if (filter09_buff == 0) {
         pLog->warn(0, 0, "Filter09Trans() : not enough memory");
         return;
     }
     DCInvalidateRange(filter09_buff, 0x38000);
+#endif
     GXSetFog(0, 0.0f, 0.0f, ZNEAR, ZFAR, col);
     GXSetScissor(0, 56, SCR_W, SCR_H - 111);
     Filter09DrawBuffer();
@@ -100,6 +104,7 @@ void Filter09Render()
     LightMgr.setFog();
 }
 
+#if !(defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE)
 // Draws the buffer as a screen quad scaled by ofs around the centre.
 static void Filter09GXDraw(f32 x, f32 y, f32 z, f32 u, f32 v, f32 alpha, f32 s, f32 ofs, int div)
 {
@@ -122,9 +127,54 @@ static void Filter09GXDraw(f32 x, f32 y, f32 z, f32 u, f32 v, f32 alpha, f32 s, 
     GXColor4u8(0xFF, 0xFF, 0xFF, (u8) alpha);
     GXTexCoord2f32(u + 0.0f, v + 1.0f);
 }
+#endif
 
 // Captures the frame when requested, draws it back, and with g_bSpred adds the expanding
 // fade_alpha/fade_scale copy and recaptures (feedback ripple).
+#if defined(RE4DC_DOOR_FREEZE) && RE4DC_DOOR_FREEZE
+// DOOR_FREEZE=1 (Makefile, default 0; render only): the Dreamcast version of the frame below. The capture copies the
+// displayed picture into a 320x240 PVR texture (re4dc_ui_door_capture). GameCube frame n (n = 1 the capture frame)
+// shows B(n) = (1 - a) B(n-1) + a S(B(n-1)), a = 64/255, S = the copy enlarged by fade_scale px per side, and
+// recaptures it: B(n) = sum_j C(n, j) (1 - a)^(n-j) a^j S^j(B0). native_ui.cpp draws those terms as layered quads
+// (scale S^j, exact blend weights) inside the scissor band; the source fades (FadeControl runs after Render() in the
+// same frame) are drawn over it at present time, in the same order.
+extern "C" int re4dc_ui_door_capture(void);
+extern "C" void re4dc_ui_door_queue(unsigned steps);
+static unsigned door_steps;
+void Filter09DrawBuffer()
+{
+    if (g_bGet == 1) {
+        g_bGet = 0;
+        re4dc_ui_door_capture();
+        door_steps = 0;
+    }
+    if (g_bSpred == 1) {
+        ++door_steps;
+    }
+    re4dc_ui_door_queue(door_steps);
+}
+// native_ui.cpp: the filter's picture stays allocated while in use.
+extern "C" int re4dc_door_in_use(void)
+{
+    return g_bUse;
+}
+#include "fade.h"
+// native_ui.cpp at present: the active source fades (normal group, then late group), as FadeControl draws them.
+extern "C" unsigned re4dc_door_fades(unsigned* argb, unsigned max)
+{
+    unsigned n = 0;
+    for (int late = 0; late < 2; ++late) {
+        for (int i = 0; i < 4 && n < max; ++i) {
+            const FadeWork* f = &Fade[i];
+            if (((f->flags & 4) != 0) != (late != 0) || !(f->flags & 3)) {
+                continue;
+            }
+            argb[n++] = ((u32) f->cur.a << 24) | ((u32) f->cur.r << 16) | ((u32) f->cur.g << 8) | f->cur.b;
+        }
+    }
+    return n;
+}
+#else
 void Filter09DrawBuffer()
 {
     Mtx44 proj;
@@ -182,6 +232,7 @@ void Filter09DrawBuffer()
     GXSetZMode(1, 3, 1);
     GXSetAlphaUpdate(1);
 }
+#endif
 
 // Requests a fresh capture of the frame on the next render.
 void Filter09GetEFB_801D19E0()

@@ -293,6 +293,22 @@ $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/letterbox_clip.o: PLATFORM_CPP
 $(OBJDIR)/platform/letterbox_clip.o: PLATFORM_CPPFLAGS += -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_LETTERBOX_CLIP=$(LETTERBOX_CLIP)
 endif
+# DOOR_FREEZE=1 (test 9 lane DOOR, default 0; render only): the door transition's stop filter (src/game/filter09.cpp,
+# Filter09) on the PVR: the picture on screen frozen into a 320x240 RGB565 texture (150 KiB, only while the filter is
+# in use, freed before the next room's texture preload), drawn every frame with the source's spreading feedback as
+# layered quads, under the source fades (platform/native_ui.cpp DOOR_FREEZE). 0 = today's black door.
+DOOR_FREEZE ?= 0
+ifeq ($(filter $(DOOR_FREEZE),0 1),)
+$(error DOOR_FREEZE must be 0 or 1)
+endif
+ifneq ($(DOOR_FREEZE),0)
+$(OBJDIR)/src/game/filter09.o: GAME_CPPFLAGS += -DRE4DC_DOOR_FREEZE=$(DOOR_FREEZE)
+endif
+# DOOR_FREEZE_SLOW_MS=n (stills arms only, default 0): each drawn door frame logs and waits n ms (frame sequences).
+DOOR_FREEZE_SLOW_MS ?= 0
+ifneq ($(DOOR_FREEZE_SLOW_MS),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DOOR_FREEZE_SLOW_MS=$(DOOR_FREEZE_SLOW_MS)
+endif
 SDK_OBJS = $(patsubst platform/sdk/gen/%.c,$(OBJDIR)/sdk/%.o,$(SDK_GEN))
 NATIVE_REUSE_OBJS = $(OBJDIR)/native-reuse/source_lighting.o $(OBJDIR)/native-reuse/native_draw_plan.o $(OBJDIR)/native-reuse/pvr_geometry.o $(OBJDIR)/native-reuse/gpu_lifecycle.o $(OBJDIR)/native-reuse/texture_package.o $(OBJDIR)/native-reuse/room_storage.o $(OBJDIR)/ui_bridge.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/motion_bridge.o $(OBJDIR)/parts_bridge.o
 # Native static room packages (NATIVE_STATIC below); default images carry none of it.
@@ -1125,6 +1141,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_KEEP %s\n#define RE4DC_PVR_LATCH %s\n' '$(TEX_KEEP)' '$(PVR_LATCH)' >> $@.tmp
 	@printf '#define RE4DC_MOVIE_WINDOW %s\n' '$(MOVIE_WINDOW)' >> $@.tmp
+	@printf '#define RE4DC_DOOR_FREEZE %s\n' '$(DOOR_FREEZE)' >> $@.tmp
 	@printf '#define RE4DC_PVR_READY_STRICT %s\n#define RE4DC_PVR_RECOVER %s\n' '$(PVR_READY_STRICT)' '$(PVR_RECOVER)' >> $@.tmp
 	@printf '#define RE4DC_PVR_MID_FENCE %s\n#define RE4DC_TA_HEADROOM %s\n' '$(PVR_MID_FENCE)' '$(TA_HEADROOM)' >> $@.tmp
 	@if [ "$(MOVIE_WINDOW)" = 1 ] && { [ "$(VRAM_PAGES)" != 1 ] || [ "$(TEX_RESIDENT)" != 1 ]; }; then echo 'MOVIE_WINDOW=1 needs VRAM_PAGES=1 TEX_RESIDENT=1' >&2; exit 1; fi
