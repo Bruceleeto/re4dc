@@ -1,3 +1,4 @@
+#include "actor_ganado_ps2_stump.h"
 #ifndef RE4DC_ACTOR_GANADO_APP0_GRIP
 #define RE4DC_ACTOR_GANADO_APP0_GRIP 0
 #endif
@@ -286,6 +287,9 @@ static const Texture t_extra_485[] = {
 static const Texture t_extra_486[] = {
 {137436048u,3095878342u,128u,128u,14u,{1u,1u,1u,1u,0u,0u,0u,0u},4294967295u,{0u,0u,0u}},
 };
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+#include "actor_material_records_ps2_stump.inc"
+#endif
 #if RE4DC_ACTOR_PL08
 #include "actor_material_records_pl08.inc"
 #endif
@@ -351,6 +355,9 @@ static const Role roles[] = {
 #if RE4DC_ACTOR_GANADO_APP0_GRIP
 #include "actor_material_records_app0_grip.inc"
 #endif
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+{2u,1u,479u,477u,&m_ps2_stump_479,t_em15_477,3u},
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_roles.inc"
 #endif
@@ -382,6 +389,9 @@ static const SourceBlob source_blobs[] = {
 {&m_extra_456,2u,456u,{5952u,3566550875u,4284573839u}},
 {&m_extra_467,2u,467u,{4256u,3007827131u,2804973797u}},
 {&m_extra_484,2u,484u,{6528u,1573052172u,1172918242u}},
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+{&m_ps2_stump_479,2u,479u,{2976u,1450011754u,3920562518u}},
+#endif
 #if RE4DC_ACTOR_PL08
 #include "actor_material_records_pl08_blobs.inc"
 #endif

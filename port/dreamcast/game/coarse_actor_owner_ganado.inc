@@ -3,6 +3,9 @@
 #include "coarse_actor_transaction.h"
 #include "actor_lifetime.h"
 #include "ganado_source_extras.h"
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+#include "coarse_actor_geometry_once.h"
+#endif
 namespace {
 unsigned owner_binding_revision[32]{};
 unsigned char owner_info_count[32]{};
@@ -142,6 +145,33 @@ const ganado_extra::Chunk* owner_original_chunk(unsigned role) {
     if((role==2 && bin==451) || (role==3 && bin==456) || role==4)return ganado_extra::find(bin);
     return nullptr;
 }
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+// em10HeadSet selects this exact source BIN when the type-3 head is lost.
+// Role binding proves BIN479 / TPL477 and the current source lifetime first.
+bool owner_ps2_stump_selected() {
+    return bound->appearance==2 && owner_source_bin[owner_current_slot][1]==479;
+}
+alignas(32) unsigned char owner_stump_groups[ganado_ps2_stump::skin_stream_bytes];
+unsigned owner_stump_group_count,owner_stump_state;
+bool owner_ps2_stump_ready() {
+    if(owner_stump_state)return owner_stump_state==1;
+    owner_stump_state=2;
+    const auto& s=ganado_ps2_stump::head;
+    const auto& t=gc::textures[gc::appearance_texture[2]];
+    if(std::strcmp(gc::appearance_names[2],"ganado-em15-03") ||
+       t.crc!=ganado_ps2_stump::atlas_crc || t.fnv!=ganado_ps2_stump::atlas_fnv || t.width!=512 || t.height!=512 ||
+       std::memcmp(gc::bind[2],ganado_ps2_stump::bind,sizeof(gc::bind[2])) ||
+       std::memcmp(gc::parents,ganado_ps2_stump::parents,sizeof(gc::parents)) ||
+       s.source_info!=1 || s.triangles!=90 || s.palette_count!=6)return false;
+    re4dc_source::ChunkProof proof{};
+    const auto input=RE4DC_OWNER_INPUT(ganado_ps2_stump,head,ganado_ps2_stump::head,34);
+    if(re4dc_actor_immutable_chunk_proof(kRe4dcGanadoStumpAsset,input,proof)!=re4dc_source::BlobError::None)return false;
+    unsigned char used[kBones]{};
+    if(coarse_group_build(s.weights,s.palette_count,owner_stump_groups,sizeof(owner_stump_groups),
+                          &owner_stump_group_count,used)!=sizeof(owner_stump_groups))return false;
+    owner_stump_state=1;return true;
+}
+#endif
 int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
 #if RE4DC_ACTOR_BIND_REUSE
     if(!owner_ganado_bind_tx(m) ||
@@ -149,6 +179,11 @@ int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output
     if(!owner_ganado_bind(m) ||
 #endif
        bound->appearance!=p.appearance || p.count!=owner_info_count[owner_current_slot] || !skin_init(owner_tier_app(p)))return 0;
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+    const bool stump=owner_ps2_stump_selected();
+    if(stump!=(p.immutable_asset_id[1]==kRe4dcGanadoStumpAsset) ||
+       (stump && (owner_tier_app(p)!=2 || !owner_ps2_stump_ready())))return 0;
+#endif
     for(unsigned i=0;i<p.count;++i)
         if(p.info[i]!=(i<4?bound->infos[i]:owner_extra_info[owner_current_slot]) || !output[i])return 0;
     Mtx inv;if(!PSMTXInverse(m->pParts->mat,inv))return 0;
@@ -157,6 +192,9 @@ int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output
     // Extra source palettes may reference bones absent from the reduced body.
     // Only those actors evaluate all34 matrices; default actors retain the set.
     bool extra=false;for(unsigned i=2;i<p.count;++i)extra|=owner_original_chunk(i)!=nullptr;
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+    extra|=stump;
+#endif
     const unsigned used=extra?kBones:skin_used[ta];
     for(unsigned u=0;u<used;++u) {
         const unsigned b=extra?u:skin_bone[ta][u];
@@ -164,6 +202,15 @@ int owner_ganado_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output
     }
     re4dc_coarse_skin_bones(invx,skin_jobs,used);
     for(unsigned i=0;i<p.count;++i) {
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+        if(stump && i==1) {
+            const unsigned palettes=ganado_ps2_stump::head.palette_count;
+            if(p.input[i].palette_count!=palettes)return 0;
+            re4dc_coarse_skin_groups(owner_stump_groups,owner_stump_group_count,&bone_T[0][0],output[i],palettes);
+            for(unsigned j=0;j<palettes*12;++j)if(!coarse_finite(output[i][j]))return 0;
+            continue;
+        }
+#endif
         const auto* source=owner_original_chunk(i);
         const unsigned palettes=source?source->palette_count:cast_chunk(ta,i).palette_count;
         if(p.input[i].palette_count!=palettes)return 0;
@@ -189,6 +236,9 @@ bool owner_add_source_material(cModel* m,Re4dcActorPlan& p,unsigned role,unsigne
 extern "C" int re4dc_ganado_early_ready(cModel* m) {
     if(!owner_ganado_bind(m) || owner_info_count[owner_current_slot]!=4 || !m->pParts ||
        !skin_init(bound->appearance))return 0;
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+    if(owner_ps2_stump_selected())return 0;
+#endif
     for(unsigned role=0;role<4;++role) {
         if(owner_original_chunk(role) || gc::chunks[bound->appearance][role].palette_count>256)return 0;
         for(unsigned j=0;j<12;++j)if(!coarse_finite((&bound->infos[role]->mat[0][0])[j]))return 0;
@@ -973,6 +1023,10 @@ extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
     if(!out || !owner_ganado_bind(m))return 0;
 #endif
     Re4dcActorPlan p{};const unsigned a=bound->appearance,t=gc::appearance_texture[a];
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+    const bool stump=owner_ps2_stump_selected();
+    if(stump && !owner_ps2_stump_ready())return 0;
+#endif
     p.count=owner_info_count[owner_current_slot];p.appearance=a;p.image=image_of(t);p.crc=RE4DC_GC_KEYS[t].crc;p.fnv=RE4DC_GC_KEYS[t].fnv;p.palettes=owner_ganado_palettes;
 #define RE4DC_GANADO_ROLE(app,role,prefix) re4dc_actor::plan_chunk(p,role,bound->infos[role],gc::chunks[app][role],RE4DC_OWNER_INPUT(ganadocast,prefix,gc::chunks[app][role],34))
 #define RE4DC_GANADO_APP(app) \
@@ -980,7 +1034,11 @@ extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
               RE4DC_GANADO_ROLE(app,2,a##app##_i2);RE4DC_GANADO_ROLE(app,3,a##app##_i3);break
     owner_plan_app=a;
 #if RE4DC_CROWD_FAR
-    if(re4dc_crowd_far(m) && skin_init(a+kApps)) {
+    if(
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+       !stump &&
+#endif
+       re4dc_crowd_far(m) && skin_init(a+kApps)) {
 #define RE4DC_GANADO_FAR_ROLE(app,role,prefix) re4dc_actor::plan_chunk(p,role,bound->infos[role],gc::far::chunks[app][role],RE4DC_OWNER_INPUT(ganadocast::far,prefix,gc::far::chunks[app][role],34))
 #define RE4DC_GANADO_FAR_APP(app) \
     case app: RE4DC_GANADO_FAR_ROLE(app,0,a##app##_i0);RE4DC_GANADO_FAR_ROLE(app,1,a##app##_i1); \
@@ -1002,6 +1060,15 @@ extern "C" int re4dc_actor_plan_ganado(cModel* m,Re4dcActorPlan* out) {
 #undef RE4DC_GANADO_ROLE
     p.material_count=1;p.materials[0].image=p.image;p.materials[0].crc=p.crc;p.materials[0].fnv=p.fnv;
     for(unsigned role=0;role<p.count;++role) {
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+        if(stump && role==1) {
+            p.palette_bytes-=(p.input[role].palette_count*48u+31u)&~31u;
+            re4dc_actor::plan_chunk(p,role,bound->infos[role],ganado_ps2_stump::head,
+                                   RE4DC_OWNER_INPUT(ganado_ps2_stump,head,ganado_ps2_stump::head,34));
+            p.immutable_asset_id[role]=kRe4dcGanadoStumpAsset;
+            owner_plan_app=kTierApps;  // kStumpGateApp when pregating is enabled
+        }
+#endif
         if(const auto* source=owner_original_chunk(role)) {
             if(role<4)p.palette_bytes-=(p.input[role].palette_count*48u+31u)&~31u;
             auto* info=role<4?bound->infos[role]:owner_extra_info[owner_current_slot];

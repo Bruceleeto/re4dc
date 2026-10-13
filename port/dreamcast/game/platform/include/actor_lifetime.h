@@ -4,7 +4,12 @@
 #endif
 class cModel;
 class cModelInfo;
+#include "actor_ganado_ps2_stump.h"
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+#define RE4DC_ACTOR_MATERIAL_RECORD_REVISION 0x20261013u
+#else
 #define RE4DC_ACTOR_MATERIAL_RECORD_REVISION 0x20260930u
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 extern "C" {
 // Called from the EXISTING successful UI archive adoption, with the same real

@@ -72,6 +72,11 @@ PRESETS = {
     'ganado-em17-0c': dict(_ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]), model_id=0x17),
     'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
                            tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
+    # em10HeadSet's type-3 lost-head source variant. Keep all four source roles
+    # while converting so its PS2 image0 uses exactly the normal app2 atlas.
+    'ganado-em13-03-stump': dict(archive='em13',
+        sections=[(476, 'body'), (479, 'head'), (448, 'right-hand'), (453, 'left-hand')],
+        tpl=477, rooms=['r11c'], types=[3], category='human'),
     # non-Ganado models for NATIVE_MODEL_REGISTRY packs (ps2_cast.py regcast; lane ps2cast-all): src/em2b em2b.cpp
     # type 0 (TYPE_A) modelInit(ARC 5, ARC 7) + ModInfoMgr.create(ARC 6, ARC 7): body + head, one 64-bone skeleton
     'gigante-em2b-00': dict(archive='em2b', sections=[(5, 'body'), (6, 'head')], tpl=7, rooms=['r119'], types=[0],
