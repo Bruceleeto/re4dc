@@ -3599,6 +3599,11 @@ pvr_ptr_t door_tex;unsigned door_frame=~0U,door_steps,door_captures,door_draws,d
 // LOAD_INDICATOR + DOOR_FREEZE: the first UI quad drawn after FadeControl (the PS2 loading banner); the picture and the
 // fades go under it, as the PS2 draws the banner after the fade. ~0U = none this frame (draw order unchanged).
 unsigned door_ui_mark=~0U;
+// The last frame that drew the loading banner: the room set-up turns the filter off (FilterRoomInit) while the banner is
+// still up, so the hold below also lasts while the banner is drawn (else the held frame is the bare clear colour +
+// the banner). Never set without LOAD_INDICATOR.
+unsigned door_banner_frame=~0U;
+bool door_hold_now(){return re4dc_door_in_use()!=0 || door_banner_frame==frame;}
 void door_release(const char* why){
     if(!door_tex)return;
 #if RE4DC_PVR_PIPELINE
@@ -3608,7 +3613,7 @@ void door_release(const char* why){
     pvr_mem_free(door_tex);door_tex=nullptr;
     // Freed for the next room's preload while the filter is still on (the load continues): its frames would be empty
     // (black); they are not presented, so the last frozen picture stays on screen until the filter goes off.
-    door_held=re4dc_door_in_use()!=0;
+    door_held=door_hold_now();
     re4dc_log("door freeze: released (%s) frame=%u draws=%u free=%u\n",why,frame,door_draws,(unsigned)pvr_mem_available());
 }
 // One textured quad: the picture scaled by (kx, ky) about the screen centre, clipped to x 0..640, y 56..425 (the
@@ -3719,7 +3724,7 @@ extern "C" int re4dc_ui_door_capture(){
 // filter09.cpp every frame the filter is in use: draw the picture after `steps` feedback steps at this frame's present.
 extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=steps;}
 // load_indicator.cpp (LOAD_INDICATOR with DOOR_FREEZE): the banner's quads start here.
-extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;}
+extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;door_banner_frame=frame;}
 #endif
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
@@ -4149,7 +4154,7 @@ extern "C" void re4dc_ui_end_frame(int present){
     const auto render_end=timer_us_gettime64();
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
     if(door_held){
-        if(re4dc_door_in_use()){present=0;++door_held_frames;}
+        if(door_hold_now()){present=0;++door_held_frames;}
         else {re4dc_log("door freeze: hold ended frame=%u held=%u\n",frame,door_held_frames);door_held=false;door_held_frames=0;}
     }
 #endif
