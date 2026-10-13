@@ -37,7 +37,7 @@ def fixture(root, clips=None, hot=None):
 def headers(root):
     (root/'kos').mkdir(exist_ok=True)
     (root/'kos/fs.h').write_text('#pragma once\n#include <sys/types.h>\nusing file_t=int;\n#define FILEHND_INVALID -1\nint fs_open(const char*,int);int fs_close(int);ssize_t fs_total(int);ssize_t fs_read(int,void*,size_t);\n')
-    (root/'kos.h').write_text('#pragma once\n#include <kos/fs.h>\n#include <fcntl.h>\n#include <cstdint>\nextern thread_local void* thd_current;\nint irq_disable();void irq_restore(int);void thd_pass();std::uint64_t timer_us_gettime64();\n')
+    (root/'kos.h').write_text('#pragma once\n#include <kos/fs.h>\n#include <fcntl.h>\n#include <cstdint>\nextern thread_local void* thd_current;\nint irq_disable();void irq_restore(int);void thd_pass();void thd_sleep(unsigned);std::uint64_t timer_us_gettime64();\n')
     (root/'kos/net.h').write_text('#pragma once\n#include <cstdint>\nstd::uint32_t net_crc32le(const std::uint8_t*,int);\n')
     (root/'kos/mutex.h').write_text('#pragma once\n#include <mutex>\nusing mutex_t=std::mutex;\n#define MUTEX_INITIALIZER {}\ninline int mutex_lock(mutex_t* p){p->lock();return 0;}\ninline int mutex_unlock(mutex_t* p){p->unlock();return 0;}\n')
 
@@ -66,6 +66,7 @@ thread_local void* thd_current=reinterpret_cast<void*>(1);
 std::recursive_mutex irq;thread_local unsigned irq_depth;
 int irq_disable(){irq.lock();++irq_depth;return 0;}void irq_restore(int){--irq_depth;irq.unlock();}
 void thd_pass(){std::this_thread::yield();}
+void thd_sleep(unsigned ms){std::this_thread::sleep_for(std::chrono::milliseconds(ms));}
 std::uint64_t timer_us_gettime64(){return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 std::uint32_t net_crc32le(const std::uint8_t* p,int n){return ::crc32(0,p,n);}
 std::string root;
