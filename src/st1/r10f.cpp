@@ -56,9 +56,15 @@ static R10fWorkPtr r10f_work;
 
 // The gondola sub-motion works: 0xD0 bytes each in the original build (motion.h's MotionWork is
 // the later 0xDC layout).
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+// The PS2 also allocates ten complete native motion records (st1_3.rel 0x6844,
+// 0x6918). The fixed recovered GC stride below must not size Dreamcast work.
+typedef MotionWork R10fMotWork;
+#else
 struct R10fMotWork {
     u8 buf[0xD0];
 };
+#endif
 
 // Pointer store through a reference: the work pointer and the element are reloaded after it.
 static inline void PSet(cObjGondola*& d, cObj* v) { d = (cObjGondola*) v; }
@@ -206,7 +212,11 @@ static void r10f_GondolaGetOn(int side)
         {
             cPlayer* pl = pPL;
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+            pl->setPos(&posA[side]);
+#else
             r10f_setPosA(pl, (R10fGondolaTbl*) mot, side);
+#endif
             ang.x = 0.0f;
             pa->y = ry;
             ang.z = 0.0f;
@@ -219,7 +229,11 @@ static void r10f_GondolaGetOn(int side)
             {
                 cSubChar* s = pSUB;
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+                s->setPos(&posB[side]);
+#else
                 r10f_setPosB(s, (R10fGondolaTbl*) mot, side);
+#endif
                 ang.x = 0.0f;
                 pa->y = ry;
                 ang.z = 0.0f;
@@ -341,7 +355,11 @@ static void r10f_GondolaGetOff(int side)
         {
             cPlayer* pl = pPL;
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+            pl->setPos(&posA[side]);
+#else
             r10f_setPosA(pl, (R10fGondolaTbl*) mot, side);
+#endif
             ang.x = 0.0f;
             pa->y = ry;
             ang.z = 0.0f;
@@ -354,7 +372,11 @@ static void r10f_GondolaGetOff(int side)
             {
                 cSubChar* s = pSUB;
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+                s->setPos(&posB[side]);
+#else
                 r10f_setPosB(s, (R10fGondolaTbl*) mot, side);
+#endif
                 ang.x = 0.0f;
                 pa->y = ry;
                 ang.z = 0.0f;
