@@ -3620,13 +3620,13 @@ void door_quad(float kx,float ky,unsigned a){
         v.x=RE4DC_UI_X(xs[i]);v.y=RE4DC_UI_Y(ys[i]);v.z=layer;v.u=us[i]*su;v.v=vs[i]*sv;v.argb=(a<<24)|0xffffffU;v.oargb=0;}
     stream_send(packet,sizeof(packet));
 }
-void door_fade(unsigned argb){
+void door_fade(unsigned argb,float y0=56,float y1=425){
     alignas(32) pvr_vertex_t v[5];
     pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);std::memcpy(&v[0],&header,sizeof(header));
     // fade.cpp fadeDraw: x 0..fbWidth, y 56..xfbHeight - 55.
-    const float xs[]={0,640,0,640},ys[]={56,56,425,425},layer=overlay_depth();
+    const float xs[]={0,640,0,640},ys[]={y0,y0,y1,y1},layer=overlay_depth();
     for(unsigned j=0;j<4;++j){auto& q=v[1+j];q.flags=j==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;q.x=RE4DC_UI_X(xs[j]);q.y=RE4DC_UI_Y(ys[j]);
         q.z=layer;q.u=q.v=0;q.argb=argb;q.oargb=0;}
     stream_send(v,sizeof(v));
@@ -3652,6 +3652,9 @@ void door_draw(){
     }
     unsigned fades[8];const unsigned nf=re4dc_door_fades(fades,8);
     for(unsigned i=0;i<nf;++i)if(fades[i]>>24)door_fade(fades[i]);
+    // The game's letterbox bars are not drawn during the door: outside the band the frame showed the fogged scene
+    // (Flycast r100 -> r101: grey-tan bars). Black bars, as the GameCube / PS2 door.
+    door_fade(0xff000000U,0,56);door_fade(0xff000000U,425,480);
     ++door_draws;
 #if defined(RE4DC_DOOR_FREEZE_SLOW_MS) && RE4DC_DOOR_FREEZE_SLOW_MS
     // Stills arms only (DOOR_FREEZE_SLOW_MS, test builds): every drawn door frame logged and held, so periodic
