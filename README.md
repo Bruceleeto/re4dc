@@ -8,7 +8,7 @@ The recovered GameCube code runs the gameplay, collision and enemy AI. A native 
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
 **[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)** ·
-[Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
+[Known issues](port/dreamcast/docs/KNOWN_ISSUES.md) · [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
 ## Contributing
