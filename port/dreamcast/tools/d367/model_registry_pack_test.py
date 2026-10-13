@@ -148,9 +148,45 @@ def cases(good):
     return [(n, w, build(x)) for n, w, x in C], skipped
 
 
+def alias_cases(good):
+    """Narrow r11f v2 contract; every structural mutation has repaired hashes."""
+    def case(name, why, edit=lambda p: None, geom=False):
+        p=Pack(good); edit(p)
+        if geom: p.regeom()
+        return name,why,p.fix()
+    def g(p,n,w): return p.rec('geom',n,64)+w
+    rows=[case('good','none'),
+          case('version-3','header',lambda p:p.put(8,3)),
+          case('v2-zero-flag','header',lambda p:p.put(56,0)),
+          case('v2-unknown-flag','header',lambda p:p.put(56,3)),
+          case('v1-flag1','header',lambda p:p.put(8,1)),
+          case('v1-aliases','overlap',lambda p:(p.put(8,1),p.put(56,0))),
+          case('reserved-word','header',lambda p:p.put(60,1)),
+          case('other-room','header',lambda p:p.put(32,0x11e)),
+          case('immutable-hash','hash',lambda p:p.put(p.sec('blob')['at']+100,p.b[p.sec('blob')['at']+100]^1,'<B')),
+          case('partial-alias','overlap',lambda p:p.put(g(p,1,32),p.u32(g(p,0,32))+32),True),
+          case('cross-kind','overlap',lambda p:p.put(g(p,1,36),p.u32(g(p,0,32))),True),
+          case('count-mismatch','overlap',lambda p:p.put(g(p,1,0),p.u32(g(p,1,0))-4),True),
+          case('palette-context','overlap',lambda p:p.put(g(p,1,8),p.u32(g(p,1,8))-2),True),
+          case('bone-context','overlap',lambda p:p.put(g(p,1,28),p.u32(g(p,1,28))-1),True),
+          case('stream-alias','overlap',lambda p:p.put(g(p,1,44),p.u32(g(p,0,44))),True),
+          case('stream-nested','overlap',lambda p:p.put(g(p,1,44),p.u32(g(p,0,44))+32),True),
+          case('section-overlap','table',lambda p:p.put(p.sec('tex')['table']+4,p.sec('blob')['at'])),
+          case('geometry-duplicate','duplicate',lambda p:p.b.__setitem__(slice(g(p,1,0),g(p,1,0)+64),bytes(p.b[g(p,0,0):g(p,0,0)+64]))),
+          case('skin-sum','size',lambda p:p.put(28,p.u32(28)+8)),
+          case('mask-reference','ref',lambda p:p.put(p.rec('ref',0,16)+12,0xffffffff)),
+          case('parents-root','skeleton',lambda p:p.put(p.sec('parents')['at'],0,'<b')),
+          case('fact-part-pad','facts',lambda p:p.put(p.rec('fpart',0,32)+13,1,'<B')),
+          case('role-binding','binding',lambda p:p.put(p.rec('role',0,32)+8,99)),
+          case('blob-bin','binding',lambda p:p.put(p.rec('sblob',0,32)+8,77))]
+    return rows, []
+
+
 def main():
     args = sys.argv[1:]
     room = '103'
+    alias = '--immutable-arrays' in args
+    if alias: args.remove('--immutable-arrays')
     if '--room' in args:
         i = args.index('--room'); room = args[i + 1]; del args[i:i + 2]
     if len(args) != 2:
@@ -167,15 +203,21 @@ def main():
     c = reg.index('namespace nmr {'); d = reg.index('constexpr unsigned kRegDescriptors=16'); d = reg.index('\n', d) + 1
     types = ('#pragma once\n#include <cstdint>\nnamespace re4dc_material {\n' + mat[a:b] + '#include "actor_material_records.inc"\n}\n'
              + reg[c:d])
+    if alias:
+        start=reg.index('nmr::Chunk registry_geom_view('); end=reg.index('\n}',start)+2
+        types+='\n'+reg[start:end]+'\n'
     open(os.path.join(out, 'pack_test_types.h'), 'w').write(types)
     exe = os.path.join(out, 'model_registry_pack_test')
     cc = ['g++', '-std=c++17', '-O1', '-Wall', '-Wno-unused-function', '-Wno-unused-variable', '-I', out, '-I', GAME,
           os.path.join(HERE, 'model_registry_pack_test.cpp'), '-o', exe]
+    if alias:
+        cc[1:1]=['-DRE4DC_NMR_IMMUTABLE_ALIAS=1','-DRE4DC_ROUTE_CH23=1','-DRE4DC_NMR_MASK=1',
+                 '-DRE4DC_NMR_DROP_BUMP=1','-DRE4DC_NMR_BONES=96','-DRE4DC_NMR_SHIFT=1','-DRE4DC_ACTOR_PL08=1']
     r = subprocess.run(cc, capture_output=True, text=True)
     if r.returncode:
         sys.exit('build failed:\n' + r.stderr[-4000:])
     files, want = [], {}
-    built, skipped = cases(good)
+    built, skipped = alias_cases(good) if alias else cases(good)
     if skipped:
         print('skipped (records absent in this package): ' + ' '.join(skipped))
     for name, why, p in built:
@@ -191,6 +233,25 @@ def main():
         print(f'{"PASS" if ok else "FAIL"} {name:24s} expected={exp:10s} got={why} detail={detail}')
     if len(rows) != len(files):
         bad += 1; print(f'FAIL {len(files)} cases, {len(rows)} results')
+    if alias:
+        # The same v1 reader with the new option disabled must refuse v2.
+        legacy=exe+'-legacy'; legacy_cc=[a for a in cc if a!='-DRE4DC_NMR_IMMUTABLE_ALIAS=1']
+        legacy_cc[legacy_cc.index('-o')+1]=legacy
+        subprocess.run(legacy_cc,check=True,capture_output=True)
+        rejected=subprocess.check_output([legacy,room,src],text=True).split()[-2]=='header'
+        print(('PASS' if rejected else 'FAIL')+' legacy-rejects-v2');bad+=not rejected
+        # Mutation of each stream must leave immutable arrays and all other streams intact.
+        p=Pack(good); blob=p.sec('blob')['at']; immutable=[]; streams=[]
+        for i in range(p.sec('geom')['count']):
+            r=p.rec('geom',i,64)
+            for off,n in ((32,p.u32(r)*8),(36,p.u32(r+4)*8),(40,p.u32(r+20)),(48,p.u32(r+8)*16)):
+                at=blob+p.u32(r+off);immutable.append((at,bytes(p.b[at:at+n])))
+            at=blob+p.u32(r+44); streams.append((at,bytes(p.b[at:at+p.u32(r+16)])))
+        for i,(at,data) in enumerate(streams):
+            mutated=bytearray(good);mutated[at:at+len(data)]=bytes(x^255 for x in data)
+            assert all(mutated[a:a+len(b)]==b for a,b in immutable)
+            assert all(mutated[a:a+len(b)]==b for j,(a,b) in enumerate(streams) if j!=i)
+        print('PASS independent-stream-mutation-canaries')
     json.dump(dict(package=src, room=room, cases=rows, failures=bad), open(os.path.join(out, 'results.json'), 'w'), indent=1)
     print(f'{len(rows) - bad}/{len(files)} as expected')
     sys.exit(1 if bad else 0)

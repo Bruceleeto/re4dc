@@ -502,6 +502,11 @@ def main():
         if package_room != 0x11f or PACK_CAPACITY['fpart'] != 128:
             sys.exit('model_registry: --ch23-mendez-budget requires --package-room 11f and --ch23-facts')
         PACK_MAX_BYTES = 640 * 1024
+    immutable_arrays = '--immutable-array-alias' in args
+    if immutable_arrays:
+        args.remove('--immutable-array-alias')
+        if package_room != 0x11f or PACK_CAPACITY['fpart'] != 128:
+            sys.exit('model_registry: --immutable-array-alias requires --package-room 11f and --ch23-facts')
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')
@@ -517,7 +522,7 @@ def main():
     tmp = out + '.tmp-%d' % os.getpid()
     os.makedirs(tmp)
     try:
-        report = generate(spec_path, tmp, tree, package_room, source_normal_length)
+        report = generate(spec_path, tmp, tree, package_room, source_normal_length, immutable_arrays)
     except Fail as e:
         shutil.rmtree(tmp)
         sys.exit(f'model_registry: FAIL {e}')
@@ -552,7 +557,7 @@ def source_length_normals(name, c, src):
                             cast_mean_before=round(sum(cast) / len(cast), 6), mode='source BIN mean length')
 
 
-def generate(spec_path, out, tree, package_room=None, source_normal_length=False):
+def generate(spec_path, out, tree, package_room=None, source_normal_length=False, immutable_arrays=False):
     inputs = Inputs(out)
     spec = inputs.json(spec_path, 'spec.json')
     cast = spec['cast_dir']; level = spec['level']; overlay_rel = spec['revision_overlay'].strip('/')
@@ -874,7 +879,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             pk_tex = sorted({c['texture'] for r in pr for c in r['chunks']} |
                             {c['mask'][k] for r in pr for c in r['chunks'] if 'mask' in c for k in ('colour_texture', 'mask_texture')})
             pk_blobs = sorted({(r['archive'], s['bin']) for r in pr for s in r['sections']})
-        package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs)
+        package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs, immutable_arrays)
         package['descriptors'] = [dict(name=r['name'], appearance='0x%x' % r['appearance'], archive=r['archive'],
                                        source_types=r['source_types'], sections=[dict(bin=s['bin'], tpl=s['tpl']) for s in r['sections']])
                                   for r in pr]
@@ -1057,10 +1062,28 @@ def weights_bytes(rows):
     return b''.join(struct.pack('<3BB3f', bs[0], bs[1], bs[2], n, *v) for bs, n, v in rows)
 
 
-def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blobs):
+def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blobs, immutable_arrays=False):
+    if immutable_arrays and room != 0x11f:
+        raise Fail("immutable-array alias package is qualified only for room 11f")
     tex_index = {t: i for i, t in enumerate(used_tex)}
     geoms, gkey, refs, desc, parents, bind = [], {}, [], [], bytearray(), []
     blob = bytearray()
+
+    arrays = {}
+
+    def put_array(b, kind, count, stride, palette, bones):
+        # Exact bytes plus semantic context, never a hash-only alias. Streams always own storage.
+        key = (kind, count, stride, palette, bones, bytes(b))
+        if not immutable_arrays or kind == 3:
+            return put(b)
+        if key not in arrays:
+            arrays[key] = put(b)
+        return arrays[key]
+
+    def put_arrays(c, uv, stream, w, bones):
+        return [put_array(b, kind, count, stride, c["palette_count"], bones) for kind, b, count, stride in (
+            (0, c["positions"], c["position_count"], 8), (1, c["normals"], c["normal_count"], 8),
+            (2, uv, len(uv) // 4, 4), (3, stream, len(stream), 1), (4, w, c["palette_count"], 16))]
 
     def put(b):
         nonlocal blob
@@ -1073,7 +1096,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                    bytes(c['positions']), bytes(c['normals']), bytes(c['uv']), bytes(c['stream']), w)
             if key not in gkey:
                 gkey[key] = len(geoms)
-                at = [put(c['positions']), put(c['normals']), put(c['uv']), put(c['stream']), put(w)]
+                at = put_arrays(c, c['uv'], c['stream'], w, r['bones'])
                 crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + bytes(c['uv']) + bytes(c['stream']) + w)
                 geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], c['triangles'],
                                           len(c['stream']), len(c['uv']), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
@@ -1093,7 +1116,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                           bytes(c['positions']), bytes(c['normals']), uvb, stream, w)
                     if k2 not in gkey:
                         gkey[k2] = len(geoms)
-                        at = [put(c['positions']), put(c['normals']), put(uvb), put(stream), put(w)]
+                        at = put_arrays(c, uvb, stream, w, r['bones'])
                         crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + uvb + stream + w)
                         geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], tris, len(stream),
                                                   len(uvb), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
@@ -1162,8 +1185,9 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     if align32(total) + skin > PACK_MAX_BYTES:
         raise Fail(f'package {total} B + skin {skin} B > {PACK_MAX_BYTES} (runtime arena capacity)')
     pcrc, pfnv = pack_crc_fnv(rest)
-    head = bytearray(PACK_MAGIC + struct.pack('<14I', PACK_VERSION, PACK_HEADER, total, len(PACK_SECTIONS), PACK_HEADER, skin, room,
-                                                pcrc, pfnv, 0, APPEARANCE0, max(r['bones'] for r in runtime), 0, 0))
+    version, flags = (2, 1) if immutable_arrays else (PACK_VERSION, 0)
+    head = bytearray(PACK_MAGIC + struct.pack('<14I', version, PACK_HEADER, total, len(PACK_SECTIONS), PACK_HEADER, skin, room,
+                                                pcrc, pfnv, 0, APPEARANCE0, max(r['bones'] for r in runtime), flags, 0))
     struct.pack_into('<I', head, 44, zlib.crc32(bytes(head)) & 0xffffffff)
     data = bytes(head) + rest
     d = os.path.join(out, 'package', 'r%x%02x' % (room >> 8, room & 255))
@@ -1172,7 +1196,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     chunk_bytes = sum(len(c['positions']) + len(c['normals']) + len(c['uv']) + len(c['stream']) + len(weights_bytes(c['weights']))
                       for r in runtime for c in r['chunks'])
     return dict(path=os.path.relpath(os.path.join(d, 'registry.re4nmr'), out), disc_path='dc/native/r%x%02x/registry.re4nmr' % (room >> 8, room & 255),
-                room='%04x' % room, version=PACK_VERSION, bytes=total, sha256=sha(data), skin_arena=skin,
+                room='%04x' % room, version=version, bytes=total, sha256=sha(data), skin_arena=skin,
                 arena=align32(total) + skin, capacity=PACK_MAX_BYTES, counts=counts,
                 sections=[dict(kind=k, offset=struct.unpack_from('<4I', t)[1], bytes=struct.unpack_from('<4I', t)[2]) for k, t in zip(PACK_SECTIONS, table)],
                 geometry=dict(chunk_refs=len(refs), unique=len(geoms), chunk_bytes=chunk_bytes,

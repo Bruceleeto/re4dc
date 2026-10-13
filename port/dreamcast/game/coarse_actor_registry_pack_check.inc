@@ -63,7 +63,22 @@ struct PackHash {
     unsigned crc32() const {return ~crc;}
 };
 struct PackSection { unsigned at,bytes,count; };
-struct PackSpan { unsigned at,bytes; };
+struct PackSpan { unsigned at,bytes;
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+    unsigned id; // geometry * 5 + array kind, used only by the v2 immutable-array contract
+#endif
+};
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+bool pack_alias(const PackSpan& a,const PackSpan& b,const unsigned char* geom) {
+    const unsigned kind=a.id%5u;
+    if(a.at!=b.at || a.bytes!=b.bytes || kind!=b.id%5u || kind==3u)return false;
+    const auto* p=geom+(a.id/5u)*64u;const auto* q=geom+(b.id/5u)*64u;
+    // Same kind fixes stride (pos/nrm=8, uv=4, weights=16); equal span length
+    // fixes element count. Check the encoded counts and skeleton/palette context too.
+    const unsigned count_word=kind==0u?0u:kind==1u?4u:kind==2u?20u:8u;
+    return pu32(p,count_word)==pu32(q,count_word) && pu32(p,8)==pu32(q,8) && pu32(p,28)==pu32(q,28);
+}
+#endif
 
 // Validation and the record build. On kPwNone the pack_* records describe the package at base; nothing is published.
 // Descriptor word 44: 0, or under NATIVE_MODEL_REGISTRY_SHIFT the position shift 1..4 (0 = 4).
@@ -77,8 +92,15 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
     if(size<kPackPayload || std::memcmp(p,"RE4NMR1\0",8))return kPwHeader;
     const unsigned version=pu32(p,8),header=pu32(p,12),total=pu32(p,16),kinds=pu32(p,20),table=pu32(p,24),skin=pu32(p,28),
         proom=pu32(p,32),pcrc=pu32(p,36),pfnv=pu32(p,40),hcrc=pu32(p,44),app0=pu32(p,48),max_bones=pu32(p,52);
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+    const bool alias=version==2u && pu32(p,56)==1u && room==0x11fu && proom==0x11fu;
+    const bool bad_version=!(version==1u && !pu32(p,56)) && !alias;
+    if(bad_version || header!=kPackHeader || total!=size || kinds!=kPackKinds || table!=kPackHeader || app0!=nmr::appearance_first ||
+              !max_bones || max_bones>kRegBones || pu32(p,60)){detail=version;return kPwHeader;}
+#else
     if(version!=1 || header!=kPackHeader || total!=size || kinds!=kPackKinds || table!=kPackHeader || app0!=nmr::appearance_first ||
        !max_bones || max_bones>kRegBones || pu32(p,56) || pu32(p,60)){detail=version;return kPwHeader;}
+#endif
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
     if(!skin || skin%8u || size>pack_room_max(room) || skin>pack_room_max(room) ||
        ((size+31u)&~31u)+skin>pack_room_max(room)){detail=skin;return kPwSize;}
@@ -125,7 +147,11 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         for(unsigned a=0;a<5;++a) {
             const unsigned at=pu32(r,32+a*4);
             if(at%32u || at>sec[kBlob].bytes || want[a]>sec[kBlob].bytes-at)return kPwGeometry;
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+            spans[nspans++]={at,want[a],g*5u+a};hsh.add(blob+at,want[a]);
+#else
             spans[nspans++]={at,want[a]};hsh.add(blob+at,want[a]);
+#endif
         }
         if(hsh.crc32()!=pu32(r,52) || hsh.fnv!=pu32(r,56))return kPwHash;
         const auto* w=reinterpret_cast<const nmr::Weight*>(blob+pu32(r,48));
@@ -149,7 +175,14 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
     if(skin_sum!=skin){detail=skin_sum;return kPwSize;}
 #endif
     for(unsigned i=1;i<nspans;++i)for(unsigned j=i;j>0 && spans[j-1].at>spans[j].at;--j){const PackSpan t=spans[j];spans[j]=spans[j-1];spans[j-1]=t;}
-    for(unsigned i=1;i<nspans;++i)if(spans[i-1].at+spans[i-1].bytes>spans[i].at){detail=i;return kPwOverlap;}
+    for(unsigned i=1;i<nspans;++i)if(spans[i-1].at+spans[i-1].bytes>spans[i].at){
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+        // Exact equal-span groups retain a full representative at every step:
+        // admitting aliases cannot hide a later partial or nested overlap.
+        if(alias && pack_alias(spans[i-1],spans[i],p+sec[kGeom].at))continue;
+#endif
+        detail=i;return kPwOverlap;
+    }
     // ---- descriptors, their chunk references, parents and binds
     const auto* parents=reinterpret_cast<const signed char*>(p+sec[kParents].at);
     const auto* bind=reinterpret_cast<const float (*)[12]>(p+sec[kBind].at);
