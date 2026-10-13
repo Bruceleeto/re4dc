@@ -165,6 +165,7 @@ endif
 # ROUTE_CH22=1 (default 0): chapter 2-2 room adapters and Luis' cabin overlay.
 # The overlay follows the five CH21 slots; the chapter movie list remains explicit.
 ROUTE_CH22 ?= 0
+PS2_ENEMY_CH22_DIR ?=
 ifneq ($(ROUTE_CH22),0)
 ifneq ($(ROUTE_CH22)$(ROUTE_CH21)$(ROUTE_OVL),111)
 $(error ROUTE_CH22 must be 0 or 1 and needs ROUTE_CH21=1 ROUTE_OVL=1)
@@ -173,6 +174,17 @@ MODULES += pl14:ovl
 export RE4DC_LINK_OVERLAY += .ovl_pl14
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
 $(OBJDIR)/src/game/snd.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/pl14/src/pl14/pl14.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+ROUTE_CH22_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r111.o $(OBJDIR)/mod/st1_3/src/st1/r112.o \
+    $(OBJDIR)/mod/st1_3/src/st1/r113.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o
+$(ROUTE_CH22_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+ifeq ($(PS2_ENEMY_RULES),1)
+ifeq ($(wildcard $(PS2_ENEMY_CH22_DIR)/ps2_enemy_ch22_data.inc),)
+$(error ROUTE_CH22 with PS2_ENEMY_RULES needs qualified PS2_ENEMY_CH22_DIR/ps2_enemy_ch22_data.inc)
+endif
+$(ROUTE_CH22_ROOM_OBJS): GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=1
+$(OBJDIR)/platform/ps2_enemy_ch22.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1 -DRE4DC_PS2_ENEMY_RULES=1 -I$(PS2_ENEMY_CH22_DIR)
+$(OBJDIR)/platform/ps2_enemy_ch22.o: $(PS2_ENEMY_CH22_DIR)/ps2_enemy_ch22_data.inc
+endif
 ROUTE_MOVIE_GAME_CH22 = $(OBJDIR)/mod/st1_3/src/st1/r11c.o
 endif
 # ROUTE_CH23=1 (default 0): chapter 2-3 room code and missing vehicle/boss/stage modules.
@@ -317,6 +329,9 @@ MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))
 CENSUS_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(CENSUS_SRCS))
 PLATFORM_OBJS = $(patsubst %.cpp,$(OBJDIR)/%.o,$(PLATFORM_SRCS))
+ifneq ($(ROUTE_CH22)$(PS2_ENEMY_RULES),11)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/ps2_enemy_ch22.o,$(PLATFORM_OBJS))
+endif
 ifneq ($(ROUTE_CH23)$(PS2_ENEMY_RULES),11)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/ps2_enemy_ch23.o,$(PLATFORM_OBJS))
 endif

@@ -20,6 +20,10 @@
 #include "etc_model.h"
 
 #include "dvd.h"
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22 && defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#include "ps2_enemy_ch22.h"
+extern "C" void re4dc_missing(const char* name);
+#endif
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
 #include "ps2_enemy_ch23.h"
 extern "C" void re4dc_missing(const char* name);
@@ -307,6 +311,10 @@ void readEmList(int mode)
             memclr_asm(pG->Em_list, 0x2000);
         } else {
             RE4DC_PS2_ENEMY_LIST(pG->em_list_no);
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22 && defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+            if (re4dc_ps2EnemyListCh22(pG->em_list_no, pG->Em_list, sizeof(pG->Em_list)) < 0)
+                re4dc_missing("required PS2 chapter 2-2 enemy list did not match its qualified source");
+#endif
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
             if (re4dc_ps2EnemyListCh23(pG->em_list_no, pG->Em_list, sizeof(pG->Em_list)) < 0)
                 re4dc_missing("required PS2 chapter 2-3 enemy list did not match its qualified source");
