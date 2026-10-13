@@ -4,6 +4,7 @@
 #include "actor_palette_arena.h"
 #include "actor_transaction_diag.h"
 #include "actor_transaction_diag_impl.inc"
+#include "actor_visibility_diag_impl.inc"
 // NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (native_model_registry.mk): registry plans of the selected enemy ids (bit 0: El
 // Gigante, 0x2B, set by PS2_GIGANTE; bit 1: Del Lago, 0x2F, set by PS2_DELLAGO) take the source GX lighting record
 // (actor_source_lighting below) instead of the constant colour, as ACTOR_GANADO_SOURCE_LIGHT does for every non-Leon
@@ -669,7 +670,8 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!actor_semantics(m,p)){
             ATD(m,6,p.appearance,p.count);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
-            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);
+                if(why==3)re4dc_actor_vis_decline(m,p.appearance,p.info,p.count);}
 #endif
             NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,actor_certificate_reached?kRwCertificate:kRwSemantics);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
@@ -706,7 +708,8 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!actor_semantics(m,p)){
             ATD(m,6,p.appearance,p.count);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
-            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);
+                if(why==3)re4dc_actor_vis_decline(m,p.appearance,p.info,p.count);}
 #endif
             return 0;
         }
