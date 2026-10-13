@@ -908,14 +908,15 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 // else one per 600 frames, each with the running total. tools/d367/mcheck/leongc_check.py turns them into PASS / FAIL.
 #include "player.h"
 #include "pl_body.h"
-namespace { unsigned leon_gc_why,leon_gc_a,leon_gc_b,leon_gc_bind,leon_gc_total,leon_gc_last_key,leon_gc_last_frame; }
+namespace { unsigned leon_gc_why,leon_gc_a,leon_gc_b,leon_gc_bind,leon_gc_total,leon_gc_last_key,leon_gc_last_frame,leon_gc_acq,leon_gc_acq_a,leon_gc_acq_b; }
 unsigned re4dc_leon_gc_cert_error,re4dc_leon_gc_cert_role;
 extern "C" void re4dc_leon_gc_atd(cModel* m,unsigned e,unsigned a,unsigned b) {
     static bool armed;
     if(!armed){armed=true;re4dc_log("LEONGC armed (MCHECK_LEONGC)\n");}
     if(!m || m!=(cModel*)pPL)return;
-    if(e==0){leon_gc_why=leon_gc_bind=0;re4dc_leon_gc_cert_error=re4dc_leon_gc_cert_role=0;return;}
+    if(e==0){leon_gc_why=leon_gc_bind=leon_gc_acq=0;re4dc_leon_gc_cert_error=re4dc_leon_gc_cert_role=0;return;}
     if(e<=6){leon_gc_why=e;leon_gc_a=a;leon_gc_b=b;}
+    else if(e>=7 && e<=15){leon_gc_acq=e;leon_gc_acq_a=a;leon_gc_acq_b=b;}  // the acquire's resource decline
     else if(e>=20 && e<=31)leon_gc_bind=e;
 }
 extern "C" void re4dc_leon_gc_note(cModel* m) {
@@ -932,9 +933,10 @@ extern "C" void re4dc_leon_gc_note(cModel* m) {
     if(key!=leon_gc_last_key){prev_key=leon_gc_last_key;leon_gc_last_key=key;}
     leon_gc_last_frame=f;
     const auto* body=pPL->Body;
-    re4dc_log("LEONGC f=%u room=%04x why=%u a=%u b=%u bind=%u cert=%u/%u total=%u right=%p/%p left=%p/%p infos=%u\n",f,
+    re4dc_log("LEONGC f=%u room=%04x why=%u a=%u b=%u bind=%u cert=%u/%u total=%u right=%p/%p left=%p/%p infos=%u acq=%u/%u/%u\n",f,
               unsigned(pG->room_id),leon_gc_why,leon_gc_a,leon_gc_b,leon_gc_bind,re4dc_leon_gc_cert_error,re4dc_leon_gc_cert_role,
               leon_gc_total,body?(void*)body->pRight:nullptr,body?body->pRightData:nullptr,body?(void*)body->pLeft:nullptr,
-              body?body->pLeftData:nullptr,[&]{unsigned n=0;for(auto* q=m->pModelInfo;q && n<64;q=q->pList)++n;return n;}());
+              body?body->pLeftData:nullptr,[&]{unsigned n=0;for(auto* q=m->pModelInfo;q && n<64;q=q->pList)++n;return n;}(),
+              leon_gc_acq,leon_gc_acq_a,leon_gc_acq_b);
 }
 #endif

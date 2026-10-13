@@ -15,6 +15,15 @@ void owned_skin_clear() {
 void owned_skin_invalidate_frames(); // definition after the Frame cache
 
 extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
+#if defined(RE4DC_LEON_SKIN_FRAME) && RE4DC_LEON_SKIN_FRAME
+    // LEON_SKIN_FRAME=1 (crowd.mk): the first skinned model of a frame may be the owner's (r119, the first frame after
+    // movie 11900: no actor registered a skin yet, so skin_frame still named the last frame before the movie and Leon
+    // went to the GameCube path). Open the frame here exactly as re4dc_actor_skin_register does on a new frame.
+    if(out && !out->serial && !out->count && in && n && source_frame!=skin_frame){
+        owned_skin_clear();owned_skin_invalidate_frames();
+        skin_frame=source_frame;skin_count=0;
+    }
+#endif
     if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)return 0;
     unsigned index[kRe4dcActorRoles],high=skin_count;
     for(unsigned k=0;k<n;++k){
