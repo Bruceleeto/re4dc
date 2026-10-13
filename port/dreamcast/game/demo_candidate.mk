@@ -110,3 +110,17 @@ endif
 endif
 # Both lifetime and transaction fragments are compiled by coarse_actor.cpp.
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_TRANSACTION_DIAG=$(ACTOR_TRANSACTION_DIAG)
+
+# Storage priority for all sealed source-plan native nominees; candidate, default off.
+ACTOR_SKIN_RESERVE ?= 0
+ifeq ($(filter $(ACTOR_SKIN_RESERVE),0 1),)
+$(error ACTOR_SKIN_RESERVE must be 0 or 1)
+endif
+ifeq ($(ACTOR_SKIN_RESERVE),1)
+ifneq ($(ACTOR_TRANSACTION)$(NATIVE_ACTOR_FAST)$(NATIVE_ACTOR_SKIN_LAZY),111)
+$(error ACTOR_SKIN_RESERVE requires ACTOR_TRANSACTION=1 NATIVE_ACTOR_FAST=1 NATIVE_ACTOR_SKIN_LAZY=1)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_SKIN_RESERVE=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_SKIN_RESERVE=1
+$(OBJDIR)/platform/native_actor_fast.o: platform/include/native_actor_skin_reserve.inc
+endif
