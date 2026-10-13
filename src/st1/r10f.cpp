@@ -180,8 +180,13 @@ void R10fInit()
 
 #if CH23_PS2_ROOM
 // PS2 USA st1_3.rel: R10fInit 0x66f0, held task 0x6d10, visibility
-// task 0x6bc0. r10f_015.AEV record 0x16 is type 2, player inside + once.
-static AreaData r10fPs2HeldArea = {1, AREA_TYPE_XZ4, 0, {{-18245.6914f, 1000.0f, 750.0f, {{19920.1445f, -154118.438f}, {23499.9902f, -154045.422f}, {23488.2246f, -148645.969f}, {19892.6465f, -148486.891f}}}}};
+// task 0x6bc0. GC AEV ends at 0x13; PS2 adds flag areas 0x14/0x15
+// for visibility flags 64/65, then held-enemy exec area 0x16.
+static AreaData r10fPs2Areas[3] = {
+    {1, AREA_TYPE_XZ4, 0, {{-15252.8291f, 47561.8672f, 750.0f, {{-40840.5742f, -41820.7422f}, {40879.9805f, -47263.8281f}, {42079.0273f, 72396.8984f}, {-39846.4883f, 58340.7578f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-33451.5195f, 12167.8193f, 750.0f, {{30853.5742f, -175182.453f}, {59971.9258f, -185995.156f}, {52926.4609f, -141330.812f}, {32074.957f, -139989.703f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-18245.6914f, 1000.0f, 750.0f, {{19920.1445f, -154118.438f}, {23499.9902f, -154045.422f}, {23488.2246f, -148645.969f}, {19892.6465f, -148486.891f}}}}},
+};
 
 // Append a PS2-only AEV record after its authored predecessor. Keep the free
 // native number: restored item areas may already use the PS2 logical numbers.
@@ -218,7 +223,19 @@ static SceAtWork* r10f_ps2Area(SceAtWork* prev, AreaData* area, int type)
 
 static void r10f_ps2Init()
 {
-    SceAtWork* at = r10f_ps2Area(SceAtPtr(0x15), &r10fPs2HeldArea, 2);
+    SceAtWork* prev = SceAtPtr(0x13);
+    if (prev == 0 || prev->type != 17 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch23 r10f: expected source AEV 0x13 boundary");
+        return;
+    }
+    for (int i = 0; i < 2; i++) {
+        prev = r10f_ps2Area(prev, &r10fPs2Areas[i], 4);
+        if (prev == 0) return;
+        prev->flg.kind = 0;
+        prev->flg.off = 0;
+        prev->flg.no = 64 + i;
+    }
+    SceAtWork* at = r10f_ps2Area(prev, &r10fPs2Areas[2], 2);
     if (at != 0 && RsfCheck(G_ROOM_ID, 6) == 0) {
         SceAtDataSet_exec(at->no, SCE_LEVEL10, 0, (TaskFunc) r10f_ps2HeldArea, 0, 1);
     }
