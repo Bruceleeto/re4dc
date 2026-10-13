@@ -97,6 +97,7 @@ extern "C" void re4dc_registry_room_enter(unsigned room) {
     const file_t file=fs_open(path,O_RDONLY);
     if(file==FILEHND_INVALID){re4dc_log("NMRPACK room=%04x none (%s)\n",room,path);return;}
     ++pack.opens;
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
     const unsigned size=unsigned(fs_total(file)),limit=pack_room_max(room);
     unsigned char head[kPackHeader];
     if(size<kPackPayload || size>limit || fs_read(file,head,kPackHeader)!=ssize_t(kPackHeader)) {
@@ -104,6 +105,15 @@ extern "C" void re4dc_registry_room_enter(unsigned room) {
     }
     const unsigned skin=pu32(head,28);
     if(skin%8u || skin>limit || ((size+31u)&~31u)+skin>limit){fs_close(file);pack_refuse(room,kPwSize,skin);return;}
+#else
+    const unsigned size=unsigned(fs_total(file));
+    unsigned char head[kPackHeader];
+    if(size<kPackPayload || size>kPackMaxBytes || fs_read(file,head,kPackHeader)!=ssize_t(kPackHeader)) {
+        fs_close(file);pack_refuse(room,size<kPackPayload || size>kPackMaxBytes?kPwSize:kPwRead,size);return;
+    }
+    const unsigned skin=pu32(head,28);
+    if(skin%8u || skin>kPackMaxBytes || ((size+31u)&~31u)+skin>kPackMaxBytes){fs_close(file);pack_refuse(room,kPwSize,skin);return;}
+#endif
     const unsigned arena=((size+31u)&~31u)+skin;
     const int heap_before=re4dc_static_heap_free();
     auto* cell=static_cast<unsigned char*>(re4dc_static_alloc(arena+32u));

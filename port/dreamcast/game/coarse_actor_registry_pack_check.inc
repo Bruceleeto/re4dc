@@ -252,7 +252,11 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         const unsigned char* r=p+sec[kRole].at+k*32;detail=k;
         const unsigned app=pu32(r,0),role=pu32(r,4),bin=pu32(r,8),tpl=pu32(r,12),fm=pu32(r,16),tf=pu32(r,20),tn=pu32(r,24);
         if(app<nmr::appearance_first || app-nmr::appearance_first>=sec[kDesc].count ||
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
            role>=pack_desc[app-nmr::appearance_first].sections || fm>=sec[kFModel].count || !tn || tn>pack_role_texture_max(room) ||
+#else
+           role>=pack_desc[app-nmr::appearance_first].sections || fm>=sec[kFModel].count || !tn || tn>8 ||
+#endif
            tf>sec[kFTex].count || tn>sec[kFTex].count-tf || pu32(r,28) || !bin || !tpl)return kPwRole;
         for(unsigned u=0;u<k;++u)if(pack_roles[u].appearance==app && pack_roles[u].role==role)return kPwDuplicate;
         pack_roles[k]={app,role,bin,tpl,&pack_models[fm],tfacts+tf,tn};
