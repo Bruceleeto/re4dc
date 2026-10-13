@@ -43,6 +43,15 @@
 #include "db_log.h"
 #include "eprintf.h"
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH22_PS2_ROOM 1
+#include "libgpu.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
+#else
+#define CH22_PS2_ROOM 0
+#endif
+
 #define DEG(d) ((d) * (PI / 180.0f))
 
 // Room 1-1C (D:/Bio4/Prog/r11c.cpp): the village square at night; the besieged cabin (s00: Luis
@@ -80,6 +89,10 @@ struct R11cWork {
     int effGate;             // 0xFC  EspPullCoreKind of the gate effect
     u32 seGear;              // 0x100 SndCall handle of the gears
     u32 seGate;              // 0x104 SndCall handle of the gate
+#if CH22_PS2_ROOM
+    int ladderResetTime[4];  // PS2 room work +0x108
+    int ps2ScenarioVariant;   // frozen PS2 stage-entry selector (GlobalWork +0x7ec9)
+#endif
 };
 
 // One-member struct: every store into the work reloads the pointer afterwards.
@@ -117,6 +130,100 @@ static inline u32 r11c_emDead(u32 no)
     return v;
 }
 
+#if CH22_PS2_ROOM
+// PS2 USA st1_3.rel tables 0x1dcd8/0x1dcf0/0x1dd08 and 0x1dd78.
+// Rows 155/158 are authored but held and absent from the source wave tables.
+static const int r11cPs2Wave[2][5] = {
+    {201, 202, 204, 206, 207},
+    {153, 154, 156, 157, 159},
+};
+static const int r11cPs2WaveLadder[5] = {1, -1, 3, 0, 2};
+static const int r11cPs2LadderTime[4] = {60, 150, 210, 300};
+
+// Native Em10Work::pLadder is +0x4E4 from cEm::x3E0. A separate
+// SH-4 TU including em10.h checks this offset and projection size at compile
+// time; obj13.h and em10.h have distinct declarations of cObjLadder.
+struct R11cNativeGanadoLadder {
+    u8 beforeLadder[0x4E4];
+    cObjLadder* pLadder;
+};
+
+// PS2 helper 0xf3f8: preserve the otherwise-unused Rnd call and routine state.
+static void r11c_ps2Climb(cEm* em, int no)
+{
+    if (no < 0 || no >= 4) return;
+    cObjLadder* ladder = W->ladder[no];
+    if (ladder == 0 || ladder->getStatus() != 0) return;
+    Rnd();
+    if (em == 0) return;
+    ((R11cNativeGanadoLadder*) &em->x3E0)->pLadder = ladder;
+    ladder->setClimb();
+    em->r_no_0 = 1;
+    em->r_no_1 = 0x40;
+    em->r_no_2 = 0;
+    em->r_no_3 = 0;
+}
+
+// PS2 helper 0xf500: only a successful reset advances the siege count.
+static int r11c_ps2Reset(cEm* em, int* count)
+{
+    cEmGanado* ganado = (cEmGanado*) em;
+    if (ganado->ckResetEnable() != 1) return 0;
+    if (r11c_save()->flags & 0x02000000) ganado->chgSet(0xE);
+    ganado->setReset();
+    ++*count;
+    return 1;
+}
+
+// PS2 helper 0xf2c8, called each siege tick after the upper floor opens.
+static void r11c_ps2ResetLadders()
+{
+    for (int i = 0; i < 4; i++) {
+        cObjLadder* ladder = W->ladder[i];
+        if (ladder != 0 && ladder->getStatus() == 1) {
+            if (--W->ladderResetTime[i] <= 0) {
+                W->ladderResetTime[i] = r11cPs2LadderTime[Rnd() & 3];
+                ladder->setReset(1);
+            }
+        }
+    }
+}
+
+static void r11c_ps2FlagArea()
+{
+    // Exact PS2 AEV13 flag-area bounds; source native AEV ends at12/type2.
+    static AreaData area = {1, AREA_TYPE_XZ4, 0, {{2476.53662f, 5814.60205f, 750.0f, {{104543.586f, -56024.9062f}, {119500.336f, -56018.5391f}, {119668.531f, -43924.3398f}, {104757.055f, -43849.1875f}}}}};
+    SceAtWork* prev = SceAtPtr(12);
+    if (prev == 0 || prev->type != 2 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch22 r11c: expected source AEV12 boundary");
+        return;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = area.u.xz4.p[i].x;
+        corners[i].y = area.u.xz4.floor;
+        corners[i].z = area.u.xz4.p[i].z;
+    }
+    int no = SceAtCreateExecAt(pPL, corners, 0, 1, 1, area.u.xz4.height,
+                             2, 0.0f, 0.0f, 0, 0, 0, 0, 0);
+    SceAtWork* at = no >= 0 ? SceAtPtr(no) : 0;
+    if (at == 0) {
+        OSPanic(__FILE__, __LINE__, "ch22 r11c: PS2 AEV allocation failed");
+        return;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) at);
+    at->area = area;
+    at->type = 4;
+    at->pParent = 0;
+    at->parentParts = 0;
+    at->angleRange = 45;
+    at->flg.kind = 0;
+    at->flg.off = 0;
+    at->flg.no = 65;
+    AddPrim((u32*) prev, (u32*) at);
+}
+#endif
+
 extern "C" void r11c_eventInit();
 static void r11c_EventBesiegedStart();
 static void r11c_ThunderMove();
@@ -149,6 +256,17 @@ void R11cInit()
 
 #line 75 "D:/Bio4/Prog/r11c.cpp"
     W = (R11cWork*) MEM_CALLOC(sizeof(R11cWork), 1, 0xd);
+#if CH22_PS2_ROOM
+    // PS2 main ELF gameStageInit 0x217b84..0x217bdc derives its
+    // scenario selector from difficulty, with JP special-mode overrides.
+    // Native pG->language is a persistent language setting and is not this
+    // derived field. Snapshot at room entry before events change system flags.
+    W->ps2ScenarioVariant = pG->game_mode >= 4;
+    if (pSys->language == 0 && (pG->System_flg & 0xC0001000u)) {
+        W->ps2ScenarioVariant = 0;
+    }
+    r11c_ps2FlagArea();
+#endif
 
     SceExec(0x12, (TaskFunc) r11c_ThunderMove, 0, 0, SCE_PRIO_DEF_2, 0);
     EstSet((int) pPL, -1, 0, 0, 1, 0, 0x800, 0, 0, 0);
@@ -492,6 +610,12 @@ static void r11c_EventBesiegedStart()
     if (getRoomEtcWindow(0x15, &win, 1)) {
         ((cEmWindow*) win)->SetEnableFence(0, 1);
     }
+#if CH22_PS2_ROOM
+    n = 10;
+    for (i = 0; i < n; i++) em[i] = 0;
+    for (i = 0; i < 5; i++) em[i] = EmSetFromList2(r11cPs2Wave[0][i], 0);
+    for (i = 0; i < 4; i++) W->ladderResetTime[i] = r11cPs2LadderTime[i];
+#else
     n = 0;
     e = EmSetFromList2(0xC9, 0);
     if (e) {
@@ -538,9 +662,54 @@ static void r11c_EventBesiegedStart()
         em[n] = e;
         n++;
     }
+#endif
     kill = 0;
     t = 0;
+#if CH22_PS2_ROOM
+    // PS2 st1_3.rel 0xfbb4: normal variant 40/9000, easy 30/7200.
+    const int killLimit = W->ps2ScenarioVariant ? 40 : 30;
+    const int timeLimit = W->ps2ScenarioVariant ? 9000 : 7200;
+#endif
     while (1) {
+#if CH22_PS2_ROOM
+        if (pG->Room_flg[0] & 0x20000000) {
+            SceEventStart(0);
+            SndRoomStrStop(3);
+            pG->System_flg |= 0x400;
+            SceDestroyEm(0x10, 0x20);
+            SceSleep(2);
+            InitModule(SearchEmModule(0x13));
+#if R11C_ROUTE_MOVIES
+            if (!W->evd1) {
+                RouteMoviePlay(0x11c20, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS20_Func, 0);
+            } else
+#endif
+            EvtMgr.EvtReadExec("event/evd/r11cs20.evd", 0, 2);
+            SceEventEnd(0);
+            SceExit();
+        }
+        if (SceCountEmAlive(0x10, 0x20) < 5) {
+            for (i = 0; i < 5; i++) {
+                int upper = (pG->Room_flg[2] & 0x40000000) != 0;
+                int slot = upper * 5 + i;
+                e = em[slot];
+                int changed;
+                if (e == 0) {
+                    e = EmSetFromList2(r11cPs2Wave[upper][i], 0);
+                    if (e == 0) continue;
+                    em[slot] = e;
+                    ++kill;
+                    changed = 1;
+                } else {
+                    changed = r11c_ps2Reset(e, &kill);
+                }
+                if (changed) {
+                    if (upper) r11c_ps2Climb(e, r11cPs2WaveLadder[i]);
+                    break;
+                }
+            }
+        }
+#else
         for (i = 0; i < n; i++) {
             if (pG->Room_flg[0] & 0x20000000) {
                 SceEventStart(0);
@@ -567,6 +736,7 @@ static void r11c_EventBesiegedStart()
                 ((cEmGanado*) e)->setReset();
             }
         }
+#endif
         t++;
         if (t == 3600) {
             r11c_save()->flags |= 0x02000000;
@@ -584,7 +754,14 @@ static void r11c_EventBesiegedStart()
                 ((cObjLadder*) ladder)->setOn();
             }
         }
+#if CH22_PS2_ROOM
+        if (r11c_save()->flags & 0x02000000) r11c_ps2ResetLadders();
+#endif
+#if CH22_PS2_ROOM
+        if (kill >= killLimit || t >= timeLimit || DebugTrg(0) == 1) {
+#else
         if (kill > 39 || t > 8999 || DebugTrg(0) == 1) {
+#endif
             break;
         }
         SceDebugDisp("T[%d]", 9000 - t);
@@ -617,7 +794,11 @@ static void r11c_EventBesiegedStart()
 #endif
     for (i = 0; i < n; i++) {
         e = em[i];
+#if CH22_PS2_ROOM
+        if (e != 0 && (e->be_flag & 0x201) == 1) {
+#else
         if ((e->be_flag & 0x201) == 1) {
+#endif
             EmMgr.destroy(e);
         }
     }

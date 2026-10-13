@@ -10,6 +10,11 @@
 class cObjLadder : public cObj {
 public:
     int getStatus();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    void setClimb();
+    void setReset(int mode);
+#endif
     void setStand();
     void setCamera(int no);
     void setOff();
