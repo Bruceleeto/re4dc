@@ -32,7 +32,7 @@ extern "C" unsigned char re4dc_dvd_buff[0x20000];
 #pragma GCC push_options
 #pragma GCC optimize("Os")  // cold loader code: size, not speed (image bytes are heap 4)
 namespace leon_hand_pack {
-constexpr unsigned kMagic=0x3150484Cu,kVersion=1,kRows=48,kBlobs=32,kSources=64;
+constexpr unsigned kMagic=0x3150484Cu,kVersion=1,kRows=24,kBlobs=24,kSources=48;  // hands_pack.py CAPS
 constexpr unsigned kSlotBytes[2]={6144,6400};   // hands_pack.py SLOT_CAP (right, left)
 constexpr unsigned kCellBytes=2*(6144+6400);    // AICA: per side a home cell and an other cell
 struct Row { unsigned char role,blob; unsigned short positions,normals,palette; unsigned hash; };
@@ -84,7 +84,7 @@ bool directory() {
                 if((x.role-5u)>1u || blob_bytes(x)>kSlotBytes[x.role-5] || x.offset32*32u+blob_bytes(x)>file_bytes)bad=4;}
         }
     }
-    re4dc_log("LHPACK directory %s rows=%u blobs=%u sources=%u file=%u why=%u\n",package(),nrows,nblobs,nsrcs,file_bytes,bad);
+    re4dc_log("LHPACK dir rows=%u blobs=%u src=%u file=%u why=%u\n",nrows,nblobs,nsrcs,file_bytes,bad);
     if(bad)return false;
     job_file=fs_open(package(),O_RDONLY);
     dir_state=1;
@@ -94,7 +94,7 @@ bool directory() {
 bool cells() {
     if(aica)return true;
     aica=snd_mem_malloc(kCellBytes);
-    if(!aica){if(alloc_fails++<4)re4dc_log("LHPACK cells: no %u AICA bytes (largest %u)\n",kCellBytes,unsigned(snd_mem_available()));return false;}
+    if(!aica){if(alloc_fails++<4)re4dc_log("LHPACK no cells\n");return false;}
     return true;
 }
 int cell_of(int b){for(unsigned c=0;c<4;++c)if(cell_blob[c]==b)return int(c);return -1;}
@@ -172,7 +172,7 @@ void job_poll() {
             ++reads;++async_reads;read_bytes+=blob_bytes(x);if(job_us>async_max_us)async_max_us=job_us;
             cache(b,job_data());
             if(want[side]==b){std::memcpy(slot[side],job_data(),blob_bytes(x));set_slot(side,b);want[side]=-1;}
-            if(async_reads<=64)re4dc_log("LHPACK landed blob=%u role=%u read_us=%u queue=%u\n",unsigned(b),5u+side,unsigned(job_us),job_n);
+            if(async_reads<=64)re4dc_log("LHPACK landed blob=%u role=%u read_us=%u\n",unsigned(b),5u+side,unsigned(job_us));
         } else ++async_fails;
         re4dc_motion_free(job_mem);job_mem=nullptr;job_blob=-1;job_state=0;
     }
@@ -228,8 +228,8 @@ bool load(unsigned side,int b) {
     if(want[side]!=b) {
         ++misses;want[side]=b;job_enqueue(b);
         // The hitch check reads these: a pose not in the cache (the slot keeps drawing slot_blob until it lands).
-        if(misses<=64)re4dc_log("LHPACK miss blob=%u role=%u drawing=%d cells=%d/%d/%d/%d aica=%u\n",unsigned(b),5u+side,
-            slot_blob[side],cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3],aica?1u:0u);
+        if(misses<=64)re4dc_log("LHPACK miss blob=%u role=%u drawing=%d cells=%d/%d/%d/%d\n",unsigned(b),5u+side,
+            slot_blob[side],cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3]);
     }
     return slot_blob[side]>=0;
 }
@@ -291,8 +291,8 @@ extern "C" void re4dc_leon_hands_room_enter() {
     mutex_lock(&lh_mutex);
     prefetch_home();refill_now();
     for(unsigned side=0;side<2;++side)if(slot_blob[side]<0 && directory())load_now(side,int(side));
-    re4dc_log("LHPACK room reads=%u bytes=%u copies=%u hits=%u misses=%u async=%u/%u max_us=%u pick_max_us=%u yields=%u refills=%u hit_max_us=%u cells=%d/%d/%d/%d\n",
-        reads,read_bytes,copies,hits,misses,async_reads,async_fails,async_max_us,pick_max_us,yields,refills,hit_max_us,
+    re4dc_log("LHPACK room reads=%u bytes=%u hits=%u misses=%u async=%u/%u/%u pick=%u yields=%u copy=%u cells=%d/%d/%d/%d\n",
+        reads,read_bytes,hits,misses,async_reads,async_fails,async_max_us,pick_max_us,yields,hit_max_us,
         cell_blob[0],cell_blob[1],cell_blob[2],cell_blob[3]);
     mutex_unlock(&lh_mutex);
 }

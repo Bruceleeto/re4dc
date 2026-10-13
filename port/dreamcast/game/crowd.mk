@@ -115,15 +115,16 @@ endif
 #              each weapon equip (ReadWepData); other poses are read from the disc when first drawn. The cells are
 #              freed at movie open (the stream takes the whole 64 KiB movie reserve) and before a runtime sound bank
 #              conversion, and refilled on the next Leon draw (coarse_actor_leon_hands.inc).
-# LEON_SKIN_FRAME=1 (issue #26, 2026-10-13; default 0: no effect; render only): re4dc_actor_skin_acquire opens a new
-# frame's skin registry itself (as re4dc_actor_skin_register does) instead of declining when no skin was registered yet
-# this frame. Fixes the GameCube Leon for the first frame after r119 movie 11900 (MCHECK_LEONGC: acq=14, skin lease).
-LEON_SKIN_FRAME ?= 0
-ifeq ($(filter $(LEON_SKIN_FRAME),0 1),)
-$(error LEON_SKIN_FRAME must be 0 or 1)
+# LEON_SKIN_SLOTS=1 (issue #26, 2026-10-13; default 0: no effect; render only): the per-frame skin registry
+# (platform/native_actor_fast.cpp kSkins) holds 80 entries instead of 64 (+960 B). r119, the first frame after movie
+# 11900: 64 skins were registered before Leon's transaction asked for its 9, the lease declined and Leon went to the
+# GameCube path (MCHECK_LEONGC: acq=14 / SKINACQ why=4). Knob-off and pack-off arms showed the same.
+LEON_SKIN_SLOTS ?= 0
+ifeq ($(filter $(LEON_SKIN_SLOTS),0 1),)
+$(error LEON_SKIN_SLOTS must be 0 or 1)
 endif
-ifeq ($(LEON_SKIN_FRAME),1)
-$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_SKIN_FRAME=1
+ifeq ($(LEON_SKIN_SLOTS),1)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_SKIN_SLOTS=1
 endif
 LEON_HAND_PACK ?= 0
 ifeq ($(filter $(LEON_HAND_PACK),0 1),)

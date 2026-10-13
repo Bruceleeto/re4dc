@@ -30,4 +30,5 @@ ifneq ($(ACTOR_TRANSACTION),1)
 $(error MCHECK_LEONGC=1 needs ACTOR_TRANSACTION=1)
 endif
 $(OBJDIR)/coarse_actor.o $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_MCHECK_LEONGC=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_MCHECK_LEONGC=1  # SKINACQ lines: why the skin lease declined
 endif

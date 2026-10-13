@@ -1296,7 +1296,13 @@ private:
 
 // ----------------------------------------------------------- skin registry --
 struct SkinEntry { const void* info; const void* positions; const float* palette; unsigned entries, materialized; };
+#if defined(RE4DC_LEON_SKIN_SLOTS) && RE4DC_LEON_SKIN_SLOTS
+// LEON_SKIN_SLOTS=1 (crowd.mk): r119 after movie 11900 registers 64 skins before Leon's transaction asks for its 9
+// (MCHECK_LEONGC: SKINACQ why=4, registry full), which left Leon to the GameCube path.
+constexpr unsigned kSkins = 80;
+#else
 constexpr unsigned kSkins = 64;
+#endif
 SkinEntry skins[kSkins];
 unsigned skin_count = 0, skin_frame = ~0U;
 SkinEntry* find_skin(const void* info, const void* positions) {

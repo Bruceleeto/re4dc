@@ -32,7 +32,7 @@ from pathlib import Path
 MAGIC = 0x3150484C        # 'LHP1'
 VERSION = 1
 SLOT_CAP = {5: 6144, 6: 6400}   # coarse_actor_leon_hands.inc kSlotBytes: the fixed draw slots (right, left)
-CAPS = dict(rows=48, blobs=32, sources=64)   # the resident directory's capacity (coarse_actor_leon_hands.inc)
+CAPS = dict(rows=24, blobs=24, sources=48)   # the resident directory's capacity (coarse_actor_leon_hands.inc)
 FLAG_STANDARD, FLAG_HOME, FLAG_ALT = 1, 2, 4
 HOME = {5: ('pl00', 0x12), 6: ('pl00', 0x14)}
 # Alternating poses (seen swapping with the standard hand in real time: h2 / f6s, 2026-10-13): prefetched with the

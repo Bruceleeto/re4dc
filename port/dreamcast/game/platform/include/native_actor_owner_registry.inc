@@ -14,16 +14,47 @@ void owned_skin_clear() {
 }
 void owned_skin_invalidate_frames(); // definition after the Frame cache
 
-extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
-#if defined(RE4DC_LEON_SKIN_FRAME) && RE4DC_LEON_SKIN_FRAME
-    // LEON_SKIN_FRAME=1 (crowd.mk): the first skinned model of a frame may be the owner's (r119, the first frame after
-    // movie 11900: no actor registered a skin yet, so skin_frame still named the last frame before the movie and Leon
-    // went to the GameCube path). Open the frame here exactly as re4dc_actor_skin_register does on a new frame.
-    if(out && !out->serial && !out->count && in && n && source_frame!=skin_frame){
-        owned_skin_clear();owned_skin_invalidate_frames();
-        skin_frame=source_frame;skin_count=0;
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
+static int skin_acquire_inner(unsigned& why_,unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
+    if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX){why_=1;return 0;}
+    unsigned index[kRe4dcActorRoles],high=skin_count;
+    for(unsigned k=0;k<n;++k){
+        const auto& b=in[k];
+        if(!b.info || !b.palette || !b.entries || b.entries>256 || !b.source.positions || !b.source.normals ||
+           b.source.palette_entries!=b.entries || !b.source.position_count || !b.source.normal_count){why_=2;return 0;}
+        for(unsigned j=0;j<k;++j)if(in[j].info==b.info){why_=3;return 0;}
+        unsigned at=kSkins;
+        for(unsigned i=0;i<skin_count;++i)if(skins[i].info==b.info && !skins[i].positions){at=i;break;}
+        if(at==kSkins){
+            for(unsigned i=0;i<high;++i){
+                bool chosen=false;for(unsigned j=0;j<k;++j)chosen|=index[j]==i;
+                if(!chosen && !skins[i].info && !owned_skins[i].serial){at=i;break;}
+            }
+            if(at==kSkins){if(high==kSkins){why_=4;return 0;}at=high++;}
+        }
+        if(owned_skins[at].serial){why_=5;return 0;}
+        index[k]=at;
     }
-#endif
+    // No registry mutation occurred before every slot and source span qualified.
+    const unsigned serial=++owned_skin_serial;
+    for(unsigned k=0;k<n;++k){
+        const unsigned i=index[k];const SkinEntry old=i<skin_count?skins[i]:SkinEntry{};
+        out->old[k]={i,old.info,old.positions,old.palette,old.entries,old.materialized};
+        skins[i]={in[k].info,nullptr,in[k].palette,in[k].entries,0};
+        owned_skins[i]={in[k].source,in[k].info,in[k].palette,in[k].entries,serial};
+    }
+    skin_count=high;out->frame=source_frame;out->count=n;out->serial=serial;
+    owned_skin_invalidate_frames();return 1;
+}
+extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
+    unsigned why=0;const unsigned frame_before=skin_frame,count_before=skin_count;
+    const int rv=skin_acquire_inner(why,source_frame,in,n,out);
+    static unsigned logged;
+    if(!rv && logged<16){++logged;re4dc_log("SKINACQ fail why=%u frame=%u skin_frame=%u count=%u n=%u\n",why,source_frame,frame_before,count_before,n);}
+    return rv;
+}
+#else
+extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
     if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)return 0;
     unsigned index[kRe4dcActorRoles],high=skin_count;
     for(unsigned k=0;k<n;++k){
@@ -54,6 +85,7 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
     skin_count=high;out->frame=source_frame;out->count=n;out->serial=serial;
     owned_skin_invalidate_frames();return 1;
 }
+#endif
 extern "C" int re4dc_actor_skin_validate(const Re4dcActorSkinLease* lease) {
     if(!lease || !lease->serial || !lease->count || lease->count>kRe4dcActorRoles || lease->frame!=skin_frame)return 0;
     for(unsigned k=0;k<lease->count;++k){
