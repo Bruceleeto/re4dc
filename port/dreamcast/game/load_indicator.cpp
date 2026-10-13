@@ -6,6 +6,11 @@
 // GameCube option archive has no such entries; tools/d367/ps2_load_indicator.py converts the two units and their one
 // texture (id 0x24) from the user's PS2 disc into dc/loadind.dat (+ the native texture dc/tex/c/cf2208cd-a6bfb2ef).
 //
+// Static banner (test 9): the port's room set-up runs mostly without yielding, so the screen holds the last frame
+// presented before each blocking call. Every frame presented while the indicator is up (gameRoomInit start to end;
+// door, warp, New Game and continue loads all pass through it) draws the units at the PS2 resting state, after
+// FadeControl(1) (on top of the fade / the Filter09 door freeze), so the held frame carries the banner. No reads or
+// waits are added. Follow-up after test 9: the animated version needs the room set-up to yield (async loading).
 // Port differences (minimal, no logic writes):
 //  - The PS2 moved IdSys.roomInit / Cckpt.roomInit to the start of gameRoomInit; the port keeps the GameCube order, so
 //    the two units are saved before IdSys.roomInit and re-created (texture re-registered, unit bodies restored) after
@@ -58,6 +63,21 @@ bool load_textures()
     }
     return IdTexDataLoad(blob + h->tex_at, kOwner) != 0;
 }
+
+// Static banner (test 9, user 2026-10-12): the port's room set-up blocks presentation for most of a load, so the
+// held frame must already show the PS2 resting state. Colour curves off (idSysMove02 then uses col0), alpha fixed:
+// unit 8 (the text) at its fade-in end value 150, unit 7 (the additive glow) at the middle of its 0..150 pulse.
+void rest()
+{
+    for (int i = 0; i < IdSys.m_maxId; i++) {
+        IdUnit* u = &IdSys.pUnit[i];
+        if (u->be_flag == 0xFF || u->classNo != kClass) {
+            continue;
+        }
+        u->curve[2] = 0;
+        u->col0[3] = u->unitNo == 8 ? 150 : 75;
+    }
+}
 }  // namespace
 
 extern "C" {
@@ -102,6 +122,7 @@ void re4dc_loadind_begin()
     BitOff(pG->Disp_flg, 0x2000);
     BitOn(pG->Disp_flg, 0x10000);
     IdSys.set(blob + ((const LoadIndHeader*) blob)->id_at, 0xFF, kClass, 0x0F, 0, 0);
+    rest();
     shown = true;
     re4dc_loadind_active = 1;
 }
@@ -135,6 +156,7 @@ void re4dc_loadind_resume()
     BitOff(pG->Disp_flg, 0x2000);
     BitOn(pG->Disp_flg, 0x10000);
     IdSys.set(blob + ((const LoadIndHeader*) blob)->id_at, 0xFF, kClass, 0x0F, 0, 0);
+    rest();
     for (int i = 0, k = 0; i < IdSys.m_maxId && k < nsaved; i++) {
         IdUnit* u = &IdSys.pUnit[i];
         if (u->be_flag != 0xFF && u->classNo == kClass) {
