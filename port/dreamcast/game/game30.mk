@@ -2752,3 +2752,24 @@ ifeq ($(TEX_PAL4_ALPHA),1)
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PAL4_ALPHA=1
 endif
 
+# Exact private r11f Mendez/Luis version3 profiles; legacy version2 stays unchanged.
+# Two owned slabs per binding, existing global pressure cap, no spill for these profiles.
+MOTION_BOUNDED_R11F ?= 0
+ifeq ($(filter $(MOTION_BOUNDED_R11F),0 1),)
+$(error MOTION_BOUNDED_R11F must be 0 or 1)
+endif
+ifeq ($(MOTION_BOUNDED_R11F),1)
+ifneq ($(ROUTE_CH23),1)
+$(error MOTION_BOUNDED_R11F needs ROUTE_CH23=1)
+endif
+ifneq ($(MOTION_RESERVE),1)
+$(error MOTION_BOUNDED_R11F needs MOTION_RESERVE=1)
+endif
+ifneq ($(MOTION_PRESSURE_BYTES),262144)
+$(error MOTION_BOUNDED_R11F needs MOTION_PRESSURE_BYTES=262144)
+endif
+ifneq ($(MOTION_USAGE_LOG),0)
+$(error MOTION_BOUNDED_R11F needs MOTION_USAGE_LOG=0)
+endif
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_BOUNDED_R11F=1
+endif
