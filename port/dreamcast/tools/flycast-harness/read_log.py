@@ -56,6 +56,10 @@ last_stage = None
 # Only whole lines are printed: the guest may be mid-append when the head is read, and the
 # "[stage N]" marker printed below would otherwise land inside that line (a false STRICT REJECT).
 pending = ""
+# RE4DC_LOG_STOP_TICK=N (logic-trace runs, dettrace 2026-10-13): end the capture once tick N's records are
+# complete (the LT line of tick N+1 was read), so every run covers the same emulated window under any host load.
+stop_tick = int(os.environ["RE4DC_LOG_STOP_TICK"]) if os.environ.get("RE4DC_LOG_STOP_TICK") else None
+overruns = 0
 while time.time() < end:
     h = read(head_off, 4)
     if h is None:
@@ -75,8 +79,17 @@ while time.time() < end:
         pending = ""
     if head > shown:
         if head - shown > LOG_SIZE:
+            # The guest lapped the ring before it was read: text is lost and a trace run is invalid.
+            print("[LOG OVERRUN lost=%d bytes at head=%d]" % (head - shown - LOG_SIZE, head), flush=True)
+            overruns += 1
             shown = head - LOG_SIZE
+            pending = ""
         data = read(buf_off, LOG_SIZE)
+        h2 = read(head_off, 4)
+        if h2 is not None and struct.unpack("<I", h2)[0] - shown > LOG_SIZE:
+            # the guest overwrote the oldest unread bytes while the ring was being copied
+            print("[LOG OVERRUN during copy at head=%d]" % struct.unpack("<I", h2)[0], flush=True)
+            overruns += 1
         chunk = bytes(data[i % LOG_SIZE] for i in range(shown, head))
         text = pending + chunk.decode("ascii", "replace")
         cut = text.rfind("\n") + 1
@@ -84,6 +97,11 @@ while time.time() < end:
         if cut:
             sys.stdout.write(text[:cut])
             sys.stdout.flush()
+            if stop_tick is not None and ("\nLT t=%d " % (stop_tick + 1)) in ("\n" + text[:cut]):
+                reason = "stop-tick"
+                print("[stop tick %d complete]" % stop_tick, flush=True)
+                shown = head
+                break
         shown = head
     s = read(stage_off, 4)
     stage = struct.unpack("<I", s)[0] if s else None
@@ -103,6 +121,6 @@ while time.time() < end:
     time.sleep(0.005)
 if pending:
     print(pending)  # the last, unterminated line
-print("[end: head=%d stage=%s]" % (shown, last_stage))
+print("[end: head=%d stage=%s overruns=%d]" % (shown, last_stage, overruns))
 
 print("[capture stop reason=%s elapsed=%.3f]" % (reason,time.time()-started),flush=True)
