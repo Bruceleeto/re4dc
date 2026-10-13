@@ -1080,8 +1080,10 @@ HEAP4_PARTS_RESERVE_ROOM ?= 0x100
 HEAP4_PARTS_RESERVE_BYTES ?= 73728
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
+# CH23 em3b/em35: guarded default-initialization and sparse scans reviewed; stage st2_0 already audited.
+CH23_AUDITED_MODULES = $(if $(filter 1,$(ROUTE_CH23)),em3b:ovl em35:ovl)
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19 $(CH23_AUDITED_MODULES),$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif

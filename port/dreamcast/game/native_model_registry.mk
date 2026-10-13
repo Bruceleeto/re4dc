@@ -164,8 +164,18 @@ endif
 ifeq ($(PS2_GIGANTE),1)
 NATIVE_MODEL_REGISTRY_BONES ?= 64
 NATIVE_MODEL_REGISTRY_SHIFT ?= 1
+ifeq ($(ROUTE_CH23),1)
+# Mendez has 83 bones. A larger existing registry capacity still admits the 64-bone Gigante.
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_BONES),64 80 96 128),)
+$(error PS2_GIGANTE=1 with ROUTE_CH23=1 needs registry capacity at least 64)
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_SHIFT),1)
+$(error PS2_GIGANTE=1 needs NATIVE_MODEL_REGISTRY_SHIFT=1)
+endif
+else
 ifneq ($(NATIVE_MODEL_REGISTRY_BONES)$(NATIVE_MODEL_REGISTRY_SHIFT),641)
 $(error PS2_GIGANTE=1 needs NATIVE_MODEL_REGISTRY_BONES=64 (or unset) and NATIVE_MODEL_REGISTRY_SHIFT=1)
+endif
 endif
 endif
 # PS2_DELLAGO=1 (lane ps2cast-2; default 0; render only): the runtime side of Del Lago's PS2 mesh (em2f type 0, 35 bones,
