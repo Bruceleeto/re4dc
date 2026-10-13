@@ -390,3 +390,62 @@ Runtime acceptance still needs puzzle activation, dial rotation, deactivation,
 reentry, negative/paused state, comparison stills, STRICT and fill/cost evidence.
 `PS2FXPUZZLE` logs source group counts, private point count, submitted quads and
 qualification issues; these are not runtime performance measurements.
+
+## Chapter-1 coverage checkpoint and per-type specification
+
+This checkpoint uses chapter-1 rooms r100-r10b as the first comparison batch.
+It separates source recipes, adopted draw behavior and outstanding evidence.
+A room is not PS2-complete merely because its haze row exists. The private
+`chapter1-source-type-spec.json` inventory pins source EFF hashes, every record
+count by effect id and table, full haze/streak/sheet recipes, and source refs.
+No game-wide cost or visual-parity conclusion follows from these source counts.
+
+| Type | Required PS2 specification | Current coverage | Remaining qualification |
+| --- | --- | --- | --- |
+| Esp15 camera haze | Per-emitter count, base/random size, growth, box, motion, colour, near/far/indoor fade, floor, activation | New qualified rows use POPULATION selection and camera-box remap; legacy r100/101/103/106/10a/10b retain prior subset paths | Legacy counts are statistical; source motion/random sizes/floors/indoor duration remain GC in most adopted rows. Compare first frames and steady state separately. |
+| Esp48 sheets | SST versus EST ownership, source texture, generator count/lifetime, PS2 removal or replacement | Guarded exact room/texture removals; earlier HAZE_LEAN covers selected r100/101/103 sheets | No blanket deletion by id. Keep r100's PS2-surviving id48 sparks. Other sheet changes require individual recipes. |
+| Esp0a trails/shafts | Surviving versus removed records, Type0/1, parent identity, texture, size, step, decay, blend, area | r100 source streak removals/PS2 shafts; r106 and guarded new omissions; r117 surviving trail mapping | r101 four SST streaks remain unconverted; r102's two retained trails still use GC sizes/alpha. r10b's two 1d trails are already hidden by its broad WATER45 draw predicate. |
+| Common Esp00 sprites | Texture/anchor, base/random size, motion, RGBA, blend/fade/lifetime and parent | Three exact stationary r104 changes | Other glows, puffs and debris need source pairing; lower PS2 counts alone do not establish a safe removal. |
+| Esp0b fire/smoke | Emitter count/rate/lifetime, texture/size, growth/velocity, opacity and source activation | Existing common native rendering only | PS2 per-room recipe changes are not adopted. Preserve source jitter/RNG and any gameplay-facing lifetime while mapping draws. |
+| Esp0e flares and other special effects | Per-type after-render state/visibility, child spawning, texture stages and PS2 recipe | Existing source logic retained | No blanket draw removal: after-render visibility can control child spawns and RNG. Source-specific mapping is required. |
+| Water45 / lake layers | Surface placement, transparency, depth ordering, shoreline/haze relationship | Existing WATER45_NATIVE r10b path | Must compare lake wide view and shoreline closeup; it does not certify all other lake effects. |
+| Effect textures | Resident texture id, animation/anchor, dimensions, alpha content and pixel comparison | Existing GC pixels; core anchors qualified for substituted 10f/117 draws | PS2 texture pixels and secondary-EFF TIM2 conversions are not adopted by this lane. |
+
+Legacy haze reference recipes are useful visual references but still require
+normalization to the exact PS2 source behavior. Values below are source emission
+counts, not measured live or visible counts; near distances are millimetres.
+
+| Room / source ref | GC count -> PS2 count | PS2 base size / box / RGBA | PS2 near far/near; indoor frames | Existing residual |
+| --- | --- | --- | --- | --- |
+| r100 SST7/0 -> SST8/2 | 60 -> 11 | 2000 / 5000 / 235,235,210,34 | 3000/500;30 | stride5 + box clipping, not exact population; GC random motion remains |
+| r101 SST1/0 -> SST1/1 | 39 -> 8 | 1900 / 5000 / 255,250,240,35 | 3000/500;30 | stride2 + box clipping; four removed PS2 streaks remain GC |
+| r103 SST0/0 -> SST8/1 | 41 -> 11 | 2100 / 5300 / 255,255,225,35 | 3000/500;30 | stride1 + box clipping; GC indoor duration10 versus PS2 30 |
+| r106 SST1/0 -> SST1/0 | 30 -> 10 | 2000 / 5000 / 255,255,245,40 | 3000/500;30 | stride1 clipped-box estimate overpopulates target |
+| r106 SST3/0 -> SST3/0 | 30 -> 10 | 2000 / 4000 / 255,255,245,35 | 2000/1000;25 | stride1 clipped-box estimate underpopulates target |
+| r10a SST4/0 -> SST4/1 | 41 -> 10 | 1700 / 4000 / 255,255,238,20 | 2000/1000;30 | GC indoor duration15 versus PS2 30; approximate population |
+| r10b SST0/0 -> SST0/1 | 21 -> 10 | 2100 / 5000 / 180,185,175,30 | 3000/500;30 | GC growth tends3x while PS2 tends2x; prior size ratio only compares base sizes; GC indoor duration0 versus PS2 30; box clipping substantially underpopulates target |
+
+All PS2 reference haze rows above use growth about .01 damped by .99 (steady
+size about twice base). r10b's old comment saying 80 -> 30 sprites reads near-fade
+bytes as counts; actual source emission counts are 21 -> 10. This checkpoint
+records the discrepancy without changing the existing reference path.
+
+Remaining chapter-1 work is explicit: the reference haze residuals above;
+r101's four streak removals; r102 SST3/0 alpha15 ->13 and SST1/16 ->PS2 SST7/6
+size1400 ->1500/alpha55 ->35; remaining common sprites, fire/smoke and special
+types; secondary effect texture qualification; per-room activation and lifetime
+checks. Later-room omissions still include r117 EST1/2/3 index1 generator1
+records and the broad ordinary/special-effect recipe differences identified by
+the route inventory. The r109/10f/11e/r200 NULL-table parsing corrections apply;
+none of those rooms should be treated as an empty PS2 effect inventory.
+
+Measure fill before choosing another reduction. For each affected room/type,
+use the same build, camera, frame window, source activation and particle age;
+record opaque/punch-through/translucent area and triangles, submitted effect
+quads and source-group qualification. Include frames with zero translucent
+work in window means and p99. A comparison sheet should contain one worst-view
+and one closeup for ours/PS2/GC, with matching conditions and visible labels;
+keep broader route/runtime evidence separate. No PS2/GC reference image or
+matching console timing is claimed by the source audit. Default-off identity,
+STRICT outside changed rooms, heap/load/texture checks, New Game/reentry and
+cost/stills gates remain prerequisites for adoption.
