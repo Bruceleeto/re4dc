@@ -3,7 +3,45 @@
 import copy
 import unittest
 import numpy as np
-from ps2_luis import ACTOR_COVERAGE, HAIR_MAP, EXACT_HAIR, bind_pose_proof, check_coverage, luis_bone_map
+from PIL import Image
+from ps2_luis import ACTOR_COVERAGE, HAIR_MAP, EXACT_HAIR, bind_pose_proof, check_coverage, luis_bone_map, character_image
+
+
+class CharacterOrientation(unittest.TestCase):
+    # Independently observed System.Drawing Rotate90FlipX mapping for 3x2:
+    # 0 1 2 / 3 4 5 becomes 0 3 / 1 4 / 2 5. Distinct RGBA values prove
+    # diffuse alpha follows the same texel permutation as colour.
+    def source(self):
+        image = Image.new('RGBA', (3, 2))
+        image.putdata([(i, 10+i, 20+i, 30+i) for i in range(6)])
+        return image
+
+    def test_character_interlace_1_and_3_transpose_rgba(self):
+        for flag in (1, 3):
+            image = self.source()
+            got = character_image(image, flag)
+            self.assertEqual(got.size, (2, 3))
+            self.assertEqual([got.getpixel((x, y)) for y in range(3) for x in range(2)],
+                             [(i, 10+i, 20+i, 30+i) for i in (0, 3, 1, 4, 2, 5)])
+            self.assertEqual(image.tobytes(), self.source().tobytes())
+
+    def test_even_interlace_leaves_every_channel_and_shape_unchanged(self):
+        for flag in (0, 2):
+            image = self.source()
+            got = character_image(image, flag)
+            self.assertEqual(got.size, image.size)
+            self.assertEqual(got.tobytes(), image.tobytes())
+
+    def test_actual_head_and_hair_dimensions(self):
+        for size in ((256, 128), (128, 64)):
+            for flag in (1, 3):
+                self.assertEqual(character_image(Image.new('RGBA', size), flag).size,
+                                 tuple(reversed(size)))
+
+    def test_unsupported_flag_is_refused(self):
+        for flag in (-1, 4, 255):
+            with self.assertRaisesRegex(ValueError, 'unsupported character'):
+                character_image(self.source(), flag)
 
 
 class Coverage(unittest.TestCase):

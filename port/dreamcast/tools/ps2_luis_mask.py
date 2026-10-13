@@ -21,10 +21,10 @@ sys.path[:0]=[str(HERE/'d367'),str(HERE/'d367/charbake')]
 import model_registry as mr
 import cb_tex as T
 import ps2_cast as pc
-from ps2_luis import PS2_SHA
+from ps2_luis import PS2_SHA, character_image
 
-COVERAGE_SHA='d994ab69fcd9ca9a28723858f8919a4d7658be4500db043cd8892706865c4488'
-HEADER_SHA='90812064b25cc7305eb58a0c528fb020fa4ef600495b0f4b18599512460308e8'
+COVERAGE_SHA='75c2655ee619f800e921850edcea9e0dffcc3af379996cfe9472f89929c36aa0'
+HEADER_SHA='6fc181444d83b784780d2724732520e71b3c111eb7a7d7e77f35024659c92846'
 VIEWER_COMMIT='ecd32acd1c62cf34ce4a6e958d8ea1ddafbd7dec'
 VIEWER='https://github.com/JADERLINK/JADERLINK_MODEL_VIEWER/blob/'+VIEWER_COMMIT+'/'
 
@@ -60,10 +60,12 @@ def prepare(model,archive,header,out):
         h=parsed['entries'][i];w,height,pixels,stats=decoder.decode(tpl,h)
         require((w,height)==(128,64),'wrong hair texture shape')
         require(((h['gs_tex0']>>34)&1)==1 and ((h['gs_tex0']>>35)&3)==0,'wrong source TEX0 alpha/function')
-        pixels=bytes(pixels);images.append(np.frombuffer(pixels,np.uint8).reshape(height,w,4).copy())
-        metadata.append(dict(index=i,width=w,height=height,tex0='%016x'%h['gs_tex0'],TCC=1,TFX=0,decoded_rgba_sha256=sha(pixels),raw_alpha_histogram=stats['alpha_raw_hist']))
+        pixels=bytes(pixels);image=character_image(Image.frombytes('RGBA',(w,height),pixels),h['interlace'])
+        images.append(np.asarray(image).copy())
+        metadata.append(dict(index=i,width=image.width,height=image.height,storage_size=[w,height],interlace=h['interlace'],character_orientation='transpose' if h['interlace']&1 else 'identity',oriented_rgba_sha256=sha(image.tobytes()),tex0='%016x'%h['gs_tex0'],TCC=1,TFX=0,decoded_rgba_sha256=sha(pixels),raw_alpha_histogram=stats['alpha_raw_hist']))
     colour=images[0][:,:,:3];alpha=images[0][:,:,3]
     uv,w,h=source_uv(c['uv'],coverage)
+    require((w,h)==images[0].shape[1::-1] and images[0].shape==images[1].shape,'oriented hair texture/UV shape differs')
     ck=key(b'ps2-luis/diffuse-rgb/'+colour.tobytes());mk=key(b'ps2-luis/diffuse-alpha/'+alpha.tobytes())
     pk=key(b'R4MPv001'+struct.pack('<4I',*ck,*mk))
     words=((alpha.astype(np.uint16)//17)<<12)|((colour[:,:,0].astype(np.uint16)>>4)<<8)|((colour[:,:,1].astype(np.uint16)>>4)<<4)|(colour[:,:,2].astype(np.uint16)>>4)

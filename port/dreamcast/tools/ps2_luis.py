@@ -35,6 +35,18 @@ def require(ok, message):
         raise ValueError(message)
 
 
+def character_image(image, interlace):
+    """Honor the PS2 character TPL orientation after storage decoding.
+
+    JADERLINK_MODEL_VIEWER ecd32acd: LoadPs2Tpl.GetImages passes true to
+    TplImage's rotateInterlace1and3; Rotate90FlipX is a matrix transpose.
+    The shared scenario decoder deliberately does not apply this character
+    rule. Keep its room behavior unchanged, and preserve RGBA together.
+    """
+    require(interlace in (0, 1, 2, 3), 'unsupported character TPL interlace')
+    return image.transpose(Image.Transpose.TRANSPOSE) if interlace & 1 else image
+
+
 def check_coverage(coverage, info_count, materials_by_bin):
     """All GC infos and all PS2 material sections are covered exactly once."""
     infos, source_materials = [], []
@@ -170,10 +182,14 @@ def convert(kind, inputs, out, pack=False):
         for i, h in enumerate(parsed['entries']):
             w, height, rgba, stats = decoder.decode(data, h)
             img = Image.frombytes('RGBA', (w, height), bytes(rgba))
+            img = character_image(img, h['interlace'])
             name = f'ps2-tpl{tpl:02x}-image{i:02d}.png'
             img.save(textures/name)
             images[(tpl, i)] = img
-            facts.append(dict(index=i, width=w, height=height, file='textures/'+name,
+            facts.append(dict(index=i, width=img.width, height=img.height, file='textures/'+name,
+                              storage_size=[w, height], interlace=h['interlace'],
+                              character_orientation='transpose' if h['interlace'] & 1 else 'identity',
+                              oriented_rgba_sha256=pc.sha(img.tobytes()),
                               decoded_rgba_sha256=pc.sha(bytes(rgba)), format=decoder.describe(h)['format'],
                               alpha_raw=sorted(stats['alpha_raw_hist'])))
         tpl_records[tpl] = dict(sha256=pc.sha(data), bytes=len(data), images=facts)
