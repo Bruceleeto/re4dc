@@ -3,7 +3,8 @@
 `PS2_FX_STAGE1=1` extends the existing render-only haze/streak path. It defaults
 to 0 and requires `PS2_FX_ROOMS=1`, `EFFECT_PS2_HAZE=1` and
 `EFFECT_PS2_STREAK=1` or `2` (which already require native effect sprites).
-The first group covers r102, r104, r105 and r107. It preserves the existing
+The initial group covers r102, r104, r105 and r107; the next group below adds
+qualified room-SST recipes through r11f and r200 sheet omissions. It preserves the existing
 r106, r10a and WATER45_NATIVE r10b recipes.
 
 ## First group
@@ -54,7 +55,7 @@ python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --o
 python3 -m unittest discover -s tools -p test_audit_ps2_fx_recipes.py
 ```
 
-The ten host tests cover endian-independent record decoding, populated lists
+The twelve host tests cover endian-independent record decoding, populated lists
 with missing data, truncated/invalid sequence tables, unsupported effect
 semantics, convergent size recurrences, and the count estimate with smaller or
 larger PS2 boxes. Private source archives and generated evidence stay outside Git.
@@ -62,7 +63,7 @@ larger PS2 boxes. Private source archives and generated evidence stay outside Gi
 ## Remaining scope and validation
 
 The apparent r109/r10f/r11e/r200 record-layout variants are resolved by the
-source audit below. Later rooms remain outside the first runtime group. Existing
+source audit below. The second runtime group is listed below. Existing
 r10b comments quote 80/30 haze sprites; the extracted generator fields instead
 encode 21/10 per emission. Its behavior is preserved pending a separate
 lifecycle/look audit.
@@ -102,7 +103,7 @@ is emissions per generator step, not proof of simultaneous particles.
 | r10c | 7 x 2200 mm, global | Map GC 46 x 1283.056 |
 | r10d | None | GC haze is EST; existing room-SST owner gate does not cover it |
 | r10e | 12 x 2000 mm, global | Map GC 66 x 1283.056 |
-| r10f | 10 x 1900 mm, global | Map GC 48 x 1300; 15 GC SST streaks share one exclusive removed signature |
+| r10f | 10 x 1900 mm, global | Haze held: texture changes from GC 0x1e to PS2 0x1f; 15 GC SST streaks share one exclusive removed signature |
 | r111 | 10 x 1900 mm, global | Map GC 53 x 1299.956; 53 SST sheets removed; four removed streaks are EST |
 | r112 | 10 x 1900 mm, area 5 | GC haze was global; require source area qualification; only one removed streak is SST |
 | r113 | 10 x 1900 mm, global | Map GC 51 x 1283.056; 53 SST sheets removed |
@@ -115,9 +116,55 @@ is emissions per generator step, not proof of simultaneous particles.
 | r11d | Global 10 x 2000; area 4 has 10 x 2100 | GC sets share range/RGB; stable source indoor-fade duration distinguishes them |
 | r11e | 10 x 2000 mm, global | Map GC 66 x 1283.056 after the null-table parser correction |
 | r11f | 11 x 1900 mm, global | Map GC 59 x 1299.956 |
-| r200 | EST 12 x 2400 mm | Stage-2 inventory only; require owner/call qualification before runtime adoption |
+| r200 | EST 12 x 2400 mm | Haze needs owner/call qualification; 14 SST sheets qualify for the second runtime group |
 
 This inventory qualifies record layout and identifies bounded draw changes; it
 does not accept PS2 area relocation, newly added effects, texture substitutions,
 or a universal removal of GC particles. Runtime adoption remains separately
 guarded and subject to the full integration gates above.
+
+## Second runtime group
+
+The same default-off knob adds twelve more room-SST haze rows and two removed
+streak signatures. Sheet omissions now cover 25 room/texture selectors and 216
+GC SST source records across r105/r107/r108/r109/r111/r113/r118/r119/r11c/r200.
+Only owner 0xd0 Esp48 draws with the listed texture are omitted; EST effects
+remain distinct. The source audit proves zero PS2 Esp48 records in those rooms.
+The r10f streak signature removes all fifteen GC SST sources; r112 removes its
+single matching SST source and leaves its separate EST source untouched.
+
+r11d's global and area-4 haze share GC range and RGB. Immutable source
+`Room_del_frame` values 30 and 0 distinguish those recipes. Runtime stores that
+selector plus one, reserving zero as a wildcard for earlier rows. The existing
+indoor fade counter remains unchanged.
+
+| Room / source | PS2 emissions | Static expected draw subset |
+| --- | ---: | ---: |
+| r109 SST 01/0 | 10 | 12.83 |
+| r10c SST 01/0 | 7 | 7.27 |
+| r10e SST 06/0 | 12 | 10.68 |
+| r111 SST 01/0 | 10 | 9.08 |
+| r113 SST 00/0 | 10 | 12.67 |
+| r119 SST 01/0 | 10 | 9.17 |
+| r11a SST 04/0 | 10 | 10.43 |
+| r11c SST 01/0 | 10 | 9.63 |
+| r11d SST 01/0 | 10 | 11.92 |
+| r11d SST 09/0 | 10 | 11.92 |
+| r11e SST 00/0 | 10 | 10.43 |
+| r11f SST 01/0 | 11 | 11.70 |
+
+These retain the original integer pool-slot stride and box rejection; the
+counts are approximations, not proof of PS2 population parity. Finer count
+selection, r11b's underpopulated clipped box, r112's area relocation, new r118
+and r11c haze, EST-owned changes and r10f's texture substitution remain separate
+qualification work. In particular, this group does not treat r109/r113/r11d's
+stride-one overpopulation as an exact match, or r11b's 2.47 admitted sprites as
+a ten-sprite PS2 recipe.
+
+```sh
+python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --scope stage1-recipes --output /path/to/new-stage1-recipes.json
+```
+
+The twelve host tests include source duration disambiguation and rejection of
+ambiguous/unrepresentable identities. No integration gates or in-game look,
+performance, boot or heap acceptance are established by this commit.

@@ -23,12 +23,41 @@ HAZE_PAIRS = (
     ('r107', (0, 'sst', 0, 0), (0, 'sst', 9, 2)),
     ('r107', (0, 'sst', 8, 0), (0, 'sst', 8, 0)),
 )
-STREAK_CUTS = (
-    ('r102', (0, 'sst', 1, 14)),
-    ('r104', (0, 'sst', 0, 6)),
-    ('r107', (0, 'sst', 3, 2)),
+REMAINING_HAZE_PAIRS = (
+    ('r109', (0, 'sst', 1, 0), (0, 'sst', 1, 0)),
+    ('r10c', (0, 'sst', 1, 0), (0, 'sst', 1, 1)),
+    ('r10e', (0, 'sst', 6, 0), (0, 'sst', 6, 1)),
+    ('r111', (0, 'sst', 1, 0), (0, 'sst', 1, 1)),
+    ('r113', (0, 'sst', 0, 0), (0, 'sst', 0, 1)),
+    ('r119', (0, 'sst', 1, 0), (0, 'sst', 0, 1)),
+    ('r11a', (0, 'sst', 4, 0), (0, 'sst', 4, 1)),
+    ('r11c', (0, 'sst', 1, 0), (0, 'sst', 0, 1)),
+    ('r11d', (0, 'sst', 1, 0), (0, 'sst', 0, 1)),
+    ('r11d', (0, 'sst', 9, 0), (0, 'sst', 9, 0)),
+    ('r11e', (0, 'sst', 0, 0), (0, 'sst', 0, 1)),
+    ('r11f', (0, 'sst', 1, 0), (0, 'sst', 0, 1)),
 )
-SHEET_CUTS = (('r105', 0x48, 0xD0), ('r107', 0x48, 0xD0))
+STREAK_CUTS = (
+    ('r102', (0, 'sst', 1, 14), 1),
+    ('r104', (0, 'sst', 0, 6), 1),
+    ('r107', (0, 'sst', 3, 2), 1),
+)
+REMAINING_STREAK_CUTS = (
+    ('r10f', (0, 'sst', 1, 0), 15),
+    ('r112', (0, 'sst', 1, 15), 1),
+)
+SHEET_CUTS = (('r105', 0x48, 0xD0, 2), ('r107', 0x48, 0xD0, 2))
+REMAINING_SHEET_CUTS = (
+    ('r108', 0x48, 0xD0, 4), ('r108', 0x48, 0xCB, 2),
+    ('r109', 0x48, 0x1F, 1), ('r109', 0x48, 0xF6, 16), ('r109', 0x48, 0xCB, 11),
+    ('r111', 0x48, 0xF6, 34), ('r111', 0x48, 0xCB, 14), ('r111', 0x48, 0x33, 5),
+    ('r113', 0x48, 0x33, 5), ('r113', 0x48, 0xF6, 44), ('r113', 0x48, 0xCB, 4),
+    ('r118', 0x48, 0xD0, 4), ('r118', 0x48, 0xCB, 1),
+    ('r119', 0x48, 0x29, 9), ('r119', 0x48, 0x2C, 2), ('r119', 0x48, 0x1F, 1),
+    ('r119', 0x48, 0xF6, 15), ('r119', 0x48, 0x34, 4), ('r119', 0x48, 0xCB, 15),
+    ('r11c', 0x48, 0xCB, 3), ('r11c', 0x48, 0x34, 3), ('r11c', 0x48, 0x33, 1),
+    ('r200', 0x48, 0xF6, 14),
+)
 FORMERLY_UNDECODED = ('r109', 'r10f', 'r11e', 'r200')
 INVENTORY_ROOMS = tuple('r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r10c r10d r10e r10f '
                         'r111 r112 r113 r117 r118 r119 r11a r11b r11c r11d r11e r11f r200'.split())
@@ -150,12 +179,29 @@ def haze_recipe(gc, ps2):
     }
 
 
+def haze_indoor_selector(records, gc):
+    """Resolve a room-SST haze using immutable source fields, never live alpha."""
+    same = [r for r in records if r['table'] == 'sst' and r['id'] == 0x15 and
+            abs(r['range']-gc['range']) <= 1 and r['rgba'][:3] == gc['rgba'][:3]]
+    if len(same) == 1:
+        return 0
+    same = [r for r in same if r['work8'][3] == gc['work8'][3]]
+    if gc['work8'][3] >= 255:
+        raise ValueError('indoor-frame selector cannot encode 255')
+    if len(same) != 1:
+        raise ValueError('ambiguous haze range/RGB/indoor-duration selector')
+    return gc['work8'][3]+1
+
+
 def streak_signature(record):
     return (record['tex'], record['blend'], record['del_far'], record['del_near'])
 
 
-def audit(cache):
-    rooms = sorted({row[0] for row in HAZE_PAIRS})
+def audit(cache, remaining=False):
+    haze_pairs = HAZE_PAIRS + (REMAINING_HAZE_PAIRS if remaining else ())
+    streak_cuts = STREAK_CUTS + (REMAINING_STREAK_CUTS if remaining else ())
+    sheet_cuts = SHEET_CUTS + (REMAINING_SHEET_CUTS if remaining else ())
+    rooms = sorted({row[0] for row in haze_pairs + streak_cuts + sheet_cuts})
     records, inputs = {}, []
     for room in rooms:
         for side, endian in (('gc', '>'), ('ps2', '<')):
@@ -179,15 +225,13 @@ def audit(cache):
         return found[0]
 
     haze = []
-    for room, gc_ref, ps_ref in HAZE_PAIRS:
+    for room, gc_ref, ps_ref in haze_pairs:
         gc, ps2 = select(room, 'gc', gc_ref), select(room, 'ps2', ps_ref)
-        same = [r for r in records[room, 'gc'] if r['table'] == 'sst' and r['id'] == 0x15 and
-                abs(r['range']-gc['range']) <= 1 and r['rgba'][:3] == gc['rgba'][:3]]
-        if len(same) != 1:
-            raise ValueError('ambiguous haze range/RGB selector in '+room)
-        haze.append({'room': room, 'gc': gc, 'ps2': ps2, 'recipe': haze_recipe(gc, ps2)})
+        recipe = haze_recipe(gc, ps2)
+        recipe['gc_indoor_frames_plus_one'] = haze_indoor_selector(records[room, 'gc'], gc)
+        haze.append({'room': room, 'gc': gc, 'ps2': ps2, 'recipe': recipe})
     streaks = []
-    for room, ref in STREAK_CUTS:
+    for room, ref, expected_count in streak_cuts:
         gc = select(room, 'gc', ref)
         if gc['id'] != 0x0A or gc['work8'][0] != 0 or gc['work8'][2] != 0 or gc['blend'] != 1:
             raise ValueError('not a permanent additive streak-copy source')
@@ -195,20 +239,22 @@ def audit(cache):
         def matching(side):
             return [r for r in records[room,side] if r['table']=='sst' and r['id'] in (0,0x0A) and
                     streak_signature(r)==signature]
-        if len(matching('gc')) != 1 or matching('ps2'):
+        source_group = matching('gc')
+        if len(source_group) != expected_count or matching('ps2') or any(
+                r['id'] != 0x0A or r['work8'][0] or r['work8'][2] for r in source_group):
             raise ValueError('streak signature is ambiguous or remains on PS2 in '+room)
-        streaks.append({'room':room, 'gc':gc, 'runtime_signature': {
+        streaks.append({'room':room, 'gc':gc, 'gc_group':source_group, 'runtime_signature': {
             'owner':0xD0, 'id':0, 'life_max':0, 'blend':1, 'tex':gc['tex'],
             'del_far':gc['del_far']*10, 'del_near':gc['del_near']*10}, 'ps2_matching_records':0})
     sheets = []
-    for room, effect_id, tex in SHEET_CUTS:
+    for room, effect_id, tex, expected_count in sheet_cuts:
         gc = [r for r in records[room,'gc'] if r['table']=='sst' and r['id']==effect_id and r['tex']==tex]
         ps2 = [r for r in records[room,'ps2'] if r['id']==effect_id]
-        if len(gc) != 2 or ps2:
+        if len(gc) != expected_count or ps2:
             raise ValueError('sheet-removal evidence changed in '+room)
         sheets.append({'room':room, 'owner':0xD0, 'id':effect_id, 'tex':tex,
                        'gc':gc, 'ps2_effect_id_records':0})
-    remaining = []
+    remaining_sources = []
     for room in FORMERLY_UNDECODED:
         path = cache/(room+'.ps2.eff0')
         item = {'room':room,'path':str(path),'runtime_changed':False}
@@ -222,9 +268,9 @@ def audit(cache):
                 item.update(status='UNDECODED', reason=str(error))
         else:
             item.update(status='SOURCE_UNAVAILABLE')
-        remaining.append(item)
+        remaining_sources.append(item)
     return {'schema':'ps2-fx-render-recipes/2','inputs':inputs,'haze':haze,'streak_cuts':streaks,
-            'sheet_cuts':sheets,'remaining':remaining,
+            'sheet_cuts':sheets,'remaining':remaining_sources,
             'scope':'Render recipes only. GC generators, RNG, pool occupancy, motion and effect textures remain source-owned.'}
 
 
@@ -270,11 +316,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'inventory'), default='first-group')
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache)
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope == 'stage1-recipes')
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

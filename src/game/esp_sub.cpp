@@ -182,6 +182,8 @@ struct Ps2fxHaze {
     // Source start RGB disambiguates r105's two generators with the same box. Zero means any RGB.
     // These are spawn fields, not the current colour/alpha or the indoor fade state.
     u8 gc_r, gc_g, gc_b;
+    // 0: any; otherwise source Work8[3] + 1. r11d has equal range/RGB but distinct immutable indoor durations.
+    u8 gc_room_frames_p1;
 #endif
 };
 #if RE4DC_WATER45_NATIVE
@@ -190,7 +192,7 @@ struct Ps2fxHaze {
 #define PS2FX_HAZE_ROOMS0 3
 #endif
 #if RE4DC_PS2_FX_STAGE1
-#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 6)
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 18)
 #elif RE4DC_PS2_FX_ROOMS
 #define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
 #else
@@ -232,6 +234,31 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r107: GC sst 00/0 (global) -> PS2 09/2; GC sst 08/0 (area 3) -> PS2 08/0.
     {0x107, 4, 235, 235, 210, 30, 5000.0f, (2000.0f * 2.0f) / (1283.056f * 4.0f), 5090.199f, 3000.0f, 500.0f, 225, 225, 190},
     {0x107, 5, 255, 255, 225, 30, 5000.0f, 2100.0f / 1374.622f, 5853.189f, 3000.0f, 500.0f, 255, 255, 225},
+    // Remaining qualified room-SST haze. r10f texture replacement and structural additions are separate.
+    // r109: GC sst 01/0 (28 emissions) -> PS2 sst 01/0 (10); source steady-size ratio.
+    {0x109, 1, 247, 249, 255, 30, 5000.000f, 0.724137864f, 6484.946f, 3000.0f, 500.0f, 245, 247, 255, 0},
+    // r10c: GC sst 01/0 (46 emissions) -> PS2 sst 01/1 (7); source steady-size ratio.
+    {0x10c, 6, 165, 175, 175, 68, 5000.000f, 1.714656711f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    // r10e: GC sst 06/0 (66 emissions) -> PS2 sst 06/1 (12); source steady-size ratio.
+    {0x10e, 3, 185, 195, 195, 75, 4000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    // r111: GC sst 01/0 (53 emissions) -> PS2 sst 01/1 (10); source steady-size ratio.
+    {0x111, 2, 255, 255, 255, 57, 4800.000f, 0.974392037f, 6860.199f, 3000.0f, 500.0f, 215, 215, 215, 0},
+    // r113: GC sst 00/0 (51 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
+    {0x113, 1, 235, 255, 255, 33, 5000.000f, 1.480839886f, 7954.390f, 3000.0f, 500.0f, 235, 255, 255, 0},
+    // r119: GC sst 01/0 (20 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
+    {0x119, 1, 255, 255, 255, 37, 5000.000f, 0.777777705f, 6484.946f, 3000.0f, 500.0f, 255, 255, 255, 0},
+    // r11a: GC sst 04/0 (66 emissions) -> PS2 sst 04/1 (10); source steady-size ratio.
+    {0x11a, 6, 175, 185, 185, 65, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    // r11c: GC sst 01/0 (21 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
+    {0x11c, 1, 250, 250, 255, 28, 5000.000f, 1.282029573f, 6484.946f, 3000.0f, 500.0f, 250, 250, 255, 0},
+    // r11d: GC sst 01/0 (26 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
+    {0x11d, 1, 255, 255, 245, 35, 5000.000f, 0.714285648f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 31},
+    // r11d: GC sst 09/0 (26 emissions) -> PS2 sst 09/0 (10); source steady-size ratio.
+    {0x11d, 1, 255, 255, 245, 45, 5000.000f, 0.749999930f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 1},
+    // r11e: GC sst 00/0 (66 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
+    {0x11e, 6, 175, 175, 155, 50, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 175, 175, 155, 0},
+    // r11f: GC sst 01/0 (59 emissions) -> PS2 sst 00/1 (11); source steady-size ratio.
+    {0x11f, 1, 255, 255, 255, 40, 4000.000f, 1.461588282f, 6860.199f, 3000.0f, 500.0f, 255, 255, 245, 0},
 #endif
 };
 #if RE4DC_PS2_FX_ROOMS
@@ -269,6 +296,10 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
             const Ps2fxHaze* h = &kPs2Haze[i];
             if ((h->gc_r || h->gc_g || h->gc_b) &&
                 (esp->m_Col_start_r != h->gc_r || esp->m_Col_start_g != h->gc_g || esp->m_Col_start_b != h->gc_b)) {
+                continue;
+            }
+            if (h->gc_room_frames_p1 &&
+                static_cast<cPs2fxEsp15*>(esp)->m_Free.Room_del_frame != h->gc_room_frames_p1 - 1) {
                 continue;
             }
 #endif
@@ -356,7 +387,7 @@ struct Ps2fxStreakCut {
     u16 del_far, del_near;
 };
 #if RE4DC_PS2_FX_STAGE1
-#define PS2FX_STREAK_CUTS 5
+#define PS2FX_STREAK_CUTS 7
 #else
 #define PS2FX_STREAK_CUTS 2
 #endif
@@ -367,6 +398,8 @@ static const Ps2fxStreakCut kPs2StreakCut[PS2FX_STREAK_CUTS] = {
     {0x102, 0x08, 250, 100}, // GC sst 01/14 removed; PS2 retains the other two streak signatures.
     {0x104, 0x1e, 800, 600}, // GC sst 00/6 removed; no PS2 Esp0a record.
     {0x107, 0x1e, 800, 600}, // GC sst 03/2 removed; no PS2 Esp0a record.
+    {0x10f, 0x52, 100, 50},  // Fifteen GC sst 01 records removed; no PS2 matching streak/direct sprite.
+    {0x112, 0x08, 100, 50},  // GC sst 01/15 removed; this does not match the separate EST streak.
 #endif
 };
 #endif
@@ -415,6 +448,40 @@ static int Ps2fxInStairsArea()
 }
 #endif
 #endif
+#if RE4DC_PS2_FX_STAGE1
+// Room-SST Esp48 textures absent from all PS2 Esp48 records in each listed room.
+struct Ps2fxSheetCut {
+    u16 room;
+    u8 tex;
+};
+static const Ps2fxSheetCut kPs2SheetCut[] = {
+    {0x105, 0xd0}, // 2 GC source records
+    {0x107, 0xd0}, // 2 GC source records
+    {0x108, 0xd0}, // 4 GC source records
+    {0x108, 0xcb}, // 2 GC source records
+    {0x109, 0x1f}, // 1 GC source records
+    {0x109, 0xf6}, // 16 GC source records
+    {0x109, 0xcb}, // 11 GC source records
+    {0x111, 0xf6}, // 34 GC source records
+    {0x111, 0xcb}, // 14 GC source records
+    {0x111, 0x33}, // 5 GC source records
+    {0x113, 0x33}, // 5 GC source records
+    {0x113, 0xf6}, // 44 GC source records
+    {0x113, 0xcb}, // 4 GC source records
+    {0x118, 0xd0}, // 4 GC source records
+    {0x118, 0xcb}, // 1 GC source records
+    {0x119, 0x29}, // 9 GC source records
+    {0x119, 0x2c}, // 2 GC source records
+    {0x119, 0x1f}, // 1 GC source records
+    {0x119, 0xf6}, // 15 GC source records
+    {0x119, 0x34}, // 4 GC source records
+    {0x119, 0xcb}, // 15 GC source records
+    {0x11c, 0xcb}, // 3 GC source records
+    {0x11c, 0x34}, // 3 GC source records
+    {0x11c, 0x33}, // 1 GC source records
+    {0x200, 0xf6}, // 14 GC source records
+};
+#endif
 // 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
 // anchor (=2: draws the PS2 shafts in its place).
 static int Ps2fxClass(cEsp* esp)
@@ -423,11 +490,13 @@ static int Ps2fxClass(cEsp* esp)
         return 0;
     }
 #if RE4DC_PS2_FX_STAGE1
-    // Both rooms have exactly two GC Esp48/d0 mist generators and no PS2 Esp48 record. Keep all
-    // source emissions, RNG and pool ownership; only their common native-sprite draw is omitted.
-    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48 && esp->m_Tex_id == 0xd0 &&
-        (G_ROOM_ID == 0x105 || G_ROOM_ID == 0x107)) {
-        return 1;
+    // Keep source emissions, RNG and pool ownership; omit only the qualified room-SST sheet draws.
+    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48) {
+        for (unsigned i = 0; i < sizeof(kPs2SheetCut) / sizeof(kPs2SheetCut[0]); ++i) {
+            if (G_ROOM_ID == kPs2SheetCut[i].room && esp->m_Tex_id == kPs2SheetCut[i].tex) {
+                return 1;
+            }
+        }
     }
 #endif
 #if RE4DC_EFFECT_PS2_HAZE

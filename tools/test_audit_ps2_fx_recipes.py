@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import decode_eff, haze_recipe, inventory, steady_size
+from audit_ps2_fx_recipes import decode_eff, haze_indoor_selector, haze_recipe, inventory, steady_size
 
 
 def sample_eff(endian='<'):
@@ -130,6 +130,24 @@ class EffectRecipeAuditTests(unittest.TestCase):
                 ps2.update(change)
                 with self.assertRaisesRegex(ValueError, message):
                     haze_recipe(gc, ps2)
+
+    def test_indoor_duration_resolves_equal_range_and_rgb_without_live_state(self):
+        global_haze = self.record()
+        area_haze = dict(global_haze, work8=[30, 5, 30, 0])
+        records = [global_haze, area_haze]
+        self.assertEqual(31, haze_indoor_selector(records, global_haze))
+        self.assertEqual(1, haze_indoor_selector(records, area_haze))
+        self.assertEqual(0, haze_indoor_selector([global_haze], global_haze))
+        # EST sharing the signature cannot collide with the room-SST owner gate.
+        self.assertEqual(0, haze_indoor_selector([global_haze, dict(global_haze, table='est')], global_haze))
+
+    def test_ambiguous_or_unrepresentable_indoor_selector_is_rejected(self):
+        a = self.record()
+        with self.assertRaisesRegex(ValueError, 'ambiguous haze'):
+            haze_indoor_selector([a, dict(a)], a)
+        b = dict(a, work8=[30, 5, 30, 255])
+        with self.assertRaisesRegex(ValueError, 'cannot encode 255'):
+            haze_indoor_selector([a, b], b)
 
     def test_steady_size_requires_a_convergent_finite_recurrence(self):
         record = self.record()
