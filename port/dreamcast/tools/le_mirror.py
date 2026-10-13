@@ -2465,6 +2465,12 @@ def static_module_ids(extra=()):
     # sub screen module, not a Makefile MODULES entry; the old end-of-line match skipped it by accident.
     bindings = [(i, n) for i, n in re.findall(r'^    MODULE\((\d+), (\w+)\),(?:\s*//.*)?$', registry, re.M)
                 if n != 'Sscrn']
+    # The sole new explicit overlay row admitted here is the reviewed em35 id61.
+    # Keep all generic MODULE/name/Makefile/config crosschecks below intact.
+    if 'em35' in extra:
+        rows=re.findall(r'^    \{61, \"em35\", 0, 0, 0, 0, 0, 0, 0\}, // Mendez, room overlay$',registry,re.M)
+        if len(rows)!=1:raise ValueError('em35 overlay registry identity changed')
+        bindings.append(('61','em35'))
     makefile = (root / 'port/dreamcast/game/Makefile').read_text()
     # Knob-conditional modules (`MODULES += ...` under WORLD_STAGE_MODULES=1, with #if-guarded registry rows) are
     # not part of the default image's static set this mirror compacts against.
