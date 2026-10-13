@@ -7,7 +7,7 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-d4bc5f45-20261012)** ·
+**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)** ·
 [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
@@ -19,14 +19,14 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test `d4bc5f45` (r22j test 8). Desktop packages will return with a later test build;
+The latest build is console test `c29c4bf5` (r22j test 7). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-d4bc5f45-20261012/RE4DC-r22j-Test8-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
+| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-d4bc5f45-20261012/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-d4bc5f45-20261012)
+[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-c29c4bf5-20261011/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-c29c4bf5-20261011)
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -48,7 +48,7 @@ The speed display shows the frame rate and game speed on a VMU in controller slo
 
 ## Status and limitations
 
-**Console test `d4bc5f45` (r22j test 8), October 12, 2026:** the game plays to the end of chapter two, part one
+**Console test `c29c4bf5` (r22j test 7), October 11, 2026:** the game plays to the end of chapter two, part one
 (the lake and the boat ride, the wolves, the El Gigante fight, finding Ashley and the chapter results),
 up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
@@ -62,16 +62,12 @@ Recent progress:
 * Music and voices rebuilt to remove crackling and clipping; the chapter results music is back.
 * Error screens show more detail for bug reports.
 
-Known issues:
+Known issues (full list: [KNOWN_ISSUES.md](port/dreamcast/docs/KNOWN_ISSUES.md)):
 
-* **Stability:** the [bridge door freeze](https://github.com/lamb2k/re4dc/issues/9) has a recovery in
-  testing. [Frozen cutscene video](https://github.com/lamb2k/re4dc/issues/16) is being looked into.
-* **Performance:** below the 30 fps/full speed target.
-* **Presentation and sound:** some models, effects and textures need work. The music on the third
-  chapter results screen is silent. Rifle sound is lower quality.
-* **Loading:** room entry pauses remain.
-
-See the [build checklist](port/dreamcast/docs/D367_PLAY_BUILD_CHECKLIST.md) for details.
+* **Stability:** random crashes on a real console (fixed for test 9); a few menu and save actions can stop the game.
+* **Picture:** some textures are missing; water, ripples and shadows are incomplete; characters are not lit by the scene.
+* **Sound:** the rifle sound is lower quality.
+* **Performance:** below the 30 fps / full speed target; pauses when entering rooms.
 
 ## Development
 
