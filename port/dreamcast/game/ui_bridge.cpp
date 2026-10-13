@@ -9,6 +9,9 @@
 #include "hud_source_mask.h"
 #include "re4dc_pad_prompts.h"
 #include "re4dc_manual_pages.h"
+#if RE4DC_OPTION_ROW_STYLE && RE4DC_RENDER_OPTION
+extern "C" void re4dc_option_rows_art(const Re4dcUiQuad*);
+#endif
 #if RE4DC_NATIVE_STATIC && RE4DC_NATIVE_PKG_HIGH
 #include "re4dc_platform.h"
 #endif
@@ -154,6 +157,10 @@ extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
     }
 #endif
     re4dc_ui_submit(&q);
+#if RE4DC_OPTION_ROW_STYLE && RE4DC_RENDER_OPTION
+    if (u->classNo == 0x2A && u->markNo == 5)
+        re4dc_option_rows_art(&q);
+#endif
 }
 
 #include "global.h"

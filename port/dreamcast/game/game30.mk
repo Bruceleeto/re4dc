@@ -182,6 +182,12 @@ RES_MODE ?= 0
 #   option_rows.cpp) gains two rows, "Frame pacing: Smooth / Fast / Off" and "Rendering: Quality / Standard / Fast"; both
 #   apply at once and are stored in RE4DCCFG. Test builds keep the LOOK_TOGGLE chord.
 RENDER_OPTION ?= 0
+# Reuse the English Options archive lettering for the two RENDER_OPTION rows.
+OPTION_ROW_STYLE ?= 0
+ifneq ($(filter-out 0 1,$(OPTION_ROW_STYLE)),)
+$(error OPTION_ROW_STYLE must be 0 or 1)
+endif
+$(OBJDIR)/option_rows.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_OPTION_ROW_STYLE=$(OPTION_ROW_STYLE)
 ifneq ($(filter-out 0 1,$(RENDER_OPTION)),)
 $(error RENDER_OPTION must be 0 or 1)
 endif

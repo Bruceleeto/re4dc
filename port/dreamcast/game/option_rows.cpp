@@ -78,9 +78,17 @@ void mes(int no, int x, int y, u32 attr, int slot)
     if (slot) {  // the help line's slot 0 has the screen's layout (font size, spacing): the row slots take it
         Message* d = cMes.getMes(slot);
         const Message* h = cMes.getMes(0);
+#if RE4DC_OPTION_ROW_STYLE
+        // Menu rows use the same cap height as the archive labels. The help
+        // layout is deliberately taller and must not determine their aspect.
+        d->m_font_w = 22;
+        d->m_font_h = 22;
+        d->charSpace = 0;
+#else
         d->m_font_w = h->m_font_w;
         d->m_font_h = h->m_font_h;
         d->charSpace = h->charSpace;
+#endif
         d->m_line_gap = h->m_line_gap;
         d->m_ot_type = h->m_ot_type;
         d->m_ot_no = h->m_ot_no;
@@ -108,6 +116,10 @@ void change(int row, int dir)
               row == kRowPacing ? kPace[pace_value()] : kRender[render_value()]);
 }
 }  // namespace
+
+#if RE4DC_OPTION_ROW_STYLE
+#include "option_rows_art.inc"
+#endif
 
 // Top menu input (option.cpp top_menu, after START): 1 when consumed (cursor move, value change, B on a new row).
 extern "C" int re4dc_option_rows_key(s8* rno1)
@@ -141,10 +153,20 @@ extern "C" int re4dc_option_rows_draw(OptionScreen* o, int x0, int* y0)
     const f32 gap = bright->scr.y - audio->scr.y;  // one row (screen y grows upwards in id units)
     back->scr.y = audio->scr.y - 3.0f * gap;
     build();
+#if RE4DC_OPTION_ROW_STYLE
+    if (option_art_ready()) {
+        cMes.Delete(kSlot0);
+        cMes.Delete(kSlot0 + 1);
+    } else
+#endif
     for (int k = 0; k < 2; ++k) {
         // Message coordinates: (240 - scr.y) x 0.8 (ss_term.cpp OpeMesSet), the row's centre line.
         const f32 sy = audio->scr.y - f32(k + 1) * gap;
+#if RE4DC_OPTION_ROW_STYLE
+        const int y = int((240.0f - sy) * 0.8f) - 15;
+#else
         const int y = int((240.0f - sy) * 0.8f) - 21;  // text top (calibrated on the Options screen still)
+#endif
         mes(k, x0, y, o->_msg_attr, kSlot0 + k);
         cMes.getMes(kSlot0 + k)->m_col = (o->_rno1 == kRowPacing + k) ? rgba(base) : 0xFFFFFFFFU;
     }
