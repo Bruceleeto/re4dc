@@ -2306,6 +2306,10 @@ static int MakeWeightPalette(Weight* w0, int n)
     return cnt;
 }
 
+#if RE4DC_PS2_FX_COMMON_HAZE
+extern "C" void re4dc_ps2_fx_common_render(int coarse,int skipping);
+#endif
+
 // Per frame, the draw pass: runs the ordering tables in order (render textures, shadow setup,
 // far sub screen, scroll, sub screen, models, shadow draw, near sub screen, effects, world, VU1
 // effects, screen, cockpit, id models, messages, after-render, debug, then 0x13..0x15), the
@@ -2326,6 +2330,10 @@ void Render()
     // RAII clears/restores the gate on normal completion and every early return.
     SourceActorRenderScope sourceActorRenderScope(coarse!=0);
 #endif
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE && RE4DC_PACE_CATCHUP
+    // Retire a skipped image's pending token even when Render returns early.
+    if(re4dc_pace_skipping)re4dc_ps2_fx_common_render(0,1);
 #endif
 #if RE4DC_PACE_CATCHUP >= 2
     // Skipped whole: the letterbox bit below is set here and cleared at the end of Render().
@@ -2375,6 +2383,15 @@ void Render()
     ExecOt(OT_TYPE_SUBSCRN_NEAR);
 #if RE4DC_COARSE
     }
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE
+    // The prior Trans ticket has this exact source frame; native begin and
+    // opaque drawing have completed, but source effect callbacks have not.
+#if RE4DC_COARSE
+    re4dc_ps2_fx_common_render(coarse,0);
+#else
+    re4dc_ps2_fx_common_render(0,0);
+#endif
 #endif
     ClearZbuf();
     ExecOt(OT_TYPE_EFFECT);

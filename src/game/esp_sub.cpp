@@ -1394,7 +1394,7 @@ extern "C" void re4dc_esp_sprite_pass_begin()
     Ps2fxPopulationBuild();
 #endif
 #if RE4DC_PS2_FX_COMMON_HAZE
-    Ps2fxCommonHazeDraw();
+    Ps2fxCommonHazePrepare();
 #endif
 #if RE4DC_PS2_FX_ADDITIONS
     Ps2fxAdditionsDraw();

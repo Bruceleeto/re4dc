@@ -299,6 +299,32 @@ static void Ps2fxCommonHazeDraw()
         reported=1;last_room=G_ROOM_ID;last_issues=issues;last_accepted=s_common_accepted;
     }
 }
+// Trans prepares image k after Render(k-1); the next Render consumes image k
+// before Frame_cnt advances. This token owns no source pointers to dereference.
+struct Ps2fxCommonPending {
+    u8* pool;u32 frame;u16 room;unsigned slots,generation;bool pending;
+};
+static Ps2fxCommonPending s_common_pending={};
+static void Ps2fxCommonHazePrepare()
+{
+    s_common_accepted=0;s_common_pending={};
+    if(!pG || !g_pEspSys || !g_pEspSys->pEspBuf || g_pEspSys->nEsp>2048)return;
+    unsigned generation=0,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || !generation)return;
+    s_common_pending={g_pEspSys->pEspBuf,(u32)pG->Frame_cnt,(u16)G_ROOM_ID,g_pEspSys->nEsp,generation,true};
+}
+extern "C" void re4dc_ps2_fx_common_render(int coarse,int skipping)
+{
+    const Ps2fxCommonPending ticket=s_common_pending;s_common_pending={};
+    // Consume before every refusal; duplicate calls neither replay the batch
+    // nor undo its accepted suppression before the queued source callbacks.
+    if(!ticket.pending || !coarse || skipping || !pG || !g_pEspSys ||
+       ticket.frame!=(u32)pG->Frame_cnt || ticket.room!=G_ROOM_ID ||
+       ticket.pool!=g_pEspSys->pEspBuf || ticket.slots!=g_pEspSys->nEsp)return;
+    unsigned generation=0,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || generation!=ticket.generation)return;
+    Ps2fxCommonHazeDraw();
+}
 static int Ps2fxCommonHazeSuppress(cEsp* e)
 {
     if(!s_common_accepted || !(re4dc_ps2fx&PS2FX_HAZE) || !g_pEspSys || s_common_pool!=g_pEspSys->pEspBuf ||

@@ -199,6 +199,15 @@ int main(){
     fill(0x101);SstArea saved=area;fake_ps2_indoor=true;draw_unchanged();assert(s_common_accepted==1 && s_common_haze[0].state.indoor_count==30);assert(!std::memcmp(&saved,&area,sizeof(area)));fake_ps2_indoor=false;
     fill(0x101);area.ent[10].no=11;draw_unchanged();assert(!s_common_accepted);setup_weather();
     fill(0x101);globals.Stop_flg=0x20;globals.Status_flg[1]=0x800;draw_unchanged();assert(s_common_accepted==1 && s_common_haze[0].state.indoor_count==30);globals.Stop_flg=globals.Status_flg[1]=0;
+    // Preparation itself leaves source and private clocks untouched. The
+    // matching render frame owns submission and successful suppression.
+    fill(0x100);const auto phase_clock=s_common_haze[0];const unsigned before_phase=fake_batch_calls;
+    std::memcpy(source_copy,source_pool,sizeof(source_pool));Ps2fxCommonHazePrepare();
+    assert(!s_common_accepted && s_common_pending.pending && fake_batch_calls==before_phase);
+    assert(!std::memcmp(&phase_clock,&s_common_haze[0],sizeof(phase_clock)));
+    re4dc_ps2_fx_common_render(1,0);assert(s_common_accepted==1 && fake_batch_calls==before_phase+1);
+    re4dc_ps2_fx_common_render(1,0);assert(s_common_accepted==1 && fake_batch_calls==before_phase+1);
+    assert(!std::memcmp(source_copy,source_pool,sizeof(source_pool)));
     assert(fake_submitted>0);test_submit_refusals();
     std::printf("PASS actual common adapter: %u rooms/14 exact floor profiles, 23 submit refusal codes/43 cases, complete/mixed/partial/duplicate/source-clock/resource/area/room-generation fallback, source bytes unchanged; submitted=%u calls=%u. Host sizes row=%zu clock=%zu scratch=%zu\n",rooms,fake_submitted,fake_batch_calls,sizeof(Ps2fxCommonRow),sizeof(ps2fx::CommonHazeClock),sizeof(Re4dcEffectSprite)*12);
 }
