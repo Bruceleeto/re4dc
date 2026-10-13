@@ -285,6 +285,31 @@ endif
 GAME_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
 PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_EARLY_COARSE=1 -DRE4DC_ACTOR_EARLY_COARSE_DIAG=$(ACTOR_EARLY_COARSE_DIAG)
 endif
+# ACTOR_TEX_PREP: completed-source-ledger atlas residency hints before opening
+# the native scene. No early callbacks, binding, bones or owner choice. Default
+# off adds no compiler flags, preserving the existing disabled program bytes.
+ACTOR_TEX_PREP ?= 0
+ACTOR_TEX_PREP_DIAG ?= 0
+ifeq ($(filter $(ACTOR_TEX_PREP),0 1),)
+$(error ACTOR_TEX_PREP must be 0 or 1)
+endif
+ifeq ($(filter $(ACTOR_TEX_PREP_DIAG),0 1),)
+$(error ACTOR_TEX_PREP_DIAG must be 0 or 1)
+endif
+ifeq ($(ACTOR_TEX_PREP),1)
+ifneq ($(ACTOR_TRANSACTION)$(COARSE_SOURCE_ACTORS)$(COARSE_GANADO_CAST)$(PS2_GANADO),1111)
+$(error ACTOR_TEX_PREP needs the transaction owner, completed source ledger and PS2 Ganado cast)
+endif
+ifneq ($(ACTOR_EARLY_COARSE),0)
+$(error ACTOR_TEX_PREP does not enable or combine with ACTOR_EARLY_COARSE)
+endif
+ifneq ($(TEX_RESIDENT)$(PVR_STREAM),11)
+$(error ACTOR_TEX_PREP needs TEX_RESIDENT=1 PVR_STREAM=1 for the existing preload/cache owner)
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP=1 -DRE4DC_ACTOR_TEX_PREP_DIAG=$(ACTOR_TEX_PREP_DIAG)
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP=1 -DRE4DC_ACTOR_TEX_PREP_DIAG=$(ACTOR_TEX_PREP_DIAG)
+endif
+
 # PS2_GANADO_LIT=1 (Phase 2 A1; render only; default 0: nothing changes): the cast Ganados (owner appearances < 0x100)
 #              are lit per vertex like the PS2 lights its characters: the source's GX light set (LightSetModel lights,
 #              ambient, material colour, TEV scale; coarse_actor_transaction.inc actor_source_lighting) folded to the
