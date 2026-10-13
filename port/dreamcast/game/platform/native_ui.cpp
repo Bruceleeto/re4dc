@@ -3588,7 +3588,7 @@ extern "C" int re4dc_door_in_use(void);                        // filter09.cpp
 extern "C" unsigned re4dc_door_fades(unsigned* argb,unsigned max); // filter09.cpp
 namespace {
 constexpr unsigned kDoorW=320,kDoorH=240,kDoorBytes=kDoorW*kDoorH*2,kDoorMargin=32768,kDoorLayers=8;
-pvr_ptr_t door_tex;unsigned door_frame=~0U,door_steps,door_captures,door_draws;
+pvr_ptr_t door_tex;unsigned door_frame=~0U,door_steps,door_captures,door_draws,door_held_frames;bool door_held;
 void door_release(const char* why){
     if(!door_tex)return;
 #if RE4DC_PVR_PIPELINE
@@ -3596,6 +3596,9 @@ void door_release(const char* why){
 #endif
     if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready){re4dc_log("door freeze: release fence pending\n");return;}
     pvr_mem_free(door_tex);door_tex=nullptr;
+    // Freed for the next room's preload while the filter is still on (the load continues): its frames would be empty
+    // (black); they are not presented, so the last frozen picture stays on screen until the filter goes off.
+    door_held=re4dc_door_in_use()!=0;
     re4dc_log("door freeze: released (%s) frame=%u draws=%u free=%u\n",why,frame,door_draws,(unsigned)pvr_mem_available());
 }
 // One textured quad: the picture scaled by (kx, ky) about the screen centre, clipped to x 0..640, y 56..425 (the
@@ -4107,6 +4110,12 @@ extern "C" void re4dc_ui_present(){
 
 extern "C" void re4dc_ui_end_frame(int present){
     const auto render_end=timer_us_gettime64();
+#if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
+    if(door_held){
+        if(re4dc_door_in_use()){present=0;++door_held_frames;}
+        else {re4dc_log("door freeze: hold ended frame=%u held=%u\n",frame,door_held_frames);door_held=false;door_held_frames=0;}
+    }
+#endif
     re4dc_model_draw_plan_frame(frame);
 #if RE4DC_PVR_STREAM
     if(!frame_ready)return;

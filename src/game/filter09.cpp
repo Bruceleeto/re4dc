@@ -169,7 +169,10 @@ extern "C" unsigned re4dc_door_fades(unsigned* argb, unsigned max)
             if (((f->flags & 4) != 0) != (late != 0) || !(f->flags & 3)) {
                 continue;
             }
-            argb[n++] = ((u32) f->cur.a << 24) | ((u32) f->cur.r << 16) | ((u32) f->cur.g << 8) | f->cur.b;
+            // Every game-side FadeSet goes through FadeSetW / fadeSetG, which store the colours as a u32 (0xFF =
+            // black on the big-endian GameCube): on the SH-4 the bytes are reversed, so the GameCube's r, g, b, a are
+            // cur.a, cur.b, cur.g, cur.r here (the per-byte interpolation is the same either way).
+            argb[n++] = ((u32) f->cur.r << 24) | ((u32) f->cur.a << 16) | ((u32) f->cur.b << 8) | f->cur.g;
         }
     }
     return n;
