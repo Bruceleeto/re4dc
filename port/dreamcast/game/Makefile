@@ -1135,6 +1135,19 @@ $(error UI_FRAG_RESERVE needs UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1)
 endif
 endif
 UI_OVERLAY_SLAB_KB ?= 0
+# TEX_CHECK=1|2 (test only, default 0 = play image unchanged): texture presence check (native_ui.cpp texchk::, lane
+# texchk). Logs every failed / refused texture lookup and any change of a resident texture's metadata or VRAM sample
+# ("texchk:" lines; gate tools/d367/texchk/texchk.sh). 2 also fills free texture RAM with magenta (with VRAM_PAGES=1).
+TEX_CHECK ?= 0
+ifneq ($(filter-out 0 1 2,$(TEX_CHECK)),)
+$(error TEX_CHECK must be 0, 1 or 2)
+endif
+ifeq ($(TEX_CHECK),2)
+$(OBJDIR)/platform/vram_pages.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_CHECK=2
+endif
+ifneq ($(TEX_CHECK),0)
+$(OBJDIR)/platform/native_lake.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_CHECK=$(TEX_CHECK)
+endif
 # MOVIE_WINDOW=1 (needs VRAM_PAGES=1 and TEX_RESIDENT=1): a route movie's VRAM claim releases the cheapest
 # page-aligned window of room textures instead of LRU uploads until a hole appears (r100 s44: 0.5-1.1 MB and
 # 160-240 reloads per movie), and the movie texture is only the picture's rows (288x192: 192 KiB, not 256).
@@ -1167,6 +1180,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_UI_FRAG_LATCH %s\n#define RE4DC_UI_OVERLAY_SLAB_KB %s\n' '$(UI_FRAG_LATCH)' '$(UI_OVERLAY_SLAB_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_RESERVE %s\n' '$(UI_FRAG_RESERVE)' >> $@.tmp
 	@printf '#define RE4DC_PT_BLEND_FIX %s\n' '$(PT_BLEND_FIX)' >> $@.tmp
+	@printf '#define RE4DC_TEX_CHECK %s\n' '$(TEX_CHECK)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp

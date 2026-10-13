@@ -29,6 +29,17 @@ Extent free_list[kMaxFree]; unsigned nfree;     // sorted by offset, never adjac
 Extent alloc_list[kMaxAlloc]; unsigned nalloc;  // sorted by offset
 std::uintptr_t base; std::uint32_t pool, free_bytes;
 unsigned fails, peak_alloc, peak_free;
+#if defined(RE4DC_TEX_CHECK) && RE4DC_TEX_CHECK == 2
+// TEX_CHECK=2 (test only): free texture RAM reads magenta (RGB565 0xF81F), so a draw from never-written or
+// freed VRAM is visible on Flycast (which zeroes VRAM; a console holds noise there).
+void poison(std::uint32_t off, std::uint32_t len) {
+    volatile std::uint32_t* p = reinterpret_cast<volatile std::uint32_t*>(base + off);
+    for(std::uint32_t i = 0; i < len / 4; ++i) p[i] = 0xF81FF81FU;
+}
+#define RE4DC_VRAM_POISON(off, len) poison((off), (len))
+#else
+#define RE4DC_VRAM_POISON(off, len) ((void)0)
+#endif
 
 bool insert_at(Extent* list, unsigned& n, unsigned cap, unsigned at, Extent e) {
     if(n >= cap) return false;
@@ -63,7 +74,7 @@ void pvr_mem_initialize(pvr_ptr_t texture_base, size_t available) {
 void pvr_mem_reset(void) {
     irq_disable_scoped();
     nalloc = 0; nfree = 0; free_bytes = 0;
-    if(base && pool) { free_list[0] = {0, pool}; nfree = 1; free_bytes = pool; }
+    if(base && pool) { free_list[0] = {0, pool}; nfree = 1; free_bytes = pool; RE4DC_VRAM_POISON(0, pool); }
 }
 pvr_ptr_t pvr_mem_malloc(size_t size) {
     if(!base || !size || size > pool) { ++fails; return nullptr; }
@@ -103,6 +114,7 @@ void pvr_mem_free(pvr_ptr_t chunk) {
         return;
     }
     Extent e = alloc_list[a]; erase_at(alloc_list, nalloc, a);
+    RE4DC_VRAM_POISON(e.off, e.len);
     free_bytes += e.len;
     unsigned i = lower_bound(free_list, nfree, e.off);
     if(i && free_list[i - 1].off + free_list[i - 1].len == e.off) { --i; free_list[i].len += e.len; }

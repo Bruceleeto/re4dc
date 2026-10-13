@@ -100,7 +100,24 @@ extern "C" int re4dc_lake_begin() {
     }
     if (re4dc_movie_open_now()) { ++st_movie; return 0; }   // a movie is open: its decoder needs the CPU
     if (!texture) {
+#if defined(RE4DC_TEX_CHECK) && RE4DC_TEX_CHECK
+        // TEX_CHECK (test only): a refused ripple texture is a failed texture lookup for the gate (texchk.sh);
+        // logged at the first refusal and then every 600 frames with the count (it is retried every lake frame).
+        static unsigned refusals, refusal_logged = ~0U;
+        if (!make_texture()) {
+            ++refusals;
+            if (refusal_logged == ~0U || f - refusal_logged >= 600U) {
+                refusal_logged = f;
+                re4dc_log("texchk: FAIL lake-alloc 00000000-00000000 64x64 fmt=2 frame=%u refusals=%u free=%u\n", f,
+                          refusals, unsigned(pvr_mem_available()));
+            }
+            return 0;
+        }
+        re4dc_log("texchk: lake texture ok frame=%u ptr=%08x refusals_before=%u\n", f, unsigned(std::uintptr_t(texture)),
+                  refusals);
+#else
         if (!make_texture()) return 0;
+#endif
         header(&layer_header);
     }
     if (drawn_frame != f) { ++st_frames; drawn_frame = f; }

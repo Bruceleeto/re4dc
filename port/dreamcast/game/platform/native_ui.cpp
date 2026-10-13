@@ -2155,7 +2155,89 @@ unsigned preload_ps2_lean_runs;
 #else
 #define RE4DC_TEX_PATH(buf,key) std::sprintf(buf,"/cd/dc/tex/%08x-%08x.re4tex",(key).crc,(key).fnv)
 #endif
+#ifndef RE4DC_TEX_CHECK
+#define RE4DC_TEX_CHECK 0
+#endif
+#if RE4DC_TEX_CHECK
+// TEX_CHECK=1|2 (test only; Makefile; default 0 = this block compiles to nothing): texture presence check
+// (lane texchk, issue #26). Every texture lookup that fails or is refused logs "texchk: FAIL <reason>"
+// (first per key and reason); every upload records a checksum of the package metadata (header, descriptor,
+// VRAM pointer, owned bytes: heap memory that a stray writer can overwrite) and a sparse VRAM sample.
+// Each frame start re-verifies the metadata of every resident entry, every 30 frames its VRAM sample, and
+// every lookup hit re-verifies its entry ("bind"). A change logs "texchk: META CHANGED" / "VRAM CHANGED".
+// "texchk: frame=" summaries every 120 frames and "texchk: room" at each room retirement feed
+// tools/d367/texchk/texchk.sh (the PASS/FAIL gate). TEX_CHECK=2 also fills free texture RAM with
+// magenta (vram_pages.cpp, VRAM_PAGES=1) so a draw from never-written or freed VRAM shows on Flycast,
+// which zeroes VRAM where a console holds noise.
+namespace texchk {
+unsigned meta_sum[kTextureCount],head_sum[kTextureCount],vram_sum[kTextureCount];bool armed[kTextureCount];
+unsigned fails,policy_skips,meta_changes,vram_changes,binds,arms,room_fails,room_changes,room_binds;
+struct Seen { Key key; const char* why; };
+Seen seen[64]; unsigned nseen;
+inline unsigned fnv(unsigned h,const void* p,unsigned n){const unsigned char* b=(const unsigned char*)p;for(unsigned i=0;i<n;++i)h=(h^b[i])*16777619U;return h;}
+inline unsigned head_hash(const Entry& e){
+    const auto& h=e.package.header();
+    unsigned s=fnv(2166136261U,&h,sizeof(h));const void* hp=&h;return fnv(s,&hp,sizeof(hp));
+}
+inline unsigned meta_hash(const Entry& e){
+    // Only called while the header hash is unchanged (its texture_offset and count are then sane).
+    const auto& h=e.package.header();unsigned s=2166136261U;
+    for(unsigned i=0;i<h.texture_count && i<4;++i){s=fnv(s,&e.package.textures()[i],sizeof(re4dc::texture::Texture));const pvr_ptr_t p=e.package.pvr_texture(i);s=fnv(s,&p,sizeof(p));}
+    const unsigned extra[]={(unsigned)e.package.vram_bytes(),(unsigned)e.package.upload_complete()};return fnv(s,extra,sizeof(extra));
+}
+inline unsigned vram_hash(const Entry& e){
+    const auto& t=e.package.textures()[0];const volatile unsigned* v=(const volatile unsigned*)e.package.pvr_texture(0);
+    if(!v)return 0;const unsigned words=t.data_size/4;if(!words)return 0;
+    unsigned s=2166136261U;const unsigned step=words>64?words/64:1;
+    for(unsigned i=0;i<words;i+=step){const unsigned w=v[i];s=fnv(s,&w,4);}
+    return s;
+}
+inline void log_entry(const char* what,const Entry& e,const char* where){
+    re4dc_log("texchk: %s %08x-%08x where=%s frame=%u ptr=%08x\n",what,e.key.crc,e.key.fnv,where,frame,(unsigned)(std::uintptr_t)e.package.pvr_texture(0));
+}
+void arm(Entry& e){
+    const unsigned i=unsigned(&e-entries);armed[i]=true;++arms;
+    head_sum[i]=head_hash(e);meta_sum[i]=meta_hash(e);vram_sum[i]=vram_hash(e);
+}
+void verify(Entry& e,const char* where,bool vram){
+    const unsigned i=unsigned(&e-entries);if(!armed[i] || !e.valid)return;
+    const unsigned h=head_hash(e);
+    if(h!=head_sum[i]){++meta_changes;++room_changes;log_entry("META CHANGED header",e,where);head_sum[i]=h;armed[i]=false;return;}
+    const unsigned m=meta_hash(e);
+    if(m!=meta_sum[i]){++meta_changes;++room_changes;log_entry("META CHANGED descriptor",e,where);meta_sum[i]=m;}
+    if(vram){const unsigned v=vram_hash(e);if(v!=vram_sum[i]){++vram_changes;++room_changes;log_entry("VRAM CHANGED",e,where);vram_sum[i]=v;}}
+}
+void bind(Entry& e){++binds;++room_binds;verify(e,"bind",false);}
+void fail(const Key& k,const char* why,const Re4dcUiImage& image,bool policy=false){
+    if(policy)++policy_skips;else{++fails;++room_fails;}
+    for(unsigned i=0;i<nseen && i<64;++i)if(seen[i].key==k && seen[i].why==why)return;
+    seen[nseen++%64]={k,why};
+    re4dc_log("texchk: %s %s %08x-%08x %ux%u fmt=%u frame=%u\n",policy?"SKIP":"FAIL",why,k.crc,k.fnv,image.width,image.height,image.format,frame);
+}
+void frame_sweep(){
+    const bool vram=frame%30==0;
+    for(auto& e:entries)if(e.valid)verify(e,"frame",vram);
+    if(frame%120==0)re4dc_log("texchk: frame=%u fails=%u skips=%u meta_changes=%u vram_changes=%u binds=%u arms=%u\n",frame,fails,policy_skips,meta_changes,vram_changes,binds,arms);
+}
+void room_end(){
+    for(auto& e:entries)if(e.valid)verify(e,"room",true);
+    re4dc_log("texchk: room frame=%u fails=%u changes=%u binds=%u total_fails=%u total_changes=%u\n",frame,room_fails,room_changes,room_binds,fails,meta_changes+vram_changes);
+    room_fails=room_changes=room_binds=0;nseen=0;
+}
+}
+#define RE4DC_TEXCHK_FAIL(k,why) texchk::fail((k),(why),image)
+#define RE4DC_TEXCHK_SKIP(k,why) texchk::fail((k),(why),image,true)
+#define RE4DC_TEXCHK_BIND(e) texchk::bind(e)
+#else
+#define RE4DC_TEXCHK_BIND(e) ((void)0)
+#define RE4DC_TEXCHK_FAIL(k,why) ((void)0)
+#define RE4DC_TEXCHK_SKIP(k,why) ((void)0)
+#endif
 void close_entry(Entry& entry) {
+#if RE4DC_TEX_CHECK
+    if(entry.valid)texchk::verify(entry,"close",true);
+    texchk::armed[&entry-entries]=false;
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     // Revoke before freeing/fencing storage; forced retirement is observable.
     actor_texture_leases.retire_entry(unsigned(&entry-entries));
@@ -2178,19 +2260,19 @@ void close_entry(Entry& entry) {
 Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=nullptr) {
     RE4DC_PROFILE_SCOPE(TextureResolve);RE4DC_PROFILE_COUNT(TextureLookups,1);
     if(!image.pixels || !image_size(image) || !image.width || !image.height || image.width>1024 || image.height>1024) return nullptr;
-    Key key{};if(prepared_key)key=*prepared_key;else if(!image_key(image,key))return nullptr;
+    Key key{};if(prepared_key)key=*prepared_key;else if(!image_key(image,key)){RE4DC_TEXCHK_FAIL(Key{},"identity");return nullptr;}
 #if RE4DC_COPY_LEAN
     const unsigned hint=(key.crc^(key.crc>>7)^key.fnv)&127U;
     if(const unsigned h=entry_hint[hint]){
         Entry& e=entries[h-1];
-        if(e.valid && e.key==key){RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
+        if(e.valid && e.key==key){RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);RE4DC_TEXCHK_BIND(e);return &e;}
     }
-    for(auto& e:entries) if(e.valid && e.key==key) {entry_hint[hint]=EntryHint(&e-entries+1);RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
+    for(auto& e:entries) if(e.valid && e.key==key) {entry_hint[hint]=EntryHint(&e-entries+1);RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);RE4DC_TEXCHK_BIND(e);return &e;}
 #else
-    for(auto& e:entries) if(e.valid && e.key==key) {RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);return &e;}
+    for(auto& e:entries) if(e.valid && e.key==key) {RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);RE4DC_TEXCHK_BIND(e);return &e;}
 #endif
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
-    if(fx_resident_only){++fx_resident_skips;return nullptr;}
+    if(fx_resident_only){++fx_resident_skips;RE4DC_TEXCHK_SKIP(key,"fx-resident-only");return nullptr;}
 #endif
 #if RE4DC_UI_VRAM
     {
@@ -2201,25 +2283,25 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         unsigned pw=8,ph=8;while(pw<image.width)pw*=2;while(ph<image.height)ph*=2;
         const unsigned least=std::min(pw*ph*2,2048+pw*ph/4);
         unsigned pinned=0;for(const auto& e:entries)if(e.valid && RE4DC_ENTRY_PINNED(e))pinned+=e.package.vram_bytes();
-        if(pinned+least>vram_budget){++vram_rejects;RE4DC_PROFILE_COUNT(TextureBudgetFailures,1);return nullptr;}
+        if(pinned+least>vram_budget){++vram_rejects;RE4DC_PROFILE_COUNT(TextureBudgetFailures,1);RE4DC_TEXCHK_FAIL(key,"vram-budget");return nullptr;}
     }
 #endif
 #if RE4DC_TEX_RESIDENT || RE4DC_SUBSCREEN
     // A package absent from the disc: fail without evicting an entry or
     // touching the filesystem again (it was retried every frame).
-    for(const auto& m:missing_keys) if(m.crc|m.fnv) if(m==key) return nullptr;
+    for(const auto& m:missing_keys) if(m.crc|m.fnv) if(m==key) {RE4DC_TEXCHK_FAIL(key,"missing");return nullptr;}
 #endif
 #if RE4DC_UI_VRAM && RE4DC_UI_FRAG_LATCH
 #if RE4DC_UI_FRAG_RESERVE
-    if(key==frag_key && !frag_held && frame-frag_frame<kFragRetryFrames){++frag_latched;return nullptr;} // before any eviction
+    if(key==frag_key && !frag_held && frame-frag_frame<kFragRetryFrames){++frag_latched;RE4DC_TEXCHK_FAIL(key,"frag-latched");return nullptr;} // before any eviction
 #else
-    if(key==frag_key && frame-frag_frame<kFragRetryFrames){++frag_latched;return nullptr;} // before any eviction
+    if(key==frag_key && frame-frag_frame<kFragRetryFrames){++frag_latched;RE4DC_TEXCHK_FAIL(key,"frag-latched");return nullptr;} // before any eviction
 #endif
 #endif
     Entry* slot=nullptr;
     for(auto& e:entries) if(!e.valid){slot=&e;break;}
     if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
-    if(!slot) {RE4DC_PROFILE_COUNT(TextureNoSlot,1);return nullptr;}
+    if(!slot) {RE4DC_PROFILE_COUNT(TextureNoSlot,1);RE4DC_TEXCHK_FAIL(key,"no-slot");return nullptr;}
 #if RE4DC_TEX_RESIDENT
     // Never evict a resident texture for a package that is not on the disc:
     // check it exists first (only when this load would evict), and remember
@@ -2234,7 +2316,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     // A pack read error is transient: no eviction, no per-file probe, and the key is not remembered as missing
     // (on a packed disc its loose file is gone); a later use retries (texpack_index.inc spaces the retries in UI frames).
-    if(pack==texpack::kError){++pack_error_skips;RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;}
+    if(pack==texpack::kError){++pack_error_skips;RE4DC_PROFILE_COUNT(TextureOpenFailures,1);RE4DC_TEXCHK_FAIL(key,"pack-error");return nullptr;}
     const bool in_pack=pack==texpack::kFound;
     if(slot->valid && !in_pack){
 #else
@@ -2245,7 +2327,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         if(f==FILEHND_INVALID){
             re4dc_log("native UI: package absent, not evicting: %s\n",probe);
             missing_keys[nmissing++%(sizeof(missing_keys)/sizeof(missing_keys[0]))]=key;
-            RE4DC_PROFILE_COUNT(TextureOpenFailures,1);return nullptr;
+            RE4DC_PROFILE_COUNT(TextureOpenFailures,1);RE4DC_TEXCHK_FAIL(key,"absent");return nullptr;
         }
         fs_close(f);
     }
@@ -2387,10 +2469,13 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     }
 #endif
     re4dc_log("native UI: upload %s vram=%u\n",ok?"ok":"FAILED",slot->package.vram_bytes());
+#if RE4DC_TEX_CHECK
+    const char* const texchk_why=slot->package.error()?slot->package.error():"upload";
+#endif
     if(!ok) slot->package.close();
     re4dc_log("native UI: bounded upload heap=%d->%d metadata=%u staging=shared-16384 source_allocation=0\n",heap_before,re4dc_ui_heap_free(),slot->package.metadata_bytes());
     if(ok)++loads;
-    if(!ok) return nullptr;
+    if(!ok) {RE4DC_TEXCHK_FAIL(key,texchk_why);return nullptr;}
     slot->valid=true;slot->key=key;
 #if RE4DC_TEX_RESIDENT
     slot->frame=pin?frame:frame?frame-1:0;
@@ -2399,6 +2484,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
    used+=slot->package.vram_bytes();
     if(used>peak) peak=used;
+#if RE4DC_TEX_CHECK
+    texchk::arm(*slot);
+#endif
     return slot;
 }
 #undef RE4DC_OPEN_PACKAGE
@@ -3228,6 +3316,9 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     sources_reset();
 }
 extern "C" void re4dc_ui_retire_room(){
+#if RE4DC_TEX_CHECK
+    texchk::room_end();
+#endif
     re4dc_actor_archive_retire_transient();
 #if RE4DC_TEX_PACK
     texpack::room_loaded();   // after read errors: the next pack init attempt runs at once (texpack_index.inc)
@@ -3857,6 +3948,9 @@ extern "C" void re4dc_ui_begin(){
     if(model_diagnostic==1 && frame%120==0)
         re4dc_log("native model DIAGNOSTIC boundary: frame=%u previous_bytes=%u committed_parts=%u invalid=%u resource=%u overflow=%u presented=%u\n",frame,model_used*32,model_parts,model_invalid,model_resource,model_overflow,model_presented);
     nquad=0;model_used=0;++frame;
+#if RE4DC_TEX_CHECK
+    texchk::frame_sweep();
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 #if RE4DC_ACTOR_EARLY_COARSE
     actor_texture_leases.begin_frame(frame); // Trans tickets name this exact next frame
