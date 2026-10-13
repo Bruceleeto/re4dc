@@ -594,17 +594,41 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
 }
 #endif
 }
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+// Appearance 0 may use only its two proven GC grip hands and its exact TPL.
+// Keep this check at both entry points: the lean certificate bypasses the
+// public owner lookup after resolving the current role earlier in the call.
+static bool app0_grip_source_material(unsigned role,const re4dc_material::Role* row) {
+    using namespace re4dc_material;
+    return row && row->appearance==0 && row->role==role && row->source_tpl==473 &&
+        row->textures==t_em12_473 && row->texture_count==3 &&
+        ((role==2 && row->source_bin==451 && row->model==&m_extra_451) ||
+         (role==3 && row->source_bin==456 && row->model==&m_extra_456));
+}
+#endif
 extern "C" int re4dc_actor_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,Re4dcActorOwnedMaterial* out) {
     using namespace re4dc_material;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!out || app>4 || role<2 || role>4)return 0;
+#else
     if(!out || app<1 || app>4 || role<2 || role>4)return 0;
+#endif
     const auto* row=actor_current_role(m,info,app,role);if(!row)return 0;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!app && !app0_grip_source_material(role,row))return 0;
+#endif
 #if RE4DC_ACTOR_PROOF_LEAN
     return lean_source_material(m,info,app,role,row,out);
 }
 static int lean_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,const re4dc_material::Role* row,
                                 Re4dcActorOwnedMaterial* out) {
     using namespace re4dc_material;(void)m;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!out || app>4 || role<2 || role>4 || !row)return 0;
+    if(!app && !app0_grip_source_material(role,row))return 0;
+#else
     if(!out || app<1 || app>4 || role<2 || role>4 || !row)return 0;
+#endif
 #endif
     const bool hand=(role==2 && row->source_bin==451) || (role==3 && row->source_bin==456);
     if(!hand && !(role==4 && (row->source_bin==467 || row->source_bin==484)))return 0;

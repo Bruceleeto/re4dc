@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the actual role tables, texture comparator and lifetime/role consumers.
+"""Exercise the actual role tables, lifetime and full/lean material consumers.
 
 Fixtures model already-adopted BINs and relocated TPLs. They do not substitute for
 private archive hash verification, PS2 geometry provenance, or target rendering.
@@ -30,12 +30,18 @@ def harness():
     actual = '\n'.join(function(material, s) for s in [
         'bool digest(', 'inline bool base_level_sampler(', 'Error texture(',
         'inline bool source_appearance_type('])
+    owned = (GAME / 'platform/include/actor_native_owner.h').read_text()
+    owned = owned[owned.index('struct Re4dcActorOwnedMaterial {'):owned.index('struct Re4dcActorDrawRun')]
+    start = material.index('#if RE4DC_ACTOR_GANADO_APP0_GRIP\n// Appearance 0 may use')
+    end = material.index('extern "C" int re4dc_actor_material_certificate(', start)
+    consumers = material[start:end]
     return r"""
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <new>
+#include <initializer_list>
 struct ModelData {
  const void *pHead,*pClr,*pTex,*pWeight,*pParts,*vtxOrig,*nrmOrig;
  unsigned displist_num;
@@ -65,6 +71,12 @@ const void* ptrat(const void* p,unsigned at) {unsigned v=u32at(p,at);return v &&
 }
 unsigned re4dc_registry_sections(unsigned) {return 0;}
 #include "actor_lifetime.inc"
+#include "native_ui.h"
+""" + owned + r"""
+#if RE4DC_ACTOR_PROOF_LEAN
+static int lean_source_material(cModel*,cModelInfo*,unsigned,unsigned,const re4dc_material::Role*,Re4dcActorOwnedMaterial*);
+#endif
+""" + consumers + r"""
 using namespace re4dc_material;
 using namespace re4dc_material::life;
 static ModelData* data[4];
@@ -75,11 +87,11 @@ static const Role* row(unsigned app,unsigned role,unsigned bin) {
  for(const auto& r:roles)if(r.appearance==app && r.role==role && r.source_bin==bin)return &r;
  return nullptr;
 }
-static void tpl(unsigned no,const Texture* textures) {
+static void tpl(unsigned no,const Texture* textures,unsigned count=3) {
  const unsigned b=at(no),desc=b+12;
  std::memcpy(arena+16+500*4+(no-4)*4,"TPL",3);
- word(b,0x20af30);word(b+4,3);word(b+8,desc);
- for(unsigned k=0;k<3;++k) {
+ word(b,0x20af30);word(b+4,count);word(b+8,desc);
+ for(unsigned k=0;k<count;++k) {
   const unsigned h=b+36+k*36,p=b+160+k*32;const auto& t=textures[k];
   word(desc+k*8,h);word(desc+k*8+4,0);half(h,t.height);half(h+2,t.width);
   word(h+4,t.format);word(h+8,p);
@@ -118,7 +130,124 @@ static bool adopt_and_bind(unsigned app=0) {
  cModelInfo* got[4]{};check(!re4dc_actor_role_bindings(&model,0,got,4));
  check(!re4dc_actor_role_source_bin(&model,&infos[2],0,2));
 }
+// Adopt one real table row through the actual immutable source-owner path.
+static void setup_row(const Role& r) {
+ setup();for(auto& x:assets)x={};for(auto& x:infos)x={};
+ const unsigned no=r.source_bin,offset=at(no);
+ std::memcpy(arena+16+500*4+(no-4)*4,"BIN",3);
+ data[0]=new(arena+offset)ModelData{};
+ const void* sec[7];for(unsigned j=0;j<7;++j)sec[j]=arena+offset+96+j*8;
+ *data[0]={sec[0],sec[1],sec[2],sec[3],sec[4],sec[5],sec[6],1};
+ BlobMask mask=0;for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
+  if(RE4DC_BLOB(t).family==2 && RE4DC_BLOB(t).bin==no)mask|=BlobMask(1u)<<t;
+ assets[0]={data[0],arena+offset,512,0,77,100,mask,0,{sec[0],sec[1],sec[2],sec[3],sec[4],sec[5],sec[6]}};
+ tpl(r.source_tpl,r.textures,r.texture_count);
+ infos[0]={data[0],arena+at(r.source_tpl),nullptr};model={&infos[0],arena+2048,9};
+ re4dc_actor_info_adopt(&infos[0]);
+}
+static void material_result(bool lean,unsigned app,unsigned role,const Role* resolved,bool expected) {
+ Re4dcActorOwnedMaterial value;
+ std::memset(&value,0x5a,sizeof(value));unsigned char before[sizeof(value)];std::memcpy(before,&value,sizeof(value));
+ int got=0;
+#if RE4DC_ACTOR_PROOF_LEAN
+ if(lean)got=lean_source_material(&model,&infos[0],app,role,resolved,&value);else
+#else
+ (void)lean;(void)resolved;
+#endif
+ got=re4dc_actor_source_material(&model,&infos[0],app,role,&value);
+ check(bool(got)==expected);
+ if(!got){check(std::memcmp(before,&value,sizeof(value))==0);return;}
+ const unsigned slot=role==4?0:2;check(resolved!=nullptr);const auto& want=resolved->textures[slot];
+ check(value.image.pixels==arena+at(resolved->source_tpl)+160+slot*32);
+ check(!value.image.palette && value.image.width==want.width && value.image.height==want.height);
+ check(value.image.format==want.format && value.image.palette_format==0xffffffffu && !value.image.palette_bytes);
+ check(value.crc==want.crc && value.fnv==want.fnv && value.wrap_s==want.sampler[0] && value.wrap_t==want.sampler[1]);
+ check(!value.mask.pixels && !value.mask.palette && !value.mask.width && !value.mask.height && !value.mask.format);
+ check(!value.material_flags && !value.blend && !value.depth_mode && value.mask_ref==256 && !value.mask_same_uv);
+}
+static void source_material_tests() {
+ // All authored hand and accessory rows for appearances 0..4 retain their result.
+ for(const auto& r:roles)if(r.appearance<=4 && r.role>=2 && r.role<=4) {
+  setup_row(r);const Role* resolved=actor_current_role(&model,&infos[0],r.appearance,r.role);check(resolved==&r);
+  const bool supported=(r.role==2 && r.source_bin==451) || (r.role==3 && r.source_bin==456) ||
+      (r.role==4 && (r.source_bin==467 || r.source_bin==484));
+  const bool expected=supported && (r.appearance>0 || RE4DC_ACTOR_GANADO_APP0_GRIP);
+  material_result(false,r.appearance,r.role,resolved,expected);
+#if RE4DC_ACTOR_PROOF_LEAN
+  material_result(true,r.appearance,r.role,resolved,expected);
+#endif
+  // Neither an existing accessory nor another appearance supplies app0 identity.
+  if(r.appearance>0) {
+   material_result(false,0,r.role,resolved,false);
+#if RE4DC_ACTOR_PROOF_LEAN
+   material_result(true,0,r.role,resolved,false);
+#endif
+  }
+ }
+ for(unsigned role:{2u,3u}) {
+  const Role grip={0,role,role==2?451u:456u,473,role==2?&m_extra_451:&m_extra_456,t_em12_473,3};
+  setup_row(grip);const Role* resolved=actor_current_role(&model,&infos[0],0,role);
+  material_result(false,0,role,resolved,RE4DC_ACTOR_GANADO_APP0_GRIP);
+#if RE4DC_ACTOR_PROOF_LEAN
+  material_result(true,0,role,&grip,RE4DC_ACTOR_GANADO_APP0_GRIP);
+  // The lean entry consumes a resolved row; app0 must match every identity field.
+  for(unsigned field=0;field<7;++field) {
+   Role bad=grip;
+   if(field==0)bad.appearance=1;if(field==1)bad.role=5;if(field==2)bad.source_bin=448;
+   if(field==3)bad.source_tpl=445;if(field==4)bad.model=&m_em15_448;
+   if(field==5)bad.textures=t_em15_445;if(field==6)bad.texture_count=2;
+   material_result(true,0,role,&bad,false);
+  }
+  material_result(true,0,role,nullptr,false);
+#endif
+  // Current ownership remains mandatory for the public path.
+  for(unsigned failure=0;failure<7;++failure) {
+   setup_row(grip);
+   if(failure==0)assets[0].owner_revision++;
+   if(failure==1)assets[0].serial++;
+   if(failure==2)archives[0].revision++;
+   if(failure==3)infos[0].tpl_addr=arena+at(445);
+   if(failure==4)model.pModelInfo=nullptr;
+   if(failure==5)assets[0].pending=1;
+   if(failure==6)data[0]->pTex=arena;
+   material_result(false,0,role,resolved,false);
+  }
+  // Live material texture checks must reject late changes in either extraction path.
+  for(unsigned failure=0;failure<6;++failure) {
+   setup_row(grip);resolved=actor_current_role(&model,&infos[0],0,role);
+   const unsigned b=at(473),h=b+36+2*36,p=b+160+2*32;
+   if(failure==0)word(p+8,t_em12_473[2].crc^1);
+   if(failure==1)half(h,t_em12_473[2].height+1);
+   if(failure==2)word(h+4,t_em12_473[2].format^1);
+   if(failure==3)word(h+12,t_em12_473[2].sampler[0]^1);
+   if(failure==4)word(b+4,2);
+   if(failure==5)word(h+8,sizeof(arena)+32);
+   material_result(false,0,role,resolved,false);
+#if RE4DC_ACTOR_PROOF_LEAN
+   material_result(true,0,role,&grip,false);
+#endif
+  }
+  setup_row(grip);
+  for(unsigned app:{5u,256u,264u,~0u}) {
+   material_result(false,app,role,resolved,false);
+#if RE4DC_ACTOR_PROOF_LEAN
+   material_result(true,app,role,&grip,false);
+#endif
+  }
+  for(unsigned badrole:{0u,1u,4u,5u,~0u}) {
+   material_result(false,0,badrole,resolved,false);
+#if RE4DC_ACTOR_PROOF_LEAN
+   material_result(true,0,badrole,&grip,false);
+#endif
+  }
+  check(!re4dc_actor_source_material(&model,&infos[0],0,role,nullptr));
+#if RE4DC_ACTOR_PROOF_LEAN
+  check(!lean_source_material(&model,&infos[0],0,role,&grip,nullptr));
+#endif
+ }
+}
 int main() {
+ source_material_tests();
  const unsigned base_roles=52+(RE4DC_ACTOR_PL08?9:0),base_blobs=26+(RE4DC_ACTOR_PL08?4:0);
  check(sizeof(roles)/sizeof(roles[0])==base_roles+(RE4DC_ACTOR_GANADO_APP0_GRIP?2:0));
  check(sizeof(source_blobs)/sizeof(source_blobs[0])==base_blobs);
@@ -179,7 +308,7 @@ int main() {
  check(kRoomRoles==kRoleMaskBits-base_roles-2 && kRoomBlobs==kBlobMaskBits-base_blobs);
 #endif
 #endif
- std::printf("APP0_GRIP=%d PL08=%d NMR=%d checks=%u PASS\n",RE4DC_ACTOR_GANADO_APP0_GRIP,RE4DC_ACTOR_PL08,RE4DC_NATIVE_MODEL_REGISTRY,checks);
+ std::printf("APP0_GRIP=%d PL08=%d NMR=%d LEAN=%d checks=%u PASS\n",RE4DC_ACTOR_GANADO_APP0_GRIP,RE4DC_ACTOR_PL08,RE4DC_NATIVE_MODEL_REGISTRY,RE4DC_ACTOR_PROOF_LEAN,checks);
 }
 """
 
@@ -194,13 +323,13 @@ def main():
         out.mkdir(exist_ok=True, parents=True)
         source = out / 'test.cpp'
         source.write_text(harness())
-        for pl08, registry in [(0, 0), (1, 0), (0, 1), (1, 1)]:
+        for pl08, registry, lean in [(p, r, l) for p in (0, 1) for r in (0, 1) for l in (0, 1, 2)]:
             for enabled in (0, 1):
-                binary = out / f'grip-{enabled}-pl08-{pl08}-registry-{registry}'
+                binary = out / f'grip-{enabled}-pl08-{pl08}-registry-{registry}-lean-{lean}'
                 subprocess.run([args.cxx, '-std=c++17', '-O1', '-g', '-fsanitize=address,undefined',
                     '-fno-omit-frame-pointer', '-fno-pie', '-no-pie', '-Wall', '-Wextra', '-Werror',
-                    '-Wno-misleading-indentation', f'-DRE4DC_ACTOR_GANADO_APP0_GRIP={enabled}',
-                    f'-DRE4DC_ACTOR_PL08={pl08}', f'-DRE4DC_NATIVE_MODEL_REGISTRY={registry}',
+                    '-Wno-misleading-indentation', '-Wno-class-memaccess', f'-DRE4DC_ACTOR_GANADO_APP0_GRIP={enabled}',
+                    f'-DRE4DC_ACTOR_PL08={pl08}', f'-DRE4DC_ACTOR_PROOF_LEAN={lean}', f'-DRE4DC_NATIVE_MODEL_REGISTRY={registry}',
                     f'-DRE4DC_NATIVE_MODEL_REGISTRY_PACK={registry}', '-DRE4DC_ACTOR_APPEARANCE_ALIAS=2',
                     '-I'+str(GAME), '-I'+str(GAME/'platform/include'), str(source), '-o', str(binary)], check=True)
                 subprocess.run([str(binary)], check=True)
