@@ -246,6 +246,36 @@ void StageSet()
 
 // Reads the enemy list file for the current room into pG->Em_list when it differs from the loaded
 // one (always on a new game / save kind 3 / debug); a failed read clears the list.
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#include "em_set.h"
+// PS2 enemy rules: the PS2 USA emleon00.esl differs from the GameCube list in these fields only (positions
+// aside, which differ by 1 unit of rounding). Entries that start dead are either held back by the PS2 room
+// code (r101 0x1A/0x1B, r107 0xA5..0xA9 / 0xED..0xEF: see those rooms) or simply not on the PS2 (r101's
+// chicken, three cows and three chickens of r103, two snakes of r10a). The emleon01 rooms (r10f..r11d)
+// are not converted until their PS2 room code is ported.
+static void re4dc_ps2EnemyList(int no)
+{
+    static const u8 dead00[] = {0x1A, 0x1B, 0x4E, 0x50, 0x54, 0x55, 0x57, 0x58, 0x5C,
+                                0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xED, 0xEE, 0xEF, 0xC2, 0xC3};
+    u32 i;
+
+    if (no != 0) {
+        return;
+    }
+    for (i = 0; i < sizeof(dead00); i++) {
+        EM_LIST(dead00[i])->be_flag &= ~1;
+    }
+    for (i = 0x22; i <= 0x24; i++) {   // r101: flag 0x80 on, Character 1 -> 0
+        EM_LIST(i)->flag |= 0x80;
+        EM_LIST(i)->Character = 0;
+    }
+    EM_LIST(0x45)->flag &= ~0x400;     // r101
+    EM_LIST(0x46)->flag &= ~0x400;
+}
+#define RE4DC_PS2_ENEMY_LIST(no) re4dc_ps2EnemyList(no)
+#else
+#define RE4DC_PS2_ENEMY_LIST(no)
+#endif
 #line 280 "D:/Bio4/Prog/stage.cpp"
 void readEmList(int mode)
 {
@@ -271,7 +301,7 @@ void readEmList(int mode)
         }
         if (result == 0) {
             memclr_asm(pG->Em_list, 0x2000);
-        }
+        } else { RE4DC_PS2_ENEMY_LIST(pG->em_list_no); }
     }
 }
 

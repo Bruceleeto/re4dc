@@ -338,9 +338,41 @@ void R101Init()
     }
 }
 
-// Per-frame room main: nothing.
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+// PS2 enemy rules (PS2 USA st1_1.rel R101Main): list entries 0x1A / 0x1B (two villagers) start dead
+// (stage.cpp list patch) and join the fight one at a time while fewer than 9 Ganados are alive and the
+// player stands in the PS2-only area 0x21 (AEV type 4: Room_flg[2] bit31, trigger "inside", player).
+#include "dbg_tool.h"
+// The GameCube AEV has no area 0x21, so its quadrilateral (PS2 r101.dat) is tested here directly.
+// Room save flags 12 / 13 mark each villager as sent; each adds one to the kill target (emNum).
+static AreaData r101Ps2Area21 = {
+    1, AREA_TYPE_XZ4, 0,
+    {{519.0f, 1907.0f, 750.0f, {{16042.0f, -19894.0f}, {20833.0f, -16336.0f}, {18630.0f, -13920.0f}, {14438.0f, -16567.0f}}}},
+};
+
+static void r101_ps2Villager(int rsf, int no, int inArea)
+{
+    if (RsfCheck(G_ROOM_ID, rsf) == 0 && inArea && SceCountEmAlive(0x10, 0x20) < 9) {
+        RsfSet(G_ROOM_ID, rsf);
+        EmListSetAlive(no, 0);
+        setEm(no, -1, 1, 1, 1);
+        r101_work->emNum++;
+        OSReport("ps2en: r101 villager 0x%02x joins (alive<9), target %d\n", no, r101_work->emNum);
+    }
+}
+#endif
+
+// Per-frame room main: nothing (PS2_ENEMY_RULES: the PS2 villager reinforcements).
 void R101Main()
 {
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    if (RsfCheck(G_ROOM_ID, 7) == 0) {
+        int inArea = AreaHitCheck(&r101Ps2Area21, &pPL->pos) != 0;
+
+        r101_ps2Villager(12, 0x1B, inArea);
+        r101_ps2Villager(13, 0x1A, inArea);
+    }
+#endif
 }
 
 // Ganados throw a flame bottle every 150 frames while the player stays on the tower.
@@ -401,13 +433,36 @@ static void r101_checkEmNum()
     int alive;
 
     SceSleep(10);
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    // PS2: the target is added to (a villager sent before this task samples is already counted).
+    r101_work->emNum += SceCountEmAlive(0x10, 0x20);
+#else
     r101_work->emNum = SceCountEmAlive(0x10, 0x20);
+#endif
     for (;;) {
         SceSleep(1);
         if (pG->Room_flg[0] & 0x10000000) {
             continue;
         }
         alive = SceCountEmAlive(0x10, 0x20);
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+        // PS2: each reset wave comes when fewer than 5 Ganados are alive (GameCube: after 5 / 10 kills);
+        // the second waits for the first wave's cutscene to end (room save flag 15, r101_checkEmReset_end)
+        // and also fires from area 0x17 (r101_checkEmReset2).
+        if (RsfCheck(G_ROOM_ID, 3) == 0) {
+            if (SceCountEmAlive(0x10, 0x20) < 5) {
+                RsfSet(G_ROOM_ID, 3);
+                OSReport("ps2en: r101 wave 1 (alive<5) kills %d\n", r101_work->emNum - alive);
+                SceExec(0x12, (TaskFunc) r101_checkEmReset, 0, 0, SCE_PRIO_DEF_2, 0);
+                continue;
+            }
+        } else if (RsfCheck(G_ROOM_ID, 15) && RsfCheck(G_ROOM_ID, 2) == 0 && SceCountEmAlive(0x10, 0x20) < 5) {
+            RsfSet(G_ROOM_ID, 2);
+            OSReport("ps2en: r101 wave 2 (alive<5) kills %d\n", r101_work->emNum - alive);
+            SceExec(0x12, (TaskFunc) r101_checkEmReset2, 0, 0, SCE_PRIO_DEF_2, 0);
+            continue;
+        }
+#else
         if (RsfCheck(G_ROOM_ID, 3) == 0 && r101_work->emNum - alive > 4) {
             RsfSet(G_ROOM_ID, 3);
             SceExec(0x12, (TaskFunc) r101_checkEmReset, 0, 0, SCE_PRIO_DEF_2, 0);
@@ -418,6 +473,7 @@ static void r101_checkEmNum()
             SceExec(0x12, (TaskFunc) r101_checkEmReset2, 0, 0, SCE_PRIO_DEF_2, 0);
             continue;
         }
+#endif
         if (RsfCheck(G_ROOM_ID, 7)) {
             return;
         }
@@ -814,7 +870,11 @@ static void r101_Event20()
 static void r101_checkEmReset2()
 {
     RsfSet(G_ROOM_ID, 2);
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    if (SceAtHitCheck(0x1A) == 1 || SceAtHitCheck(0x17) == 1) {   // PS2 adds area 0x17
+#else
     if (SceAtHitCheck(0x1A) == 1) {
+#endif
         if (RsfCheck(G_ROOM_ID, 0) == 0) {
             setEm(0x28, -1, 1, 1, 1);
             setEm(0x29, -1, 1, 1, 1);
@@ -859,6 +919,9 @@ static void r101_checkEmReset_end(int side)
         r101_work->pEm[9]->setNoSuspend(0);
         r101_work->emNum += 5;
     }
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    RsfSet(G_ROOM_ID, 15);   // PS2: the second wave may come once this cutscene has ended
+#endif
     SceEventEnd(0);
 }
 

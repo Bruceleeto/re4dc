@@ -223,7 +223,7 @@ int cEmMgr::arrayAlloc(u32 n)
     return 1;
 }
 
-#if RE4DC_ACT_CAP
+#if RE4DC_ACT_CAP || RE4DC_ACT_CAP_TABLE
 // D367 B1 activation cap (game30.mk ACT_CAP, port/dreamcast/game/act_cap.cpp).
 extern "C" void re4dc_act_cap_select(void);
 extern "C" int re4dc_act_cap_parked(cEm* em);
@@ -253,7 +253,7 @@ void cEmMgr::move()
     dieCheck();
     RouteCk();
     if (!(pG->Stop_flg & 0x20000000)) {
-#if RE4DC_ACT_CAP
+#if RE4DC_ACT_CAP || RE4DC_ACT_CAP_TABLE
         re4dc_act_cap_select();
 #endif
         p = pAlive;
@@ -262,7 +262,7 @@ void cEmMgr::move()
             cEm* cur = p;
 
             p = (cEm*) p->pNext;
-#if RE4DC_ACT_CAP
+#if RE4DC_ACT_CAP || RE4DC_ACT_CAP_TABLE
             if (re4dc_act_cap_parked(cur)) {
                 emParkMove(cur);
                 continue;

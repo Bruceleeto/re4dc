@@ -36,6 +36,14 @@ void r104_openKiln_main(int type, int opened);
 static void r104_openedKiln(int type);
 static void r104_openKiln(int type);
 static void r107_checkBgmPlay();
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#include "area.h"
+#include "em_set.h"
+#include "read.h"
+#include "player.h"
+#include "dbg_tool.h"
+static void r107_ps2Areas();
+#endif
 
 // Room init: pairs door 0 with door 0x15 (double door), starts the battle-BGM task, sets Room_flg bit 0
 // on first visit, registers the two kiln item events (item 0x92 at area 3 -> kiln 0, 0x93 at area 5 ->
@@ -59,7 +67,63 @@ void R107Init()
     SceSetItemEvent(5, 0x93, 2, 0xC, r104_openKiln, (void (*)()) r104_openedKiln, 1, 0);
     EatMgr.registEffInfo(EAT_ET_WATER, (AtEffInfo*) &r107_eff_info);
     SceExec(0x12, (TaskFunc) r107_setFish, 0, 0, SCE_PRIO_DEF_2, 0);
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+    // PS2 R107Init: the deferred Ganado (em12) and fish (em27) modules are read up front.
+    EmReadSearch(GetEmIdFromList(0xEF), 0, 0);
+    EmReadSearch(GetEmIdFromList(0xA5), 0, 0);
+    SceExec(0x12, (TaskFunc) r107_ps2Areas, 0, 0, SCE_PRIO_DEF_2, 0);
+#endif
 }
+
+#if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+// PS2 enemy rules (PS2 USA st1_1.rel R107Init / the three area tasks after R107Main): list entries 0xED..0xEF
+// (three Ganados) and 0xA5..0xA9 (five fish) start dead (stage.cpp list patch) and are sent once when the
+// player first enters PS2-only areas 6 / 7 / 8 (AEV type 2, trigger inside + once, player; room save flags
+// 3 / 4 / 5). The GameCube AEV ends at area 5, so the PS2 quadrilaterals (PS2 r107.dat) are tested here.
+static AreaData r107Ps2Area[3] = {
+    {1, AREA_TYPE_XZ4, 0, {{-2503.0f, 3501.0f, 750.0f, {{66111.0f, -61476.0f}, {67611.0f, -61476.0f}, {67511.0f, -57766.0f}, {66012.0f, -57783.0f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{188.0f, 1000.0f, 750.0f, {{71033.0f, -46982.0f}, {74663.0f, -46776.0f}, {74773.0f, -41505.0f}, {71237.0f, -41517.0f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{188.0f, 1000.0f, 750.0f, {{67080.0f, -57594.0f}, {71088.0f, -57623.0f}, {70823.0f, -52857.0f}, {67598.0f, -52778.0f}}}}},
+};
+
+static void r107_ps2Areas()
+{
+    for (;;) {
+        int i;
+        int left = 0;
+
+        for (i = 0; i < 3; i++) {
+            if (RsfCheck(G_ROOM_ID, 3 + i)) {
+                continue;
+            }
+            left++;
+            if (AreaHitCheck(&r107Ps2Area[i], &pPL->pos) == 0) {
+                continue;
+            }
+            RsfSet(G_ROOM_ID, 3 + i);
+            OSReport("ps2en: r107 area %d sends its enemies (frame %u)\n", 6 + i, (unsigned) pG->Frame_cnt);
+            if (i == 0) {
+                setEm(0xEF, -1, 1, 1, 1);
+            } else if (i == 1) {
+                setEm(0xED, -1, 1, 1, 1);
+            } else {
+                u32 n;
+
+                setEm(0xEE, -1, 1, 1, 1);
+                for (n = 0xA5; n <= 0xA9; n++) {
+                    setEm(n, -1, 1, 1, 1);
+                }
+                // r107_setFish ran at room entry: give the new fish the lake's water level.
+                r107_setFish();
+            }
+        }
+        if (left == 0) {
+            break;
+        }
+        SceSleep(1);
+    }
+}
+#endif
 
 // Per frame: switch the player's footstep/OT type to the water variant.
 void R107Main()

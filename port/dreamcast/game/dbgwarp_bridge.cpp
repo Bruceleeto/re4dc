@@ -132,6 +132,8 @@ struct Warp {
     u8 kill_kind;   // cDmgInfo kind of each hit (1: handgun)
     cEm* kill_em;   // the target once found (kept until its hp is gone)
     u32 kill_watch; // after the kill: state lines left
+    u32 kill_rep, kill_gap;  // `killrep <count> <gap>`: kill `count` more, each `gap` room frames after the last
+    u32 alive_period, alive_last;  // `alivelog <period>`
     bool has_drop;  // `drop <item id> [num]` (issue 23): the kill target drops this item instead of its own roll
     u16 drop_id;
     int drop_num;
@@ -298,6 +300,12 @@ void load()
             wp.kill_frame = num(tok[2]);
             wp.kill_room = n >= 4 ? (u16) num(tok[3]) : 0;
             wp.kill_kind = n >= 5 ? (u8) num(tok[4]) : 1;
+        } else if (!strcmp(k, "alivelog") && n >= 2) {
+            wp.alive_period = num(tok[1]);
+            wp.alive_last = ~0u;
+        } else if (!strcmp(k, "killrep") && n >= 3) {
+            wp.kill_rep = num(tok[1]);
+            wp.kill_gap = num(tok[2]);
         } else if (!strcmp(k, "drop") && n >= 2) {
             wp.has_drop = true;
             wp.drop_id = (u16) num(tok[1]);
@@ -408,6 +416,12 @@ void dump_areas()
 // the hp <= 0 death, the scene links). Ends when its hp is gone or it left the live list.
 void kill_poll()
 {
+    if (wp.alive_period && (wp.room_frames % wp.alive_period) == 0 && wp.room_frames != wp.alive_last) {
+        // `alivelog <period>`: Ganados alive (the rooms' own count, ids 0x10..0x20) every period room frames
+        wp.alive_last = wp.room_frames;
+        re4dc_log("warp: alive %d room %03x frame %u\n", SceCountEmAlive(0x10, 0x20), (unsigned) pG->room_id,
+                  (unsigned) wp.room_frames);
+    }
     if (wp.kill_watch && wp.kill_em && (wp.room_frames % 15) == 0) {
         --wp.kill_watch;
         cEm* em = wp.kill_em;
@@ -450,6 +464,16 @@ void kill_poll()
         snprintf(what, sizeof(what), "kill 0x%02x hp<=0 at room frame %u after %u hits", (unsigned) wp.kill_id,
                  (unsigned) wp.room_frames, (unsigned) wp.kill_hits);
         stamp(what);
+        if (wp.kill_rep) {  // `killrep <count> <gap>`: the next live one, gap room frames later
+            --wp.kill_rep;
+            wp.kill_done = false;
+            wp.kill_watch = 0;
+            wp.kill_em = nullptr;
+            wp.kill_hits = 0;
+            wp.kill_frame = wp.room_frames + wp.kill_gap;
+            re4dc_log("warp: kill repeat %u left, next at room frame %u\n", (unsigned) wp.kill_rep,
+                      (unsigned) wp.kill_frame);
+        }
         return;
     }
     if (em->dmg.m_Flag & 1) return;  // the last hit is still pending

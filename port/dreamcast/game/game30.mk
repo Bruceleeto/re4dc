@@ -1899,14 +1899,19 @@ ACT_CAP_RANGE_M ?= 12
 ACT_CAP_VIEW_M ?= 3
 ACT_CAP_CREEP ?= 4
 ACT_CAP_LOG ?= 0
+# ACT_CAP_TABLE=1 (test 9, user 2026-10-13; default 0): per-room caps from the const table in act_cap.cpp
+# instead of ACT_CAP / ACT_CAP_ROOM. A room not in the table has no cap; a table room flagged scripted (set fights)
+# has none either. Bosses and specials are never parked (only ids 0x10..0x20 are). ACT_CAP is ignored when on.
+ACT_CAP_TABLE ?= 0
 .PHONY: act-cap-force
 $(OBJDIR)/act-cap.h: act-cap-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_ACT_CAP %s\n#define RE4DC_ACT_CAP_ROOM %s\n#define RE4DC_ACT_CAP_RANGE_M %s\n#define RE4DC_ACT_CAP_VIEW_M %s\n#define RE4DC_ACT_CAP_CREEP %s\n#define RE4DC_ACT_CAP_LOG %s\n' '$(ACT_CAP)' '$(ACT_CAP_ROOM)' '$(ACT_CAP_RANGE_M)' '$(ACT_CAP_VIEW_M)' '$(ACT_CAP_CREEP)' '$(ACT_CAP_LOG)' > $@.tmp
+	@if [ '$(ACT_CAP_TABLE)' != 0 ]; then printf '#define RE4DC_ACT_CAP_TABLE %s\n' '$(ACT_CAP_TABLE)' >> $@.tmp; fi
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/src/game/em.o: $(OBJDIR)/act-cap.h
-ifneq ($(ACT_CAP),0)
+ifneq ($(ACT_CAP)$(ACT_CAP_TABLE),00)
 PLATFORM_OBJS += $(OBJDIR)/act_cap.o
 $(OBJDIR)/src/game/em.o: GAME_CPPFLAGS += -include $(OBJDIR)/act-cap.h
 $(OBJDIR)/act_cap.o: act_cap.cpp $(OBJDIR)/act-cap.h

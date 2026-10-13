@@ -111,6 +111,15 @@ endif
 $(OBJDIR)/src/game/espgen45.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o: GAME_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES)
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES) -DRE4DC_LAKE_TILE=$(LAKE_TILE) -DRE4DC_LAKE_ALPHA=$(LAKE_ALPHA)
 endif
+# PS2_ENEMY_RULES=1 (test 9 lane PS2EN, default 0; changes gameplay by design): the PS2 USA enemy rules of the
+# chapter 1 rooms. Enemy list emleon00 gets the PS2 start-alive bits / flags (stage.cpp, at list read); r101 sends
+# its reset waves when fewer than 5 Ganados are alive (GameCube: after 5 / 10 kills) and holds two villagers back
+# as reinforcements (fewer than 9 alive, PS2 area 0x21); r107 holds three Ganados and five fish until PS2 areas
+# 6 / 7 / 8. r103 (3 cows, 3 chickens) and r10a (2 snakes) only lose list entries the PS2 never spawns.
+PS2_ENEMY_RULES ?= 0
+ifneq ($(PS2_ENEMY_RULES),0)
+$(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r107.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=$(PS2_ENEMY_RULES)
+endif
 # em27ObaHitCk scans enemy slots through the sparse backing (workAt) instead of raw slot math, which read an
 # unbacked slot's 0xFF filler as a NaN position and dragged the fish to NaN (r10b dock / boss collision storm).
 $(OBJDIR)/mod/em27/src/em27/em27.o: GAME_CPPFLAGS += -DRE4DC_EM27_SLOT_FIX=1

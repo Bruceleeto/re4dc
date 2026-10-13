@@ -62,8 +62,28 @@
 #ifndef RE4DC_ACT_CAP_LOG
 #define RE4DC_ACT_CAP_LOG 0   // N > 0: one "AC" stats line per N ticks through re4dc_log
 #endif
+#ifndef RE4DC_ACT_CAP_TABLE
+#define RE4DC_ACT_CAP_TABLE 0
+#endif
 
 namespace {
+#if RE4DC_ACT_CAP_TABLE
+// ACT_CAP_TABLE=1 (user 2026-10-13): per-room caps, replacing ACT_CAP / ACT_CAP_ROOM. A room missing from the
+// table has no cap. kScripted marks a room whose set fight must stay exact (to be set for r10b, r119 and the
+// r11c / r11d fights once they are measured): no cap there either. Bosses and specials are never parked
+// anyway (isGanado: ids 0x10..0x20 only), nor is any Ganado matched by the never-park rules below.
+enum : u8 { kScripted = 1 };
+struct RoomCap {
+    u16 room;   // stage << 8 | room
+    u8 cap;     // active Ganados per tick
+    u8 flags;
+};
+constexpr RoomCap kRoomCaps[] = {
+    {0x101, 5, 0},   // r101 village fight (test 9: PS2 rules + cap 5 measured)
+};
+#endif
+int g_cap;   // this tick's cap (roomOn)
+
 constexpr int kMax = 64;          // EmMgr holds far fewer Ganados; extras are never parked
 constexpr unsigned kHoldTicks = 45;
 constexpr f32 kRange2 = (f32) (RE4DC_ACT_CAP_RANGE_M * 1000) * (f32) (RE4DC_ACT_CAP_RANGE_M * 1000);
@@ -137,7 +157,19 @@ bool roomOn()
     if (RE4DC_WARP_LATE_SET() && !RE4DC_WARP_LATE(RE4DC_LATE_ACT_CAP)) return false;
 #endif
     if (!pG || !pPL) return false;
+#if RE4DC_ACT_CAP_TABLE
+    {
+        const u32 room = ((u32) pG->stage_no << 8) | pG->room_no;
+        const RoomCap* rc = 0;
+        for (const RoomCap& t : kRoomCaps)
+            if (t.room == room) { rc = &t; break; }
+        if (!rc || (rc->flags & kScripted)) return false;
+        g_cap = rc->cap;
+    }
+#else
     if (RE4DC_ACT_CAP_ROOM && (((u32) pG->stage_no << 8) | pG->room_no) != (u32) RE4DC_ACT_CAP_ROOM) return false;
+    g_cap = RE4DC_ACT_CAP;
+#endif
     // event pause / frozen characters: emMove already skips or the scene is scripted
     if (pG->Status_flg[1] & 0x10000000) return false;
     if (pG->Stop_flg & 0x20000000) return false;
@@ -201,7 +233,7 @@ extern "C" void re4dc_act_cap_select(void)
         if (g_e[i].seen) { g_e[w] = g_e[i]; g_e[w].slot = (u8) w; w++; }
     g_n = w;
     // fill the free slots nearest first (selection by repeated minimum: n is small)
-    int slots = RE4DC_ACT_CAP - must;
+    int slots = on ? g_cap - must : 0;   // off: every Ganado is a must anyway
     for (int i = 0; i < g_n; i++) g_e[i].seen = g_e[i].must;   // seen = chosen active
     while (slots-- > 0) {
         int best = -1;
