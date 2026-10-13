@@ -38,7 +38,7 @@
     defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
 #define CH23_PS2_ROOM 1
 #include "libgpu.h"
-#include "dolphin/os.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
 #include "em_set.h"
 #include "read.h"
 #else
