@@ -2742,3 +2742,13 @@ $(error H2_EXTERNAL_DELAY requires LOGIC_TRACE=1)
 endif
 $(OBJDIR)/logic_trace.o: GAME_CPPFLAGS += -DRE4DC_H2_EXTERNAL_DELAY=1
 endif
+# Exact native PAL4 alpha packages use a shared, fenced palette bank owner.
+# Off contributes no compiler definitions or runtime behavior.
+TEX_PAL4_ALPHA ?= 0
+ifneq ($(filter-out 0 1,$(TEX_PAL4_ALPHA)),)
+$(error TEX_PAL4_ALPHA is 0 or 1)
+endif
+ifeq ($(TEX_PAL4_ALPHA),1)
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PAL4_ALPHA=1
+endif
+
