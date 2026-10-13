@@ -362,6 +362,23 @@ void OptionDataRead()
 #endif
 }
 
+#if defined(RE4DC_RESET_HEAP_FIX) && RE4DC_RESET_HEAP_FIX
+// RESET_HEAP_FIX (game30.mk, issue #26): systemSoftReset destroys every heap (MemClearAllHeap) before
+// systemResetCommon releases the module slots, so an enemy archive read into heap 4 was freed into the
+// current heap 0's free list (heap 0 then hands out memory over the rebuilt heaps). A block inside a
+// destroyed heap's range went with that heap: it is only forgotten.
+static void ModuleMemFree(void* p)
+{
+    for (int i = 0; i < MEM_HEAP_NUM; i++) {
+        if (Heap[i].handle < 0 && Heap[i].start <= (u32) p && (u32) p < Heap[i].end) {
+            OSReport("module free: %p dropped (heap %d destroyed)\n", p, i);
+            return;
+        }
+    }
+    Mem_free(p);
+}
+#define Mem_free ModuleMemFree
+#endif
 // Frees a loaded module slot: unlinks the REL (flag bit1), frees the archive (bit2; debug heap
 // when bit3) and the separately copied module (bit0), clears the slot.
 void InitModule(ReadModule* m)
@@ -389,6 +406,9 @@ void InitModule(ReadModule* m)
     }
     memclr_asm(m, sizeof(ReadModule));
 }
+#if defined(RE4DC_RESET_HEAP_FIX) && RE4DC_RESET_HEAP_FIX
+#undef Mem_free
+#endif
 
 // Loads enemy module `id` into a free slot (all display flags forced on during the load): reads
 // the data / REL and links it. Returns the archive or NULL.

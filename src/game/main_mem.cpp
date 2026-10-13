@@ -608,14 +608,23 @@ void* mem_calloc(u32 size, const char* file, int line, int flag, int heap)
 }
 
 // Frees a block to the current heap.
+#if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
+extern "C" void* re4dc_osfree_ra[2];  // OSAlloc.c OSFREE_CHECK: Mem_free / Mem_free_h callers
+#endif
 void Mem_free(void* p)
 {
+#if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
+    re4dc_osfree_ra[1] = __builtin_return_address(0);
+#endif
     Mem_free_h(p, CurrentHeap);
 }
 
 // Frees a block (to the OS current heap) when heap `heap` is active.
 void Mem_free_h(void* p, int heap)
 {
+#if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
+    re4dc_osfree_ra[0] = __builtin_return_address(0);
+#endif
     if (heap == MEM_HEAP_CURRENT) {
         heap = CurrentHeap;
     }

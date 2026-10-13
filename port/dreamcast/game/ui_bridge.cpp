@@ -553,6 +553,11 @@ void room_free4(void* p,const char* who){
     auto* cell=static_cast<Room4Cell*>(p)-1;
     const auto address=reinterpret_cast<std::uintptr_t>(cell);
     if(cell->magic!=kRoom4Magic || cell->generation!=room4.generation || !memCheckHeapActive(4) ||
+#if defined(RE4DC_RESET_HEAP_FIX) && RE4DC_RESET_HEAP_FIX
+       // A soft reset (Game Reset, the game over quit) destroys heap 4 without a gameRoomMemInit: handle -1, and
+       // OSFreeToHeap(-1) wrote before the heap table (issue #26: load a save, reset, New Game, console crash).
+       Heap[4].handle<0 ||
+#endif
        address<Heap[4].start || address>=Heap[4].end){
         ++room4.stale_frees;
         re4dc_log("room lifecycle: %s dropped stale heap-4 cell %p\n",who,p);

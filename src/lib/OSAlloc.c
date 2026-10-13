@@ -321,9 +321,48 @@ void* OSAllocFixed(void* rstart, void* rend) {
     return (void*)*(u32*)rstart;
 }
 
+#if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
+/* OSFREE_CHECK=1 (game30.mk, test-only diagnostic, issue #26): every free checks that the block is on the heap's
+   allocated list and that the heap's free list is sane; a bad free is logged with its caller and skipped. */
+static int osfree_list_bad(Cell* list, Cell** bad) {
+    int n = 0;
+    for (; list; list = list->next) {
+        if (!InRange(list, ArenaStart, ArenaEnd) || ((u32) list & 31) || ++n > 100000 ||
+            (list->next && !InRange(list->next, ArenaStart, ArenaEnd))) {
+            *bad = list;
+            return 1;
+        }
+    }
+    return 0;
+}
+void* re4dc_osfree_ra[2];
+static int osfree_check(int heap, void* ptr, void* ra) {
+    static int reports;
+    HeapDesc* hd = &HeapArray[heap];
+    Cell* cell = (Cell*) ((u32) ptr - 0x20);
+    Cell* bad = 0;
+    if (osfree_list_bad(hd->free, &bad) || osfree_list_bad(hd->allocated, &bad)) {
+        if (reports++ < 20)
+            OSReport("osfree check: heap %d list corrupt at %p next %p (free of %p from %p)\n", heap, bad,
+                     InRange(bad, ArenaStart, ArenaEnd) ? (void*) bad->next : 0, ptr, ra);
+        return 0;
+    }
+    if (!DLLookup(hd->allocated, cell)) {
+        if (reports++ < 20) OSReport("osfree check: heap %d free of %p not allocated (from %p, Mem_free_h from %p, Mem_free from %p)\n", heap,
+                                     ptr, ra, re4dc_osfree_ra[0], re4dc_osfree_ra[1]);
+        return 0;
+    }
+    return 1;
+}
+#endif
+
 void OSFreeToHeap(int heap, void* ptr) {
     HeapDesc* hd;
     Cell* cell;
+
+#if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
+    if (!osfree_check(heap, ptr, __builtin_return_address(0))) return;
+#endif
 
     ASSERTMSGLINE(577, HeapArray, "OSFreeToHeap(): heap is not initialized.");
     ASSERTMSGLINE(579, ((u32)ArenaStart+0x20) <= (u32)ptr && (u32)ptr < (u32)ArenaEnd, "OSFreeToHeap(): invalid pointer.");

@@ -2701,6 +2701,21 @@ endif
 # tools/game30/logic_trace_diff.py and decision_cmp.py read both. 0 (default): no code, records unchanged.
 TRACE_ALLOC ?= 0
 TRACE_SS_MASK ?= 0
+# OSFREE_CHECK=1 (test-only diagnostic, issue #26): OSFreeToHeap checks the block is allocated in that heap and the
+# heap lists are sane; a bad free is logged ("osfree check:") with its caller and skipped. Default 0: no code.
+OSFREE_CHECK ?= 0
+# RESET_HEAP_FIX=1 (test 9, issue #26: load a save, Game Reset / quit to the title, New Game: console crash in
+#   OSFreeToHeap): after a soft reset (every heap destroyed) ui_bridge room_free4 no longer frees the previous
+#   game's heap-4 cells to handle -1 (it wrote before the OSAlloc heap table), and read.cpp InitModule forgets a
+#   module archive inside a destroyed heap instead of threading it into heap 0's free list. Default 0: unchanged.
+RESET_HEAP_FIX ?= 0
+ifeq ($(RESET_HEAP_FIX),1)
+GAME_CPPFLAGS += -DRE4DC_RESET_HEAP_FIX=1
+endif
+ifeq ($(OSFREE_CHECK),1)
+SDK_CFLAGS += -DRE4DC_OSFREE_CHECK=1
+GAME_CPPFLAGS += -DRE4DC_OSFREE_CHECK=1
+endif
 ifneq ($(filter-out 0 1,$(TRACE_ALLOC) $(TRACE_SS_MASK)),)
 $(error TRACE_ALLOC and TRACE_SS_MASK must be 0 or 1)
 endif
