@@ -127,6 +127,13 @@ ifeq ($(filter 1 2,$(EFFECT_PS2_STREAK)),)
 $(error PS2_FX_ROOMS needs EFFECT_PS2_STREAK=1 or 2)
 endif
 endif
+## Stage-1 PS2 recipe extensions are draw-only and independently reversible.
+PS2_FX_STAGE1 ?= 0
+ifneq ($(PS2_FX_STAGE1),0)
+ifneq ($(PS2_FX_STAGE1)$(PS2_FX_ROOMS),11)
+$(error PS2_FX_STAGE1 must be 0 or 1 and needs PS2_FX_ROOMS=1)
+endif
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -212,6 +219,9 @@ ifneq ($(EFFECT_HAZE_LEAN_TOGGLE),0)
 endif
 ifneq ($(PS2_FX_ROOMS),0)
 	@printf '#define RE4DC_PS2_FX_ROOMS %s\n' '$(PS2_FX_ROOMS)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_STAGE1),0)
+	@printf '#define RE4DC_PS2_FX_STAGE1 %s\n' '$(PS2_FX_STAGE1)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
