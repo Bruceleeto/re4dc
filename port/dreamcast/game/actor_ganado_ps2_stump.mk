@@ -11,7 +11,7 @@ endif
 ifeq ($(wildcard $(ACTOR_GANADO_PS2_STUMP_DIR)/ganado_ps2_stump_runtime.h),)
 $(error ACTOR_GANADO_PS2_STUMP_DIR must contain the qualified ganado_ps2_stump_runtime.h)
 endif
-$(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado_cast.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_PS2_STUMP=1
-$(OBJDIR)/coarse_ganado_cast.o: GAME_CPPFLAGS += -I$(ACTOR_GANADO_PS2_STUMP_DIR)
-$(OBJDIR)/coarse_ganado_cast.o: $(ACTOR_GANADO_PS2_STUMP_DIR)/ganado_ps2_stump_runtime.h
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_PS2_STUMP=1
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -I$(ACTOR_GANADO_PS2_STUMP_DIR)
+$(OBJDIR)/coarse_ganado.o: $(ACTOR_GANADO_PS2_STUMP_DIR)/ganado_ps2_stump_runtime.h
 endif
