@@ -134,6 +134,13 @@ ifneq ($(PS2_FX_STAGE1)$(PS2_FX_ROOMS),11)
 $(error PS2_FX_STAGE1 must be 0 or 1 and needs PS2_FX_ROOMS=1)
 endif
 endif
+# Bounded read-only selection of exact PS2 haze draw counts. Independent default-off gate.
+PS2_FX_POPULATION ?= 0
+ifneq ($(PS2_FX_POPULATION),0)
+ifneq ($(PS2_FX_POPULATION)$(PS2_FX_STAGE1),11)
+$(error PS2_FX_POPULATION must be 0 or 1 and needs PS2_FX_STAGE1=1)
+endif
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -222,6 +229,9 @@ ifneq ($(PS2_FX_ROOMS),0)
 endif
 ifneq ($(PS2_FX_STAGE1),0)
 	@printf '#define RE4DC_PS2_FX_STAGE1 %s\n' '$(PS2_FX_STAGE1)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_POPULATION),0)
+	@printf '#define RE4DC_PS2_FX_POPULATION %s\n' '$(PS2_FX_POPULATION)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
