@@ -1,26 +1,45 @@
 #!/bin/bash
-# D367 host-wide trace lock: only one logic-trace Flycast run (STRICT pairs, decision traces)
-# at a time on this host, across Claude and Codex lanes. Other Flycast runs need no lock.
+# D367 host-wide trace slots (2026-10-13 dettrace rule): at most TRACE_SLOTS (default 4) logic-trace Flycast runs
+# (STRICT pairs, decision traces) at a time on this host, across Claude and Codex lanes. Trace runs are deterministic
+# in emulated time, so they may run in parallel; the cap only protects host memory. Other Flycast runs need no slot.
+# Every trace run sets RE4DC_LOG_STOP_TICK (same N for both runs of a pair); a "[LOG OVERRUN" line or a tick gap
+# makes the run invalid. Never hold a slot around a wait loop or staging: wrap only the Flycast run.
 #
-#   trace_lock.sh <command> [args...]   run the command while holding the lock (waits for it)
-#   trace_lock.sh --status              show who holds it
+#   trace_lock.sh <command> [args...]   run the command while holding one slot (waits for a free one)
+#   trace_lock.sh --status              "free" when a slot is free, else "held"; then one line per held slot
 #
-# The lock is /root/probe/.trace.lock (flock); the holder is written to /root/probe/.trace.holder.
+# Slot 0 is /root/probe/.trace.lock (the old single lock, so copies of the old script in lane trees take slot 0 and
+# the cap still holds); slot k > 0 is /root/probe/.trace.lock.k. Holders: /root/probe/.trace.holder[.k].
 set -u
-LOCK=/root/probe/.trace.lock
-HOLDER=/root/probe/.trace.holder
+N=${TRACE_SLOTS:-4}
+lockf() { [ "$1" -eq 0 ] && echo /root/probe/.trace.lock || echo "/root/probe/.trace.lock.$1"; }
+holdf() { [ "$1" -eq 0 ] && echo /root/probe/.trace.holder || echo "/root/probe/.trace.holder.$1"; }
 if [ "${1:-}" = "--status" ]; then
-    if flock -n "$LOCK" true; then echo "free"; else echo "held: $(cat "$HOLDER" 2>/dev/null)"; fi
+    free=0; lines=""
+    for k in $(seq 0 $((N - 1))); do
+        if flock -n "$(lockf $k)" true; then free=$((free + 1))
+        else lines="$lines  slot $k: $(cat "$(holdf $k)" 2>/dev/null)"$'\n'; fi
+    done
+    if [ $free -gt 0 ]; then echo "free"; else echo "held"; fi
+    echo "slots $((N - free))/$N in use"
+    printf '%s' "$lines"
     exit 0
 fi
 [ $# -ge 1 ] || { echo "usage: trace_lock.sh <command> [args...] | --status" >&2; exit 2; }
-exec 9>"$LOCK"
-if ! flock -n 9; then
-    echo "trace_lock: waiting for $(cat "$HOLDER" 2>/dev/null)" >&2
-    flock 9
-fi
-echo "$(date -Is) pid=$$ ${TRACE_LOCK_OWNER:-unknown} :: $*" > "$HOLDER"
+slot=-1; said=0
+while :; do
+    for k in $(seq 0 $((N - 1))); do
+        exec 9>"$(lockf $k)"
+        if flock -n 9; then slot=$k; break; fi
+        exec 9>&-
+    done
+    [ $slot -ge 0 ] && break
+    [ $said -eq 0 ] && { echo "trace_lock: all $N slots busy, waiting" >&2; said=1; }
+    sleep 3
+done
+H=$(holdf $slot)
+echo "$(date -Is) pid=$$ ${TRACE_LOCK_OWNER:-unknown} :: $*" > "$H"
 "$@"
 rc=$?
-: > "$HOLDER"
+: > "$H"
 exit $rc
