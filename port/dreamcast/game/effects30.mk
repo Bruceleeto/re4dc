@@ -150,6 +150,8 @@ endif
 ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
 $(error PS2_FX_ADDITIONS needs COARSE_FX_SPRITES=1 or 2)
 endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_FX_ADDITIONS=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_FX_ADDITIONS=1
 endif
 # Common chapter-one haze recipe/state replacement is render-owned and optional.
 PS2_FX_COMMON_HAZE ?= 0
