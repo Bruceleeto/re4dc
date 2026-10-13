@@ -87,6 +87,11 @@ bool pack_alias(const PackSpan& a,const PackSpan& b,const unsigned char* geom) {
 #else
 #define RE4DC_NMR_WORD44_BAD(w) (w)
 #endif
+#if RE4DC_NMR_IMMUTABLE_ALIAS
+// Keep validation scratch out of room_enter's live frame during KOS fs_open,
+// whose path normalization already retains two 4096-byte buffers on the task stack.
+__attribute__((noinline))
+#endif
 PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigned& detail) {
     detail=0;
     if(size<kPackPayload || std::memcmp(p,"RE4NMR1\0",8))return kPwHeader;
