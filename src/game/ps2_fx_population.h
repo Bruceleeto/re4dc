@@ -284,5 +284,149 @@ private:
         ++age;
     }
 };
+// Chapter 1 visual candidate. The legacy HazeAddition path above deliberately
+// retains its existing tuple/fade arithmetic. This fixed-capacity state shares
+// one raw-source recipe contract across all chapter 1 rows; it never touches an
+// effect pool or the engine RNG. Source position identity is not asserted.
+struct CommonHazeRecipe {
+    float size, range, random_size, speed[3], random_speed[3], random_angle_step;
+    float near_start, near_end;
+    unsigned seed;
+    unsigned char count, indoor_frames, fade_in_frames, texture, rgba[4];
+};
+class CommonHazeState {
+public:
+    enum { Capacity=12 };
+    HazeParticle particles[Capacity];
+    float size_mul,size_plus,base_alpha;
+    unsigned short age,indoor_count;
+    void start(const CommonHazeRecipe& r,bool indoors) {
+        for(unsigned i=0;i<Capacity;++i)particles[i]=HazeParticle{};
+        age=indoor_count=0;size_mul=1;size_plus=.009999997913837433f;
+        base_alpha=r.rgba[3];indoor_count=indoors?r.indoor_frames:0;unsigned seed=r.seed;
+        for(unsigned i=0;i<r.count;++i) {
+            HazeParticle& q=particles[i];random(seed);random(seed);
+            q.position={0,60,r.range*random(seed)};
+            q.speed.x=r.speed[0]+r.random_speed[0]*random(seed);
+            q.speed.y=r.speed[1]+r.random_speed[1]*random(seed);
+            q.speed.z=r.speed[2]+r.random_speed[2]*random(seed);
+            random(seed);random(seed);random(seed);
+            random(seed);random(seed);q.angle=(180.0f*random(seed))*(3.14f/180.0f);
+            random(seed);random(seed);q.angle_step=(r.random_angle_step*random(seed))*(3.14f/180.0f);
+            q.size=r.size+r.random_size*random(seed);
+            q.position.x+=r.range*random(seed);q.position.y+=r.range*random(seed);q.position.z+=r.range*random(seed);
+        }
+    }
+    static float random(unsigned& seed) {
+        seed=seed*0x19660dU+0x3c6ef35fU;
+        return (float)(seed&0x007fffffU)*(1.0f/4194304.0f)-1.0f;
+    }
+    static float dot(const HazeVec& p,const HazeCamera& c,const HazeVec& v) {
+        return (p.x-c.position.x)*v.x+(p.y-c.position.y)*v.y+(p.z-c.position.z)*v.z;
+    }
+    static void wrap(HazeVec& p,const HazeCamera& c,const HazeVec& axis,float range,bool forward) {
+        const float d=dot(p,c,axis),half=range*.6f,width=forward?range:half*2.0f;
+        const int n=forward?(d>=0?(int)(d/range):-(int)(-d/range)-1):
+                           (d>=0?(int)((d+half)/width):(int)((d-half)/width));
+        if(n) { const float shift=-(width*(float)n);p.x+=axis.x*shift;p.y+=axis.y*shift;p.z+=axis.z*shift; }
+    }
+    void move(const CommonHazeRecipe& r,const HazeCamera& c,bool indoors) {
+        size_mul+=size_plus;size_plus*=.9900000095367432f;
+        if(r.fade_in_frames && age<=r.fade_in_frames)base_alpha=(float)r.rgba[3]*((float)age/r.fade_in_frames);
+        if(r.indoor_frames) {
+            if(indoors && indoor_count<r.indoor_frames)++indoor_count;
+            else if(!indoors && indoor_count)--indoor_count;
+        }
+        for(unsigned i=0;i<r.count;++i) {
+            HazeParticle& q=particles[i];q.position.x+=q.speed.x;q.position.y+=q.speed.y;q.position.z+=q.speed.z;q.angle+=q.angle_step;
+            wrap(q.position,c,c.side,r.range,false);wrap(q.position,c,c.up,r.range,false);wrap(q.position,c,c.view,r.range,true);
+        }
+        ++age;
+    }
+    float alpha(const CommonHazeRecipe& r,float d) const {
+        float a=base_alpha;
+        if(r.indoor_frames)a*=1.0f-(float)indoor_count/r.indoor_frames;
+        // Work8[2] == 30. Match SetFreeWork and Esp15 operation order.
+        const float ratio=1.0f-(float)(signed char)30/100.0f;
+        if(d>r.range*ratio)a*=1.0f-(d-r.range*ratio)/(r.range*(1.0f-ratio));
+        if(d<r.near_start) { const float n=1.0f-(r.near_start-d)/(r.near_start-r.near_end);a*=n>0?n:0; }
+        return a>0?a:0;
+    }
+};
+
+struct CommonHazeBinding {
+    unsigned generation, call, core;
+    unsigned short first_slot, recipe, flags;
+    unsigned char kind, owner;
+    bool operator==(const CommonHazeBinding& b) const {
+        return generation==b.generation && call==b.call && core==b.core && first_slot==b.first_slot &&
+               recipe==b.recipe && flags==b.flags && kind==b.kind && owner==b.owner;
+    }
+};
+class CommonHazeClock {
+public:
+    enum { MaxAdvance=1025, MaxSourceTickGap=63 };
+    enum Issue { MissingHistory=1, SourceRestart=2, AdvanceOverflow=4, BadInput=8,
+                 ClockWitnessMismatch=16, SourceTickGap=32, UnadvancedSource=64 };
+    enum { HardIssues=AdvanceOverflow|BadInput|ClockWitnessMismatch|SourceTickGap };
+    CommonHazeState state;
+    CommonHazeBinding binding;
+    unsigned issues, source_tick;
+    float source_mul, source_plus;
+    unsigned short clock;
+    bool active;
+    CommonHazeClock() { clear(); }
+    void clear() {
+        binding=CommonHazeBinding{};issues=source_tick=clock=0;
+        source_mul=source_plus=0;active=false;
+    }
+    static bool finite(float v) { return v==v && v<=3.4028234663852886e38f && v>=-3.4028234663852886e38f; }
+    static bool valid(const CommonHazeRecipe& r,const HazeCamera& c,float mul,float plus) {
+        if(!r.count || r.count>CommonHazeState::Capacity || !finite(r.size) || !finite(r.range) ||
+           !finite(r.random_size) || !finite(r.random_angle_step) || !finite(r.near_start) || !finite(r.near_end) ||
+           r.range<=0 || r.size<=0 || r.random_size<0 || r.random_size>=r.size || r.near_end<0 || r.near_start<=r.near_end ||
+           !finite(mul) || !finite(plus) || mul<=0 || plus<0)return false;
+        for(unsigned i=0;i<3;++i)if(!finite(r.speed[i]) || !finite(r.random_speed[i]))return false;
+        const HazeVec v[4]={c.position,c.side,c.up,c.view};
+        for(unsigned i=0;i<4;++i)if(!finite(v[i].x) || !finite(v[i].y) || !finite(v[i].z))return false;
+        return true;
+    }
+    // Source age drives the private advance. Source tick only bounds an unseen
+    // interval, so a whole 16-bit age cycle cannot silently look like zero work.
+    // Missing camera/indoor history is explicit; no source observation hook.
+    bool sample(bool enabled,const CommonHazeBinding& id,unsigned tick,unsigned short age,
+                float mul,float plus,float source_initial_plus,const CommonHazeRecipe& r,const HazeCamera& c,bool indoors) {
+        if(!enabled){clear();return false;}
+        if(!valid(r,c,mul,plus) || !finite(source_initial_plus) || source_initial_plus<=0){issues|=BadInput;return false;}
+        const bool changed=active && !(binding==id);
+        const bool reset=active && (mul<source_mul || plus>source_plus);
+        unsigned steps;
+        if(!active || changed || reset) {
+            clear();if(reset)issues|=SourceRestart;
+            if(!age){issues|=UnadvancedSource;return false;}
+            if(age>MaxAdvance){issues|=AdvanceOverflow;return false;}
+            // A cold observer cannot assume a small u16 age is the first cycle.
+            // Replay only the bounded uniform GC growth witnesses, using their
+            // certified initial increment and the common source .99 damping.
+            float expected_mul=1.0f,expected_plus=source_initial_plus;
+            for(unsigned i=0;i<age;++i){expected_mul+=expected_plus;expected_plus*=.9900000095367432f;}
+            if(mul!=expected_mul || plus!=expected_plus){issues|=ClockWitnessMismatch;return false;}
+            binding=id;active=true;state.start(r,indoors);steps=age;
+        } else {
+            steps=(unsigned short)(age-clock);
+            // 64 unseen source ticks could contain a whole u16 age cycle
+            // (64 * 1025 > 65536); refuse that ambiguity even if ages match.
+            if(tick-source_tick>MaxSourceTickGap)issues|=SourceTickGap;
+            if(!steps && (mul!=source_mul || plus!=source_plus))issues|=ClockWitnessMismatch;
+        }
+        clock=age;source_tick=tick;source_mul=mul;source_plus=plus;
+        if(steps>MaxAdvance)issues|=AdvanceOverflow;
+        if(issues&HardIssues)return false;
+        if(steps>1)issues|=MissingHistory;
+        while(steps--)state.move(r,c,indoors);
+        return true;
+    }
+};
+
 }
 #endif

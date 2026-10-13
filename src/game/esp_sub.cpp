@@ -69,6 +69,12 @@ extern f32 ZFAR;
 #if RE4DC_PS2_FX_ADDITIONS && (!RE4DC_PS2_FX_POPULATION || !RE4DC_ESP_SPRITE_FAST || !RE4DC_COARSE_FX_SPRITES)
 #error PS2_FX_ADDITIONS needs PS2_FX_POPULATION, ESP_SPRITE_FAST and COARSE_FX_SPRITES
 #endif
+#ifndef RE4DC_PS2_FX_COMMON_HAZE
+#define RE4DC_PS2_FX_COMMON_HAZE 0
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE && (!RE4DC_PS2_FX_POPULATION || !RE4DC_ESP_SPRITE_FAST || !RE4DC_COARSE_FX_SPRITES)
+#error PS2_FX_COMMON_HAZE needs PS2_FX_POPULATION, ESP_SPRITE_FAST and COARSE_FX_SPRITES
+#endif
 #ifndef RE4DC_EFFECT_PS2_HAZE
 #define RE4DC_EFFECT_PS2_HAZE 0
 #endif
@@ -642,8 +648,14 @@ static const Ps2fxSheetCut kPs2SheetCut[] = {
 #if RE4DC_PS2_FX_ADDITIONS
 static int Ps2fxPuzzleSuppress(cEsp* esp);
 #endif
+#if RE4DC_PS2_FX_COMMON_HAZE
+static int Ps2fxCommonHazeSuppress(cEsp* esp);
+#endif
 static int Ps2fxClass(cEsp* esp)
 {
+#if RE4DC_PS2_FX_COMMON_HAZE
+    if(Ps2fxCommonHazeSuppress(esp))return 1;
+#endif
 #if RE4DC_PS2_FX_ADDITIONS
     if(Ps2fxPuzzleSuppress(esp)) return 1;
 #endif
@@ -1044,6 +1056,9 @@ static void EspSpriteEmit(cEsp* esp)
 #endif
     re4dc_effect_sprite(&s);
 }
+#if RE4DC_PS2_FX_COMMON_HAZE
+#include "ps2_fx_common_haze.inc"
+#endif
 #if RE4DC_PS2_FX_ADDITIONS
 extern EspgenWork* EspgenArray;
 extern u32 nEspgen;
@@ -1377,6 +1392,9 @@ extern "C" void re4dc_esp_sprite_pass_begin()
     s_vis_far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
 #if RE4DC_PS2_FX_POPULATION
     Ps2fxPopulationBuild();
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE
+    Ps2fxCommonHazeDraw();
 #endif
 #if RE4DC_PS2_FX_ADDITIONS
     Ps2fxAdditionsDraw();

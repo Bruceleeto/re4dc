@@ -45,6 +45,11 @@ struct Re4dcUiGlyph {
 };
 extern "C" {
 int re4dc_effect_sprite(const Re4dcEffectSprite*);
+#if defined(RE4DC_PS2_FX_COMMON_HAZE) && RE4DC_PS2_FX_COMMON_HAZE
+// Bounded same-texture replacement; returns success even when all quads cull.
+// Modifies private scratch coordinates for render resolution. Never uploads.
+int re4dc_effect_haze_batch(Re4dcEffectSprite*, unsigned count, unsigned* submitted);
+#endif
 int re4dc_effect_line(const Re4dcEffectLine*);
 void re4dc_ui_glyph(const Re4dcUiGlyph*);
 void re4dc_ui_glyph_fonts_changed();

@@ -5532,6 +5532,9 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_PS2_FX_COMMON_HAZE) && RE4DC_PS2_FX_COMMON_HAZE
+#include "include/native_effect_haze_batch.inc"
+#endif
 #if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
 // Esp19's source line becomes one untextured, colour-interpolated strip in
 // the same bounded OT queue as effect sprites. All packet bytes are copied
