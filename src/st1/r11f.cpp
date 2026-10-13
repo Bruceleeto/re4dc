@@ -98,7 +98,8 @@ static void r11f_ps2Area9();
 
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH23
 // PS2 s00 camera cuts: 0x10 starts at picture 1295 (125 pictures), then 0x11
-// lasts 45. The actual s00c cancel clip is those 170 pictures. Keep the source
+// lasts 45. The separately encoded s00c clip contains 170 pictures; it is not
+// pixel-identical to the full movie segment. Keep the source
 // callback's random chord and its cut-0x11/frame-20 prompt; only the movie's
 // relative frame is translated here. No shared transport or gameplay state changes.
 #include "route_movie.h"
