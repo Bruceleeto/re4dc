@@ -54,18 +54,18 @@ python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --o
 python3 -m unittest discover -s tools -p test_audit_ps2_fx_recipes.py
 ```
 
-The eight host tests cover endian-independent record decoding, populated lists
+The ten host tests cover endian-independent record decoding, populated lists
 with missing data, truncated/invalid sequence tables, unsupported effect
 semantics, convergent size recurrences, and the count estimate with smaller or
 larger PS2 boxes. Private source archives and generated evidence stay outside Git.
 
 ## Remaining scope and validation
 
-r109, r10f, r11e and r200 main PS2 EFF files remain explicitly held for variant
-decoding. A parser failure is not evidence that a room has no effects. Later
-decoded stage-1 rooms are outside this first group. Existing r10b comments quote
-80/30 haze sprites; the extracted generator fields instead encode 21/10 per
-emission. Its behavior is preserved pending a separate lifecycle/look audit.
+The apparent r109/r10f/r11e/r200 record-layout variants are resolved by the
+source audit below. Later rooms remain outside the first runtime group. Existing
+r10b comments quote 80/30 haze sprites; the extracted generator fields instead
+encode 21/10 per emission. Its behavior is preserved pending a separate
+lifecycle/look audit.
 
 This commit has source-audit and host-test evidence only. Integration still
 requires knob-off image identity, H2 with the agreed allocation-field treatment
@@ -73,3 +73,51 @@ and identical decisions outside changed rooms, s30 trace heap/headroom, New Game
 GDI boot, TEX, LEON-GC/MCHECK, and requested stills from the changed rooms. All
 logic traces must use `trace_lock.sh` with `TRACE_LOCK_OWNER=codex`. No runtime,
 performance, visual, STRICT or hardware acceptance is implied by the static audit.
+## Remaining source inventory and parser correction
+
+All 47 cached PS2 EFF files pass the bounded v0xB sequence decoder. The original
+survey's r109/r10f/r11e/r200 failures occur in texture parsing: `ofsTexId`,
+`ofsTpl` and `ofsAnm` are zero, so the old dump reads the version word 0xB as an
+11-entry texture table. Returning an empty table for a null optional-table
+offset repairs those files without changing a sequence or record field.
+
+An independent comparison against the original dump, with only that null-table
+fix for the four recovered files, checked 10,055 records across 87 GC/PS2 EFF
+files. Integer/byte fields match exactly and float fields match the original
+dump's rounding. r109 has 3 records, r10f 180, r11e main EFF 78 (plus 2 in its
+second EFF), and r200 101. The runtime does not load these PS2 files.
+
+```sh
+python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --scope inventory --output /path/to/new-inventory.json
+```
+
+The inventory preserves source order, byte offsets, record hashes, table
+ownership, sequence number/area, and the separate SST/EST counts. A source count
+is emissions per generator step, not proof of simultaneous particles.
+
+| Room | Decoded PS2 haze | Qualified next mapping or unresolved difference |
+| --- | --- | --- |
+| r108 | None | Six GC SST Esp48 sheets, zero PS2 Esp48 |
+| r109 | 10 x 2100 mm, global | Map GC 28 x 2900; 28 GC SST sheets removed; **not effect-free** |
+| r10c | 7 x 2200 mm, global | Map GC 46 x 1283.056 |
+| r10d | None | GC haze is EST; existing room-SST owner gate does not cover it |
+| r10e | 12 x 2000 mm, global | Map GC 66 x 1283.056 |
+| r10f | 10 x 1900 mm, global | Map GC 48 x 1300; 15 GC SST streaks share one exclusive removed signature |
+| r111 | 10 x 1900 mm, global | Map GC 53 x 1299.956; 53 SST sheets removed; four removed streaks are EST |
+| r112 | 10 x 1900 mm, area 5 | GC haze was global; require source area qualification; only one removed streak is SST |
+| r113 | 10 x 1900 mm, global | Map GC 51 x 1283.056; 53 SST sheets removed |
+| r117 | None | PS2 retains three streak records; no blanket streak cut |
+| r118 | 10 x 2000 mm, area 6 | No GC haze generator to reuse; five SST sheets removed |
+| r119 | 10 x 2100 mm, global | Map GC 20 x 2700; 46 SST sheets removed |
+| r11a | 10 x 2000 mm, global | Map GC 66 x 1283.056 |
+| r11b | 10 x 2000 mm, global | GC source box admits only about 2.47 particles into PS2 box; stride cannot meet count |
+| r11c | Global 10 x 2000; EST 10 x 2100 | Map global GC 21 x 2400.041; extra haze and 45 removed sheets are EST; seven removed sheets are SST |
+| r11d | Global 10 x 2000; area 4 has 10 x 2100 | GC sets share range/RGB; stable source indoor-fade duration distinguishes them |
+| r11e | 10 x 2000 mm, global | Map GC 66 x 1283.056 after the null-table parser correction |
+| r11f | 11 x 1900 mm, global | Map GC 59 x 1299.956 |
+| r200 | EST 12 x 2400 mm | Stage-2 inventory only; require owner/call qualification before runtime adoption |
+
+This inventory qualifies record layout and identifies bounded draw changes; it
+does not accept PS2 area relocation, newly added effects, texture substitutions,
+or a universal removal of GC particles. Runtime adoption remains separately
+guarded and subject to the full integration gates above.

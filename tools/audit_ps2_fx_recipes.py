@@ -6,6 +6,7 @@ assets. Undecoded sequence-table variants are reported separately, never treated
 as empty. The runtime retains GC simulation, textures, RNG and effect-pool work.
 """
 import argparse
+from collections import Counter
 import hashlib
 import json
 import math
@@ -28,7 +29,9 @@ STREAK_CUTS = (
     ('r107', (0, 'sst', 3, 2)),
 )
 SHEET_CUTS = (('r105', 0x48, 0xD0), ('r107', 0x48, 0xD0))
-HELD_VARIANTS = ('r109', 'r10f', 'r11e', 'r200')
+FORMERLY_UNDECODED = ('r109', 'r10f', 'r11e', 'r200')
+INVENTORY_ROOMS = tuple('r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r10c r10d r10e r10f '
+                        'r111 r112 r113 r117 r118 r119 r11a r11b r11c r11d r11e r11f r200'.split())
 
 
 def sha(data):
@@ -205,27 +208,75 @@ def audit(cache):
             raise ValueError('sheet-removal evidence changed in '+room)
         sheets.append({'room':room, 'owner':0xD0, 'id':effect_id, 'tex':tex,
                        'gc':gc, 'ps2_effect_id_records':0})
-    held = []
-    for room in HELD_VARIANTS:
+    remaining = []
+    for room in FORMERLY_UNDECODED:
         path = cache/(room+'.ps2.eff0')
-        held.append({'room':room,'path':str(path),'bytes':path.stat().st_size if path.exists() else None,
-                     'status':'HELD_UNDECODED_VARIANT', 'runtime_changed':False})
-    return {'schema':'ps2-fx-render-recipes/1','inputs':inputs,'haze':haze,'streak_cuts':streaks,
-            'sheet_cuts':sheets,'held':held,
+        item = {'room':room,'path':str(path),'runtime_changed':False}
+        if path.exists():
+            data = path.read_bytes()
+            try:
+                decoded = decode_eff(data, '<')
+                item.update(status='SOURCE_DECODED_NOT_ADOPTED', records=len(decoded),
+                            bytes=len(data), sha256=sha(data))
+            except ValueError as error:
+                item.update(status='UNDECODED', reason=str(error))
+        else:
+            item.update(status='SOURCE_UNAVAILABLE')
+        remaining.append(item)
+    return {'schema':'ps2-fx-render-recipes/2','inputs':inputs,'haze':haze,'streak_cuts':streaks,
+            'sheet_cuts':sheets,'remaining':remaining,
             'scope':'Render recipes only. GC generators, RNG, pool occupancy, motion and effect textures remain source-owned.'}
+
+
+
+def inventory(cache, rooms=INVENTORY_ROOMS):
+    """Decode route order, keeping SST and EST effect ownership separate."""
+    result = {}
+    for room in rooms:
+        sides = {}
+        for side, endian in (('gc', '>'), ('ps2', '<')):
+            rows, files = [], []
+            for path in sorted(cache.glob('%s.%s.eff[0-9]' % (room, side))):
+                data = path.read_bytes()
+                decoded = decode_eff(data, endian)
+                header = struct.unpack_from(endian+'12I', data)
+                files.append({'path':str(path), 'bytes':len(data), 'sha256':sha(data),
+                              'records':len(decoded), 'header':list(header),
+                              'texture_table_absent':header[1] == 0,
+                              'tpl_table_absent':header[6] == 0,
+                              'anm_table_absent':header[7] == 0})
+                for row in decoded:
+                    rows.append(dict(row, source=str(path)))
+            if not files:
+                raise ValueError('no extracted EFF files for '+room+' '+side)
+            sides[side] = {'files':files, 'record_count':len(rows),
+                           'by_id':dict(sorted(Counter('%02x'%r['id'] for r in rows).items())),
+                           'by_table':dict(Counter(r['table'] for r in rows)),
+                           'haze':[r for r in rows if r['id']==0x15],
+                           'streaks':[r for r in rows if r['id']==0x0A],
+                           'sheets':[r for r in rows if r['id']==0x48]}
+            sides[side]['sst_streak_candidates'] = []
+            for signature in sorted({streak_signature(r) for r in rows if r['table']=='sst' and r['id']==0x0A}):
+                matching = [r for r in rows if r['table']=='sst' and r['id'] in (0, 0x0A) and streak_signature(r)==signature]
+                sides[side]['sst_streak_candidates'].append({'signature':list(signature), 'records':matching})
+        result[room] = sides
+    return {'schema':'ps2-fx-route-inventory/1','room_order':list(rooms),'rooms':result,
+            'formerly_undecoded':list(FORMERLY_UNDECODED),
+            'layout':'Version 0xB, 0x30-byte sequence headers and 0x12C-byte records; absent optional tables are null.',
+            'scope':'Source inventory only. SST/EST ownership, effect areas, live counts and omitted/added effects need separate runtime qualification.'}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--scope', choices=('first-group', 'inventory'), default='first-group')
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = audit(args.cache)
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache)
     args.output.write_text(json.dumps(result, indent=2)+'\n')
-    print(json.dumps({'haze':len(result['haze']), 'streak_cuts':len(result['streak_cuts']),
-                      'sheet_rooms':len(result['sheet_cuts']), 'output':str(args.output)}))
+    print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 
 
 if __name__ == '__main__':

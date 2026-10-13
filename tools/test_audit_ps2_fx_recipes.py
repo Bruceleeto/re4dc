@@ -1,8 +1,10 @@
 import math
 import struct
+from pathlib import Path
+import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import decode_eff, haze_recipe, steady_size
+from audit_ps2_fx_recipes import decode_eff, haze_recipe, inventory, steady_size
 
 
 def sample_eff(endian='<'):
@@ -38,6 +40,37 @@ class EffectRecipeAuditTests(unittest.TestCase):
         self.assertEqual(3, little['area'])
         self.assertEqual(0x11223344, little['list_flags'])
         self.assertEqual(0x90, little['offset'])
+
+    def test_absent_texture_tables_do_not_read_version_as_a_count(self):
+        # The old dump treated ofsTexId=ofsTpl=ofsAnm=0 as an 11-item table
+        # because it read the version (0xB) at file offset zero.
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp)
+            for side, endian in (('gc', '>'), ('ps2', '<')):
+                (cache/('r109.'+side+'.eff0')).write_bytes(sample_eff(endian))
+            result = inventory(cache, ('r109',))
+            for side in ('gc', 'ps2'):
+                value = result['rooms']['r109'][side]
+                self.assertEqual(1, value['record_count'])
+                self.assertTrue(value['files'][0]['texture_table_absent'])
+                self.assertTrue(value['files'][0]['tpl_table_absent'])
+                self.assertTrue(value['files'][0]['anm_table_absent'])
+                self.assertEqual(10, value['haze'][0]['count_per_emission'])
+
+    def test_inventory_keeps_est_and_sst_ownership_distinct(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp)
+            (cache/'r200.gc.eff0').write_bytes(sample_eff('>'))
+            data = sample_eff('<')
+            struct.pack_into('<I', data, 2*4, 0x40)
+            struct.pack_into('<I', data, 8*4, 0x50)
+            struct.pack_into('<I', data, 3*4, 0)
+            struct.pack_into('<I', data, 9*4, 0)
+            (cache/'r200.ps2.eff0').write_bytes(data)
+            result = inventory(cache, ('r200',))['rooms']['r200']
+            self.assertEqual('sst', result['gc']['haze'][0]['table'])
+            self.assertEqual('est', result['ps2']['haze'][0]['table'])
+            self.assertEqual({'est': 1}, result['ps2']['by_table'])
 
     def test_populated_list_without_data_is_not_empty_evidence(self):
         data = sample_eff()
