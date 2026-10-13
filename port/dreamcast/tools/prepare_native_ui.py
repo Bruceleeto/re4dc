@@ -470,6 +470,16 @@ ROOM_CONTRACTS={
     # (after BIN#27: the chandelier, R117Init SetObjSmd ROOM_ARC 0x1F / 0x20); FCV#29-36 (its swing) and EMI#37
     # byte-identical. The header ends past the first payload (328 > 320), as r104's: header_grow=32.
     'r117':dict(slots=38,smd=4,effs=(7,),itm=9,model_slots=(28,),header_grow=32),
+    # Chapter 2-2 (route lane ch22, ROUTE_CH22; slot tags of the GC disc 1 St1/<room>.das):
+    # r112: r107's 27-slot layout. r111: 29 slots, SMD#4, EFF#7, ITM#9; EVS#24 and EMI#28 byte-identical.
+    # r113 (Ashley's shoulder ride): 40 slots, SMD#4, EFF#7, ITM#9; FCV#27-28/#30-39 and EMI#29 byte-identical; its
+    # header (344 B) plus the NTR slot ends flush with the first payload (352 B), as r104's: header_grow=32.
+    # r11c (Luis' cabin, chapter 2-2's end): 31 slots, SMD#4, EFF#7, ITM#9, model TPL#28 (after BIN#27); FCV#29, EMI#30
+    # byte-identical.
+    'r112':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r111':dict(slots=29,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r113':dict(slots=40,smd=4,effs=(7,),itm=9,model_slots=(),header_grow=32),
+    'r11c':dict(slots=31,smd=4,effs=(7,),itm=9,model_slots=(28,)),
     # r40b (St4, st4_0 + em1f; follow-up 7): r40c's 27-slot layout (header ends at 232 of 256: no growth).
     'r40b':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
 }

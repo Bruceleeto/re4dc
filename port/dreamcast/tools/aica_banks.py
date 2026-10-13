@@ -101,7 +101,8 @@ LOWER_ORDER = (8, 5, 1, 6, 2, 7, 0, 3)
 # r109). A room's second-slot track (BGM1, 0 bytes in the frozen layout) is replaced at runtime by a resident one
 # (snd.cpp, ROUTE_CH13). Only rooms of the planned route add entries. r104 and r107 both request
 # bank 9; it must also be prebuilt, otherwise runtime conversion exhausts the unreserved AICA bytes.
-ROOM_BGM0 = {'r102': [1], 'r104': [9], 'r107': [9], 'r108': [5], 'r109': [3], 'r10a': [3], 'r10b': [3], 'r11b': [10], 'r11a': [10], 'r119': [3], 'r118': [11], 'r117': [11]}
+ROOM_BGM0 = {'r102': [1], 'r104': [9], 'r107': [9], 'r108': [5], 'r109': [3], 'r10a': [3], 'r10b': [3], 'r11b': [10], 'r11a': [10], 'r119': [3], 'r118': [11], 'r117': [11],
+             'r112': [1], 'r111': [6], 'r113': [6], 'r11c': [6]}
 
 # Leon's other stage-1 weapons (--weapons; stage.sh AICA_WEAPONS=1; issue lamb2k/re4dc#1, silent weapons). The GC
 # loads the equipped weapon's SE block (WEP, block 2) on every weapon change (weaponLoad -> its .drs) into the one WEP
@@ -165,6 +166,19 @@ ROOMS = {
     # archive, SubCharInit after the s00 event) and em11 (the Ganados R117Init sets on a later visit, Part 0).
     # bgmtbl: slot 0 = bio4midi #11 (as r118) in both entries (0 and the post-s10 entry 1), no slot 1, no stream.
     'r117': ['st1/r117.dar', 'em/pl11.drs', 'em/em11.drs'],
+    # Chapter 2-2 (route lane ch22, ROUTE_CH22; assets.sh discover + the rooms' bgmtbl entries): Ashley (pl11) follows
+    # Leon through every room. r118 after the rescue (Item_find_flg 0x00100000) sets the Ganados 0x79..0x7F (em17) and
+    # the dog 0x78 (em22): with Ashley that set needs 1,053,528 B even at 8 kHz (arena 1,004,192), so r118 keeps its
+    # chapter 2-1 list (the later archive's bank does not fit and stays silent; open). r112: em18 (the merchant), bgmtbl #1 (as r102), streams 0:0x19. r111 / r113: em17 (the
+    # Ganados) and em2a (the crows), bgmtbl #6 (r113's slot 1 is #3: snd.cpp plays it on the slot-0 track), stream 0:9.
+    'r112': ['st1/r112.dar', 'em/em18.drs', 'em/pl11.drs'],
+    'r111': ['st1/r111.dar', 'em/em17.drs', 'em/em2a.drs', 'em/pl11.drs'],
+    'r113': ['st1/r113.dar', 'em/em17.drs', 'em/em2a.drs', 'em/pl11.drs'],
+    # r11c (the cabin, chapter 2-2's end): Ashley (pl11, module 3), Luis (pl14, module 4) and the siege Ganados (em13),
+    # bgmtbl #6, stream 0:0xA. em13's bank is em12's (same sound ID), frozen at 11025 Hz by the opening route (601,288 B):
+    # with the room's own banks at 8 kHz and pl11 the arena has no room for pl14's (55,324 B at 8 kHz; 8.8 KB over), so
+    # Luis's bank stays silent (open, as r118's later archive).
+    'r11c': ['st1/r11c.dar', 'em/pl11.drs', 'em/em13.drs'],
     # r40b (St4, follow-up 7): em1f (bringup inventory: em1f/em1f, st4_0)
     'r40b': ['st4/r40b.dar', 'em/em1f.drs'],
 }
@@ -780,7 +794,11 @@ CH21_STREAMS = ROUTE_STREAMS + CALL_VOICE_STREAMS + [(0, 4), (0, 17), (1, 36), (
 # without it). `--streams ch21r`: entries 0..16 and their data bytes identical to the lane r118 file.
 CH21R_STREAMS = (ROUTE_STREAMS[:4] + [(1, 0x33)] + CALL_VOICE_STREAMS + [(0, 4), (0, 17), (1, 36), (0, 5), (1, 148),
                  (0, 23), (0, 29)])
-STREAM_PRESETS = {'ch21': CH21_STREAMS, 'ch21r': CH21R_STREAMS}
+# Chapter 2-2 (ROUTE_CH22, route lane ch22): ch21r plus the bgmtbl streams of r112 (0:0x19), r111 / r113 (0:9) and
+# r11c (0:0xA), and the event streams of r118 after the rescue (1:5 room stream, 1:0xE0 the altar view) and r113 (1:0x27,
+# the shoulder ride), appended so every earlier entry keeps its data bytes. `--streams ch22`.
+CH22_STREAMS = CH21R_STREAMS + [(0, 0x19), (0, 9), (0, 0xA), (1, 5), (1, 0xE0), (1, 0x27)]
+STREAM_PRESETS = {'ch21': CH21_STREAMS, 'ch21r': CH21R_STREAMS, 'ch22': CH22_STREAMS}
 
 
 def nibble_to_sample(n):

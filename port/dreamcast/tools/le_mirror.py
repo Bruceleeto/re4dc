@@ -731,6 +731,15 @@ def fmt_fcv(sw, off, size, ctx):
     fcv = motion_codec()
     sw._check(off, size)
     original = bytes(sw.data[off:off + size])
+    # pl14 (Luis) entry 8: a 32-byte motion whose one joint's key block points into the 0xCD tail (maxFrame 0x15A0,
+    # n 1, size 0x20, key offset 0x10, bytes 0x10.. all 0xCD). Its key words read 0xCDCD in either byte order, so the
+    # exact conversion swaps the header (maxFrame u16, info u16, size u32, key offset u32) and keeps the fill.
+    if (size == 32 and original[2] == 1 and original[6] == 0 and struct.unpack('>I', original[8:12])[0] in (0, 32)
+            and struct.unpack('>I', original[12:16])[0] == 16 and original[16:] == bytes([0xCD]) * 16):
+        sw._mark(off, size)
+        sw.data[off:off + size] = (original[1::-1] + original[2:3] + original[4:2:-1] + original[5:8]
+                                   + original[11:7:-1] + original[15:11:-1] + original[16:])
+        return
     try:
         motion = fcv.parse(original)
     except KeyError as exc:
@@ -1055,6 +1064,13 @@ def fmt_sce_at(sw, off, size, ctx):
             sw.f32s(d, 4)
         elif kind == 17:
             sw.u16s(d, 2)
+        elif kind == 18:
+            # Hide spot (sce_at.h SceAtHide; sceAtFunc_hide: SubCharCtrlHide(&pos, mode); r113, route lane ch22):
+            # u8 mode / step (no swap), 0x04..0x23 four (x, z) float pairs (r113 AEV#4: the hide spot's quad; the
+            # unnamed pad of SceAtHide), Vec pos at 0x24, the SceAtDataSet_hide callback at 0x30 (null in the file),
+            # u8 cut at 0x34.
+            sw.f32s(d + 4, 11)
+            null_pointer(d + 48)
         elif kind == 14:
             # Stoop (sce_at.cpp sceAtFunc_stoop: PlSetCrouch) reads no payload; qualified only all-zero (r107).
             if any(sw.data[d:d + 64]):
@@ -1885,6 +1901,11 @@ def fmt_smx(sw, off, size, ctx):
             # lever: SwitchExec turns pParts->ang) are never read through cObj::work; the room reads work only
             # on the wheel objects 6 / 8 / 0xA / 0x33 (R10cRotWork), and the only SetCallBack in the source is
             # r318's. Preserve these opaque type-0 authoring bytes unswapped, as r120's.
+            pass
+        elif kind == 0 and ctx.startswith('st1/r11c.arc#') and sw.data[p] == 0x0F:
+            # r11c (route lane ch22): object 0x0F carries one authored word at work+8; r11c.cpp reads no object's
+            # work (its SmdGetObjPtr uses are 0x10 / 0x11 / 0x32-0x35 / 0x3F: ang, be_flag, pos) and installs no
+            # callback. Preserve the opaque type-0 bytes unswapped, as r10c's.
             pass
         elif any(sw.data[work:work + 116]):
             # Type zero's normal mover ignores work, but room callbacks may
