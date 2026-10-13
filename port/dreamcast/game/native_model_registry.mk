@@ -385,3 +385,21 @@ endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_NATIVE_PIPE=$(LEON_NATIVE_PIPE)
 $(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_NATIVE_PIPE=$(LEON_NATIVE_PIPE)
 endif
+
+# Private r11f v2 packages may alias complete immutable position/normal/UV/weight
+# arrays with equal kind/count/stride/palette/bone context. Geometry identities,
+# every mutable stream, skin work and source facts remain separate. v1 unchanged.
+# The paired package is mandatory: old images reject v2 and use source fallback.
+NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS),0 1),)
+$(error NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS must be 0 or 1)
+endif
+ifeq ($(NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS needs NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+ifneq ($(ROUTE_CH23),1)
+$(error NATIVE_MODEL_REGISTRY_IMMUTABLE_ALIAS is qualified only for ROUTE_CH23 r11f)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_IMMUTABLE_ALIAS=1
+endif
