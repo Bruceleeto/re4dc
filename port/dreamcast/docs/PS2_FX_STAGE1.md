@@ -273,4 +273,64 @@ python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --s
 
 These are source qualifications. Runtime area transitions, missing-texture
 fallback, projected sprite appearance, all gates and device cost still require
-integration validation. r118's new haze and r11c's extra EST haze remain open.
+integration validation. r118's new haze and r11c's extra EST haze use the separately guarded addition path below.
+
+
+## Separately guarded render additions
+
+`PS2_FX_ADDITIONS=0` is the default. Value 1 requires `PS2_FX_POPULATION=1`,
+`ESP_SPRITE_FAST=1`, and `COARSE_FX_SPRITES=1`. It adds ten private haze particles
+for r118 area 6 and ten during r11c's gate EST 6. It runs only in the existing
+coarse sprite render pass. No effect/controller pool, RNG, game script, archive,
+texture registration, allocator, or source object is written.
+
+The private state is 388 bytes. Its source-qualified recipe preserves the PS2
+position/random-position ranges, velocity/random-velocity, random size, rotation,
+rotation rate, growth recurrence, camera wrapping, near/far/indoor fades and RGBA.
+Both use already resident GC core texture 0x1f. r11c's source seed is fixed
+`0x1234567f`; r118 intentionally uses private seed `0x118c0def` because copying its
+PS2 engine RNG state would cross the simulation boundary. This does not claim
+that r118's particle arrangement or the complete EST6 effect group matches PS2.
+
+The r118 GC and PS2 EAR geometry is identical. Activation reads the existing
+area-6 state. Exit clears the private particles; reentry restarts their private
+seed. The r11c activation reads at most 512 controller slots (the source CNS uses
+256), requires the four immutable GC EST6 generator-2 record pointers, one
+owner/core/call identity, expected 110/130-frame lives and equal ages. Missing,
+duplicate, mixed-identity or divergent-age groups suppress the addition. The
+source gate script deletes that group after 82 task sleeps; no task state or
+controller counter is modified.
+
+Private state resets on room/pool/controller-pool changes, the read-only
+`re4dc_room4_state` generation (including same-room heap rebuild), area/gate exit,
+clock rollback, or gate identity change. Repeated passes in one source frame do
+not advance particles. r118 follows the source pause/stop/one-in-three slow-mode
+rules; r11c follows the retained controller clock. Catch-up is bounded to eight
+steps. Missing camera/indoor history is explicitly diagnostic; it is never
+reported as trajectory parity. A nonzero diagnostic still needs review before
+visual acceptance.
+
+`PS2FXADD` logs activation/issue changes with private particle count, age and
+submitted visible quads. Issue bits are `0x1` missing camera history, `0x2` clock
+rollback, `0x4` catch-up limit, `0x100` controller bounds, `0x200` missing source
+sequence/record, `0x400` duplicate or incompatible trigger identity, `0x800`
+partial trigger group, `0x1000` invalid camera axes, `0x2000` unavailable texture
+contract and `0x4000` invalid projection/viewport. Initial/changed submitted
+counts are diagnostic examples, not persistent on-screen sprite counts.
+
+The audit now reads generator wait randomness from the actual `0x128` field;
+`0x10f` is unrelated. Existing population qualifications still pass after this
+correction. Seventeen Python tests cover bounded source decoding, contract
+changes and trigger/motion rejection. The C++ helper tests cover private seed
+repeatability, exact population counts, source immutability, area exit/reentry,
+positive/negative gate evidence, pause/slow mode, indoor fades, wrapping,
+repeated passes, clock rollback/overflow and bounded catch-up.
+
+```sh
+python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --scope additions --gc-core /path/to/private/gc-core.EFF --ps2-core /path/to/private/ps2-core.EFF --output /path/to/new-additions-recipes.json
+```
+
+These host results do not establish compilation of the game, trigger timing,
+matching stills, heap safety, replay identity or device cost. Those remain the
+coordinated integration gates, including positive/negative r118 area and r11c
+gate observations, fresh load, reentry, New Game, and additions-off identity.

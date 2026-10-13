@@ -61,6 +61,12 @@ extern f32 ZFAR;
 #include "ps2_fx_population.h"
 #include "area.h"
 #endif
+#ifndef RE4DC_PS2_FX_ADDITIONS
+#define RE4DC_PS2_FX_ADDITIONS 0
+#endif
+#if RE4DC_PS2_FX_ADDITIONS && (!RE4DC_PS2_FX_POPULATION || !RE4DC_ESP_SPRITE_FAST || !RE4DC_COARSE_FX_SPRITES)
+#error PS2_FX_ADDITIONS needs PS2_FX_POPULATION, ESP_SPRITE_FAST and COARSE_FX_SPRITES
+#endif
 #ifndef RE4DC_EFFECT_PS2_HAZE
 #define RE4DC_EFFECT_PS2_HAZE 0
 #endif
@@ -955,6 +961,164 @@ static void EspSpriteEmit(cEsp* esp)
 #endif
     re4dc_effect_sprite(&s);
 }
+#if RE4DC_PS2_FX_ADDITIONS
+extern EspgenWork* EspgenArray;
+extern u32 nEspgen;
+extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
+static ps2fx::HazeAddition s_fx_addition;
+static const ps2fx::HazeRecipe kPs2Addition118 = {
+    2000.0f, {5.0f,0.0f,0.0f}, {0.20000001788139343f,0.20000000298023224f,0.20000000298023224f},
+    0x118c0defU, 30,145,155,155,34 // private seed: the source SST uses engine RNG
+};
+static const ps2fx::HazeRecipe kPs2Addition11c = {
+    2100.0f, {-10.0f,-5.0f,-20.0f}, {2.0f,0.0f,-1.0f}, 0x1234567fU, 0,250,250,255,60
+};
+// Only the prefix is read; identical in espgen02.cpp and espgen00.cpp.
+struct Ps2fxGeneratorClock { EspGenWork* record; cModel* model; u32 serial; u16 age, life; };
+static int Ps2fxGate11c(unsigned& age, ps2fx::PopulationKey& identity, unsigned& issues)
+{
+    age = 0;
+    if (!EspgenArray || nEspgen > 512) { issues |= 0x100; return 0; }
+    EspSeqData* head = EspGetEstAddr(1,6,1);
+    if (!head || head->num != 4) { issues |= 0x200; return 0; }
+    EspGenWork* refs[4];
+    for (unsigned i=0;i<4;++i) {
+        refs[i]=re4dc_effect_ref(head,i);
+        if(!refs[i]) { issues|=0x200; return 0; }
+    }
+    ps2fx::GateEvidence gate;
+    for (unsigned i=0;i<nEspgen;++i) {
+        const EspgenWork* w=&EspgenArray[i];
+        if ((w->flag&3)!=1 || w->id!=2 || w->info.owner!=1) continue;
+        const Ps2fxGeneratorClock* q=(const Ps2fxGeneratorClock*)w->work;
+        unsigned record=0; for(;record<4;++record) if(q->record==refs[record]) break;
+        if(record==4) continue;
+        const ps2fx::PopulationKey identity={w->info.Call_no,w->info.Core_pEm,0,w->info.Core_flg,0,0,w->info.owner,w->info.Core_kind};
+        gate.add(record,identity,q->age,!q->model && q->life==(record%2 ? 130 : 110));
+    }
+    const int active=gate.finish();
+    if(gate.count) { age=gate.clock;identity=gate.key; }
+    issues|=gate.issues;
+    return active;
+}
+static void Ps2fxAdditionsDraw()
+{
+    static u16 room;
+    static u8* pool;
+    static EspgenWork* generators;
+    static ps2fx::PopulationKey gate_identity;
+    static unsigned room_generation;
+    static int have_gate_identity;
+    static unsigned last_issues;
+    static int last_active, reported;
+    unsigned issues=0, clock=(unsigned)pG->Frame_cnt, first_steps=1;
+    if(!g_pEspSys) { s_fx_addition.clear();return; }
+    int enabled=0, moving=1, slow=0, draws=0;
+    const ps2fx::HazeRecipe* recipe=G_ROOM_ID==0x118 ? &kPs2Addition118 : &kPs2Addition11c;
+    if (room!=G_ROOM_ID || pool!=g_pEspSys->pEspBuf || generators!=EspgenArray) {
+        s_fx_addition.clear(); room=G_ROOM_ID; pool=g_pEspSys->pEspBuf; generators=EspgenArray; have_gate_identity=0;
+        reported=0;
+    }
+    if(G_ROOM_ID!=0x118 && G_ROOM_ID!=0x11c) return;
+    unsigned generation,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused)) { s_fx_addition.clear();return; }
+    if(generation!=room_generation) {
+        s_fx_addition.clear();room_generation=generation;have_gate_identity=0;reported=0;
+    }
+    if ((re4dc_ps2fx&PS2FX_HAZE) && G_ROOM_ID==0x118) {
+        // Source-qualified GC and PS2 EARs are identical, including area 6.
+        enabled=EffGetAreaState(6)!=0;
+        moving=!(pG->Stop_flg&0x08000000) && !(pG->Status_flg[1]&2);
+        slow=(pG->Status_flg[3]&0x08000000)!=0;
+    } else if ((re4dc_ps2fx&PS2FX_HAZE) && G_ROOM_ID==0x11c) {
+        ps2fx::PopulationKey identity;
+        enabled=Ps2fxGate11c(clock,identity,issues);
+        first_steps=clock; // controller clock already excludes paused/slow logic ticks
+        if(enabled && (!have_gate_identity || !(identity==gate_identity))) {
+            s_fx_addition.clear();gate_identity=identity;have_gate_identity=1;
+        }
+    }
+    Vec view,side,up;
+    PSVECSubtract(&pG->Cam.param.at,&pG->Cam.param.pos,&view);
+    PSVECCrossProduct(&view,&pG->Cam.up,&side);
+    up=pG->Cam.up;
+    if ((view.x==0.0f&&view.y==0.0f&&view.z==0.0f) || (side.x==0.0f&&side.y==0.0f&&side.z==0.0f) ||
+        (up.x==0.0f&&up.y==0.0f&&up.z==0.0f)) { enabled=0; issues|=0x1000; }
+    ps2fx::HazeCamera camera;
+    if(enabled) {
+        PSVECNormalize(&view,&view); PSVECNormalize(&side,&side); PSVECNormalize(&up,&up);
+        camera.position.x=pG->Cam.param.pos.x; camera.position.y=pG->Cam.param.pos.y; camera.position.z=pG->Cam.param.pos.z;
+        camera.view.x=view.x; camera.view.y=view.y; camera.view.z=view.z;
+        camera.side.x=side.x; camera.side.y=side.y; camera.side.z=side.z;
+        camera.up.x=up.x; camera.up.y=up.y; camera.up.z=up.z;
+    }
+    s_fx_addition.sample(enabled!=0,clock,first_steps,moving!=0,slow!=0,*recipe,camera,
+        (pG->Status_flg[1]&0x02000000)!=0);
+    issues|=s_fx_addition.issues;
+    if(enabled) {
+        EspTexWk* tw=&g_pEspSys->Esp_tex_tbl[0x1f];
+        if(tw->Owner==0xd2 || !tw->pTpl || tw->pTpl->numDescriptors!=1 || !tw->pAnm ||
+            tw->pAnm->Cx || tw->pAnm->Cy || tw->pAnm->Width!=128 || tw->pAnm->Height!=128 || tw->pAnm->Frames!=1) {
+            issues|=0x2000;
+        } else {
+            const TEXDescriptor* td=TEXGet(tw->pTpl,0);
+            const TEXHeader* th=td->textureHeader;
+            Re4dcEffectSprite sprite;
+            sprite.image.pixels=th->data; sprite.image.palette=NULL;
+            sprite.image.width=th->width; sprite.image.height=th->height; sprite.image.format=th->format;
+            sprite.image.palette_format=0xffffffffU; sprite.image.palette_bytes=0;
+            if(td->CLUTHeader) {
+                sprite.image.palette=td->CLUTHeader->data; sprite.image.palette_format=td->CLUTHeader->format;
+                sprite.image.palette_bytes=td->CLUTHeader->numEntries*2;
+            }
+            f32 viewport[6]; GXGetViewportv(viewport);
+            const Mtx44& projection=pG->Cam.ProjMat;
+            const f32 near_d=projection[2][3]/(projection[2][2]-1.0f), far_d=projection[2][3]/projection[2][2];
+            if(viewport[2]<=0.0f || viewport[3]<=0.0f || near_d<=0.0f || far_d<=near_d) issues|=0x4000;
+            else for(unsigned n=0;n<ps2fx::HazeAddition::Count;++n) {
+                const ps2fx::HazeParticle& particle=s_fx_addition.particles[n];
+                Vec point={particle.position.x,particle.position.y,particle.position.z}, center;
+                PSMTXMultVec(pG->Cam.v_mat,&point,&center);
+                center.z+=1.0f; // EspCommonTrans billboard has local z=1.
+                const f32 depth=-center.z;
+                if(depth<near_d || depth>far_d) continue;
+                f32 alpha=s_fx_addition.alpha(*recipe,depth);
+                u32 r=recipe->r,g=recipe->g,b=recipe->b,a=alpha>0.0f ? (u32)alpha : 0;
+                if(EffIsSetFinalCol()) {
+                    GXColor final; EffGetFinalCol(&final);
+                    r=r*final.r>>8; g=g*final.g>>8; b=b*final.b>>8; a=a*final.a>>8;
+                }
+                if(!a) continue;
+                const f32 co=cosf(particle.angle),si=sinf(particle.angle),size=particle.size*s_fx_addition.size_mul;
+                static const f32 x[4]={-0.5f,0.5f,0.5f,-0.5f},y[4]={0.5f,0.5f,-0.5f,-0.5f};
+                static const f32 u[4]={0,1,1,0},v[4]={0,0,1,1};
+                for(unsigned i=0;i<4;++i) {
+                    const f32 vx=center.x+(co*x[i]-si*y[i])*size,vy=center.y+(si*x[i]+co*y[i])*size;
+                    const f32 px=(projection[0][0]*vx+projection[0][2]*center.z)/depth;
+                    const f32 py=(projection[1][1]*vy+projection[1][2]*center.z)/depth;
+                    sprite.x[i]=(viewport[2]*0.5f*px+viewport[0]+viewport[2]*0.5f)*640.0f/viewport[2];
+                    sprite.y[i]=(-viewport[3]*0.5f*py+viewport[1]+viewport[3]*0.5f)*480.0f/viewport[3];
+                    sprite.z[i]=1.0f/depth;
+                    sprite.u[i]=tw->mtx[0][0]*u[i]+tw->mtx[0][1]*v[i]+tw->mtx[0][3];
+                    sprite.v[i]=tw->mtx[1][0]*u[i]+tw->mtx[1][1]*v[i]+tw->mtx[1][3];
+                }
+                sprite.color=(a<<24)|(r<<16)|(g<<8)|b; sprite.src=4; sprite.dst=5; sprite.screen=0; sprite.pad=0;
+#if RE4DC_TA_BIN_DIAG
+                sprite.pad|=2;
+#endif
+                draws+=re4dc_effect_sprite(&sprite)!=0;
+            }
+        }
+    }
+    // Counts mean source-equivalent private particles, then submitted visible quads.
+    // They are not a claim about PS2 RNG identity or hardware timing.
+    if((G_ROOM_ID==0x118 || G_ROOM_ID==0x11c) && (!reported || last_issues!=issues || last_active!=enabled)) {
+        re4dc_log("PS2FXADD f=%u r=%03x active=%d particles=%u age=%u submitted=%d issues=%x\n",
+            (unsigned)pG->Frame_cnt,(unsigned)G_ROOM_ID,enabled,enabled?10U:0U,s_fx_addition.age,draws,issues);
+        reported=1;last_issues=issues;last_active=enabled;
+    }
+}
+#endif
 #if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
 // COARSE_FX_SPRITES (effects30.mk): a live effect the EspCommonTrans sprite path draws (esp.cpp queues
 // it in a drawn coarse image's logic-only pass; coarse.cpp then draws no marker for it). Esp0b (the room
@@ -980,6 +1144,9 @@ extern "C" void re4dc_esp_sprite_pass_begin()
     s_vis_far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
 #if RE4DC_PS2_FX_POPULATION
     Ps2fxPopulationBuild();
+#endif
+#if RE4DC_PS2_FX_ADDITIONS
+    Ps2fxAdditionsDraw();
 #endif
 }
 #endif

@@ -135,11 +135,24 @@ def decode_eff(data, endian):
                     'table': kind, 'no': no, 'area': area, 'list_flags': flags,
                     'index': index, 'offset': r, 'record_sha256': sha(data[r:r+RECORD_SIZE]),
                     'be_flags': identity[0], 'id': identity[1], 'tex': identity[2], 'type': identity[3],
-                    'parts': read('B', r+7)[0], 'tool_flags': read('I', r+8)[0],
+                    'set_time': read('H',r+4)[0], 'parts': read('B', r+7)[0], 'tool_flags': read('I', r+8)[0],
                     'random_size': read('f', r+0x90)[0], 'floor': read('f', r+0xD8)[0],
                     'generator_type': read('B', r+0x10A)[0], 'generator_flags': read('B', r+0x10B)[0],
-                    'generator_wait': read('B', r+0x10C)[0], 'generator_wait_random': read('B', r+0x10F)[0],
+                    'generator_wait': read('B', r+0x10C)[0], 'generator_wait_random': read('B', r+0x128)[0],
                     'generator_life': read('h', r+0x110)[0],
+                    'generator_seed_offset': read('b', r+0x10E)[0],
+                    'generator_curves': list(read('4B', r+0x124)),
+                    'position': list(read('3f', r+0x0C)), 'random_position': list(read('3f',r+0x18)),
+                    'speed': list(read('3f',r+0x24)), 'speed_damping': read('f',r+0x30)[0],
+                    'random_speed': list(read('3f',r+0x34)), 'acceleration': list(read('3f',r+0x40)),
+                    'random_acceleration': list(read('3f',r+0x4C)),
+                    'angle': list(read('3f',r+0x58)), 'random_angle': list(read('3f',r+0x64)),
+                    'angle_step': list(read('3f',r+0x70)), 'random_angle_step': list(read('3f',r+0x7C)),
+                    'color_damping': list(read('4f',r+0xA0)),
+                    'color_max': read('H',r+0xB0)[0], 'color_start': read('H',r+0xB2)[0],
+                    'position_start': read('H',r+0xB4)[0], 'size_start': read('H',r+0xB6)[0],
+                    'life_time': read('H',r+0xBA)[0],
+                    'animation': list(read('2BH4B',r+0xBC)),
                     'range': read('f', r+0x20)[0], 'size_x': read('f', r+0x88)[0],
                     'size_y': read('f', r+0x8C)[0], 'size_plus': read('f', r+0x94)[0],
                     'd_size_plus': read('f', r+0x98)[0], 'rgba': list(read('4B', r+0x9C)),
@@ -330,6 +343,71 @@ def qualify_texture10f(gc_path, ps2_path):
     return result
 
 
+
+def addition_recipe(record, room):
+    expected = {
+        'be_flags':1,'id':0x15,'tex':0x1f,'type':0,'parts':0xfe,'tool_flags':0,
+        'kind':1,'generator':0,'generator_type':0,'generator_flags':0 if room=='r118' else 2,
+        'generator_wait':0,'generator_wait_random':0,'generator_life':1,
+        'generator_seed_offset':0 if room=='r118' else 7,'generator_curves':[0,0,0,0],
+        'set_time':0,'range':5000.0,'floor':0.0,'position':[0.0,60.0,0.0],
+        'random_position':[0.0,0.0,5000.0],'speed_damping':1.0,
+        'acceleration':[0.0,0.0,0.0],'random_acceleration':[0.0,0.0,0.0],
+        'angle':[0.0,0.0,0.0],'random_angle':[0.0,0.0,180.0],
+        'angle_step':[0.0,0.0,0.0],'random_angle_step':[0.0,0.0,0.20000000298023224],
+        'random_size':40.0,'size_plus':0.009999997913837433,'d_size_plus':0.9900000095367432,
+        'color_damping':[1.0,1.0,1.0,1.0],'color_max':0,'color_start':0,
+        'position_start':0,'size_start':0,'life_time':0,'life_max':0,'blend':0,
+        'animation':[0,0,0,0,0,0,0],'count_per_emission':10,
+    }
+    if room=='r118':
+        expected.update(table='sst',no=3,area=6,index=0,size_x=2000.0,size_y=2000.0,
+            speed=[5.0,0.0,0.0],random_speed=[0.20000001788139343,0.20000000298023224,0.20000000298023224],
+            rgba=[145,155,155,34],work8=[30,5,30,30])
+    elif room=='r11c':
+        expected.update(table='est',no=6,area=0,index=0,size_x=2100.0,size_y=2100.0,
+            speed=[-10.0,-5.0,-20.0],random_speed=[2.0,0.0,-1.0],
+            rgba=[250,250,255,60],work8=[30,5,30,0])
+    else:
+        raise ValueError('unqualified addition room')
+    for key,value in expected.items():
+        if record[key]!=value: raise ValueError('unsupported addition field: '+key)
+    return {'count':10,'seed':0x118c0def if room=='r118' else 0x1234567f,
+            'seed_scope':'private fixed seed; PS2 source RNG state is not copied' if room=='r118' else
+                'source fixed seed for this haze generator; no game RNG calls',
+            'runtime_texture':'already resident GC core 0x1f',
+            'scope':'Private draw state only; first/last-frame and still/cost acceptance remain runtime gates.'}
+
+
+def audit_additions(cache):
+    result = {'records':[], 'sources':[], 'r118_area':{}, 'r11c_gate':{}}
+    for room,table,no in (('r118','sst',3),('r11c','est',6)):
+        path=cache/(room+'.ps2.eff0');raw=path.read_bytes();records=decode_eff(raw,'<')
+        target=[r for r in records if r['table']==table and r['no']==no and r['id']==0x15]
+        if len(target)!=1: raise ValueError('addition source identity changed')
+        recipe=addition_recipe(target[0],room)
+        result['records'].append({'room':room,'source':target[0],'recipe':recipe})
+        result['sources'].append({'path':str(path),'sha256':sha(raw)})
+    for side,endian in (('gc','>'),('ps2','<')):
+        path=cache/('r118.'+side);raw=path.read_bytes()
+        result['r118_area'][side]=dict(decode_room_ear(raw,endian),path=str(path),sha256=sha(raw))
+    area=result['r118_area']
+    if area['gc']['rows']!=area['ps2']['rows']:
+        raise ValueError('r118 GC and PS2 area semantics differ')
+    sixth=[r for r in area['gc']['rows'] if r['area']==6]
+    if len(sixth)!=1 or sixth[0]['be']!=1 or sixth[0]['type']!=1 or sixth[0]['flag']!=0:
+        raise ValueError('r118 area6 activation changed')
+    area['activation']='Read EffGetAreaState(6); EffSetAreaState clears the corresponding source area on exit.'
+    path=cache/'r11c.gc.eff0';raw=path.read_bytes()
+    source=[r for r in decode_eff(raw,'>') if r['table']=='est' and r['no']==6]
+    if [(r['index'],r['id'],r['tex'],r['kind'],r['generator'],r['set_time'],r['generator_life']) for r in source]!=[
+            (0,12,0,1,2,0,110),(1,0,87,1,2,0,130),(2,12,0,1,2,0,110),(3,0,87,1,2,0,130)]:
+        raise ValueError('r11c gate controller source identity changed')
+    result['r11c_gate']={'path':str(path),'sha256':sha(raw),'controllers':source,
+        'activation':'Exactly four live owner-1 generator-2 controllers retaining the four immutable EST6 record refs, with one core identity and equal age; source gate deletes the group after 82 task sleeps.',
+        'scope':'Only the added haze is reproduced; this does not claim parity for every other EST6 effect.'}
+    return result
+
 def streak_signature(record):
     return (record['tex'], record['blend'], record['del_far'], record['del_near'])
 
@@ -494,14 +572,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'additions', 'inventory'), default='first-group')
     parser.add_argument('--gc-core', type=Path)
     parser.add_argument('--ps2-core', type=Path)
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural'),
-             args.scope in ('population','structural'), args.scope=='structural', args.gc_core,args.ps2_core)
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural','additions'),
+             args.scope in ('population','structural','additions'), args.scope in ('structural','additions'), args.gc_core,args.ps2_core)
+    if args.scope=='additions': result['additions']=audit_additions(args.cache)
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

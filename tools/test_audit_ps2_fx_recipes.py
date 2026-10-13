@@ -1,10 +1,11 @@
 import math
+import copy
 import struct
 from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
+from audit_ps2_fx_recipes import addition_recipe, core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
 
 
 def sample_eff(endian='<'):
@@ -42,6 +43,37 @@ class EffectRecipeAuditTests(unittest.TestCase):
         self.assertEqual(3, little['area'])
         self.assertEqual(0x11223344, little['list_flags'])
         self.assertEqual(0x90, little['offset'])
+
+    def test_addition_motion_and_trigger_contracts_reject_changed_fields(self):
+        data=sample_eff()
+        r=0x90
+        struct.pack_into('<HH',data,0x44,3,6)
+        struct.pack_into('<3f',data,r+0x0c,0,60,0)
+        struct.pack_into('<3f',data,r+0x24,5,0,0)
+        struct.pack_into('<f',data,r+0x30,1)
+        struct.pack_into('<3f',data,r+0x34,0.20000001788139343,0.20000000298023224,0.20000000298023224)
+        struct.pack_into('<f',data,r+0x6c,180)
+        struct.pack_into('<f',data,r+0x84,0.20000000298023224)
+        struct.pack_into('<3f',data,r+0x90,40,0.009999997913837433,0.9900000095367432)
+        struct.pack_into('<4f',data,r+0xa0,1,1,1,1)
+        struct.pack_into('4B',data,r+0x9c,145,155,155,34)
+        record=decode_eff(data,'<')[0]
+        self.assertEqual(10,addition_recipe(record,'r118')['count'])
+        for field,bad in (('area',5),('speed',[6,0,0]),('generator_flags',2),('generator_wait_random',1),
+                          ('set_time',1),('life_max',1),('floor',30),('color_start',2),('count_per_emission',11)):
+            changed=copy.deepcopy(record);changed[field]=bad
+            with self.assertRaisesRegex(ValueError,'unsupported addition field: '+field):
+                addition_recipe(changed,'r118')
+        with self.assertRaisesRegex(ValueError,'unqualified addition room'):
+            addition_recipe(record,'r100')
+
+    def test_generator_wait_random_uses_128_not_unrelated_10f(self):
+        for endian in ('<','>'):
+            data=sample_eff(endian)
+            data[0x90+0x10f]=7
+            data[0x90+0x128]=3
+            self.assertEqual(3,decode_eff(data,endian)[0]['generator_wait_random'])
+            self.assertEqual(7,data[0x90+0x10f])
 
     def test_absent_texture_tables_do_not_read_version_as_a_count(self):
         # The old dump treated ofsTexId=ofsTpl=ofsAnm=0 as an 11-item table
