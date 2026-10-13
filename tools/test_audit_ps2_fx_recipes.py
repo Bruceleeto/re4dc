@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import addition_recipe, core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
+from audit_ps2_fx_recipes import static_sprite_recipe, addition_recipe, core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
 
 
 def sample_eff(endian='<'):
@@ -31,6 +31,33 @@ def sample_eff(endian='<'):
 class EffectRecipeAuditTests(unittest.TestCase):
     def record(self):
         return decode_eff(sample_eff(), '<')[0]
+
+    def test_static_raw_contract_allows_only_size_and_colour(self):
+        raw=[];records=[]
+        for endian in ('>','<'):
+            data=sample_eff(endian);r=0x90
+            data[r+1]=0;data[r+2]=8;data[r+0x108]=0
+            struct.pack_into(endian+'I',data,r+8,1)
+            struct.pack_into(endian+'f',data,r+0x20,0)
+            struct.pack_into(endian+'f',data,r+0x30,1)
+            struct.pack_into(endian+'2f',data,r+0x94,0,1)
+            struct.pack_into(endian+'4f',data,r+0xa0,1,1,1,1)
+            data[r+0xc2]=1
+            raw.append(bytes(data[r:r+0x12c]));records.append(decode_eff(data,endian)[0])
+        result=static_sprite_recipe(*records,*raw)
+        self.assertEqual(1,result['scale_x'])
+        changed=bytearray(raw[1]);struct.pack_into('<f',changed,0x88,4000);changed[0x9c]=80
+        ps2=copy.deepcopy(records[1]);ps2['size_x']=4000;ps2['rgba'][0]=80
+        self.assertEqual(2,static_sprite_recipe(records[0],ps2,raw[0],changed)['scale_x'])
+        changed[0x104]=1
+        with self.assertRaisesRegex(ValueError,'raw field changed'):
+            static_sprite_recipe(records[0],ps2,raw[0],changed)
+        with self.assertRaisesRegex(ValueError,'record width'):
+            static_sprite_recipe(*records,raw[0][:-1],raw[1])
+        for key,value in (('random_size',1),('life_max',1),('tool_flags',0x80000)):
+            gc=copy.deepcopy(records[0]);ps2=copy.deepcopy(records[1]);gc[key]=ps2[key]=value
+            with self.assertRaisesRegex(ValueError,'unsupported static field: '+key):
+                static_sprite_recipe(gc,ps2,*raw)
 
     def test_known_record_fields_decode_in_both_byte_orders(self):
         little = decode_eff(sample_eff('<'), '<')[0]

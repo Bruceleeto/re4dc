@@ -114,6 +114,21 @@ static void test_additions() {
     std::printf("PS2 additions helper PASS: deterministic private particles, area exit/reentry, pause, slow, wrap, fades, repeated draws, clock bounds and gate evidence; state bytes=%zu\n",sizeof(a));
 }
 int main() {
+    // Independent world-coordinate reconstruction verifies anchor preservation:
+    // scaling around a screen centroid would fail the E9 Cy=1/128 case.
+    const float anchors[][2]={{-0.5f,-0.5f},{-0.5f,1.0f/128.0f-1.0f}};
+    for(unsigned anchor=0;anchor<2;++anchor) for(unsigned corner=0;corner<4;++corner) {
+        const float x=(corner==1 || corner==2)?1.0f:0.0f,y=corner<2?1.0f:0.0f;
+        for(unsigned axis=0;axis<3;++axis) {
+            const float rx=(float)(axis+1)*13.0f,ry=(float)(axis+2)*-7.0f,origin=123.0f;
+            const float old=origin+rx*(x+anchors[anchor][0])+ry*(y+anchors[anchor][1]);
+            const float expected=origin+rx*1.7f*(x+anchors[anchor][0])+ry*1.2f*(y+anchors[anchor][1]);
+            const float actual=old+ps2fx::anchored_corner_delta(rx,ry,.7f,.2f,x,y,anchors[anchor][0],anchors[anchor][1]);
+            assert(actual-expected<0.0001f && expected-actual<0.0001f);
+            assert(ps2fx::anchored_corner_delta(rx,ry,.7f,.2f,-anchors[anchor][0],-anchors[anchor][1],anchors[anchor][0],anchors[anchor][1])==0.0f);
+        }
+    }
+
     test_additions();
     // Exhaustive count boundaries cover zero, undersupply, full and target=source.
     for (unsigned source=1; source<=256; ++source) {

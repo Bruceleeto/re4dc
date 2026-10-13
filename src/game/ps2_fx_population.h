@@ -4,6 +4,13 @@
 // Render-owned, allocation-free selection. Reader returns immutable source identity
 // and counts for a live qualifying particle. No source slot is written or retained.
 namespace ps2fx {
+// Expanding a quad around its texture anchor also handles noncentral anchors.
+// row_x/y already include the source dimensions and orientation.
+inline float anchored_corner_delta(float row_x,float row_y,float change_x,float change_y,
+                                   float corner_x,float corner_y,float anchor_x,float anchor_y)
+{
+    return row_x*change_x*(corner_x+anchor_x)+row_y*change_y*(corner_y+anchor_y);
+}
 struct PopulationKey {
     unsigned call, core;
     unsigned short recipe, flags, source_count, target_count;

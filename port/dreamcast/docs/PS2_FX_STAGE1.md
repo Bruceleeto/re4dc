@@ -334,3 +334,27 @@ These host results do not establish compilation of the game, trigger timing,
 matching stills, heap safety, replay identity or device cost. Those remain the
 coordinated integration gates, including positive/negative r118 area and r11c
 gate observations, fresh load, reentry, New Game, and additions-off identity.
+
+## Stationary r104 sprites
+
+`PS2_FX_STAGE1=1` also maps three stationary common-sprite records while the
+PS2 haze draw mask is active. GC SST 0/4 maps to PS2 SST 5/2 (texture 08,
+18840.164 square to 34300 square, RGBA 255/255/205/140 to 255/255/195/50);
+GC 0/5 maps to PS2 5/3 (texture 1f, unchanged 58542.766 square, alpha 225 to
+200); GC 4/0 maps to PS2 4/1 (texture e9, height 5562.702 to 6262.702,
+RGBA 135/135/125/165 to 195/195/185/70). The last pair retains area 1.
+
+The `static` audit scope normalizes all numeric record lanes to little endian
+and requires every byte outside dimensions and RGBA to match. It also proves
+unique live signatures, stationary permanent lifetimes, unchanged near fades,
+matching core animation contracts and no room texture overrides. Runtime
+selection requires unchanged source dimensions, position, initial/current
+colour, source owner, texture, type of common sprite and world parent.
+
+Corners expand around the source texture anchor in view space before clipping,
+including e9's noncentral Cy=1/128 anchor. The source matrix and sprite remain
+unchanged. Coarse bounds use the target dimensions, and colour follows the
+existing final-colour truncation then near-fade order. Core GC pixels remain
+resident; this does not assert identical GC/PS2 texture pixels. Host tests cover
+noncentral anchors and raw-field rejection. Fresh runtime stills, knob-off,
+STRICT, heap, New Game and cost gates remain required.

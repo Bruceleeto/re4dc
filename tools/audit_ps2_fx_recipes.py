@@ -301,7 +301,7 @@ def qualify_area112(cache):
     return evidence
 
 
-def core_haze_animations(data, endian):
+def core_sprite_animations(data, endian, contracts):
     def read(fmt, offset):
         width = struct.calcsize(endian+fmt)
         if offset < 0 or offset+width > len(data):
@@ -317,7 +317,7 @@ def core_haze_animations(data, endian):
     result = {}
     for i in range(counts[0]):
         tex, = read('H',ids+4+8*i)
-        if tex not in (0x1e,0x1f): continue
+        if tex not in contracts: continue
         if tex in result: raise ValueError('duplicate core haze texture')
         anm = anms+read('I',anms+4+4*i)[0]
         tpl = tpls+read('I',tpls+4+4*i)[0]
@@ -325,12 +325,15 @@ def core_haze_animations(data, endian):
         magic,num = read('II',tpl)
         if magic != (0x20AF30 if endian=='>' else 0x1000) or num != 1:
             raise ValueError('unsupported core haze TPL')
-        if animation != (128,128,0,0,1,1,1,0):
+        if animation != contracts[tex]:
             raise ValueError('core haze animation contract changed')
         result[tex] = {'animation':animation,'anm_offset':anm,'tpl_offset':tpl}
-    if set(result)!={0x1e,0x1f}: raise ValueError('missing core haze textures')
+    if set(result)!=set(contracts): raise ValueError('missing qualified core textures')
     return result
 
+
+def core_haze_animations(data, endian):
+    return core_sprite_animations(data,endian,{tex:(128,128,0,0,1,1,1,0) for tex in (0x1e,0x1f)})
 
 def qualify_texture10f(gc_path, ps2_path):
     if gc_path is None or ps2_path is None:
@@ -568,19 +571,92 @@ def inventory(cache, rooms=INVENTORY_ROOMS):
             'scope':'Source inventory only. SST/EST ownership, effect areas, live counts and omitted/added effects need separate runtime qualification.'}
 
 
+STATIC_PAIRS = (('r104',(0,'sst',0,4),(0,'sst',5,2)),
+                ('r104',(0,'sst',0,5),(0,'sst',5,3)),
+                ('r104',(0,'sst',4,0),(0,'sst',4,1)))
+STATIC_CONTRACTS={8:(96,96,0,0,1,1,1,0),31:(128,128,0,0,1,1,1,0),233:(64,128,32,1,1,1,1,0)}
+
+
+def static_sprite_recipe(gc, ps2, raw_gc, raw_ps2):
+    if len(raw_gc)!=RECORD_SIZE or len(raw_ps2)!=RECORD_SIZE:
+        raise ValueError('static source record width changed')
+    # Canonicalize every numeric lane in EspGenWork to PS2 byte order;
+    # untouched bytes (including unknown fields) must then match exactly.
+    canonical=bytearray(raw_gc)
+    for offset in (4,*range(0xb0,0xbc,2),0xbe,*range(0x110,0x118,2)):
+        canonical[offset:offset+2]=raw_gc[offset:offset+2][::-1]
+    for offset in (*range(8,0x9c,4),*range(0xa0,0xb0,4),*range(0xcc,0xfc,4),*range(0x118,0x124,4)):
+        canonical[offset:offset+4]=raw_gc[offset:offset+4][::-1]
+    allowed=set(range(0x88,0x90))|set(range(0x9c,0xa0))
+    if any(a!=b and i not in allowed for i,(a,b) in enumerate(zip(canonical,raw_ps2))):
+        raise ValueError('static raw field changed outside dimensions and RGBA')
+    decoded_meta={'no','index','offset','record_sha256','size_x','size_y','rgba','eff'}
+    for name in set(gc)|set(ps2):
+        if name not in decoded_meta and gc.get(name)!=ps2.get(name):
+            raise ValueError('static source field changed: '+name)
+    expected={'table':'sst','be_flags':1,'id':0,'type':0,'parts':0xfe,'tool_flags':1,'kind':0,
+              'set_time':0,'life_max':0,'life_time':0,'size_plus':0.0,'d_size_plus':1.0,'random_size':0.0,
+              'color_damping':[1.0]*4,'color_max':0,'color_start':0,'position_start':0,'size_start':0,
+              'speed_damping':1.0,'blend':1,'animation':[0,0,0,0,0,1,0]}
+    for name in ('random_position','speed','random_speed','acceleration','random_acceleration',
+                 'random_angle','angle_step','random_angle_step'):
+        expected[name]=[0.0]*3
+    for name,value in expected.items():
+        if gc.get(name)!=value: raise ValueError('unsupported static field: '+name)
+    if gc['tex'] not in STATIC_CONTRACTS: raise ValueError('unqualified static texture')
+    if any(not math.isfinite(row[k]) or row[k]<=0 for row in (gc,ps2) for k in ('size_x','size_y')):
+        raise ValueError('invalid static dimensions')
+    return {'scale_x':ps2['size_x']/gc['size_x'],'scale_y':ps2['size_y']/gc['size_y'],
+            'rgba':ps2['rgba'],'anchor':STATIC_CONTRACTS[gc['tex']][2:4],
+            'scope':'Render-local anchored quad dimensions and byte-order-preserving final-colour/near-fade override.'}
+
+
+def audit_static(cache,gc_core,ps2_core):
+    if gc_core is None or ps2_core is None: raise ValueError('static audit requires both core EFFs')
+    cores={}
+    for side,path,endian in (('gc',gc_core,'>'),('ps2',ps2_core,'<')):
+        data=path.read_bytes()
+        cores[side]={'sha256':sha(data),'textures':core_sprite_animations(data,endian,STATIC_CONTRACTS)}
+    pairs=[]
+    for room,gr,pr in STATIC_PAIRS:
+        records={}; raw={}; inputs={}
+        for side,ref,endian in (('gc',gr,'>'),('ps2',pr,'<')):
+            path=cache/(room+'.'+side+'.eff'+str(ref[0]));data=path.read_bytes()
+            rows=decode_eff(data,endian)
+            hit=[r for r in rows if (r['table'],r['no'],r['index'])==ref[1:]]
+            if len(hit)!=1: raise ValueError('static reference does not identify exactly one record')
+            record=hit[0];records[side]=record
+            raw[side]=data[record['offset']:record['offset']+RECORD_SIZE]
+            signature=lambda r:tuple(r[k] if k not in ('position','rgba') else tuple(r[k]) for k in ('table','id','tex','position','size_x','size_y','rgba'))
+            if sum(signature(row)==signature(record) for row in rows)!=1:
+                raise ValueError('ambiguous static live signature')
+            # No room texture may replace a core texture whose anchor was audited.
+            header=struct.unpack_from(endian+'12I',data)
+            if header[1]:
+                count=struct.unpack_from(endian+'I',data,header[1])[0]
+                for i in range(count):
+                    if struct.unpack_from(endian+'H',data,header[1]+4+8*i)[0]==record['tex']:
+                        raise ValueError('static room texture override needs qualification')
+            inputs[side]={'path':str(path),'sha256':sha(data)}
+        recipe=static_sprite_recipe(records['gc'],records['ps2'],raw['gc'],raw['ps2'])
+        pairs.append({'room':room,'gc':records['gc'],'ps2':records['ps2'],'inputs':inputs,'recipe':recipe})
+    return {'cores':cores,'pairs':pairs}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'additions', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'additions', 'static', 'inventory'), default='first-group')
     parser.add_argument('--gc-core', type=Path)
     parser.add_argument('--ps2-core', type=Path)
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural','additions'),
-             args.scope in ('population','structural','additions'), args.scope in ('structural','additions'), args.gc_core,args.ps2_core)
-    if args.scope=='additions': result['additions']=audit_additions(args.cache)
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural','additions','static'),
+             args.scope in ('population','structural','additions','static'), args.scope in ('structural','additions','static'), args.gc_core,args.ps2_core)
+    if args.scope in ('additions','static'): result['additions']=audit_additions(args.cache)
+    if args.scope=='static': result['static_sprites']=audit_static(args.cache,args.gc_core,args.ps2_core)
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

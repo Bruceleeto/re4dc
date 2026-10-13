@@ -58,8 +58,10 @@ extern f32 ZFAR;
 #if !RE4DC_PS2_FX_STAGE1 || !RE4DC_EFFECT_PS2_HAZE
 #error PS2_FX_POPULATION needs PS2_FX_STAGE1 and EFFECT_PS2_HAZE
 #endif
-#include "ps2_fx_population.h"
 #include "area.h"
+#endif
+#if RE4DC_PS2_FX_STAGE1
+#include "ps2_fx_population.h"
 #endif
 #ifndef RE4DC_PS2_FX_ADDITIONS
 #define RE4DC_PS2_FX_ADDITIONS 0
@@ -764,6 +766,62 @@ static int Ps2fxClass(cEsp* esp)
     return 0;
 }
 #endif
+#if RE4DC_PS2_FX_STAGE1
+// Three stationary r104 source records differ only in size and RGBA. Source
+// position, orientation, near fade, texture anchor and lifetime are unchanged.
+struct Ps2fxStatic {
+    u8 tex, gc_r, gc_g, gc_b, gc_a, r, g, b, a;
+    f32 x, y, z, gc_x, gc_y, ps_x, ps_y;
+};
+static const Ps2fxStatic kPs2Static104[] = {
+    {0x08,255,255,205,140,255,255,195,50,30897.478515625f,29645.291015625f,-26553.146484375f,
+     18840.1640625f,18840.1640625f,34300.0f,34300.0f},
+    {0x1f,255,255,255,225,255,255,255,200,30897.478515625f,32668.3046875f,-26553.146484375f,
+     58542.765625f,58542.765625f,58542.765625f,58542.765625f},
+    {0xe9,135,135,125,165,195,195,185,70,-8885.21484375f,2750.64013671875f,16889.587890625f,
+     1726.2587890625f,5562.7021484375f,1726.2587890625f,6262.7021484375f}
+};
+static const Ps2fxStatic* Ps2fxStaticFor(const cEsp* esp)
+{
+    if (!(re4dc_ps2fx&PS2FX_HAZE) || G_ROOM_ID!=0x104 || esp->info.owner!=0xd0 || esp->m_Id!=0 ||
+        esp->m_Tool_flg!=1 || esp->m_Parts_no!=0xfe || esp->parent!=pEffParentWorld || esp->m_Life_max ||
+        esp->m_Size_mul!=1.0f || esp->m_Size_plus!=0.0f || (esp->m_Flg&1)) return NULL;
+    for(unsigned i=0;i<3;++i) {
+        const Ps2fxStatic* row=&kPs2Static104[i];
+        if(esp->m_Tex_id==row->tex && esp->m_Col_start_r==row->gc_r && esp->m_Col_start_g==row->gc_g &&
+           esp->m_Col_start_b==row->gc_b && esp->m_Col_start_a==row->gc_a &&
+           esp->m_Col_r==row->gc_r && esp->m_Col_g==row->gc_g && esp->m_Col_b==row->gc_b && esp->m_Col_a==row->gc_a &&
+           esp->m_Size_base_x==row->gc_x && esp->m_Size_base_y==row->gc_y &&
+           esp->m_Pos.x==row->x && esp->m_Pos.y==row->y && esp->m_Pos.z==row->z) return row;
+    }
+    return NULL;
+}
+static GXColor Ps2fxStaticColor(const cEsp* esp, const Ps2fxStatic* row)
+{
+    GXColor col={row->r,row->g,row->b,row->a};
+    // Preserve ChannelSet's byte truncation order: final colour, then near fade.
+    if (!(esp->m_Flg&4) && EffIsSetFinalCol()) {
+        GXColor final;EffGetFinalCol(&final);
+        col.r=(u32)col.r*final.r>>8; col.g=(u32)col.g*final.g>>8;
+        col.b=(u32)col.b*final.b>>8; col.a=(u32)col.a*final.a>>8;
+    }
+    if(esp->m_Del_far) {
+        Vec direction,delta;
+        PSVECSubtract(&pG->Cam.param.at,&pG->Cam.param.pos,&direction);
+        VECNormalize(&direction,&direction);
+        PSVECSubtract(&esp->m_Pos,&pG->Cam.param.pos,&delta);
+        const f32 depth=PSVECDotProduct(&direction,&delta);
+        if(depth<esp->m_Del_far*10.0f) {
+            f32 rate=1.0f-(esp->m_Del_far*10.0f-depth)/((esp->m_Del_far-esp->m_Del_near)*10.0f);
+#if RE4DC_EFFECT_FADE_CLAMP
+            if((re4dc_ps2fx&PS2FX_CLAMP) && rate<0.0f) rate=0.0f;
+#endif
+            col.a=(u8)(col.a*rate);
+        }
+    }
+    return col;
+}
+#endif
 static void EspSpriteEmit(cEsp* esp)
 {
     // GX blend factors 0..7 (ZERO ONE DSTCLR/SRCCLR INVxCLR SRCA INVSRCA DSTA INVDSTA) have the
@@ -806,6 +864,15 @@ static void EspSpriteEmit(cEsp* esp)
     const int ortho = P[0] != 0.0f;
     const f32 near_d = ortho ? 0.0f : P[6] / (P[5] - 1.0f), far_d = ortho ? 0.0f : P[6] / P[5];
     const Mtx& m = esp->m_Mat;
+#if RE4DC_PS2_FX_STAGE1
+    const Ps2fxStatic* fixed=ortho ? NULL : Ps2fxStaticFor(esp);
+    f32 fixed_dx=0.0f,fixed_dy=0.0f,fixed_ox=0.0f,fixed_oy=0.0f;
+    if(fixed && tw->pAnm) {
+        fixed_dx=fixed->ps_x/fixed->gc_x-1.0f; fixed_dy=fixed->ps_y/fixed->gc_y-1.0f;
+        fixed_ox=tw->pAnm->Cx ? -(f32)tw->pAnm->Cx/tw->pAnm->Width : -0.5f;
+        fixed_oy=tw->pAnm->Cy ? (f32)tw->pAnm->Cy/tw->pAnm->Height-1.0f : -0.5f;
+    } else fixed=NULL;
+#endif
 #if RE4DC_PS2_FX_POPULATION
     f32 shift_x = 0.0f, shift_y = 0.0f, shift_z = 0.0f;
     if (!ortho && population_selected) {
@@ -820,21 +887,28 @@ static void EspSpriteEmit(cEsp* esp)
     f32 corner[4][3];
 #endif
     for (int i = 0; i < 4; ++i) {
-        const f32 x = m[0][0] * cx[i] + m[0][1] * cy[i] + m[0][2] + m[0][3]
+        f32 x = m[0][0] * cx[i] + m[0][1] * cy[i] + m[0][2] + m[0][3]
 #if RE4DC_PS2_FX_POPULATION
             + shift_x
 #endif
             ;
-        const f32 y = m[1][0] * cx[i] + m[1][1] * cy[i] + m[1][2] + m[1][3]
+        f32 y = m[1][0] * cx[i] + m[1][1] * cy[i] + m[1][2] + m[1][3]
 #if RE4DC_PS2_FX_POPULATION
             + shift_y
 #endif
             ;
-        const f32 z = m[2][0] * cx[i] + m[2][1] * cy[i] + m[2][2] + m[2][3]
+        f32 z = m[2][0] * cx[i] + m[2][1] * cy[i] + m[2][2] + m[2][3]
 #if RE4DC_PS2_FX_POPULATION
             + shift_z
 #endif
             ;
+#if RE4DC_PS2_FX_STAGE1
+        if(fixed) {
+            x+=ps2fx::anchored_corner_delta(m[0][0],m[0][1],fixed_dx,fixed_dy,cx[i],cy[i],fixed_ox,fixed_oy);
+            y+=ps2fx::anchored_corner_delta(m[1][0],m[1][1],fixed_dx,fixed_dy,cx[i],cy[i],fixed_ox,fixed_oy);
+            z+=ps2fx::anchored_corner_delta(m[2][0],m[2][1],fixed_dx,fixed_dy,cx[i],cy[i],fixed_ox,fixed_oy);
+        }
+#endif
         f32 px, py, inv;
         if (ortho) {
             px = P[1] * x + P[2];
@@ -936,7 +1010,12 @@ static void EspSpriteEmit(cEsp* esp)
         return;
     }
 #endif
+#if RE4DC_PS2_FX_STAGE1
+    const GXColor draw_col=fixed ? Ps2fxStaticColor(esp,fixed) : s_effect_col;
+    u32 r=draw_col.r,g=draw_col.g,b=draw_col.b,a=draw_col.a;
+#else
     u32 r = s_effect_col.r, g = s_effect_col.g, b = s_effect_col.b, a = s_effect_col.a;
+#endif
     if (!(esp->m_Tool_flg & 0x40)) {
         if (esp->m_Tool_flg & 0x80) { // TEV colour scale 4
             r = r * 4 > 255 ? 255 : r * 4;
@@ -1184,7 +1263,12 @@ extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
         w = esp->m_Pos;
     }
     PSMTXMultVec(pG->Cam.v_mat, &w, &v);
+#if RE4DC_PS2_FX_STAGE1
+    const Ps2fxStatic* fixed=Ps2fxStaticFor(esp);
+    const f32 bx=fixed ? fixed->ps_x : esp->m_Size_base_x, by=fixed ? fixed->ps_y : esp->m_Size_base_y;
+#else
     const f32 bx = esp->m_Size_base_x, by = esp->m_Size_base_y;
+#endif
 #if RE4DC_EFFECT_PS2_HAZE
     const Ps2fxHaze* hz = Ps2fxHazeFor(esp);
 #if RE4DC_PS2_FX_POPULATION
