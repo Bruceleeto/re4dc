@@ -1443,6 +1443,8 @@ include records30.mk
 include blender30.mk
 # D367 TA_HASH (test builds; default off: no effect).
 include tahash.mk
+# D367 machine checks (MCHECK_PT, MCHECK_SAFE; test builds; default off: no effect).
+include mcheck.mk
 # D367 frame pacing (PACE_CATCHUP; default off: no effect).
 include pace.mk
 # Frozen source candidate controls, after all prerequisite defaults.

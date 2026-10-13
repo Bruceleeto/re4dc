@@ -97,6 +97,11 @@ extern "C" void re4dc_lbx_open(int list, void (*send)(const void*, unsigned))
     ++op_frames;
 }
 
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+extern "C" {
+unsigned re4dc_lbx_rows_last;  // the tile rows cleared for the scene being closed (MCHECK_SAFE log)
+}
+#endif
 // native_ui.cpp stream_close, before pvr_list_finish / pvr_scene_finish: the bank being filled is not rendering.
 extern "C" void re4dc_lbx_close(void)
 {
@@ -119,6 +124,9 @@ extern "C" void re4dc_lbx_close(void)
         clipped[b] = want;
     }
     if (want) ++clip_frames;
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+    re4dc_lbx_rows_last = want;  // native_ui.cpp safe_audit_scene (mcheck.mk, test builds only)
+#endif
     op_sent = false;
     prev_mask = cur_mask;
     prev_top = cur_top;

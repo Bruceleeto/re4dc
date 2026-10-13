@@ -4,6 +4,9 @@
 #if RE4DC_KOS_HEAP_CHECK
 extern "C" void re4dc_heap_check(void);
 #endif
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE && defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mcheck.mk)
+#endif
 #include <type_traits>
 #ifndef RE4DC_WORLD_AUTOSORT
 #define RE4DC_WORLD_AUTOSORT 0
@@ -1267,6 +1270,35 @@ void ta_hash_reset(){for(unsigned i=0;i<5;++i){ta_hash_h[i]=2166136261u;ta_hash_
 void ta_hash_reset(){for(unsigned i=0;i<5;++i){ta_hash_h[i]=2166136261u;ta_hash_words[i]=0;}}
 #endif
 void ta_hash_marker(pvr_list_t list){const std::uint32_t w=0xF00D0000u|(unsigned)list;re4dc_ta_hash(&w,4);}
+#if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
+// MCHECK_PT=1 (mcheck.mk, test builds only; needs TA_HASH): every polygon / sprite header (PCW para type 4 / 5) the
+// TA_HASH hooks see whose PCW list type is punch-through (4) is checked for blend SRCALPHA / INVSRCALPHA (TSP word 2,
+// src bits 31..29 = 4, dst 28..26 = 5). Per scene: "pt_audit:" headers, bad headers, the first bad header + caller.
+unsigned pt_audit_hdr,pt_audit_bad,pt_audit_logs;
+std::uint32_t pt_audit_w0,pt_audit_w2;
+void* pt_audit_ra;
+void pt_audit_feed(const void* data,unsigned bytes,void* ra){
+    const auto* w=static_cast<const std::uint32_t*>(data);
+    for(unsigned b=0;b+32<=bytes;b+=32){
+        const std::uint32_t* q=w+b/4;
+        const unsigned t=q[0]>>29;
+        if((t!=4u && t!=5u) || ((q[0]>>24)&7u)!=4u)continue;
+        ++pt_audit_hdr;
+        if((q[2]>>29)!=4u || ((q[2]>>26)&7u)!=5u){
+            if(!pt_audit_bad){pt_audit_w0=q[0];pt_audit_w2=q[2];pt_audit_ra=ra;}
+            ++pt_audit_bad;
+        }
+    }
+}
+void pt_audit_scene(unsigned fr,bool present){
+    if(pt_audit_hdr && (pt_audit_bad?pt_audit_logs<400:!(fr%30))){
+        if(pt_audit_bad)++pt_audit_logs;
+        re4dc_log("pt_audit: frame=%u present=%u pt_hdr=%u bad=%u w0=%08x w2=%08x ra=%p\n",fr,present?1u:0u,
+                  pt_audit_hdr,pt_audit_bad,pt_audit_w0,pt_audit_w2,pt_audit_ra);
+    }
+    pt_audit_hdr=pt_audit_bad=0;
+}
+#endif
 #if RE4DC_TA_BIN_DIAG
 // TA_BIN_DIAG=1 (issue 9, test builds only; needs TA_HASH): replays every 32-byte TA burst the TA_HASH hooks see
 // through a model of the hardware tiler (20x15 tiles of 32x32): one object pointer per strip object of up to six
@@ -1673,6 +1705,9 @@ bool mv_open;
 extern "C" void re4dc_blob_emit(unsigned frame);
 unsigned blob_sends,blob_bytes;
 #endif
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+void safe_audit_scene(bool present);
+#endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
     if(!stream_scene)stream_open();
@@ -1700,6 +1735,12 @@ void stream_close(bool present) {
 #endif
 #if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
     re4dc_lbx_close(); // platform/letterbox_clip.cpp: tile row clip in the region array of the bank being filled
+#endif
+#if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
+    pt_audit_scene(frame,present);
+#endif
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+    safe_audit_scene(present);
 #endif
     sq_lock((void*)PVR_TA_INPUT);
     if(pvr_list_finish()<0 || pvr_scene_finish()<0)re4dc_missing("native stream finish failed");
@@ -1741,7 +1782,14 @@ void stream_close(bool present) {
 //   orange  TA parameter bytes of the last scene (red: overflow/fault)
 std::uint64_t hud_begin,hud_begin_prev;
 struct HudBatch { alignas(32) pvr_vertex_t v[128]; unsigned n=1; };
-void hud_flush(HudBatch& b){if(b.n>1)stream_send(b.v,b.n*32);b.n=1;}
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+void safe_audit_note(const HudBatch& b);
+#endif
+void hud_flush(HudBatch& b){
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+    safe_audit_note(b);
+#endif
+    if(b.n>1)stream_send(b.v,b.n*32);b.n=1;}
 void hud_rect(HudBatch& b,float x,float y,float w,float h,std::uint32_t argb){
     if(b.n+4>128)hud_flush(b);
     const float xs[4]={x,x,x+w,x+w},ys[4]={y+h,y,y+h,y};
@@ -1803,6 +1851,36 @@ void speed_draw(){
     if(note)for(int k=0;k<boxes;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
     hud_flush(b);
 }
+#if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
+// MCHECK_SAFE=1 (mcheck.mk, test builds only): the bounding box (screen pixels) of every quad the speed display
+// flushes in a scene, logged at scene close with the render size, the tile grid and the tile rows LETTERBOX_CLIP
+// took the translucent lists from in that scene (letterbox_clip.cpp; bit 0 row 0, bit 1 the last row; declared at
+// file scope at the top: an extern "C" object declared in this unnamed namespace links to a mangled stub).
+float safe_x0,safe_y0,safe_x1,safe_y1;bool safe_seen;unsigned safe_logs,safe_last_key;
+void safe_audit_note(const HudBatch& b){
+    if(&b!=&speed_batch)return;
+    for(unsigned i=1;i<b.n;++i){
+        const float x=b.v[i].x,y=b.v[i].y;
+        if(!safe_seen){safe_x0=safe_x1=x;safe_y0=safe_y1=y;safe_seen=true;continue;}
+        safe_x0=std::min(safe_x0,x);safe_x1=std::max(safe_x1,x);safe_y0=std::min(safe_y0,y);safe_y1=std::max(safe_y1,y);
+    }
+}
+void safe_audit_scene(bool present){
+    if(!safe_seen)return;
+    safe_seen=false;
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    const unsigned rows=re4dc_lbx_rows_last;
+#else
+    const unsigned rows=0;
+#endif
+    const unsigned key=rows|(unsigned(pvr_state.th)<<4)|(unsigned(safe_y0)<<12);
+    if(key==safe_last_key && (frame%30) && safe_logs>8)return;
+    safe_last_key=key;++safe_logs;
+    re4dc_log("safe_area: frame=%u present=%u speed=%d,%d,%d,%d screen=%dx%d tiles=%ux%u lbx_rows=%u\n",frame,
+              present?1u:0u,int(safe_x0),int(safe_y0),int(safe_x1+0.999f),int(safe_y1+0.999f),int(RE4DC_SCREEN_W),
+              int(RE4DC_SCREEN_H),unsigned(pvr_state.tw),unsigned(pvr_state.th),rows);
+}
+#endif
 #endif
 #endif
 #if RE4DC_PERF_HUD
@@ -4588,6 +4666,9 @@ extern "C" int re4dc_model_direct_enabled(){return RE4DC_TA_DIRECT;}
 #if RE4DC_TA_HASH
 extern "C" void re4dc_ta_hash(const void* data,unsigned bytes){
     const unsigned l=(unsigned)stream_list<5?(unsigned)stream_list:2;
+#if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
+    pt_audit_feed(data,bytes,__builtin_return_address(0));
+#endif
 #if RE4DC_TA_BIN_DIAG
     tabin::cur_ra=__builtin_return_address(0);
     tabin::feed(l,data,bytes);
