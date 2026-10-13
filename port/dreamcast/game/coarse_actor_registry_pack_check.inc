@@ -7,14 +7,24 @@
 #include <cstring>
 namespace {
 using re4dc_material::kRoomRoles;using re4dc_material::kRoomBlobs;
-constexpr unsigned kPackMaxBytes=192u*1024u;  // model_registry.py PACK_MAX_BYTES: aligned package + skin arena
+// CH23 r11f retains all three PS2 Mendez forms and both mask passes. Allocate
+// only the validated file + skin bytes; this is a ceiling, never a static arena.
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+constexpr unsigned kPackMaxBytes=640u*1024u;
+constexpr unsigned pack_room_max(unsigned room) { return room==0x11fu?kPackMaxBytes:192u*1024u; }
+constexpr unsigned pack_role_texture_max(unsigned room) { return room==0x11fu?9u:8u; }
+#else
+constexpr unsigned kPackMaxBytes=192u*1024u;
+constexpr unsigned pack_room_max(unsigned) { return kPackMaxBytes; }
+constexpr unsigned pack_role_texture_max(unsigned) { return 8u; }
+#endif
 constexpr unsigned kPackHeader=64,kPackKinds=12,kPackPayload=kPackHeader+kPackKinds*16;
 enum PackKind : unsigned {kDesc,kRef,kGeom,kBlob,kTex,kParents,kBind,kFModel,kFPart,kFTex,kRole,kSBlob};
 constexpr unsigned kPackRecord[kPackKinds]={48,16,64,1,16,1,48,96,32,68,32,32};
-// CH23 merchant closed/open coat descriptors need 35 exact source material
-// facts. These facts stay in the validated room package; no added static arena.
+// CH23 closed/open em13 needs 35 source material facts; all three em35 forms
+// need 124. Facts stay in the validated room package; no added static arena.
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
-constexpr unsigned kPackModels=8,kPackParts=48,kPackTexFacts=16;
+constexpr unsigned kPackModels=8,kPackParts=128,kPackTexFacts=16;
 #else
 constexpr unsigned kPackModels=8,kPackParts=32,kPackTexFacts=16;
 #endif
@@ -66,7 +76,12 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         proom=pu32(p,32),pcrc=pu32(p,36),pfnv=pu32(p,40),hcrc=pu32(p,44),app0=pu32(p,48),max_bones=pu32(p,52);
     if(version!=1 || header!=kPackHeader || total!=size || kinds!=kPackKinds || table!=kPackHeader || app0!=nmr::appearance_first ||
        !max_bones || max_bones>kRegBones || pu32(p,56) || pu32(p,60)){detail=version;return kPwHeader;}
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    if(!skin || skin%8u || size>pack_room_max(room) || skin>pack_room_max(room) ||
+       ((size+31u)&~31u)+skin>pack_room_max(room)){detail=skin;return kPwSize;}
+#else
     if(!skin || skin%8u || ((size+31u)&~31u)+skin>kPackMaxBytes){detail=skin;return kPwSize;}
+#endif
     {
         unsigned char h[kPackHeader];std::memcpy(h,p,kPackHeader);std::memset(h+44,0,4);
         PackHash a;a.add(h,kPackHeader);if(a.crc32()!=hcrc){detail=1;return kPwHash;}
@@ -237,7 +252,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         const unsigned char* r=p+sec[kRole].at+k*32;detail=k;
         const unsigned app=pu32(r,0),role=pu32(r,4),bin=pu32(r,8),tpl=pu32(r,12),fm=pu32(r,16),tf=pu32(r,20),tn=pu32(r,24);
         if(app<nmr::appearance_first || app-nmr::appearance_first>=sec[kDesc].count ||
-           role>=pack_desc[app-nmr::appearance_first].sections || fm>=sec[kFModel].count || !tn || tn>8 ||
+           role>=pack_desc[app-nmr::appearance_first].sections || fm>=sec[kFModel].count || !tn || tn>pack_role_texture_max(room) ||
            tf>sec[kFTex].count || tn>sec[kFTex].count-tf || pu32(r,28) || !bin || !tpl)return kPwRole;
         for(unsigned u=0;u<k;++u)if(pack_roles[u].appearance==app && pack_roles[u].role==role)return kPwDuplicate;
         pack_roles[k]={app,role,bin,tpl,&pack_models[fm],tfacts+tf,tn};

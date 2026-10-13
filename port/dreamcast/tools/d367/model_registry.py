@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>] [--source-normal-length]
-  [--wide-identity] [--ch23-facts]
+  [--wide-identity] [--ch23-facts] [--ch23-mendez-budget]
 (D367 generic native models, 2026-10-03)
 
---ch23-facts (default off): target ROUTE_CH23=1 allows 48 source material part
-facts per room package instead of 32. The complete closed/open merchant needs
-35 facts. All other package capacities and default output remain unchanged.
+--ch23-facts (default off): target ROUTE_CH23=1 allows 128 source material part
+facts per room package instead of 32. Closed/open em13 needs 35 facts and all
+three em35 forms need 124. Default output remains unchanged.
+
+--ch23-mendez-budget (default off): with --ch23-facts and --package-room 11f,
+raise the aligned package + skin limit from 192 KiB to 640 KiB. The target's
+ROUTE_CH23=1 loader allows this only in r11f and allocates the actual file and
+skin size, plus 32 bytes for alignment. Other rooms retain the 192 KiB ceiling.
 
 --wide-identity (Phase 2 A5, 2026-10-11, default off: the output is byte-identical to before): the target image is
 the combined ACTOR_PL08 + NATIVE_MODEL_REGISTRY recipe, whose lifetime masks are wide (actor_material_records.inc
@@ -433,7 +438,13 @@ def main():
             sys.exit('model_registry: --pack-bones takes 48, 64, 80, 96 or 128 (NATIVE_MODEL_REGISTRY_BONES)')
     if '--ch23-facts' in args:
         args.remove('--ch23-facts')
-        PACK_CAPACITY['fpart'] = 48  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
+        PACK_CAPACITY['fpart'] = 128  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
+    if '--ch23-mendez-budget' in args:
+        global PACK_MAX_BYTES
+        args.remove('--ch23-mendez-budget')
+        if package_room != 0x11f or PACK_CAPACITY['fpart'] != 128:
+            sys.exit('model_registry: --ch23-mendez-budget requires --package-room 11f and --ch23-facts')
+        PACK_MAX_BYTES = 640 * 1024
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')
@@ -1009,6 +1020,9 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     for r in runtime:
         for s in r['sections']:
             mk, tk = (r['archive'], s['bin']), (r['archive'], s['tpl'])
+            role_texture_max = 9 if room == 0x11f and PACK_CAPACITY['fpart'] == 128 else 8
+            if len(tpls[tk]['textures']) > role_texture_max:
+                raise Fail(f'package {r["name"]}: source TPL has {len(tpls[tk]["textures"])} images > {role_texture_max}')
             if mk not in fm_index:
                 m = bins[mk]; fm_index[mk] = len(fmodel)
                 fmodel.append(struct.pack('<24I', *m['header'], *m['positions'], *m['normals'], *m['weights'], *m['uv'],
