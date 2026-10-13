@@ -1,3 +1,6 @@
+#ifndef RE4DC_ACTOR_GANADO_APP0_GRIP
+#define RE4DC_ACTOR_GANADO_APP0_GRIP 0
+#endif
 // The combined pl08 + registry recipe needs 61 fixed roles plus six room roles, and 30 fixed blobs plus
 // three room blobs. Widen only this combination; all narrower recipes keep their original layout and code.
 #if RE4DC_ACTOR_PL08 && RE4DC_NATIVE_MODEL_REGISTRY
@@ -344,6 +347,9 @@ static const Role roles[] = {
 {4u,4u,484u,486u,&m_extra_484,t_extra_486,1u},
 #if RE4DC_ACTOR_PL08
 #include "actor_material_records_pl08_roles.inc"
+#endif
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+#include "actor_material_records_app0_grip.inc"
 #endif
 #if RE4DC_NATIVE_MODEL_REGISTRY && !RE4DC_NATIVE_MODEL_REGISTRY_PACK
 #include "native_model_registry_roles.inc"
