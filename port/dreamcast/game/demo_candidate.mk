@@ -108,8 +108,10 @@ ifneq ($(ACTOR_TRANSACTION),1)
 $(error ACTOR_TRANSACTION_DIAG requires ACTOR_TRANSACTION=1)
 endif
 endif
-# Both lifetime and transaction fragments are compiled by coarse_actor.cpp.
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_TRANSACTION_DIAG=$(ACTOR_TRANSACTION_DIAG)
+# Lifetime/source-state observations are owned by coarse_actor; actual source
+# alpha and queue/list observations run in these two existing translation units.
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_TRANSACTION_DIAG=$(ACTOR_TRANSACTION_DIAG)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_TRANSACTION_DIAG=$(ACTOR_TRANSACTION_DIAG)
 
 # Storage priority for all sealed source-plan native nominees; candidate, default off.
 ACTOR_SKIN_RESERVE ?= 0
