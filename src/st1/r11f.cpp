@@ -32,6 +32,15 @@
 #include "snd.h"
 #include "rnd.h"
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH23_PS2_ROOM 1
+#include "libgpu.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
+#else
+#define CH23_PS2_ROOM 0
+#endif
+
 // Room 1-1f (D:/Bio4/Prog/r11f.cpp): the village chief's barn; the meeting event (s00/s01/s02),
 // the boss fight (0xF8 / 0xF9) with its s10 stream and the s11 escape event.
 
@@ -82,6 +91,10 @@ static void r11f_EventS10EndProc();
 static void r11f_Eventxxx();
 static void r11f_EventS11();
 static void r11f_AshleyRunUp();
+#if CH23_PS2_ROOM
+static void r11f_ps2AreaInit();
+static void r11f_ps2Area9();
+#endif
 
 // Room init (the chief's barn, Mendez): before the meeting (Room_flg bit 0) pre-load evd r11fs00,
 // area 0x18 = the s00 event, the five event callbacks, the intact doors shown, Ashley initialised as the
@@ -140,7 +153,61 @@ void R11fInit()
     if (hit) {
         hit->setBeetle(ROOM_ARC_PTR(pG->pRoom, 0x2D), ROOM_ARC_PTR(pG->pRoom, 0x2F), ROOM_ARC_PTR(pG->pRoom, 0x2E));
     }
+#if CH23_PS2_ROOM
+    r11f_ps2AreaInit();
+#endif
 }
+
+
+#if CH23_PS2_ROOM
+// PS2 USA st1_3.rel 0x163a0..0x16404 and callback 0x16660..0x166bc.
+// This extra once-only source area is independent of the event transport.
+// Preserve the allocator's native number, since restored item areas may use 9.
+static AreaData r11fPs2Area9 = {1, AREA_TYPE_XZ4, 0, {{-8000.00146f, 1000.0f, 750.0f, {{42141.8086f, -52700.2812f}, {47861.1992f, -52844.5234f}, {48293.2461f, -48839.0078f}, {42213.3789f, -48904.832f}}}}};
+
+static void r11f_ps2AreaInit()
+{
+    SceAtWork* prev = SceAtPtr(8);
+    if (prev == 0 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11f: unexpected AEV boundary");
+        return;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = r11fPs2Area9.u.xz4.p[i].x;
+        corners[i].y = r11fPs2Area9.u.xz4.floor;
+        corners[i].z = r11fPs2Area9.u.xz4.p[i].z;
+    }
+    int no = SceAtCreateExecAt(pPL, corners, 0, 0x81, 1,
+                             r11fPs2Area9.u.xz4.height, 2, 0.0f, 0.0f,
+                             0, 0, 0, 0, 0);
+    SceAtWork* at = no >= 0 ? SceAtPtr(no) : 0;
+    if (at == 0) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11f: PS2 AEV allocation failed");
+        return;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) at);
+    at->area = r11fPs2Area9;
+    at->type = 2;
+    at->pParent = 0;
+    at->parentParts = 0;
+    at->angleRange = 45;
+    AddPrim((u32*) prev, (u32*) at);
+    if (RsfCheck(G_ROOM_ID, 1) == 0) {
+        SceAtDataSet_exec(at->no, SCE_LEVEL10, 0, r11f_ps2Area9, 0, 1);
+    }
+    SmdSetTrans(0x10, 0);
+    SmdSetTrans(0x13, 1);
+}
+
+static void r11f_ps2Area9()
+{
+    RsfSet(G_ROOM_ID, 1);
+    SmdSetTrans(0x1E, 1);
+    SmdSetTrans(0xF, 1);
+    SceExit();
+}
+#endif
 
 // Replaces the two barn doors by the four broken-door objects.
 extern "C" void r11f_DoorReplace()
