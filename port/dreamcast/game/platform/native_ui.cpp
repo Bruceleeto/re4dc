@@ -40,6 +40,10 @@ extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mc
 #include "include/actor_resource_lease.h"
 #endif
 #if RE4DC_ACTOR_TEX_PREP
+// This KOS translation unit has the real <new> placement overload above.
+#ifndef PLACEMENT_NEW_DEFINED
+#define PLACEMENT_NEW_DEFINED
+#endif
 #include "include/actor_tex_prep.h"
 #endif
 #include "re4dc_pad_prompts.h"

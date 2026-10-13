@@ -44,7 +44,8 @@ void actor_texture_prepare() {
     for(unsigned i=0;i<batch.count;++i) {
         const auto& pick=batch.picks[i];const Key key{pick.crc,pick.fnv};
         if(batch.variant!=re4dc_ganado_tex_variant())break;
-        Entry* entry=load(pick.image,true,&key);
+        const auto& image=pick.image; // TEX_CHECK diagnostics use the same descriptor.
+        Entry* entry=load(image,true,&key);
         const bool valid=entry && entry->valid && entry->key==key && entry->frame==frame &&
             entry->package.upload_complete() && entry->package.header().texture_count==1 &&
             entry->package.pvr_texture(0) && entry->package.textures()[0].width==pick.image.width &&
