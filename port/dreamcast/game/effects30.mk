@@ -151,6 +151,16 @@ ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
 $(error PS2_FX_ADDITIONS needs COARSE_FX_SPRITES=1 or 2)
 endif
 endif
+# Common chapter-one haze recipe/state replacement is render-owned and optional.
+PS2_FX_COMMON_HAZE ?= 0
+ifneq ($(PS2_FX_COMMON_HAZE),0)
+ifneq ($(PS2_FX_COMMON_HAZE)$(PS2_FX_POPULATION)$(ESP_SPRITE_FAST),111)
+$(error PS2_FX_COMMON_HAZE must be 0 or 1 and needs PS2_FX_POPULATION=1 ESP_SPRITE_FAST=1)
+endif
+ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
+$(error PS2_FX_COMMON_HAZE needs COARSE_FX_SPRITES=1 or 2)
+endif
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -245,6 +255,9 @@ ifneq ($(PS2_FX_POPULATION),0)
 endif
 ifneq ($(PS2_FX_ADDITIONS),0)
 	@printf '#define RE4DC_PS2_FX_ADDITIONS %s\n' '$(PS2_FX_ADDITIONS)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_COMMON_HAZE),0)
+	@printf '#define RE4DC_PS2_FX_COMMON_HAZE %s\n' '$(PS2_FX_COMMON_HAZE)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
