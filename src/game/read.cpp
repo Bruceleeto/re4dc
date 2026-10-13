@@ -319,6 +319,9 @@ void CoreDataRead()
     }
 }
 
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+extern "C" void re4dc_loadind_boot();
+#endif
 // Boot: reads the language-dependent "SS/<lang>/option.dat" (the option menu id data) to
 // OPTION_DATA_ADDR (pG->pOption).
 void OptionDataRead()
@@ -354,6 +357,9 @@ void OptionDataRead()
         pLog->err(0, 0, "OPTION_DAT IS TOO LARGE(%d/%d)", 0, OPTION_DATA_MAX);
         TaskSleep(60);
     }
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+    re4dc_loadind_boot();  // LOAD_INDICATOR: dc/loadind.dat (load_indicator.cpp)
+#endif
 }
 
 // Frees a loaded module slot: unlinks the REL (flag bit1), frees the archive (bit2; debug heap

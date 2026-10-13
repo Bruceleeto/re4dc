@@ -294,6 +294,21 @@ $(OBJDIR)/blob_shadow.o: blob_shadow.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) $(BLOB_DEFS) -Iplatform/include -MMD -MP -c $< -o $@
 endif
+# LOAD_INDICATOR=1 (test 9 lane LOADIND, default 0: no effect, load_indicator.cpp not built): the PS2 version's room
+#   loading indicator ("Loading..." with a pulsing glow, id class 0x2D) for the whole gameRoomInit, drawn over the fade
+#   while the game task sleeps in the room's disc reads (PS2 gameRoomInit 0x217ee0 / main loop). Needs dc/loadind.dat
+#   and its texture from tools/d367/ps2_load_indicator.py <PS2 USA iso> (absent: logged, nothing shown). The file
+#   (1,664 B) lives in a KOS allocation made at boot: no heap 4 or option reservation bytes. Ids / textures only.
+LOAD_INDICATOR ?= 0
+ifeq ($(LOAD_INDICATOR),1)
+$(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_LOAD_INDICATOR=1
+PLATFORM_OBJS += $(OBJDIR)/load_indicator.o
+$(OBJDIR)/load_indicator.o: load_indicator.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -MMD -MP -c $< -o $@
+else ifneq ($(LOAD_INDICATOR),0)
+$(error LOAD_INDICATOR is 0 or 1)
+endif
 # ACTOR_STATS_LEAN=1 (native_actor_fast.cpp, exact, default 0): the actor statistics that only the
 #                    NATIVE_ACTOR_LOG line reads compile to nothing (triangles stays: coarse_ganado reads it).
 ACTOR_STATS_LEAN ?= 0

@@ -458,6 +458,12 @@ static bool nativeSkipOpeningRoom()
 }
 #endif
 
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+extern "C" void re4dc_loadind_begin();
+extern "C" void re4dc_loadind_hold();
+extern "C" void re4dc_loadind_resume();
+extern "C" void re4dc_loadind_end();
+#endif
 // Rno0 == 2: room set-up after the room archive is loaded: player/area data, every manager's room
 // init + array allocation sized by the room "CNS" counts (models, parts, enemies, objects, sprites,
 // controllers, ctrl, lights, damage, SAT/EAT collision, events), the room data blocks (SMD/SMX
@@ -473,6 +479,9 @@ void gameRoomInit()
     if (nativeSkipOpeningRoom()) {
         return;
     }
+#endif
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+    re4dc_loadind_begin();  // LOAD_INDICATOR: the PS2's loading id (load_indicator.cpp)
 #endif
     DC.m_nblock_read_stop = 1;
     SndReadAddrInit();
@@ -648,8 +657,14 @@ void gameRoomInit()
     SndRoomStartInit();
     ItemMgr.roomInit();
     SubScreenRoomInit();
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+    re4dc_loadind_hold();
+#endif
     IdSys.roomInit();
     Cckpt.roomInit();
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+    re4dc_loadind_resume();
+#endif
     if (pG->shooting_mode == 0) {
         LightMgr.setItemLight();
     }
@@ -678,6 +693,9 @@ void gameRoomInit()
     if (!Flag54(0x2000) && !Flag54(0x100) && !Flag54(0x80000)) {
         DoorSeCall(1);
     }
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+    re4dc_loadind_end();
+#endif
     BitOff(pG->System_flg, 0x2000);
     BitOff(pG->System_flg, 0x100);
     BitOff(pG->System_flg, 0x80000);

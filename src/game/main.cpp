@@ -103,6 +103,10 @@ extern "C" int re4dc_pace_end(void);
 extern "C" void re4dc_pace_test_draw(void);
 extern "C" void re4dc_pace_test_tick(void);
 #endif
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+extern "C" int re4dc_loadind_active;
+extern "C" void re4dc_loadind_frame();
+#endif
 void SetPrimBuffPtr();
 void Trans();
 // game/eprintf.cpp
@@ -260,9 +264,16 @@ RESTART:
             re4dc_pace_decide_image();  // v2: whether this tick's image (models) is dropped
 #endif
             ProcessTickGet(5, "TaskScheduler");
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+            // LOAD_INDICATOR (PS2 main loop): while the loading id is up, the ids move and draw after the fade.
+            if (!re4dc_loadind_active)
+#endif
             if (!(pG->System_flg & 0x100000) || (pG->Status_flg[0] & 0x40000)) {
                 IdSys.move();
             }
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+            if (!re4dc_loadind_active)
+#endif
             if (!(pG->System_flg & 0x100000) || (pG->Status_flg[0] & 0x40000)) {
 #if RE4DC_PACE_CATCHUP
                 if (!PTS(128))
@@ -286,6 +297,11 @@ RESTART:
                 Draw_cinesco();
             }
             FadeControl(1);
+#if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
+            if (re4dc_loadind_active) {
+                re4dc_loadind_frame();
+            }
+#endif
 #if RE4DC_PACE_CATCHUP
             if (!PTS(256))
 #endif
