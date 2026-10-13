@@ -26,6 +26,10 @@ namespace nmr {
 struct Weight { unsigned char bone[3], count; float value[3]; };
 struct Chunk { unsigned source_info, position_count, normal_count, palette_count, triangles, stream_bytes;
     const unsigned char *positions, *normals, *uv, *stream; const Weight *weights; unsigned uv_bytes, texture, skin_bytes, geometry;
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    // Source role stays distinct; only the reviewed Luis face may share its head's draw.
+    unsigned draw_owner;
+#endif
 #if RE4DC_NMR_MASK
     // NATIVE_MODEL_REGISTRY_MASK: a section drawn as two runs, the opaque triangles (geometry mask_geometry[0], the
     // chunk texture) and the alpha-masked ones (geometry mask_geometry[1], colour + I4 mask pair: textures
@@ -587,6 +591,24 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
             c.position_count,c.normal_count,c.palette_count,c.triangles,desc.bones};
         re4dc_actor::plan_chunk(p,i,registry_bound->infos[i],c,input);
         p.immutable_asset_id[i]=kRegistryAsset0+registry_geometry(desc.first_chunk+i);
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+        // The covered face keeps its input/palette/identity and lifetime proof;
+        // the source-qualified head emits their merged geometry once.
+        if(c.draw_owner!=i)continue;
+#if RE4DC_NMR_MASK
+        if(c.mask_geometry[0]==~0u && c.mask_geometry[1]!=~0u) {
+            if(p.run_count==kRe4dcActorRuns || p.material_count==kRe4dcActorMaterials){NMR_CENSUS(registry_decline(m,&p,kRwPlan));return 0;}
+            const nmr::Chunk gh=registry_gview(c.mask_geometry[1]);
+            auto& mh=p.materials[p.material_count];
+            mh.image=registry_image(c.mask_texture[0]);mh.mask=registry_mask_image(c.mask_texture[1]);
+            mh.crc=c.pair_crc;mh.fnv=c.pair_fnv;
+            mh.material_flags=4;mh.blend=0;mh.depth_mode=1;mh.mask_ref=0;mh.mask_same_uv=1;mh.wrap_s=mh.wrap_t=1;
+            auto& rh=p.runs[p.run_count++];rh.role=i;rh.material=p.material_count++;rh.immutable_asset_id=kRegistryAsset0+c.mask_geometry[1];
+            rh.triangles=gh.triangles;rh.uv={gh.uv,gh.uv_bytes};rh.stream={gh.stream,gh.stream_bytes};
+            continue;
+        }
+#endif
+#endif
         // Materials: each chunk's own texture package, shared when chunks name the same package.
         unsigned mat=0;
         while(mat<p.material_count && p.materials[mat].image.pixels!=&registry_tokens[c.texture])++mat;
@@ -648,6 +670,20 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
     unsigned seen=0,j=0;
     for(unsigned i=0;i<desc->sections;++i) {
         const auto& c=registry.chunks[desc->first_chunk+i];
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+        if(c.draw_owner!=i)continue;
+        if(c.mask_geometry[0]==~0u && c.mask_geometry[1]!=~0u) {
+            if(j>=p->run_count)return 0;
+            const auto& h=p->runs[j];
+            if(!registry_run_is(h,i,c.mask_geometry[1]) || h.material>=p->material_count)return 0;
+            const auto& m=p->materials[h.material];const auto& ct=registry.textures[c.mask_texture[0]];const auto& mt=registry.textures[c.mask_texture[1]];
+            if(m.image.pixels!=&registry_tokens[c.mask_texture[0]] || m.image.width!=ct.width || m.image.height!=ct.height || m.image.format!=6 ||
+               m.image.palette || m.image.palette_bytes || m.mask.pixels!=&registry_tokens[c.mask_texture[1]] || m.mask.width!=mt.width ||
+               m.mask.height!=mt.height || m.mask.format!=0 || m.crc!=c.pair_crc || m.fnv!=c.pair_fnv || m.material_flags!=4 || m.blend ||
+               m.depth_mode!=1 || m.mask_ref || m.mask_same_uv!=1 || m.wrap_s!=1 || m.wrap_t!=1)return 0;
+            seen|=1u<<h.material;++j;continue;
+        }
+#endif
         if(j>=p->run_count)return 0;
         const auto& r=p->runs[j];
         if(r.material>=p->material_count || !registry_plain_material(p->materials[r.material],c.texture))return 0;
@@ -673,7 +709,11 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
 extern "C" int re4dc_registry_masked(const Re4dcActorPlan* p) {
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
     if(!desc)return 0;
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    for(unsigned i=0;i<desc->sections;++i)if(registry.chunks[desc->first_chunk+i].mask_geometry[1]!=~0u)return 1;
+#else
     for(unsigned i=0;i<desc->sections;++i)if(registry.chunks[desc->first_chunk+i].mask_geometry[0]!=~0u)return 1;
+#endif
     return 0;
 }
 #else
@@ -694,6 +734,37 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
         seen|=1u<<r.material;
     }
     return seen==(1u<<p->material_count)-1u;
+}
+#endif
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+// A covered source role has no independent draw, but retains its distinct
+// source BIN/TPL, immutable input, palette and lifetime/material certificate.
+// Only the pack validator's complete pinned Luis descriptor can nominate it.
+extern "C" int re4dc_registry_covered_roles(const cModel* m,const Re4dcActorPlan* p,unsigned* covered) {
+    if(!covered || !p)return 0;
+    *covered=0;
+    const auto* desc=registry_descriptor(p->appearance);
+    if(!desc)return 1;  // Leon and the ordinary Ganado plans have no covered roles.
+    if(!m || p->count!=desc->sections || m->id!=desc->model_id || m->nParts!=desc->bones)return 0;
+    for(unsigned i=0;i<desc->sections;++i) {
+        const auto& c=registry.chunks[desc->first_chunk+i];
+        if(c.draw_owner==i)continue;
+        if(desc->model_id!=4u || desc->bones!=90u || desc->sections!=6u || i!=2u || c.draw_owner!=1u)return 0;
+        const auto& owner=registry.chunks[desc->first_chunk+1u];
+        if(owner.draw_owner!=1u || c.geometry!=owner.geometry || c.texture!=owner.texture ||
+           p->immutable_asset_id[i]!=p->immutable_asset_id[1])return 0;
+        const auto& a=p->input[i];const auto& b=p->input[1];
+        if(a.positions.data!=b.positions.data || a.positions.size!=b.positions.size ||
+           a.normals.data!=b.normals.data || a.normals.size!=b.normals.size ||
+           a.uv.data!=b.uv.data || a.uv.size!=b.uv.size || a.stream.data!=b.stream.data || a.stream.size!=b.stream.size ||
+           a.weights.data!=b.weights.data || a.weights.size!=b.weights.size ||
+           a.position_count!=b.position_count || a.normal_count!=b.normal_count || a.palette_count!=b.palette_count ||
+           a.triangles!=b.triangles || a.bones!=b.bones)return 0;
+        const auto* info=p->info[i];const auto* head=p->info[1];
+        if(!info || !head || info==head || info->be_flag!=head->be_flag || std::memcmp(info->mat,head->mat,sizeof(info->mat)))return 0;
+        *covered|=1u<<i;
+    }
+    return 1;
 }
 #endif
 #if RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23

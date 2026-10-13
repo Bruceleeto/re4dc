@@ -510,6 +510,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
+#if RE4DC_ROUTE_CH22
+    // Qualified Luis source rows retain the material/TPL proof; the source
+    // bump setup reaches the same unimplemented GX stage as Del Lago.
+    if(registry && m->id==4u)implemented|=Bump;
+#endif
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
     // CH23 em35: the qualified registry identities above retain every source
     // material/TPL fact and their mask runs. PS2 atlases contain diffuse RGB,

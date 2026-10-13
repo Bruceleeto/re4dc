@@ -151,8 +151,15 @@ bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
         if(r.triangles>p.input[r.role].triangles-triangles[r.role])return false;
         triangles[r.role]+=r.triangles;
     }
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    unsigned covered=0;
+    if(!re4dc_registry_covered_roles(m,&p,&covered) ||
+       (seen|covered)!=(1u<<p.count)-1 || (seen&covered) || materials!=(1u<<p.material_count)-1)return false;
+    for(unsigned i=0;i<p.count;++i)if(triangles[i]!=((covered&(1u<<i))?0u:p.input[i].triangles))return false;
+#else
     if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return false;
     for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles)return false;
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
     actor_certificate_reached=true;  // the registry census: a decline from here on is the material certificate's
 #endif
@@ -211,8 +218,15 @@ unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail)
         triangles[r.role]+=r.triangles;
     }
     *detail=0;
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    unsigned covered=0;
+    if(!re4dc_registry_covered_roles(m,&p,&covered) ||
+       (seen|covered)!=(1u<<p.count)-1 || (seen&covered) || materials!=(1u<<p.material_count)-1)return 26;
+    for(unsigned i=0;i<p.count;++i)if(triangles[i]!=((covered&(1u<<i))?0u:p.input[i].triangles)){*detail=i;return 27;}
+#else
     if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return 26;
     for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles){*detail=i;return 27;}
+#endif
     if(!re4dc_actor_material_certificate(m,&p))return 28;
     return 0;
 }

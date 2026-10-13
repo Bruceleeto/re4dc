@@ -25,6 +25,9 @@ constexpr unsigned kPackRecord[kPackKinds]={48,16,64,1,16,1,48,96,32,68,32,32};
 // need 124. Facts stay in the validated room package; no added static arena.
 #if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
 constexpr unsigned kPackModels=8,kPackParts=128,kPackTexFacts=16;
+#elif RE4DC_ROUTE_CH22
+// Complete Luis six-info body (74) plus its independent gun (9).
+constexpr unsigned kPackModels=8,kPackParts=83,kPackTexFacts=16;
 #else
 constexpr unsigned kPackModels=8,kPackParts=32,kPackTexFacts=16;
 #endif
@@ -95,6 +98,9 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         detail=k;
         if(kind!=k+1 || off%32u || off<end || off>size || bytes>size-off || !count || count>kPackCapacity[k] ||
            bytes!=count*kPackRecord[k])return kPwTable;
+#if RE4DC_ROUTE_CH22 && !RE4DC_ROUTE_CH23
+        if(k==kFPart && room!=0x11cu && count>32u)return kPwTable;
+#endif
         sec[k]={off,bytes,count};end=off+bytes;
     }
     const unsigned char* blob=p+sec[kBlob].at;
@@ -174,19 +180,39 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         for(unsigned i=0;i<sections;++i) {
             const unsigned char* f=p+sec[kRef].at+(first+i)*16;detail=d*256+i;
             const unsigned g=pu32(f,0),t=pu32(f,4);
+#if RE4DC_ROUTE_CH22
+            const bool luis=room==0x11cu && id==4u && bones==90u && sections==6u;
+            const bool covered=pu32(f,8)==0x80000001u;
+            if(pu32(f,8)!=i && !(luis && i==2u && covered))return kPwRef;
+            if(covered) {
+                const unsigned char* owner=p+sec[kRef].at+(first+1u)*16u;
+                if(pu32(owner,8)!=1u || pu32(owner,0)!=g || pu32(owner,4)!=t || pu32(owner,12) || pu32(f,12))return kPwRef;
+            }
+#endif
 #if RE4DC_NMR_MASK
             // Word 12: 0, or a masked section: opaque run geometry + 1 (bits 0..7), pair run geometry + 1 (8..15), the
             // pair's colour texture (16..23) and I4 mask texture (24..31).
             const unsigned mw=pu32(f,12);
+#if RE4DC_ROUTE_CH22
+            if(g>=sec[kGeom].count || t>=sec[kTex].count)return kPwRef;
+#else
             if(g>=sec[kGeom].count || t>=sec[kTex].count || pu32(f,8)!=i)return kPwRef;
+#endif
+#else
+#if RE4DC_ROUTE_CH22
+            if(g>=sec[kGeom].count || t>=sec[kTex].count || pu32(f,12))return kPwRef;
 #else
             if(g>=sec[kGeom].count || t>=sec[kTex].count || pu32(f,8)!=i || pu32(f,12))return kPwRef;
+#endif
 #endif
             const unsigned char* q=p+sec[kGeom].at+g*64;
             if(pu32(q,28)!=bones)return kPwRef;
             auto& c=pack_chunks[first+i];
             c.source_info=i;c.position_count=pu32(q,0);c.normal_count=pu32(q,4);c.palette_count=pu32(q,8);c.triangles=pu32(q,12);
             c.stream_bytes=pu32(q,16);c.uv_bytes=pu32(q,20);c.skin_bytes=pu32(q,24);c.texture=t;c.geometry=g;
+#if RE4DC_ROUTE_CH22
+            c.draw_owner=covered?1u:i;
+#endif
             c.positions=blob+pu32(q,32);c.normals=blob+pu32(q,36);c.uv=blob+pu32(q,40);c.stream=blob+pu32(q,44);
             c.weights=reinterpret_cast<const nmr::Weight*>(blob+pu32(q,48));
             desc.skin_bytes+=c.skin_bytes;geom_used[g]=1;tex_used|=1u<<t;
@@ -195,7 +221,13 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
             if(!geom_primary[g]){geom_primary[g]=1;skin_sum+=c.skin_bytes;}
             if(mw) {
                 const unsigned go=(mw&255u)-1u,gh=((mw>>8)&255u)-1u,tc=(mw>>16)&255u,tm=mw>>24;
+#if RE4DC_ROUTE_CH22
+                const bool mask_only=(mw&255u)==0;
+                if(mask_only && !(luis && i==3u))return kPwRef;
+                if((!mask_only && (go>=sec[kGeom].count || go==g || go==gh)) || gh>=sec[kGeom].count || gh==g || tc>=sec[kTex].count ||
+#else
                 if(go>=sec[kGeom].count || gh>=sec[kGeom].count || go==g || gh==g || go==gh || tc>=sec[kTex].count ||
+#endif
                    tm>=sec[kTex].count || tc==tm || tc==t || tm==t || pack_tex[tc].width!=pack_tex[tm].width ||
                    pack_tex[tc].height!=pack_tex[tm].height)return kPwRef;
                 const nmr::Chunk A=registry_geom_view(p+sec[kGeom].at,blob,g);
@@ -203,20 +235,37 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 // the chunk's UV words; the runs' triangles add up to the chunk's.
                 const unsigned runs[2]={go,gh};
                 for(const unsigned x:runs) {
+#if RE4DC_ROUTE_CH22
+                    if(mask_only && x==~0u)continue;
+#endif
                     const nmr::Chunk X=registry_geom_view(p+sec[kGeom].at,blob,x);
                     if(X.position_count!=A.position_count || X.normal_count!=A.normal_count || X.palette_count!=A.palette_count ||
                        pu32(p+sec[kGeom].at+x*64,28)!=bones || std::memcmp(X.positions,A.positions,A.position_count*8u) ||
                        std::memcmp(X.normals,A.normals,A.normal_count*8u) || std::memcmp(X.weights,A.weights,A.palette_count*16u))return kPwRef;
                 }
+#if RE4DC_ROUTE_CH22
+                const nmr::Chunk Hr=registry_geom_view(p+sec[kGeom].at,blob,gh);
+                if(mask_only) {if(Hr.triangles!=A.triangles)return kPwRef;}
+                else {
+                    const nmr::Chunk O=registry_geom_view(p+sec[kGeom].at,blob,go);
+                    if(O.uv_bytes!=A.uv_bytes || std::memcmp(O.uv,A.uv,A.uv_bytes) || O.triangles+Hr.triangles!=A.triangles)return kPwRef;
+                }
+#else
                 const nmr::Chunk O=registry_geom_view(p+sec[kGeom].at,blob,go),Hr=registry_geom_view(p+sec[kGeom].at,blob,gh);
                 if(O.uv_bytes!=A.uv_bytes || std::memcmp(O.uv,A.uv,A.uv_bytes) || O.triangles+Hr.triangles!=A.triangles)return kPwRef;
+#endif
                 c.mask_geometry[0]=go;c.mask_geometry[1]=gh;c.mask_texture[0]=tc;c.mask_texture[1]=tm;
                 // native_ui.cpp model_mask_key: CRC-32 / FNV-1a of "R4MPv001" + colour crc, fnv, mask crc, fnv (LE words).
                 const unsigned words[4]={pack_tex[tc].crc,pack_tex[tc].fnv,pack_tex[tm].crc,pack_tex[tm].fnv};
                 PackHash ph;ph.add(reinterpret_cast<const unsigned char*>("R4MPv001"),8);
                 ph.add(reinterpret_cast<const unsigned char*>(words),16);
                 c.pair_crc=ph.crc32();c.pair_fnv=ph.fnv;
+#if RE4DC_ROUTE_CH22
+                if(!mask_only)geom_used[go]=1;
+                geom_used[gh]=1;tex_used|=(1u<<tc)|(1u<<tm);
+#else
                 geom_used[go]=geom_used[gh]=1;tex_used|=(1u<<tc)|(1u<<tm);
+#endif
             }
 #endif
         }
@@ -294,6 +343,48 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         for(unsigned k=0;k<sec[kRole].count;++k)used|=pack_roles[k].model==pack_blobs[u].model;
         if(!used)return kPwBinding;
     }
+#if RE4DC_ROUTE_CH22
+    // Alias and mask-only encodings belong only to this complete, reviewed pl14
+    // source set. All six normalized source BIN digests remain mandatory.
+    static const unsigned luis_bin[6]={4u,6u,8u,9u,10u,11u};
+    static const unsigned luis_tpl[6]={5u,7u,7u,5u,5u,5u};
+    static const unsigned luis_digest[6][3]={
+        {74336u,0x1a039939u,0xf6f94446u},{21312u,0x112854f5u,0xbba97c84u},
+        {29792u,0x49657759u,0xb6a55fe7u},{81312u,0x109e7365u,0x32a1c659u},
+        {13312u,0xefcc04b2u,0xe438fb43u},{13120u,0x01e766c0u,0x671da641u}};
+    for(unsigned d=0;d<sec[kDesc].count;++d) {
+        const auto& desc=pack_desc[d];bool extended=false;detail=d;
+        for(unsigned i=0;i<desc.sections;++i) {
+            const auto& c=pack_chunks[desc.first_chunk+i];extended|=c.draw_owner!=i;
+#if RE4DC_NMR_MASK
+            extended|=c.mask_geometry[0]==~0u && c.mask_geometry[1]!=~0u;
+#endif
+        }
+        if(!extended)continue;
+        if(room!=0x11cu || desc.model_id!=4u || desc.bones!=90u || desc.sections!=6u)return kPwBinding;
+        for(unsigned i=0;i<6u;++i) {
+            const auto& c=pack_chunks[desc.first_chunk+i];
+            if(c.draw_owner!=(i==2u?1u:i))return kPwBinding;
+#if RE4DC_NMR_MASK
+            if(i==3u) {if(c.mask_geometry[0]!=~0u || c.mask_geometry[1]==~0u)return kPwBinding;}
+            else if(c.mask_geometry[0]!=~0u || c.mask_geometry[1]!=~0u)return kPwBinding;
+#else
+            return kPwBinding;
+#endif
+            const re4dc_material::Role* role=nullptr;
+            for(unsigned k=0;k<sec[kRole].count;++k)
+                if(pack_roles[k].appearance==desc.appearance && pack_roles[k].role==i)role=&pack_roles[k];
+            if(!role || role->source_bin!=luis_bin[i] || role->source_tpl!=luis_tpl[i])return kPwBinding;
+            bool exact=false;
+            for(unsigned k=0;k<sec[kSBlob].count;++k) {
+                const auto& b=pack_blobs[k];const auto& h=b.normalized;
+                exact|=b.model==role->model && b.bin==luis_bin[i] && h.bytes==luis_digest[i][0] &&
+                    h.crc==luis_digest[i][1] && h.fnv==luis_digest[i][2];
+            }
+            if(!exact)return kPwBinding;
+        }
+    }
+#endif
     detail=0;return kPwNone;
 }
 }

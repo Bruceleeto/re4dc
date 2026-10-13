@@ -116,3 +116,57 @@ runs must fail coverage. Verify the 4197 source triangle multiset once, exact
 mask silhouette, unchanged off build bytes, and a matched runtime logic trace.
 Captured head turns, firing, walking, hit reactions, and hair swing remain the
 visual qualification for the retargeted hair.
+
+## Implemented candidate and host evidence (2026-10-13)
+
+The guarded coverage contract is implemented in the four runtime files above.
+The only transaction edits are the two final coverage checks. The generator's
+`--ch22-luis-coverage` switch requires room 11c, the pinned coverage manifest,
+source skeleton/identity JSON, exact sparse source part tables, all six
+normalized BIN digests, and the proved native header. Hair keeps its entire
+original stream, with an exactly reversible atlas-to-source UV transform.
+CH22 alone permits 83 material facts in r11c (74 for Luis and 9 for the gun);
+other rooms retain 32 unless CH23 is enabled. No arena ceiling increase is used.
+
+The candidate selects the PS2 hair diffuse image's alpha. This is supported by
+the [PS2 actor format viewer's material binding](https://github.com/JADERLINK/JADERLINK_MODEL_VIEWER/blob/ecd32acd1c62cf34ce4a6e958d8ea1ddafbd7dec/ALL_VIEWER/RE4_PS2_MODEL_VIEWER/src/LoadPs2BinModel.cs#L291-L301)
+and [its alpha sampling shader](https://github.com/JADERLINK/JADERLINK_MODEL_VIEWER/blob/ecd32acd1c62cf34ce4a6e958d8ea1ddafbd7dec/ALL_VIEWER/Resources/ObjShaderFrag.frag#L28-L42).
+This is format-renderer evidence, not a capture of the original PS2 GS commands.
+The original diffuse image 3 has TEX0 `400000059d308000` (TCC 1, MODULATE),
+128x64 PSMT8 RGBA. `ps2_luis_mask.py` preserves both original decoded images
+and the raw TPL, using image 3's own alpha while retaining opacity-index image 4
+as evidence. It emits the established native ARGB4444 pair format, with RGB
+high-nibble and alpha `/17` quantization, and reads back every package texel.
+
+This conversion changes 53 alpha levels to 15. Maximum alpha error is 16/255;
+mean absolute error is 1.264893/255. The 771 texels below the first native
+alpha step become zero; all 4629 fully opaque texels stay opaque. This is an
+explicit native-format approximation requiring look review, not pixel-exact
+PS2 opacity or proof of original alpha-test/blend registers.
+
+The combined body + independent gun package is 140288 bytes with 4568 bytes
+of unique skin data: 144856 bytes of the existing 196608-byte arena. It has
+7 source references, 7 geometry records (including the complete hair run),
+7 source BIN identities, 83 material facts and 12 source texture facts. The
+head/face pair is the only shared primary geometry. Texture payloads are a
+67584-byte VQ body atlas, a 16384-byte native hair pair, and the 4096-byte gun
+atlas. These are candidate resource sizes, not runtime residency measurements.
+
+Reproducible host checks:
+
+- `tools/test_luis_coverage.py`: 328 extracted helper/transaction checks across
+  CH22/PACK off/on, including input identities, visibility, all 12 matrix
+  elements, missing/double coverage and triangle totals.
+- `tools/test_luis_mask_runs.py`: 50 checks of the actual run matcher, including
+  complete mask-only coverage, material state and unchanged opaque/two-run masks.
+- `tools/d367/test_luis_pack.py <private fixture> <fresh private out>`: 100 real
+  loader checks, including every pinned source identity, malformed aliases and
+  masks, CH22-disabled rejection and CH22-only acceptance.
+- `tools/d367/test_luis_generator.py <private fixture spec> <fresh private out>`:
+  19 fail-closed cases for opt-in, source data, sparse tables, native header,
+  complete hair stream/UVs and missing/fabricated runs.
+
+With CH22 and CH23 disabled, all four modified runtime includes preprocess to
+identical bytes against the pre-candidate base. Target ELF equality, complete
+runtime admission, independently mutated source lifetime checks, original
+animation/logic traces and visual review remain separate acceptance work.
