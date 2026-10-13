@@ -3,6 +3,7 @@
 ITA key items) plus the source door gates, and which rooms are required to leave the stage.
 
     python3 tools/d367/stage_route.py [--iso PATH] [--stage 1] [--json OUT]
+    python3 tools/d367/stage_route.py --stage 2 --start r200 --exit r300   (the castle; r300 = disc 2)
 
 AEV (version 0x104) / ITA (0x105): 0x10-byte header (magic, u16 version, u16 count), then SceAtWork records of 0x9C
 bytes (include/sce_at.h): type at 0x35 (1 = door), no at 0x36, trigger at 0x38; door payload dstPos 0x5C, dstAngle
@@ -57,13 +58,45 @@ GATES = {
     ("r10f", 0x03): NEVER("r10f_DoorClose until r11e opens its side"),
     ("r10f", 0x02): ANY("r11f", why="False Eye 0x3D (ITA r11f), r10f_checkFalseEyeUse"),
 }
-JUMPS = [("r120", "r100", "r120 SceAtExecRoomJump(0x100) after the intro movie")]
+# Stage 2 (the castle, chapters 3-1..4-4; src/st2/r2xx.cpp). "inferred" = the door number is read from the AEV part
+# layout or the item's use site, not from an explicit SceAtDataReset(no) in the room code.
+KEYS.update({0xA7: "r203 door key (found r203)", 0xC3: "r201 battle-area door key (found r201)",
+             0x1E: "r201 altar gem (found r222)", 0x1F: "r201 altar gem (found r209)", 0x39: "r201 altar gem (found r20e)",
+             0xA3: "r209 salon key (found r206/r209)", 0x0F: "r20d exit key (found r20d/r20e)", 0x1D: "r20e key",
+             0x6E: "r211 cup (found r216)", 0x6F: "r211 cup (found r212)", 0x7B: "r21a key", 0x8D: "r223 dynamite",
+             0x82: "r225 door key (found r21b)", 0x80: "r207 sword", 0xC4: "r207 sword", 0x7A: "r20b key"})
+GATES.update({
+    ("r22c", 0x03): NEVER("r22c is the shooting range: each exit returns to the room it was entered from"),
+    ("r22c", 0x04): NEVER("r22c shooting range exit (back to r211)"),
+    ("r22c", 0x05): NEVER("r22c shooting range exit (back to r220)"),
+    ("r22c", 0x06): NEVER("r22c shooting range exit (r305, stage 3 only)"),
+    ("r22c", 0x08): NEVER("r22c shooting range exit (r31d, stage 3 only)"),
+    ("r201", 0x19): NEVER("AEV lockType 1 flag 0x11 (locked from this side; r210 door 2 opens it)"),
+    ("r206", 0x06): NEVER("AEV lockType 1 flag 0x0a (locked from this side)"),
+    ("r204", 0x04): ANY("r205", "r209", why="inferred: door 4 is on r204's part-1 side, reached via r205 door 0 (part 1)"),
+    ("r201", 0x21): ALL("r222", "r209", "r20e", why="inferred: the altar gems 0x1E/0x1F/0x39 (r201_checkSetGem)"),
+    ("r211", 0x00): ALL("r212", "r216", why="cups 0x6E (r216) + 0x6F (r212), r211 SceAtDataReset(0)"),
+    ("r206", 0x07): ALL("r20d", "r20e", why="inferred: after the reunion r206_gouryuu_event (end of 3-4, door flags)"),
+    ("r221", 0x0F): ANY("r22b", why="r221 elevator: SceAtExecute(0xF) only after the r22b jump (Rsf bit 10)"),
+    ("r214", 0x01): ANY("r217", why="inferred: the scaffold drop (Scenario_flg[0] 0x40000000, set in r217) opens r214's way on"),
+    ("r225", 0x01): ANY("r21b", why="inferred: key 0x82 (ITA r21b), r225_DoorMes_exec"),
+})
+JUMPS = [("r120", "r100", "r120 SceAtExecRoomJump(0x100) after the intro movie"),
+         ("r221", "r22b", "r221 elevator down, first time: SceAtExecRoomJump(0x22B) (chapter 4-1 end event)")]
 CHAPTERS = [("1-1", "r106", "SceSetChapterEnd(0, 3): door 3 -> r104"),
             ("1-2", "r105", "SceSetChapterEnd(CHAPTER_1_2, -1)"),
             ("1-3", "r10b", "SceSetChapterEnd(CHAPTER_1_3, 6): door 6 -> r11b"),
             ("2-1", "r117", "SceSetChapterEnd(CHAPTER_2_1, -1)"),
             ("2-2", "r11c", "SceSetChapterEnd(CHAPTER_2_2, -1)"),
             ("2-3", "r10f", "door 2 -> r200 (stage 2)")]
+CHAPTERS2 = [("2-3", "r200", "SceSetChapterEnd(CHAPTER_2_3, 9)"), ("3-1", "r204", "r204s00, SceSetChapterEnd(CHAPTER_3_1)"),
+             ("3-2", "r20b", "R20bEventS00, SceSetChapterEnd(CHAPTER_3_2)"), ("3-3", "r206", "Luis dies, r206_die_event"),
+             ("3-4", "r206", "reunion r206_gouryuu_event (after r20d/r20e, Ashley's section)"),
+             ("4-1", "r22b", "r22bs00 via the r221 jump, SceSetChapterEnd(CHAPTER_4_1)"),
+             ("4-2", "r21d", "r21d_checkGrave, SceSetChapterEnd(CHAPTER_4_2, 0xC)"),
+             ("4-3", "r225", "the r225 -> r226 lift, SceSetChapterEnd(CHAPTER_4_3, 1)"),
+             ("4-4", "r22a", "rope down, SceSetChapterEnd(CHAPTER_4_4, 1); door 1 -> r300 = disc 2")]
+WAYPOINTS = {1: (), 2: ("r204", "r20b", "r206", "r20d", "r20e", "r22b", "r21d", "r225", "r228", "r22a")}
 
 
 def records(arc, magic, version):
@@ -93,11 +126,12 @@ def scan(iso, stage):
                           "part": part, "lock": lt, "lockflag": lf, "doorNo": dno, "fade": fade,
                           "pos": [round(x), round(y), round(z)], "angle": round(ang, 3)})
         items = [struct.unpack_from(">H", arc, w + 0x78)[0] for w in records(arc, b"ITA", 0x105)]
-        rooms[room] = {"doors": doors, "keys": [k for k in items if k in KEYS], "items": len(items)}
+        rooms[room] = {"doors": doors, "keys": [k for k in items if k in KEYS], "items": len(items), "item_ids": items}
     return rooms
 
 
 def reach(rooms, start, skip=()):
+    """Rooms reachable from start under GATES (monotone: a gate opens once its rooms were visited)."""
     edges = [(a, d["no"], d["dst"]) for a, r in rooms.items() for d in r["doors"] if d["dst"] != a]
     edges += [(a, -1, b) for a, b, _ in JUMPS]
     seen, order, changed = {start}, [start], True
@@ -132,11 +166,13 @@ def main():
                 d["no"], d["dst"], d["part"], d["lock"], d["lockflag"], d["trigger"], ("  [" + g[2] + "]") if g else ""))
     seen, _ = reach(rooms, a.start)
     names = sorted(rooms)
-    required = [r for r in names if r != a.start and a.exit not in reach(rooms, a.start, skip=(r,))[0]]
+    need = (a.exit,) + WAYPOINTS.get(a.stage, ())
+    required = [r for r in names if r != a.start and
+                (r in need or not all(w in reach(rooms, a.start, skip=(r,))[0] for w in need))]
     print("\n%s reached from %s: %s; unreachable: %s" % (a.exit, a.start, a.exit in seen,
                                                        [r for r in names if r not in seen] or "none"))
     print("required by the door graph (removing the room cuts %s): %s" % (a.exit, " ".join(required)))
-    print("chapter ends:", "; ".join("%s %s (%s)" % c for c in CHAPTERS))
+    print("chapter ends:", "; ".join("%s %s (%s)" % c for c in (CHAPTERS2 if a.stage == 2 else CHAPTERS)))
     print("optional by the door graph:", " ".join(r for r in names if r not in required and r != a.start))
     if a.json:
         Path(a.json).write_text(json.dumps({"rooms": rooms, "required": required}, indent=1))

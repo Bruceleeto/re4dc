@@ -184,3 +184,7 @@ r117, r112, r111, r113, r11c, r10f, r11f), plus one of r11a / r10c + r10e, and o
 Port status against this line (2026-09-30): r120 -> r100 -> r101 -> r103 plays on the play discs (PS2 worlds, route
 fixes). r103's exit to r106 is the next room. Test discs fade back to the title there (design-r103). r106 carries
 the stage's largest conditional module request (em12 floor 3,932,160 B plus em29/em2a/em2e, above).
+
+Disc 1 beyond stage 1 (2026-10-13): the stage-2 (castle) route and the test 9 port coverage are in
+`DISC1_ROUTE.md` (`stage_route.py --stage 2 --start r200 --exit r300`). Disc 1 needs at least 65 rooms. 18 play
+in Flycast (to the chapter 2-1 end in r117), and 47 remain.
