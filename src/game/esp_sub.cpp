@@ -184,6 +184,7 @@ struct Ps2fxHaze {
     u8 gc_r, gc_g, gc_b;
     // 0: any; otherwise source Work8[3] + 1. r11d has equal range/RGB but distinct immutable indoor durations.
     u8 gc_room_frames_p1;
+    u8 gc_owner; // 0: room-SST owner 0xd0; r200 EST 2 explicitly uses owner 1.
 #endif
 };
 #if RE4DC_WATER45_NATIVE
@@ -192,7 +193,7 @@ struct Ps2fxHaze {
 #define PS2FX_HAZE_ROOMS0 3
 #endif
 #if RE4DC_PS2_FX_STAGE1
-#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 18)
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 19)
 #elif RE4DC_PS2_FX_ROOMS
 #define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
 #else
@@ -259,6 +260,8 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     {0x11e, 6, 175, 175, 155, 50, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 175, 175, 155, 0},
     // r11f: GC sst 01/0 (59 emissions) -> PS2 sst 00/1 (11); source steady-size ratio.
     {0x11f, 1, 255, 255, 255, 40, 4000.000f, 1.461588282f, 6860.199f, 3000.0f, 500.0f, 255, 255, 245, 0},
+    // r200: room EST 02/0, GC 53 -> PS2 12; R200Init spawns owner 1 with no source overrides.
+    {0x200, 3, 255, 255, 255, 60, 6000.000f, 1.230810994f, 6860.199f, 3500.0f, 500.0f, 205, 215, 215, 0, 1},
 #endif
 };
 #if RE4DC_PS2_FX_ROOMS
@@ -278,7 +281,12 @@ public:
 #endif
 static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
 {
+#if RE4DC_PS2_FX_STAGE1
+    if (!(re4dc_ps2fx & PS2FX_HAZE) || esp->m_Id != 0x15 ||
+        (esp->info.owner != 0xD0 && esp->info.owner != 1)) {
+#else
     if (!(re4dc_ps2fx & PS2FX_HAZE) || esp->m_Id != 0x15 || esp->info.owner != 0xD0) {
+#endif
         return NULL;
     }
     const u16 room = G_ROOM_ID;
@@ -294,6 +302,9 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
 #endif
 #if RE4DC_PS2_FX_STAGE1
             const Ps2fxHaze* h = &kPs2Haze[i];
+            if (esp->info.owner != (h->gc_owner ? h->gc_owner : 0xD0)) {
+                continue;
+            }
             if ((h->gc_r || h->gc_g || h->gc_b) &&
                 (esp->m_Col_start_r != h->gc_r || esp->m_Col_start_g != h->gc_g || esp->m_Col_start_b != h->gc_b)) {
                 continue;
@@ -453,6 +464,7 @@ static int Ps2fxInStairsArea()
 struct Ps2fxSheetCut {
     u16 room;
     u8 tex;
+    u8 owner; // 0 means the established room-SST owner 0xd0.
 };
 static const Ps2fxSheetCut kPs2SheetCut[] = {
     {0x105, 0xd0}, // 2 GC source records
@@ -480,25 +492,61 @@ static const Ps2fxSheetCut kPs2SheetCut[] = {
     {0x11c, 0x34}, // 3 GC source records
     {0x11c, 0x33}, // 1 GC source records
     {0x200, 0xf6}, // 14 GC source records
+    {0x11c, 0xcb, 1}, // 12 room EST 0a records
+    {0x11c, 0x34, 1}, // 4 room EST 0a records
+    {0x11c, 0x33, 1}, // 10 room EST 0a records
+    {0x11c, 0xf6, 1}, // 19 room EST 0a records
 };
 #endif
 // 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
 // anchor (=2: draws the PS2 shafts in its place).
 static int Ps2fxClass(cEsp* esp)
 {
-    if (esp->info.owner != 0xD0) {
-        return 0;
-    }
 #if RE4DC_PS2_FX_STAGE1
-    // Keep source emissions, RNG and pool ownership; omit only the qualified room-SST sheet draws.
-    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48) {
-        for (unsigned i = 0; i < sizeof(kPs2SheetCut) / sizeof(kPs2SheetCut[0]); ++i) {
-            if (G_ROOM_ID == kPs2SheetCut[i].room && esp->m_Tex_id == kPs2SheetCut[i].tex) {
+    // Owner 1 is the room's main EST table (game.cpp); its copies keep the owner stamp.
+    if (esp->info.owner == 1) {
+        if ((re4dc_ps2fx & PS2FX_HAZE) && G_ROOM_ID == 0x10d && esp->m_Id == 0x15) {
+            const f32 range = static_cast<cPs2fxEsp15*>(esp)->m_Free.Range;
+            if ((esp->m_Tex_id == 0xc6 && range == 500.0f) ||
+                (esp->m_Tex_id == 0x1e && range == 1500.0f)) {
+                return 1; // Exact special EST15 sources; the PS2 room has neither.
+            }
+        }
+        // Work8[0]=1 gives these static copies life=1, unlike the permanent SST streak copies.
+        if ((re4dc_ps2fx & PS2FX_STREAK) && esp->m_Id == 0 && esp->m_Life_max == 1 &&
+            esp->m_Blend_type == 1 && esp->m_Tex_id == 0x32) {
+            if ((G_ROOM_ID == 0x111 &&
+                 ((esp->m_Del_far == 350 && esp->m_Del_near == 100 && esp->m_Col_start_r == 110 &&
+                   esp->m_Col_start_g == 115 && esp->m_Col_start_b == 115) ||
+                  (esp->m_Del_far == 250 && esp->m_Del_near == 40 && esp->m_Col_start_r == 175 &&
+                   esp->m_Col_start_g == 185 && esp->m_Col_start_b == 185))) ||
+                (G_ROOM_ID == 0x112 && esp->m_Del_far == 200 && esp->m_Del_near == 100 &&
+                 esp->m_Col_start_r == 235 && esp->m_Col_start_g == 245 && esp->m_Col_start_b == 255)) {
                 return 1;
             }
         }
     }
 #endif
+#if RE4DC_PS2_FX_STAGE1
+    // Keep source emissions, RNG and pool ownership; omit only the qualified SST/EST sheet draws.
+    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48) {
+        for (unsigned i = 0; i < sizeof(kPs2SheetCut) / sizeof(kPs2SheetCut[0]); ++i) {
+            if (G_ROOM_ID == kPs2SheetCut[i].room && esp->m_Tex_id == kPs2SheetCut[i].tex &&
+                esp->info.owner == (kPs2SheetCut[i].owner ? kPs2SheetCut[i].owner : 0xD0)) {
+                return 1;
+            }
+        }
+    }
+#endif
+    if (esp->info.owner != 0xD0) {
+#if RE4DC_PS2_FX_STAGE1
+        if (esp->info.owner != 1 || G_ROOM_ID != 0x200 || esp->m_Id != 0x15) {
+            return 0;
+        }
+#else
+        return 0;
+#endif
+    }
 #if RE4DC_EFFECT_PS2_HAZE
     if (esp->m_Id == 0x15) {
         const Ps2fxHaze* h = Ps2fxHazeFor(esp);

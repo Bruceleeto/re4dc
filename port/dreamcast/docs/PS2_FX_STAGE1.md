@@ -168,3 +168,26 @@ python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --s
 The twelve host tests include source duration disambiguation and rejection of
 ambiguous/unrepresentable identities. No integration gates or in-game look,
 performance, boot or heap acceptance are established by this commit.
+
+## Qualified room-EST draws
+
+Room setup installs main EFF 0 under owner 1 (`game.cpp`); `EstSet` and its
+particles preserve that stamp, while `SstSet` explicitly stamps owner 0xd0.
+The stage-1 knob now handles these owner-1 cases separately:
+
+- r200 EST 2 haze: GC 53 emissions -> PS2 12, 2400 mm base, range 6000 mm,
+  white alpha 60 and near fade 3500/500 mm. `R200Init` starts that exact EST with
+  no model, position, rotation or optional colour override. Existing stride
+  three estimates 11.82 particles; it does not establish population equality.
+- r111 four and r112 one removed EST streak sources: the frozen copies have
+  life one and are selected by texture/delete distances plus immutable start
+  RGB. The source audit rejects matching direct sprites and retained PS2 rows.
+- r11c EST 0a's 45 removed sheets: twelve cb, four 34, ten 33 and nineteen f6.
+- r10d's two special EST15 records: exact texture/range pairs c6/500 and
+  1e/1500. They are not camera fog recipes. Both are absent from the PS2 source.
+
+No owner-1 source outside those signatures is omitted or retuned. In
+particular, r11c's new PS2 EST 6 haze is a gate-opening effect with its own
+lifecycle, and remains unimplemented rather than being made globally active.
+The room scripts, source effect controllers, call counters and particles are
+unchanged. Runtime/visual/heap/cost gates remain required.
