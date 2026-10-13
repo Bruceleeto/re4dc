@@ -504,6 +504,15 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    // CH23 em35: the qualified registry identities above retain every source
+    // material/TPL fact and their mask runs. PS2 atlases contain diffuse RGB,
+    // not a baked bump/specular stage. As on the existing em2f path, trans.cpp
+    // bumpSetup only reaches GXLoadTexObj / indirect GX stubs; it does not
+    // replace model_bridge's diffuse selection. This allowance covers that
+    // source-path limitation only; target visual acceptance remains separate.
+    if(registry && m->id==0x35)implemented|=Bump;
+#endif
 #endif
 #if RE4DC_NMR_CROW
     // PS2_CROW (Phase 2 A3, user decision 2026-10-11): a registry crow (em23, 0x23) draws no bump stage (as the source

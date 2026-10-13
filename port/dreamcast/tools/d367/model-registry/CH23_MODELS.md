@@ -58,10 +58,11 @@ the current Dreamcast source-path limitation, not a new PS2 shader:
 - The existing generic native material policy already advertises Specular;
   this conversion does not change its lighting or claim a new specular stage.
 
-The existing Bump capability exception covers em2f only. The em35 package thus
-still needs a separately coordinated CH23-scoped material allowance and visual
-qualification. No transaction, lighting, hand-cache, or material policy file
-is changed by the conversion commit.
+The Bump capability allowance now also covers a qualified em35 registry plan
+only when both ROUTE_CH23 and NATIVE_MODEL_REGISTRY_DROP_BUMP are enabled.
+Other actors and non-registry plans receive no new capability. This narrowly
+records the source-path limitation described above and still needs target
+visual qualification. No transaction, lighting, or hand-cache code is changed.
 
 ## Reproduction and limits
 
@@ -109,6 +110,9 @@ Private evidence root: `/root/probe/codex-ch23-enemies-20261013`.
 - `merchant-pack-validator-v4/results.json`: 35 package/refusal cases.
 - `mendez-pack-validator-v2/results.json`: 36 package/refusal cases compiled
   with exactly 96 bones, including CH23-off and other-room budget refusal.
+- `mendez-material-guard-host-v1/results.json`: 40 combinations compile the
+  actual capability excerpt; the new bit requires both flags, id35, and the
+  registry gate. This checks routing, not the full certificate or appearance.
 - `candidate-shared-texture-content-proof.json`: repeated em13/em18 texture
   keys have byte-identical image metadata and payloads. Only their text labels
   and package checksums differ; r10f-v2 texture copies are canonical for staging.
