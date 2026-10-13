@@ -14,6 +14,9 @@
 #if RE4DC_ACTOR_TRANSACTION
 #include "coarse_actor_transaction.h"
 #endif
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep.h"
+#endif
 
 #include "em.h"
 #include "obj.h"
@@ -883,6 +886,9 @@ extern "C" int re4dc_coarse_source_actors_ready() {
     if(count!=sourceActorCount || !player_seen || !partner_seen){sourceActorFailure(18);return 0;}
     return 1;
 }
+#if RE4DC_ACTOR_TEX_PREP
+#include "source_actor_tex_prep.inc"
+#endif
 #if RE4DC_ACTOR_EARLY_COARSE
 extern "C" int re4dc_actor_early_proof_active(cModel* m) {
     FrameIdentity now{};

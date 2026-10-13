@@ -39,6 +39,9 @@ extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mc
 #if RE4DC_ACTOR_TRANSACTION
 #include "include/actor_resource_lease.h"
 #endif
+#if RE4DC_ACTOR_TEX_PREP
+#include "include/actor_tex_prep.h"
+#endif
 #include "re4dc_pad_prompts.h"
 #include "re4dc_manual_pages.h"
 #if RE4DC_PAD_PROMPTS
@@ -3918,6 +3921,9 @@ extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=
 // load_indicator.cpp (LOAD_INDICATOR with DOOR_FREEZE): the banner's quads start here.
 extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;door_banner_frame=frame;}
 #endif
+#if RE4DC_ACTOR_TEX_PREP
+#include "include/native_ui_actor_tex_prep.inc"
+#endif
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_KOS_HEAP_CHECK
     re4dc_heap_check();
@@ -4013,6 +4019,9 @@ extern "C" void re4dc_ui_begin(){
     re4dc_prepare_model_assets(); // registration/update work precedes frame submission
 #if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
     stage1_prepare_image(); // existing guarded preload/load path; no effect submission
+#endif
+#if RE4DC_ACTOR_TEX_PREP
+    actor_texture_prepare(); // ordinary preload demotion has already finished
 #endif
     re4dc::profile::begin();
 #if defined(__sh__)
@@ -4994,7 +5003,12 @@ extern "C" int re4dc_actor_texture_acquire(const Re4dcUiImage* image,unsigned cr
     if(!e || !e->valid || !(e->key==key) || !e->package.upload_complete() || e->package.header().texture_count!=1 || !e->package.pvr_texture(0))return 0;
     const auto& t=e->package.textures()[0];
     if(t.width!=image->width || t.height!=image->height || t.format>re4dc::texture::kArgb4444)return 0;
+#if RE4DC_ACTOR_TEX_PREP && RE4DC_ACTOR_TEX_PREP_DIAG
+    if(!actor_texture_leases.acquire(unsigned(e-entries),frame,*out))return 0;
+    actor_tex_prep_bound(key);return 1;
+#else
     return actor_texture_leases.acquire(unsigned(e-entries),frame,*out)?1:0;
+#endif
 }
 #if RE4DC_ACTOR_EARLY_COARSE
 extern "C" int re4dc_actor_texture_acquire_next(const Re4dcUiImage* image,unsigned crc,unsigned fnv,Re4dcActorTextureLease* out){

@@ -1001,3 +1001,6 @@ extern "C" void re4dc_coarse_ganado_end(){
 extern "C" int re4dc_coarse_ganado_layout(){return stress_layout;}
 
 #include "coarse_actor_owner_ganado.inc"
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep_ganado.inc"
+#endif

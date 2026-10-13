@@ -682,3 +682,6 @@ extern "C" unsigned re4dc_actor_material_diagnose(cModel* m,const Re4dcActorPlan
     if(need)*need=r.required;if(matched)*matched=r.identity_roles;
     return unsigned(r.error);
 }
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep_material.inc"
+#endif
