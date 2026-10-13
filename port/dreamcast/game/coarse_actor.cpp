@@ -371,6 +371,31 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
 }
 
 #include "coarse_actor_owner_leon.inc"
+#if RE4DC_ACTOR_TEX_PREP
+// Read the already-published costume only. No sync, load, plan, bind or lease.
+extern "C" int re4dc_player_tex_current(unsigned generation) {
+#if RE4DC_ACTOR_PL08 && RE4DC_ACTOR_PL08_PACK
+    return generation && pl08_pack.published && pl08_pack.player_file==kPl08PlayerFile &&
+        pl08_pack.generation==generation && pl08_pack.cell && pl08_pack.base;
+#else
+    (void)generation;return 0;
+#endif
+}
+extern "C" int re4dc_player_tex_pick(unsigned appearance,Re4dcActorTexPick* out) {
+    if(!out)return 0;*out={};
+#if RE4DC_ACTOR_PL08 && RE4DC_ACTOR_PL08_PACK
+    const unsigned generation=pl08_pack.generation;
+    if(appearance!=0x108 || !re4dc_player_tex_current(generation))return 0;
+    const Re4dcActorTexPick pick{pl08_image,pl08_crc,pl08_fnv,0,0,
+        Re4dcActorTexKind::PlayerPl08,generation};
+    if(!re4dc_player_tex_current(generation))return 0;
+    *out=pick;return 1;
+#else
+    (void)appearance;return 0;
+#endif
+}
+#endif
+
 #if RE4DC_CHARBAKE_TOGGLE
 // charbake.mk CHARBAKE_TOGGLE (test builds): a look toggle preset (post30.mk LOOK_TOGGLE) or DBG_WARP's
 // `charbake <n> [room frame]` selects a character variant (charbake_variants.h): Leon's atlas, the cast atlas and the

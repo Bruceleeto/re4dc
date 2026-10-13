@@ -43,10 +43,13 @@ void actor_texture_prepare() {
     unsigned loaded=0;
     for(unsigned i=0;i<batch.count;++i) {
         const auto& pick=batch.picks[i];const Key key{pick.crc,pick.fnv};
-        if(batch.variant!=re4dc_ganado_tex_variant())break;
+        if(pick.kind==Re4dcActorTexKind::PlayerPl08) {
+            if(!re4dc_player_tex_current(pick.package_generation))continue;
+        } else if(pick.kind!=Re4dcActorTexKind::Ganado || batch.variant!=re4dc_ganado_tex_variant())break;
         const auto& image=pick.image; // TEX_CHECK diagnostics use the same descriptor.
         Entry* entry=load(image,true,&key);
-        const bool valid=entry && entry->valid && entry->key==key && entry->frame==frame &&
+        const bool current=pick.kind!=Re4dcActorTexKind::PlayerPl08 || re4dc_player_tex_current(pick.package_generation);
+        const bool valid=current && entry && entry->valid && entry->key==key && entry->frame==frame &&
             entry->package.upload_complete() && entry->package.header().texture_count==1 &&
             entry->package.pvr_texture(0) && entry->package.textures()[0].width==pick.image.width &&
             entry->package.textures()[0].height==pick.image.height &&
@@ -62,8 +65,8 @@ void actor_texture_prepare() {
         ++loaded;
 #if RE4DC_ACTOR_TEX_PREP_DIAG
         actor_tex_prepared[actor_tex_prepared_count++]={key,frame,0};
-        if(report)re4dc_log("ATEXP_KEY f=%u key=%08x-%08x apps=%x far=%u bytes=%u pin=%u scene=%u\n",
-            frame,key.crc,key.fnv,pick.appearances,pick.far,entry->package.vram_bytes(),
+        if(report)re4dc_log("ATEXP_KEY f=%u key=%08x-%08x apps=%x far=%u kind=%u gen=%u bytes=%u pin=%u scene=%u\n",
+            frame,key.crc,key.fnv,pick.appearances,pick.far,unsigned(pick.kind),pick.package_generation,entry->package.vram_bytes(),
             entry->frame,unsigned(stream_scene));
 #endif
     }

@@ -5,17 +5,21 @@ class cModel;
 
 // Residency hints only. No source pointer, binding revision, skin, palette or
 // presentation ticket leaves the synchronous completed-ledger inspection.
-constexpr unsigned kRe4dcActorTexPicks=5;
+constexpr unsigned kRe4dcGanadoTexPicks=5;
+constexpr unsigned kRe4dcActorTexPicks=kRe4dcGanadoTexPicks+1;
+enum class Re4dcActorTexKind : unsigned { Ganado, PlayerPl08 };
 enum class Re4dcActorTexReason : unsigned {
     None, Source, Range, Model, Chain, Lifetime, Asset, Owner, Row, Material,
     Hidden, Variant, Capacity, Changed, Count
 };
 struct Re4dcActorTexMetadata {
-    unsigned appearance=0,roles=0,owned=0,dry=0,visible_atlas_roles=0;
+    unsigned appearance=0,roles=0,owned=0,dry=0,visible_atlas_roles=0,package_generation=0;
 };
 struct Re4dcActorTexPick {
     Re4dcUiImage image{}; // pixels is the existing immutable bundle token
-    unsigned crc=0,fnv=0,appearances=0,far=0;
+    unsigned crc=0,fnv=0,appearances=0,far=0; // appearances is the five-Ganado mask only
+    Re4dcActorTexKind kind=Re4dcActorTexKind::Ganado;
+    unsigned package_generation=0; // PlayerPl08 only; never a source pointer
 };
 struct Re4dcActorTexBatch {
     re4dc_source::FrameIdentity source{};
@@ -31,5 +35,9 @@ unsigned re4dc_actor_tex_metadata(cModel*,const re4dc_source::FrameIdentity*,
                                   const re4dc_source::ModelIdentity*,Re4dcActorTexMetadata*);
 unsigned re4dc_ganado_tex_variant();
 int re4dc_ganado_tex_picks(unsigned,unsigned,Re4dcActorTexPick*,unsigned*);
+unsigned re4dc_player_tex_metadata(cModel*,const re4dc_source::FrameIdentity*,
+                                   const re4dc_source::ModelIdentity*,Re4dcActorTexMetadata*);
+int re4dc_player_tex_current(unsigned);
+int re4dc_player_tex_pick(unsigned,Re4dcActorTexPick*);
 int re4dc_actor_tex_enumerate(Re4dcActorTexBatch*);
 }

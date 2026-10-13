@@ -17,7 +17,7 @@ bool asset(const Asset& a) {
 // A missing live Info may be proved into this stack object using the same
 // asset/template/TPL closure as info_adopt. An existing but stale Info never
 // falls through to the dry proof. No retire, insert, next, changed or memo.
-Reason inspect(cModelInfo* p,Info& out,bool& dry) {
+Reason inspect(cModelInfo* p,Info& out,bool& dry,unsigned appearance=~0u) {
     dry=false;
     if(const Info* live=find_info(p)) {
         if(live->asset>=kAssets || !asset(assets[live->asset]) ||
@@ -36,12 +36,12 @@ Reason inspect(cModelInfo* p,Info& out,bool& dry) {
     const auto& a=assets[ai];Info found{};
     for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r) {
         const auto& row=RE4DC_ROLE(r);bool match=false;
-        if(row.appearance>=5)continue;
+        if(appearance==~0u ? row.appearance>=5 : row.appearance!=appearance)continue;
         for(unsigned t=0;t<RE4DC_BLOB_COUNT;++t)
             if((a.templates&(BlobMask(1u)<<t)) && RE4DC_BLOB(t).model==row.model)match=true;
         if(!match)continue;
         for(unsigned k=0;k<kArchives;++k) {
-            const auto& o=archives[k];if(o.family!=2 || !archive(o))continue;
+            const auto& o=archives[k];if(o.family!=(RE4DC_LEON_LIKE(row.appearance)?1u:2u) || !archive(o))continue;
             const unsigned char* begin=nullptr;unsigned bytes=0;
             if(!entry(o,row.source_tpl,"TPL",begin,bytes) || begin!=p->tpl_addr ||
                !tpl_owned(o,begin,bytes,row))continue;
@@ -133,3 +133,5 @@ extern "C" unsigned re4dc_actor_tex_metadata(cModel* m,const re4dc_source::Frame
     if(p)return unsigned(Reason::Changed);
     *output=result;return unsigned(Reason::None);
 }
+
+#include "actor_tex_prep_player.inc"

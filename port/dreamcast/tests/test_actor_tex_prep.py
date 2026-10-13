@@ -20,7 +20,7 @@ def function(text, marker, body=False):
     return text[begin if body else start:end]
 
 
-def material_harness():
+def material_harness(player=False):
     mat = (GAME / "coarse_actor_material.inc").read_text()
     types = mat[mat.index("struct Digest {"):mat.index("// These are direct SOURCE")]
     pure = "\n".join(function(mat, marker) for marker in (
@@ -32,7 +32,7 @@ def material_harness():
     info = mat[begin:mat.index("\n#if RE4DC_LEON_HAND_POSES", begin)]
     begin = mat.index("namespace re4dc_material { namespace record {")
     record = mat[begin:mat.index("\n#endif\nnamespace re4dc_material {", begin)]
-    return r'''
+    source = r'''
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -108,7 +108,7 @@ constexpr std::uintptr_t kArena=0x8c000000u;constexpr unsigned kArenaBytes=1<<20
 unsigned char* arena=reinterpret_cast<unsigned char*>(kArena);
 cModel* model=reinterpret_cast<cModel*>(kArena+0x80000);
 cModelInfo* links=reinterpret_cast<cModelInfo*>(kArena+0x81000);
-Model models[8]{};Texture textures[8]{};Part parts[8]{};
+Model models[12]{};Texture textures[12]{};Part parts[12]{};
 void word(void* p,unsigned at,unsigned value){std::memcpy(static_cast<unsigned char*>(p)+at,&value,4);}
 void half(void* p,unsigned at,unsigned value){unsigned short x=value;std::memcpy(static_cast<unsigned char*>(p)+at,&x,2);}
 unsigned address(const void* p){return unsigned(reinterpret_cast<std::uintptr_t>(p));}
@@ -125,10 +125,10 @@ void reset(unsigned n=4) {
  source_calls=0;source_current=true;change_source_after_first=false;*model=cModel{};
  model->pParts=arena+0x85000;model->pList=model->pParts;model->pModelInfo=links;
  pPL=pSubEm=nullptr;gxCsScale[0]=0;
- const unsigned bytes=128+n*1024;word(arena,0,n*2);
+ const unsigned bytes=256+n*1024;word(arena,0,n*2);
  archives[0]={arena,arena,bytes,2,2};
  for(unsigned k=0;k<n;++k) {
-  auto* bin=arena+128+k*1024;auto* tpl=bin+512;
+  auto* bin=arena+256+k*1024;auto* tpl=bin+512;
   word(arena,16+2*k*4,address(bin)-address(arena));word(arena,16+(2*k+1)*4,address(tpl)-address(arena));
   std::memcpy(arena+16+2*n*4+2*k*4,"BIN\0TPL\0",8);
   auto* data=reinterpret_cast<ModelData*>(bin);*data=ModelData{};
@@ -237,6 +237,35 @@ int main(){
 '''
 
 
+    if not player:
+        return source
+    source = source[:source.index("int main(){")]
+    source = source.replace("#define RE4DC_ACTOR_PL08 0", "#define RE4DC_ACTOR_PL08 1\n#define RE4DC_ACTOR_PL08_PACK 1\n#define RE4DC_LEON_HAND_POSES 1\n#define PL_BODY_H 1")
+    source = source.replace("#define RE4DC_ACTOR_LEON_NATIVE_LOOK 0", "#define RE4DC_ACTOR_LEON_NATIVE_LOOK 1")
+    source = source.replace("#define RE4DC_LEON_LIKE(a) ((a)==256u)", "#define RE4DC_LEON_LIKE(a) ((a)==256u || (a)==264u)\n#define RE4DC_LEON_OT_BAD(m) ((m)->ot_type!=7)")
+    source = source.replace("class cModel { public:", "struct cPlBody {cModelInfo* pRight; cModelInfo* pLeft;};\nclass cModel { public:\n cPlBody* Body=nullptr;")
+    source = source.replace("#include \"actor_tex_prep_material.inc\"", player_accessor_source() + "\n#include \"actor_tex_prep_material.inc\"")
+    source = source.replace(info, info + "\n" + function(mat, "Error hand_info("))
+    source = source.replace("bool source_current=true,change_source_after_first=false;unsigned source_calls;", "bool source_current=true,change_source_after_first=false;unsigned source_calls;\nvoid player_mutate(unsigned);")
+    source = source.replace("++source_calls;return source_current", "++source_calls;player_mutate(source_calls);return source_current")
+    source += (ROOT / "port/dreamcast/tests/fixtures/actor_tex_prep_player.inc").read_text()
+    return source
+
+
+def player_accessor_source():
+    actor = (GAME / "coarse_actor.cpp").read_text()
+    # Actual current/pick consumers, with an inert stand-in for the published
+    # package's storage; no pack loader, owner or lease is linked into this test.
+    return r'''
+struct PlayerPackageFixture {const void* cell;const void* base;bool published;unsigned player_file,generation;};
+PlayerPackageFixture pl08_pack{reinterpret_cast<void*>(128),reinterpret_cast<void*>(160),true,0x5a,7};
+constexpr unsigned kPl08PlayerFile=0x5a,pl08_crc=0x7506e95f,pl08_fnv=0x68cf2211;
+unsigned pl08_texture_token;
+const Re4dcUiImage pl08_image{&pl08_texture_token,nullptr,512,512,6,~0u,0};
+''' + "\n".join(function(actor, marker) for marker in (
+        'extern "C" int re4dc_player_tex_current(', 'extern "C" int re4dc_player_tex_pick('))
+
+
 def ledger_harness():
     trans = (ROOT / "src/game/trans.cpp").read_text()
     identity = function(trans, "bool sourceActorIdentity(")
@@ -251,6 +280,8 @@ def ledger_harness():
 #include <cstdint>
 #include <vector>
 #define RE4DC_ACTOR_TRANSACTION 1
+#define RE4DC_ACTOR_PL08 1
+#define RE4DC_ACTOR_PL08_PACK 1
 #include "actor_tex_prep.h"
 using namespace re4dc_source;
 class cUnit {public:cUnit* pNext=nullptr;};
@@ -266,19 +297,26 @@ FrameLedger sourceActorLedger;alignas(16) FrameEntry entries[FrameLedger::MaxEnt
 Room4 room4{true,12,2,4096,3,4};bool& room_good=room4.live;unsigned& room_generation=room4.generation;
 ''' + room_state + "\n" + identity + "\n" + model + r'''
 unsigned life_serial=1,life_epoch=1,variant=0,metadata_calls=0,mutation=0;bool life_good=true;
+unsigned player_reason=unsigned(Re4dcActorTexReason::Model);bool single_third=false;
+''' + player_accessor_source() + r'''
+extern "C" unsigned re4dc_player_tex_metadata(cModel*,const FrameIdentity*,const ModelIdentity*,Re4dcActorTexMetadata* p){
+ if(player_reason)return player_reason;
+ *p={0x108,9,2,7,0x17f,pl08_pack.generation};return 0;
+}
 extern "C" int re4dc_actor_tex_lifetime(unsigned* s,unsigned* e){*s=life_serial;*e=life_epoch;return life_good;}
 extern "C" unsigned re4dc_ganado_tex_variant(){return variant;}
 extern "C" unsigned re4dc_actor_tex_metadata(cModel* m,const FrameIdentity*,const ModelIdentity*,Re4dcActorTexMetadata* p){
  ++metadata_calls;
  if(metadata_calls==1){if(mutation==1)++life_serial;if(mutation==2)++variant;if(mutation==3)++room_generation;
-  if(mutation==4)++models[2].serial;if(mutation==5)++sourceActorPrimBytes;}
+  if(mutation==4)++models[2].serial;if(mutation==5)++sourceActorPrimBytes;
+  if(mutation==6)++pl08_pack.generation;if(mutation==7)pl08_pack.published=false;}
  if(m->type==99)return unsigned(Re4dcActorTexReason::Row);
  *p={m->type,4,1,3,15};return 0;
 }
 extern "C" int re4dc_ganado_tex_picks(unsigned app,unsigned expected,Re4dcActorTexPick* p,unsigned* n){
  if(expected!=variant)return 0;
- const unsigned k=app*2;*n=2;
- for(unsigned i=0;i<2;++i)p[i]={{reinterpret_cast<const void*>(std::uintptr_t(128+k+i)),nullptr,512,512,6,~0u,0},50-k-i,100+k+i,1u<<app,i};
+ const unsigned k=app*2;*n=single_third&&app==3?1u:2u;
+ for(unsigned i=0;i<*n;++i)p[i]={{reinterpret_cast<const void*>(std::uintptr_t(128+k+i)),nullptr,512,512,6,~0u,0},50-k-i,100+k+i,1u<<app,i};
  return 1;
 }
 #include "source_actor_tex_prep.inc"
@@ -290,6 +328,7 @@ void reset(unsigned n=3,bool complete=true){
  sourceActorActive=true;sourceActorRenderActive=false;sourceActorCount=n;EmMgr={models,n};room_good=true;room_generation=12;
  re4dc_alive_gen[1]=3;re4dc_alive_gen[2]=4;pPL=models;pSUB=nullptr;
  life_serial=life_epoch=1;variant=metadata_calls=mutation=0;life_good=true;
+ player_reason=unsigned(Re4dcActorTexReason::Model);single_third=false;pl08_pack={reinterpret_cast<void*>(128),reinterpret_cast<void*>(160),true,0x5a,7};
  for(unsigned i=0;i<4;++i){models[i]={};models[i].serial=i+1;models[i].type=1;models[i].id=i?0x15:0;models[i].pNext=i+1<n?models+i+1:nullptr;}
  FrameIdentity frame{};check(sourceActorIdentity(frame));check(sourceActorLedger.begin(entries,sizeof entries,n,frame));
  for(unsigned i=0;i<n;++i)check(sourceActorLedger.append(frame,sourceActorModel(models+i),ModelPath::Source,0));
@@ -299,7 +338,7 @@ void reset(unsigned n=3,bool complete=true){
 std::vector<unsigned char> source_state(){
  std::vector<unsigned char> bytes;
  auto add=[&](const auto& x){const auto* p=reinterpret_cast<const unsigned char*>(&x);bytes.insert(bytes.end(),p,p+sizeof x);};
- add(global);add(EmMgr);add(models);add(pPL);add(pSUB);add(re4dc_alive_gen);add(room4);
+ add(global);add(EmMgr);add(models);add(pPL);add(pSUB);add(re4dc_alive_gen);add(room4);add(pl08_pack);
  add(sourceActorActive);add(sourceActorRenderActive);add(sourceActorCount);add(sourceActorEpoch);
  add(sourceActorPrimBase);add(sourceActorPrimBytes);add(sourceActorPrimBuffer);
  return bytes;
@@ -328,6 +367,16 @@ int main(){
  reset();pSUB=models+2;run(false); // manager identity changed
  reset();life_good=false;run(false);
  for(unsigned i=1;i<=5;++i){reset();mutation=i;run(false);}
+ reset();player_reason=0;b=run(true);check(b.count==3&&b.qualified==3&&b.picks[0].kind==Re4dcActorTexKind::PlayerPl08);
+ check(b.picks[0].crc==pl08_crc&&b.picks[0].package_generation==7&&b.picks[0].appearances==0);
+ reset();player_reason=0;EmMgr.pAlive=models+1;models[1].pNext=models+2;models[2].pNext=models;models[0].pNext=nullptr;
+ b=run(true);check(b.count==3&&b.picks[0].kind==Re4dcActorTexKind::PlayerPl08);
+ reset(4);player_reason=0;single_third=true;models[1].type=1;models[2].type=2;models[3].type=3;
+ b=run(true);check(b.count==6&&b.qualified==4&&b.picks[0].kind==Re4dcActorTexKind::PlayerPl08);
+ for(unsigned i=1;i<6;++i)check(b.picks[i].kind==Re4dcActorTexKind::Ganado);
+ reset(4);player_reason=0;models[1].type=1;models[2].type=2;models[3].type=3;run(false);
+ for(unsigned i=6;i<=7;++i){reset();player_reason=0;mutation=i;run(false);}
+ reset();player_reason=0;pl08_pack.player_file=0;run(false);
  std::printf("actor texture ledger: %u checks, identity/retirement/presentation purity PASS\n",checks);
 }
 '''
@@ -408,6 +457,8 @@ def loader_harness():
 #include <cstdint>
 #define RE4DC_ACTOR_TEX_PREP 1
 #define RE4DC_ACTOR_TEX_PREP_DIAG 1
+#define RE4DC_ACTOR_PL08 1
+#define RE4DC_ACTOR_PL08_PACK 1
 #include "actor_tex_prep.h"
 #include "actor_resource_lease.h"
 struct Key {unsigned crc=0,fnv=0;bool operator==(const Key& o)const{return crc==o.crc&&fnv==o.fnv;}};
@@ -421,10 +472,12 @@ struct Package {
  unsigned vram_bytes()const{return 89440;}
 };
 struct Entry {bool valid=true;Key key{};unsigned frame=0;Package package;};
-Entry entries[5];unsigned frame=100,variant=0,vram_claims=0,loads=0,failures=0,forbid=99;bool prior_preload=false,plan_ok=true;
+Entry entries[6];unsigned load_order[16]{},load_count=0;unsigned frame=100,variant=0,vram_claims=0,loads=0,failures=0,forbid=99;bool prior_preload=false,plan_ok=true;
 bool frame_ready=true,stream_scene=false,stream_retire=false,stream_aborted=false,direct_open=false;
 Re4dcActorTexBatch planned;
-re4dc_actor::TextureLeases<5> actor_texture_leases;
+re4dc_actor::TextureLeases<6> actor_texture_leases;
+''' + player_accessor_source() + r'''
+
 extern "C" unsigned re4dc_ganado_tex_variant(){return variant;}
 extern "C" int re4dc_actor_tex_enumerate(Re4dcActorTexBatch* b){*b=planned;return plan_ok;}
 unsigned long long timer_us_gettime64(){static unsigned long long clock;return ++clock;}
@@ -432,7 +485,8 @@ extern "C" void re4dc_log(const char*,...){}
 #define RE4DC_TEXCHK_FAIL(key,why) (++failures)
 Entry* load(const Re4dcUiImage&,bool pin,const Key* key){
  assert(prior_preload && !stream_scene && !stream_retire && !stream_aborted && !direct_open && !vram_claims);++loads;
- for(unsigned i=0;i<5;++i)if(entries[i].key==*key){if(i==forbid){++failures;return nullptr;}if(pin)entries[i].frame=frame;return entries+i;}
+ load_order[load_count++]=key->crc;
+ for(unsigned i=0;i<6;++i)if(entries[i].key==*key){if(i==forbid){++failures;return nullptr;}if(pin)entries[i].frame=frame;return entries+i;}
  return nullptr;
 }
 #include "native_ui_actor_tex_prep.inc"
@@ -440,10 +494,11 @@ Entry* load(const Re4dcUiImage&,bool pin,const Key* key){
 unsigned checks;
 void check(bool x){if(!x)std::fprintf(stderr,"loader check %u failed\n",checks+1);assert(x);++checks;}
 void reset(){
- actor_texture_leases.retire_frame();actor_tex_prepared_count=0;planned={};planned.count=2;planned.candidates=2;planned.qualified=2;
+ actor_texture_leases.retire_frame();actor_tex_prepared_count=0;planned=Re4dcActorTexBatch{};planned.count=2;planned.candidates=2;planned.qualified=2;
  planned.source.frame=99;planned.source.room=0x101;planned.source.room_generation=3;
- variant=vram_claims=loads=failures=0;forbid=99;frame_ready=true;stream_scene=stream_retire=stream_aborted=direct_open=false;plan_ok=true;
- for(unsigned i=0;i<5;++i){entries[i]={};entries[i].key={100+i,200+i};entries[i].frame=frame-1;}
+ variant=vram_claims=loads=failures=load_count=0;forbid=99;
+ pl08_pack={reinterpret_cast<void*>(128),reinterpret_cast<void*>(160),true,0x5a,7};frame_ready=true;stream_scene=stream_retire=stream_aborted=direct_open=false;plan_ok=true;
+ for(unsigned i=0;i<6;++i){entries[i]={};entries[i].key={100+i,200+i};entries[i].frame=frame-1;}
  for(unsigned i=0;i<planned.count;++i)planned.picks[i]={{reinterpret_cast<void*>(128+i),nullptr,512,512,6,~0u,0},100+i,200+i,1u<<i,0};
  prior_preload=true;
 }
@@ -470,6 +525,15 @@ int main(){
  reset();entries[0].package.h.texture_count=2;pure_leases();check(failures==1&&actor_tex_prepared_count==1);
  reset();entries[0].package.complete=false;pure_leases();check(failures==1&&actor_tex_prepared_count==1);
  reset();entries[0].package.address=nullptr;pure_leases();check(failures==1&&actor_tex_prepared_count==1);
+ reset();planned.count=6;
+ for(unsigned i=0;i<6;++i)planned.picks[i]={{reinterpret_cast<void*>(128+i),nullptr,512,512,6,~0u,0},100+i,200+i,0,0};
+ planned.picks[0].kind=Re4dcActorTexKind::PlayerPl08;planned.picks[0].package_generation=7;
+ pure_leases();check(loads==6&&load_order[0]==100&&actor_tex_prepared_count==6);
+ for(unsigned i=0;i<6;++i)check(entries[i].frame==frame&&!actor_texture_leases.pinned(i));
+ reset();planned.picks[0].kind=Re4dcActorTexKind::PlayerPl08;planned.picks[0].package_generation=7;
+ pl08_pack.generation++;pure_leases();check(loads==1&&entries[0].frame==frame-1&&entries[1].frame==frame);
+ reset();planned.picks[0].kind=Re4dcActorTexKind::PlayerPl08;planned.picks[0].package_generation=7;
+ pl08_pack.published=false;pure_leases();check(loads==1&&entries[0].frame==frame-1);
  std::printf("actor texture loader: %u checks, pre-scene pins and unchanged lease authority PASS\n",checks);
 }
 '''
@@ -481,7 +545,7 @@ def run_harness(name, source, defines=()):
         cpp, exe = directory / (name + ".cpp"), directory / name
         cpp.write_text(source)
         command = [os.environ.get("CXX", "g++"), "-std=c++17", "-O2", "-Wall", "-Wextra",
-                   "-Wno-misleading-indentation", "-I", str(INC), "-I", str(GAME),
+                   "-Wno-misleading-indentation", "-I", str(INC), "-I", str(GAME), "-iquote", str(ROOT / "include"),
                    *defines, str(cpp), "-o", str(exe)]
         subprocess.run(command, check=True)
         subprocess.run([str(exe)], check=True)
@@ -490,6 +554,8 @@ def run_harness(name, source, defines=()):
 if __name__ == "__main__":
     for mode in (0, 1, 2):
         run_harness(f"material_record{mode}", material_harness(),
+                    (f"-DRE4DC_ACTOR_MATERIAL_RECORD={mode}",))
+        run_harness(f"player_record{mode}", material_harness(player=True),
                     (f"-DRE4DC_ACTOR_MATERIAL_RECORD={mode}",))
     run_harness("ledger", ledger_harness())
     run_harness("mapping", mapping_harness())
