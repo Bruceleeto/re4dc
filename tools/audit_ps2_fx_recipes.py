@@ -135,8 +135,8 @@ def decode_eff(data, endian):
                     'table': kind, 'no': no, 'area': area, 'list_flags': flags,
                     'index': index, 'offset': r, 'record_sha256': sha(data[r:r+RECORD_SIZE]),
                     'be_flags': identity[0], 'id': identity[1], 'tex': identity[2], 'type': identity[3],
-                    'set_time': read('H',r+4)[0], 'parts': read('B', r+7)[0], 'tool_flags': read('I', r+8)[0],
-                    'random_size': read('f', r+0x90)[0], 'floor': read('f', r+0xD8)[0],
+                    'set_time': read('H',r+4)[0], 'parent_no':read('B',r+6)[0], 'parts': read('B', r+7)[0], 'tool_flags': read('I', r+8)[0],
+                    'vec2':list(read('3f',r+0xf0)), 'random_size': read('f', r+0x90)[0], 'floor': read('f', r+0xD8)[0],
                     'generator_type': read('B', r+0x10A)[0], 'generator_flags': read('B', r+0x10B)[0],
                     'generator_wait': read('B', r+0x10C)[0], 'generator_wait_random': read('B', r+0x128)[0],
                     'generator_life': read('h', r+0x110)[0],
@@ -577,16 +577,21 @@ STATIC_PAIRS = (('r104',(0,'sst',0,4),(0,'sst',5,2)),
 STATIC_CONTRACTS={8:(96,96,0,0,1,1,1,0),31:(128,128,0,0,1,1,1,0),233:(64,128,32,1,1,1,1,0)}
 
 
-def static_sprite_recipe(gc, ps2, raw_gc, raw_ps2):
-    if len(raw_gc)!=RECORD_SIZE or len(raw_ps2)!=RECORD_SIZE:
-        raise ValueError('static source record width changed')
-    # Canonicalize every numeric lane in EspGenWork to PS2 byte order;
-    # untouched bytes (including unknown fields) must then match exactly.
+def canonical_gc_record(raw_gc):
     canonical=bytearray(raw_gc)
     for offset in (4,*range(0xb0,0xbc,2),0xbe,*range(0x110,0x118,2)):
         canonical[offset:offset+2]=raw_gc[offset:offset+2][::-1]
     for offset in (*range(8,0x9c,4),*range(0xa0,0xb0,4),*range(0xcc,0xfc,4),*range(0x118,0x124,4)):
         canonical[offset:offset+4]=raw_gc[offset:offset+4][::-1]
+    return canonical
+
+
+def static_sprite_recipe(gc, ps2, raw_gc, raw_ps2):
+    if len(raw_gc)!=RECORD_SIZE or len(raw_ps2)!=RECORD_SIZE:
+        raise ValueError('static source record width changed')
+    # Canonicalize every numeric lane in EspGenWork to PS2 byte order;
+    # untouched bytes (including unknown fields) must then match exactly.
+    canonical=canonical_gc_record(raw_gc)
     allowed=set(range(0x88,0x90))|set(range(0x9c,0xa0))
     if any(a!=b and i not in allowed for i,(a,b) in enumerate(zip(canonical,raw_ps2))):
         raise ValueError('static raw field changed outside dimensions and RGBA')
@@ -643,20 +648,87 @@ def audit_static(cache,gc_core,ps2_core):
     return {'cores':cores,'pairs':pairs}
 
 
+def puzzle_trail_recipe(gc,ps2,raw_gc,raw_ps2,color):
+    if color not in (0,1,2) or len(raw_gc)!=RECORD_SIZE or len(raw_ps2)!=RECORD_SIZE:
+        raise ValueError('invalid puzzle source input')
+    allowed={2,0xc7,0xca}|set(range(8,12))|set(range(0x2c,0x30))|set(range(0x88,0x90))|set(range(0x94,0x98))|set(range(0x9c,0xa0))|set(range(0xac,0xb0))|set(range(0xf0,0xf4))
+    if any(a!=b and i not in allowed for i,(a,b) in enumerate(zip(canonical_gc_record(raw_gc),raw_ps2))):
+        raise ValueError('unqualified raw puzzle field change')
+    common={'table':'est','no':color+1,'index':0,'area':0,'list_flags':0,'be_flags':1,'id':10,'type':0,
+            'set_time':0,'parts':0,'parent_no':(28,26,27)[color],'kind':0,'life_max':0,'life_time':0,
+            'blend':1,'del_far':20,'d_size_plus':1.0,'random_size':0.0,'floor':0.0,
+            'speed_damping':1.0,'color_max':0,'color_start':0,'position_start':0,'size_start':0,
+            'animation':[0,0,0,255,0,1,0]}
+    for name in ('random_position','random_speed','acceleration','random_acceleration','angle','random_angle','angle_step','random_angle_step'):
+        common[name]=[0.0]*3
+    common['position']=([0.0,-280.0,0.0],[13.888923645019531,-279.1667175292969,0.0],[0.0,-248.0,0.0])[color]
+    for side,row in (('gc',gc),('ps2',ps2)):
+        expected=dict(common)
+        if side=='gc':
+            rgb=[0,0,0];rgb[color]=50
+            expected['vec2']=[0.0,0.0,0.0]
+            expected.update(tex=255,tool_flags=0x8000,size_x=470.0,size_y=470.0,speed=[0.0,0.0,-250.0],
+                rgba=rgb+[130],work8=[0,0,0 if color==1 else 1,0],del_near=5,
+                size_plus=0.04999999701976776 if color==0 else 0.05000000447034836,
+                color_damping=[1.0,1.0,1.0,0.9499999284744263 if color==0 else 0.9500000476837158])
+        else:
+            rgb=[50,50,50];rgb[color]=110
+            expected['vec2']=[10.0 if color!=2 else 0.0,0.0,0.0]
+            expected.update(tex=19,tool_flags=0x20080,size_x=1400.0,size_y=1400.0,speed=[0.0,0.0,-500.0],
+                rgba=rgb+[60],work8=[0,0,0,0],del_near=10 if color==0 else 5,
+                size_plus=0.049999989569187164,color_damping=[1.0,1.0,1.0,0.9000000357627869])
+        for name,value in expected.items():
+            if row.get(name)!=value: raise ValueError('unsupported '+side+' puzzle field: '+name)
+    return {'source_kind':'one Type1 anchor' if color!=1 else '50 distinct frozen Type0 copies',
+            'unused_ps2_vec2':ps2['vec2'],'vec2_scope':'Current cEsp0a::SetFreeWork and base initializer never read Vec2; no unsupported field is applied.',
+            'ps2_type':0,'resident_texture':19,'max_steps':50,'stop_alpha_below':4,
+            'scope':'Private Type0 draw trail uses current source parent transform; GC puzzle state, source Type1 updates, effect allocation and RNG stay unchanged.'}
+
+
+def audit_puzzle(cache,gc_core,ps2_core):
+    contracts={19:(96,96,0,0,1,1,1,0),255:(48,48,0,0,1,1,1,0)}
+    cores={};source={};raws={};inputs={}
+    for side,path,endian in (('gc',gc_core,'>'),('ps2',ps2_core,'<')):
+        if path is None: raise ValueError('puzzle audit requires core EFFs')
+        data=path.read_bytes();cores[side]={'sha256':sha(data),'textures':core_sprite_animations(data,endian,contracts)}
+        path=cache/('r117.'+side+'.eff0');data=path.read_bytes();raws[side]=data
+        inputs[side]={'path':str(path),'sha256':sha(data)};source[side]=decode_eff(data,endian)
+        if len([r for r in source[side] if r['id']==10])!=3: raise ValueError('puzzle Esp0a source inventory changed')
+        h=struct.unpack_from(endian+'12I',data)
+        if h[1]:
+            count=struct.unpack_from(endian+'I',data,h[1])[0]
+            for i in range(count):
+                if struct.unpack_from(endian+'H',data,h[1]+4+8*i)[0] in contracts:
+                    raise ValueError('puzzle core texture overridden by room EFF')
+    pairs=[]
+    for color in range(3):
+        rows={};raw={}
+        for side in ('gc','ps2'):
+            rows[side]=next(r for r in source[side] if (r['table'],r['no'],r['index'])==('est',color+1,0))
+            r=rows[side];raw[side]=raws[side][r['offset']:r['offset']+RECORD_SIZE]
+            if side=='gc' and any(q['id']==0 and q['tex']==255 and q['rgba']==r['rgba'] and q['size_x']==470 and q['size_y']==470 for q in source[side]):
+                raise ValueError('puzzle direct sprite collides with frozen-copy identity')
+        pairs.append({'gc':rows['gc'],'ps2':rows['ps2'],'recipe':puzzle_trail_recipe(rows['gc'],rows['ps2'],raw['gc'],raw['ps2'],color)})
+    return {'inputs':inputs,'cores':cores,'pairs':pairs,
+            'unmapped_gc_records':[r for r in source['gc'] if r['table']=='est' and r['no'] in (1,2,3) and r['index']==1],
+            'scope':'Three surviving Esp0a recipes only. The extra GC EST1/2/3 generator-1 records are retained and separately unresolved.'}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'additions', 'static', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'structural', 'additions', 'static', 'puzzle', 'inventory'), default='first-group')
     parser.add_argument('--gc-core', type=Path)
     parser.add_argument('--ps2-core', type=Path)
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural','additions','static'),
-             args.scope in ('population','structural','additions','static'), args.scope in ('structural','additions','static'), args.gc_core,args.ps2_core)
-    if args.scope in ('additions','static'): result['additions']=audit_additions(args.cache)
-    if args.scope=='static': result['static_sprites']=audit_static(args.cache,args.gc_core,args.ps2_core)
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population', 'structural','additions','static','puzzle'),
+             args.scope in ('population','structural','additions','static','puzzle'), args.scope in ('structural','additions','static','puzzle'), args.gc_core,args.ps2_core)
+    if args.scope in ('additions','static','puzzle'): result['additions']=audit_additions(args.cache)
+    if args.scope in ('static','puzzle'): result['static_sprites']=audit_static(args.cache,args.gc_core,args.ps2_core)
+    if args.scope=='puzzle': result['puzzle_trails']=audit_puzzle(args.cache,args.gc_core,args.ps2_core)
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

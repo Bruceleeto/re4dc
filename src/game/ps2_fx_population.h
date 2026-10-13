@@ -110,6 +110,44 @@ private:
     }
 };
 
+// Source Esp0a Type0 clones before CommonMove. At life zero colour does
+// not decay; later steps stop before cloning an alpha below four.
+struct TrailPoint { float z, size_mul, alpha; };
+inline unsigned puzzle_trail(TrailPoint* out, float speed=-500.0f, float growth=0.049999989569187164f,
+                             float alpha=60.0f, float damping=0.9000000357627869f)
+{
+    float z=0.0f,size=1.0f;
+    unsigned count=0;
+    for(unsigned life=0;life<50;++life) {
+        out[count].z=z;out[count].size_mul=size;out[count].alpha=alpha;++count;
+        z+=speed;size+=growth;
+        if(life) alpha*=damping;
+        if(alpha<4.0f) break;
+    }
+    return count;
+}
+struct TrailIdentity {
+    PopulationKey key;
+    unsigned parent, model, serial;
+    bool operator==(const TrailIdentity& b) const
+    { return key==b.key && parent==b.parent && model==b.model && serial==b.serial; }
+};
+struct TrailEvidence {
+    TrailIdentity identity;
+    unsigned expected,count,mask[2],issues;
+    void clear(unsigned n) { expected=n;count=mask[0]=mask[1]=issues=0; }
+    void add(unsigned rank,const TrailIdentity& value)
+    {
+        if(!expected || expected>50 || rank>=expected) { issues|=1;return; }
+        if(!count) identity=value;
+        else if(!(identity==value)) issues|=2;
+        const unsigned bit=1U<<(rank%32),word=rank/32;
+        if(mask[word]&bit) issues|=4;
+        mask[word]|=bit;++count;
+    }
+    bool complete() const { return count==expected && !issues; }
+};
+
 // Two source-qualified additions. This private state never points into or writes
 // an effect/controller pool. Its LCG is local and never calls the engine RNG.
 struct GateEvidence {

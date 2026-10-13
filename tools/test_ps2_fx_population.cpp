@@ -114,6 +114,35 @@ static void test_additions() {
     std::printf("PS2 additions helper PASS: deterministic private particles, area exit/reentry, pause, slow, wrap, fades, repeated draws, clock bounds and gate evidence; state bytes=%zu\n",sizeof(a));
 }
 int main() {
+    ps2fx::TrailPoint trail[50],gc_trail[50];
+    unsigned trail_count=ps2fx::puzzle_trail(trail);
+    assert(trail_count==27 && trail[0].alpha==60.0f && trail[1].alpha==60.0f);
+    assert(trail[0].z==0.0f && trail[26].z==-13000.0f && trail[26].alpha>=4.0f);
+    assert(trail[26].alpha*0.9000000357627869f<4.0f);
+    assert(ps2fx::puzzle_trail(gc_trail,-250.0f,0.05000000447034836f,130.0f,0.9500000476837158f)==50);
+    for(unsigned i=1;i<trail_count;++i) {
+        assert(trail[i].z==trail[i-1].z-500.0f);
+        assert(trail[i].size_mul==trail[i-1].size_mul+0.049999989569187164f);
+        assert(trail[i].alpha==(i==1?trail[i-1].alpha:trail[i-1].alpha*0.9000000357627869f));
+    }
+    ps2fx::TrailIdentity trail_id={key(50,0),1234,2345,42};
+    ps2fx::TrailEvidence evidence;evidence.clear(50);
+    assert(!evidence.complete());
+    for(unsigned i=0;i<49;++i)evidence.add(i,trail_id);
+    assert(!evidence.complete());evidence.add(49,trail_id);assert(evidence.complete());
+    evidence.add(49,trail_id);assert(!evidence.complete() && (evidence.issues&4));
+    evidence.clear(50);evidence.add(50,trail_id);assert(evidence.issues&1);
+    for(unsigned field=0;field<3;++field) {
+        evidence.clear(50);evidence.add(0,trail_id);
+        ps2fx::TrailIdentity other=trail_id;
+        if(field==0)++other.parent;
+        if(field==1)++other.model;
+        if(field==2)++other.serial;
+        evidence.add(1,other);assert(evidence.issues&2);
+    }
+    evidence.clear(1);evidence.add(0,trail_id);assert(evidence.complete());
+    evidence.clear(1);assert(!evidence.complete()); // every render pass/reentry resets ownership
+
     // Independent world-coordinate reconstruction verifies anchor preservation:
     // scaling around a screen centroid would fail the E9 Cy=1/128 case.
     const float anchors[][2]={{-0.5f,-0.5f},{-0.5f,1.0f/128.0f-1.0f}};

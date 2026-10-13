@@ -358,3 +358,35 @@ existing final-colour truncation then near-fade order. Core GC pixels remain
 resident; this does not assert identical GC/PS2 texture pixels. Host tests cover
 noncentral anchors and raw-field rejection. Fresh runtime stills, knob-off,
 STRICT, heap, New Game and cost gates remain required.
+
+## Surviving r117 puzzle trails
+
+`PS2_FX_ADDITIONS=1` with the PS2 streak draw mask maps the three surviving
+Esp0a EST 1/2/3 recipes. GC red/blue use Type1 rim-lit anchors; green generates
+50 permanent Type0 copies. PS2 uses Type0 for all three, resident core texture
+13, size 1400, local z step -500, growth 0.04999998957, colour alpha 60 with
+0.90000003576 decay, and tool RGB/alpha scale 4. The first two copies retain
+alpha 60 because source CommonMove skips decay at life zero. Exactly 27
+private points remain before alpha falls below 4; those points then undergo
+normal projection, near fades, final colour and visible-quad submission.
+
+The read-only group scan requires one exact red/blue anchor or all 50 distinct
+green source ranks with one call/core/model/parent identity and current model
+serial. Missing, duplicated or merged groups keep their prior draw path and
+report an issue. Source ghosts are omitted only after their group qualifies;
+original Esp0a updates and any original render-time allocations are unchanged.
+Each render pass rebuilds ownership; no trail state survives room changes or
+reentry. Parent transforms remain live, so source puzzle-object rotation
+controls beam direction. Native quads use the resident GC texture 13; PS2 pixel
+identity is not claimed.
+
+The `puzzle` audit scope pins both EFFs and core animations, validates every
+interpreted recipe field and rejects any raw-byte difference outside the
+explicit changed fields. It records PS2 Vec2.x=10 for red/green as unused by
+current EspSeqSet/cEsp0a::SetFreeWork. GC EST1/2/3 index1 generator-1 effects
+remain unchanged and are separately unresolved. Host tests cover exact trail
+length, first-frame decay, ranks, partial/duplicate/identity failures and reset.
+Runtime acceptance still needs puzzle activation, dial rotation, deactivation,
+reentry, negative/paused state, comparison stills, STRICT and fill/cost evidence.
+`PS2FXPUZZLE` logs source group counts, private point count, submitted quads and
+qualification issues; these are not runtime performance measurements.

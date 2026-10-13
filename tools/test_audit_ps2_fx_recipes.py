@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import static_sprite_recipe, addition_recipe, core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
+from audit_ps2_fx_recipes import puzzle_trail_recipe, static_sprite_recipe, addition_recipe, core_haze_animations, decode_room_ear, decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
 
 
 def sample_eff(endian='<'):
@@ -26,6 +26,30 @@ def sample_eff(endian='<'):
     data[r+7] = 0xFE
     struct.pack_into(endian+'h', data, r+0x110, 1)
     return data
+
+
+def sample_puzzle(endian,color):
+    data=sample_eff(endian);r=0x90;gc=endian=='>'
+    struct.pack_into(endian+'I',data,2*4,0x40);struct.pack_into(endian+'I',data,8*4,0x50)
+    struct.pack_into(endian+'I',data,3*4,0);struct.pack_into(endian+'I',data,9*4,0)
+    struct.pack_into(endian+'HHI',data,0x44,color+1,0,0)
+    data[r+1]=10;data[r+2]=255 if gc else 19;data[r+6]=(28,26,27)[color];data[r+7]=0
+    struct.pack_into(endian+'I',data,r+8,0x8000 if gc else 0x20080)
+    struct.pack_into(endian+'3f',data,r+0xc,*((0,-280,0),(13.888923645019531,-279.1667175292969,0),(0,-248,0))[color])
+    struct.pack_into(endian+'f',data,r+0x20,0)
+    struct.pack_into(endian+'3f',data,r+0x24,0,0,-250 if gc else -500)
+    struct.pack_into(endian+'f',data,r+0x30,1)
+    growth=(0.04999999701976776 if color==0 else 0.05000000447034836) if gc else 0.049999989569187164
+    struct.pack_into(endian+'5f',data,r+0x88,470 if gc else 1400,470 if gc else 1400,0,growth,1)
+    rgba=[0,0,0,130] if gc else [50,50,50,60];rgba[color]=50 if gc else 110
+    struct.pack_into('4B',data,r+0x9c,*rgba)
+    damping=(0.9499999284744263 if color==0 else 0.9500000476837158) if gc else 0.9000000357627869
+    struct.pack_into(endian+'4f',data,r+0xa0,1,1,1,damping)
+    data[r+0xc0]=255;data[r+0xc2]=1;data[r+0xc6]=20;data[r+0xc7]=5 if gc or color else 10
+    struct.pack_into('4B',data,r+0xc8,0,0,1 if gc and color!=1 else 0,0)
+    if not gc and color!=2:struct.pack_into(endian+'f',data,r+0xf0,10)
+    data[r+0x108]=0;data[r+0x10d]=0;struct.pack_into(endian+'h',data,r+0x110,0)
+    return decode_eff(data,endian)[0],bytes(data[r:r+0x12c])
 
 
 class EffectRecipeAuditTests(unittest.TestCase):
@@ -58,6 +82,20 @@ class EffectRecipeAuditTests(unittest.TestCase):
             gc=copy.deepcopy(records[0]);ps2=copy.deepcopy(records[1]);gc[key]=ps2[key]=value
             with self.assertRaisesRegex(ValueError,'unsupported static field: '+key):
                 static_sprite_recipe(gc,ps2,*raw)
+
+    def test_puzzle_recipes_preserve_exact_type_parent_and_lifetime_contracts(self):
+        for color in range(3):
+            gc,gr=sample_puzzle('>',color);ps2,pr=sample_puzzle('<',color)
+            self.assertEqual(0,puzzle_trail_recipe(gc,ps2,gr,pr,color)['ps2_type'])
+            changed=bytearray(pr);changed[0x104]=1
+            with self.assertRaisesRegex(ValueError,'unqualified raw puzzle'):
+                puzzle_trail_recipe(gc,ps2,gr,changed,color)
+            for key,value in (('parts',0xfe),('parent_no',0),('work8',[0,0,1,0]),('life_max',1),('size_x',900)):
+                bad=copy.deepcopy(ps2);bad[key]=value
+                with self.assertRaisesRegex(ValueError,'unsupported ps2 puzzle field: '+key):
+                    puzzle_trail_recipe(gc,bad,gr,pr,color)
+        with self.assertRaisesRegex(ValueError,'invalid puzzle source input'):
+            puzzle_trail_recipe(gc,ps2,gr,pr,3)
 
     def test_known_record_fields_decode_in_both_byte_orders(self):
         little = decode_eff(sample_eff('<'), '<')[0]

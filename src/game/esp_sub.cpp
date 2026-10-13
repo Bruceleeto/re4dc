@@ -641,8 +641,14 @@ static const Ps2fxSheetCut kPs2SheetCut[] = {
 #endif
 // 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
 // anchor (=2: draws the PS2 shafts in its place).
+#if RE4DC_PS2_FX_ADDITIONS
+static int Ps2fxPuzzleSuppress(cEsp* esp);
+#endif
 static int Ps2fxClass(cEsp* esp)
 {
+#if RE4DC_PS2_FX_ADDITIONS
+    if(Ps2fxPuzzleSuppress(esp)) return 1;
+#endif
 #if RE4DC_PS2_FX_STAGE1
     // Owner 1 is the room's main EST table (game.cpp); its copies keep the owner stamp.
     if (esp->info.owner == 1) {
@@ -1198,6 +1204,156 @@ static void Ps2fxAdditionsDraw()
     }
 }
 #endif
+#if RE4DC_PS2_FX_ADDITIONS
+// r117's three puzzle trails survive in PS2 with different texture, size,
+// colour and Type0 mode. Identify their GC source groups without calling
+// CommonMove, Esp0a_Trans, an allocator or RNG on a source or scratch effect.
+struct Ps2fxPuzzleGroup { ps2fx::TrailEvidence evidence; cEsp* anchor; };
+static Ps2fxPuzzleGroup s_puzzle[3];
+static u32 s_puzzle_frame;
+static u8* s_puzzle_pool;
+static unsigned s_puzzle_active;
+static const f32 kPuzzleX[3]={0.0f,13.888923645019531f,0.0f};
+static const f32 kPuzzleY[3]={-280.0f,-279.1667175292969f,-248.0f};
+class cPs2fxEsp0a : public cEsp { public: u8 type,base_alpha; };
+static int Ps2fxPuzzleColour(const cEsp* e)
+{
+    if(e->info.owner!=1 || e->info.Core_kind!=2 || e->m_Tex_id!=0xff || e->m_Parts_no!=0 ||
+       e->m_Release_time!=0xff || e->m_Ang.x!=0.0f || e->m_Ang.y!=0.0f || e->m_Ang.z!=0.0f || e->m_Size_base_x!=470.0f || e->m_Size_base_y!=470.0f ||
+       e->m_Col_start_a!=130 || e->m_Del_far!=200 || e->m_Del_near!=50 || e->m_Blend_type!=1 ||
+       !e->parent || e->parent==pEffParentWorld || !e->m_pMod || e->m_Guid_pMod!=e->m_pMod->serial) return -1;
+    if(e->m_Col_start_r==50 && !e->m_Col_start_g && !e->m_Col_start_b) return 0;
+    if(!e->m_Col_start_r && e->m_Col_start_g==50 && !e->m_Col_start_b) return 1;
+    if(!e->m_Col_start_r && !e->m_Col_start_g && e->m_Col_start_b==50) return 2;
+    return -1;
+}
+static ps2fx::TrailIdentity Ps2fxPuzzleIdentity(const cEsp* e,unsigned color)
+{
+    ps2fx::TrailIdentity value;
+    value.key.call=e->info.Call_no;value.key.core=e->info.Core_pEm;value.key.recipe=(u16)color;
+    value.key.flags=e->info.Core_flg;value.key.source_count=color==1?50:1;value.key.target_count=0;
+    value.key.owner=e->info.owner;value.key.kind=e->info.Core_kind;
+    value.parent=(u32)e->parent;value.model=(u32)e->m_pMod;value.serial=e->m_Guid_pMod;
+    return value;
+}
+static int Ps2fxPuzzleSuppress(cEsp* e)
+{
+    if(G_ROOM_ID!=0x117 || !(re4dc_ps2fx&PS2FX_STREAK) || !s_puzzle_active ||
+       s_puzzle_frame!=(u32)pG->Frame_cnt || !g_pEspSys || s_puzzle_pool!=g_pEspSys->pEspBuf || e->m_Id!=0) return 0;
+    const int color=Ps2fxPuzzleColour(e);
+    if(color<0 || !(s_puzzle_active&(1U<<color)) ||
+       !(Ps2fxPuzzleIdentity(e,color)==s_puzzle[color].evidence.identity)) return 0;
+    // Type1's transient copies retain tool 0x8400/life1; green's static copies
+    // retain tool 0x8000/life0. Matching starts/parent/call isolate these sources.
+    return e->m_Tool_flg==(color==1?0x8000U:0x8400U) && e->m_Life_max==(color==1?0:1) &&
+           e->m_Speed.x==0.0f && e->m_Speed.y==0.0f && e->m_Speed.z==0.0f && e->m_Size_plus==0.0f;
+}
+extern "C" int ESP_IsActive(cEsp*);
+static int Ps2fxPuzzleVisible(cEsp* e)
+{
+    if(!ESP_IsActive(e) || !(e->m_pMod->be_flag&2) ||
+       ((e->info.Core_flg&0x400) && (pG->Status_flg[1]&0x04000000)) ||
+       ((pG->Status_flg[1]&2) && !(e->info.Core_flg&0x8000))) return 0;
+    return 1;
+}
+static void Ps2fxPuzzleDraw()
+{
+    static unsigned last_active,last_issues;static int reported;
+    s_puzzle_active=0;s_puzzle_frame=(u32)pG->Frame_cnt;
+    s_puzzle_pool=g_pEspSys?g_pEspSys->pEspBuf:NULL;
+    if(G_ROOM_ID!=0x117 || !(re4dc_ps2fx&PS2FX_STREAK)) { reported=0;return; }
+    unsigned issues=0,submitted=0,candidates=0;
+    for(unsigned c=0;c<3;++c) { s_puzzle[c].evidence.clear(c==1?50:1);s_puzzle[c].anchor=NULL; }
+    if(!g_pEspSys || !s_puzzle_pool || g_pEspSys->nEsp>2048) issues|=1;
+    else for(unsigned slot=0;slot<g_pEspSys->nEsp;++slot) {
+        cEsp* e=(cEsp*)(s_puzzle_pool+slot*0x150);
+        if(!(e->m_Be_flg&1) || (e->m_Id!=0 && e->m_Id!=0x0a)) continue;
+        const int color=Ps2fxPuzzleColour(e);
+        if(color<0 || e->m_Pos.x!=kPuzzleX[color] || e->m_Pos.y!=kPuzzleY[color]) continue;
+        unsigned rank=0;
+        if(color==1) {
+            if(e->m_Id!=0 || e->m_Tool_flg!=0x8000 || e->m_Life_max || e->m_Size_plus!=0.0f ||
+               e->m_Speed.x!=0.0f || e->m_Speed.y!=0.0f || e->m_Speed.z!=0.0f ||
+               e->m_Pos.z>0.0f || e->m_Pos.z<-12250.0f) continue;
+            rank=(unsigned)(-e->m_Pos.z/250.0f);
+            if(e->m_Pos.z!=-250.0f*rank) continue;
+        } else {
+            if(e->m_Id!=0x0a || e->m_Tool_flg!=0x8400 || e->m_Life_max || e->m_Pos.z!=0.0f ||
+               e->m_Size_mul!=1.0f || e->m_Speed.x!=0.0f || e->m_Speed.y!=0.0f || e->m_Speed.z!=-250.0f) continue;
+            const cPs2fxEsp0a* a=static_cast<cPs2fxEsp0a*>(e);
+            if(a->type!=1 || a->base_alpha!=130) continue;
+        }
+        s_puzzle[color].evidence.add(rank,Ps2fxPuzzleIdentity(e,color));
+        if(rank==0) s_puzzle[color].anchor=e;
+    }
+    EspTexWk* tw=g_pEspSys ? &g_pEspSys->Esp_tex_tbl[0x13] : NULL;
+    if(!tw || tw->Owner==0xd2 || !tw->pTpl || tw->pTpl->numDescriptors!=1 || !tw->pAnm ||
+       tw->pAnm->Cx || tw->pAnm->Cy || tw->pAnm->Width!=96 || tw->pAnm->Height!=96 || tw->pAnm->Frames!=1) issues|=2;
+    f32 viewport[6];GXGetViewportv(viewport);
+    const Mtx44& projection=pG->Cam.ProjMat;
+    const f32 near_d=projection[2][3]/(projection[2][2]-1.0f),far_d=projection[2][3]/projection[2][2];
+    if(viewport[2]<=0.0f || viewport[3]<=0.0f || near_d<=0.0f || far_d<=near_d) issues|=4;
+    ps2fx::TrailPoint points[50];const unsigned point_count=ps2fx::puzzle_trail(points);
+    for(unsigned color=0;color<3;++color) {
+        Ps2fxPuzzleGroup& group=s_puzzle[color];
+        if(group.evidence.count && !group.evidence.complete()) issues|=8U<<color;
+        if((issues&7) || !group.evidence.complete() || !group.anchor) continue;
+        cEsp* source=group.anchor;
+        s_puzzle_active|=1U<<color;
+        if(!Ps2fxPuzzleVisible(source)) continue;
+        const TEXDescriptor* td=TEXGet(tw->pTpl,0);const TEXHeader* th=td->textureHeader;
+        Re4dcEffectSprite sprite;
+        sprite.image.pixels=th->data;sprite.image.palette=NULL;
+        sprite.image.width=th->width;sprite.image.height=th->height;sprite.image.format=th->format;
+        sprite.image.palette_format=0xffffffffU;sprite.image.palette_bytes=0;
+        if(td->CLUTHeader) {
+            sprite.image.palette=td->CLUTHeader->data;sprite.image.palette_format=td->CLUTHeader->format;
+            sprite.image.palette_bytes=td->CLUTHeader->numEntries*2;
+        }
+        Mtx transform;PSMTXConcat(pG->Cam.v_mat,source->parent->mat,transform);
+        for(unsigned n=0;n<point_count;++n) {
+            ++candidates;
+            Vec local={kPuzzleX[color],kPuzzleY[color],points[n].z},center;
+            PSMTXMultVec(transform,&local,&center);
+            const f32 fade_depth=-center.z;
+            center.z+=1.0f;const f32 depth=-center.z;
+            if(depth<near_d || depth>far_d) continue;
+            u32 r=color==0?110:50,g=color==1?110:50,b=color==2?110:50,a=(u8)points[n].alpha;
+            if(!(source->m_Flg&4) && EffIsSetFinalCol()) {
+                GXColor final;EffGetFinalCol(&final);
+                r=r*final.r>>8;g=g*final.g>>8;b=b*final.b>>8;a=a*final.a>>8;
+            }
+            if(fade_depth<2000.0f) {
+                const f32 near=color==0?1000.0f:500.0f;
+                const f32 rate=1.0f-(2000.0f-fade_depth)/(2000.0f-near);
+                a=rate>0.0f?(u8)(a*rate):0;
+            }
+            if(!a) continue;
+            r=r*4>255?255:r*4;g=g*4>255?255:g*4;b=b*4>255?255:b*4;a=a*4>255?255:a*4;
+            const f32 half=700.0f*points[n].size_mul;
+            static const f32 x[4]={-1,1,1,-1},y[4]={1,1,-1,-1};
+            static const f32 u[4]={0,1,1,0},v[4]={0,0,1,1};
+            for(unsigned i=0;i<4;++i) {
+                const f32 vx=center.x+x[i]*half,vy=center.y+y[i]*half;
+                const f32 px=(projection[0][0]*vx+projection[0][2]*center.z)/depth;
+                const f32 py=(projection[1][1]*vy+projection[1][2]*center.z)/depth;
+                sprite.x[i]=(viewport[2]*0.5f*px+viewport[0]+viewport[2]*0.5f)*640.0f/viewport[2];
+                sprite.y[i]=(-viewport[3]*0.5f*py+viewport[1]+viewport[3]*0.5f)*480.0f/viewport[3];
+                sprite.z[i]=1.0f/depth;sprite.u[i]=tw->mtx[0][0]*u[i]+tw->mtx[0][1]*v[i]+tw->mtx[0][3];
+                sprite.v[i]=tw->mtx[1][0]*u[i]+tw->mtx[1][1]*v[i]+tw->mtx[1][3];
+            }
+            sprite.color=(a<<24)|(r<<16)|(g<<8)|b;sprite.src=4;sprite.dst=1;sprite.screen=0;sprite.pad=0;
+            submitted+=re4dc_effect_sprite(&sprite)!=0;
+        }
+    }
+    if(!reported || last_active!=s_puzzle_active || last_issues!=issues) {
+        re4dc_log("PS2FXPUZZLE f=%u active=%x source=%u/%u/%u points=%u candidates=%u submitted=%u issues=%x\n",
+            s_puzzle_frame,s_puzzle_active,s_puzzle[0].evidence.count,s_puzzle[1].evidence.count,s_puzzle[2].evidence.count,
+            point_count,candidates,submitted,issues);
+        reported=1;last_active=s_puzzle_active;last_issues=issues;
+    }
+}
+#endif
 #if defined(RE4DC_COARSE_FX_SPRITES) && RE4DC_COARSE_FX_SPRITES
 // COARSE_FX_SPRITES (effects30.mk): a live effect the EspCommonTrans sprite path draws (esp.cpp queues
 // it in a drawn coarse image's logic-only pass; coarse.cpp then draws no marker for it). Esp0b (the room
@@ -1226,6 +1382,7 @@ extern "C" void re4dc_esp_sprite_pass_begin()
 #endif
 #if RE4DC_PS2_FX_ADDITIONS
     Ps2fxAdditionsDraw();
+    Ps2fxPuzzleDraw();
 #endif
 }
 #endif
