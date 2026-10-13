@@ -172,7 +172,7 @@ endif
 MODULES += pl14:ovl
 export RE4DC_LINK_OVERLAY += .ovl_pl14
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
-$(OBJDIR)/src/game/snd.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+$(OBJDIR)/src/game/snd.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/pl14/src/pl14/pl14.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
 ROUTE_MOVIE_GAME_CH22 = $(OBJDIR)/mod/st1_3/src/st1/r11c.o
 endif
 # ROUTE_CH23=1 (default 0): chapter 2-3 room code and missing vehicle/boss/stage modules.
@@ -187,6 +187,7 @@ endif
 MODULES += em3b:ovl em35:ovl st2_0
 export RE4DC_LINK_OVERLAY += .ovl_em3b .ovl_em35
 $(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
 ROUTE_CH23_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r10f.o $(OBJDIR)/mod/st1_3/src/st1/r11d.o \
     $(OBJDIR)/mod/st1_3/src/st1/r11e.o $(OBJDIR)/mod/st1_3/src/st1/r11f.o $(OBJDIR)/mod/st2_0/src/st2/r200.o
 $(ROUTE_CH23_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/em3b/src/em3b/em3b.o $(OBJDIR)/mod/em35/src/em35/em35.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
@@ -1095,8 +1096,10 @@ HEAP4_PARTS_RESERVE_BYTES ?= 73728
 # module before enabling sparse enemy backing; census/reference remain usable.
 # CH23 em3b/em35: guarded default-initialization and sparse scans reviewed; stage st2_0 already audited.
 CH23_AUDITED_MODULES = $(if $(filter 1,$(ROUTE_CH23)),em3b:ovl em35:ovl)
+# Luis preserves its archive pointers and both manager scans use workAt (CH22 guarded adapter).
+CH22_AUDITED_MODULES = $(if $(filter 1,$(ROUTE_CH22)),pl14:ovl)
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19 $(CH23_AUDITED_MODULES),$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19 $(CH23_AUDITED_MODULES) $(CH22_AUDITED_MODULES),$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif
