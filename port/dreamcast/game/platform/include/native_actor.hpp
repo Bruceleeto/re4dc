@@ -45,6 +45,9 @@ void re4dc_actor_frame(void* workspace, unsigned bytes);
 // 1: consumed (drawn, culled, or queued for the existing translucent drain).
 // 0: declined before any side effect; the caller runs the generic path.
 int re4dc_actor_submit(const Re4dcModelPart* p);
+// Native fast actor format, including a blob with deferred LOD work.
+// Once converted in place, a stream cannot be consumed by a cached GX plan.
+int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);
 const Re4dcActorStats* re4dc_actor_stats();
 // NATIVE_ACTOR_FAST: LOD selection threshold in pixels of projected error
 // (0: always full detail; default RE4DC_ACTOR_LOD_PX = 2) and the per-frame

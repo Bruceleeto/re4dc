@@ -40,10 +40,16 @@ extern "C" void re4dc_dbgslot_ring(unsigned kind, unsigned a, unsigned b);
 extern "C" void re4dc_crash_screen_init(void);
 extern "C" void re4dc_crash_screen_fault(unsigned code, unsigned long pc, unsigned long pr, unsigned long addr);
 extern "C" void re4dc_crash_screen_halt(const char* file, int line);
+#if RE4DC_CRASH_FAULT_DETAIL
+extern "C" void re4dc_crash_screen_context(const irq_context_t* ctx);
+#endif
 #endif
 static void onFault(irq_t code, irq_context_t* ctx, void* data)
 {
     (void) data;
+#if RE4DC_CRASH_SCREEN && RE4DC_CRASH_FAULT_DETAIL
+    re4dc_crash_screen_context(ctx);  // preserve the actual exception, before logging or other calls
+#endif
     re4dc_log("fault context: expevt=%08lx inside=%08lx thread=%p tid=%d stack=%p bytes=%u\n",
               *(volatile unsigned long*)0xff000024, (unsigned long)irq_inside_int(),
               thd_current, thd_current ? thd_current->tid : -1,

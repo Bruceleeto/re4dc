@@ -588,10 +588,34 @@ TA_HEADROOM ?= 0
 # task's yield / resume semaphore, the stop screen shows that task's own thread first (slot, tid, state, saved pc / pr,
 # wait message + object + timeout, return-address candidates), above the PVR latch rows. Stop screen only.
 CRASH_TASK_DETAIL ?= 0
+# CRASH_FAULT_DETAIL=1: actual exception registers and bounded fault-thread
+# return-address candidates, before waiting-thread details. Default off.
+CRASH_FAULT_DETAIL ?= 0
+# KOS_HEAP_CHECK=1: diagnostic-only local recompile of the selected KOS
+# allocator with its existing MALLOC_DEBUG checks plus an allocation event ring.
+# Never rebuilds or edits the shared KOS library. Do not ship as a performance build.
+KOS_HEAP_CHECK ?= 0
+ifneq ($(filter-out 0 1,$(CRASH_FAULT_DETAIL) $(KOS_HEAP_CHECK)),)
+$(error CRASH_FAULT_DETAIL and KOS_HEAP_CHECK must be 0 or 1)
+endif
+ifneq ($(CRASH_FAULT_DETAIL)$(KOS_HEAP_CHECK),00)
+ifneq ($(CRASH_SCREEN),1)
+$(error CRASH_FAULT_DETAIL and KOS_HEAP_CHECK need CRASH_SCREEN=1)
+endif
+endif
+ifeq ($(KOS_HEAP_CHECK),1)
+PLATFORM_OBJS += $(OBJDIR)/platform/heap_audit.o
+GAME_LDFLAGS += -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free -Wl,--wrap=memalign
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_HEAP_CHECK=1
+$(OBJDIR)/platform/heap_audit.o: platform/heap_audit.c $(KOS_BASE)/kernel/libc/koslib/malloc.c
+	@mkdir -p $(dir $@)
+	kos-cc $(KOS_CFLAGS) -Os -I$(KOS_BASE)/kernel/libc/koslib -MMD -MP -c $< -o $@
+endif
 .PHONY: crash-screen-force
 $(OBJDIR)/crash-screen.h: crash-screen-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_CRASH_SCREEN %s\n#define RE4DC_PVR_LATCH %s\n#define RE4DC_CRASH_TASK_DETAIL %s\n' '$(CRASH_SCREEN)' '$(PVR_LATCH)' '$(CRASH_TASK_DETAIL)' > $@.tmp
+	@printf '#define RE4DC_CRASH_FAULT_DETAIL %s\n#define RE4DC_KOS_HEAP_CHECK %s\n' '$(CRASH_FAULT_DETAIL)' '$(KOS_HEAP_CHECK)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/fault.o $(OBJDIR)/platform/crash_screen.o $(OBJDIR)/platform/os.o $(OBJDIR)/platform/modules.o: $(OBJDIR)/crash-screen.h
@@ -1101,6 +1125,9 @@ UI_FRAG_LATCH ?= 0
 # (previous render fenced, the cheapest window of unpinned uploads released, then held), and the block is handed
 # to that texture when the scene asks for it again. Was: refused to the end of the room (r11b 7506e95f after the
 # chapter end: 15 refusals, 2.2 MB free, largest hole ~508 KiB; r118 em22 after r119). Render only.
+# PT_BLEND_FIX=1: alpha blending for PS2 world / impostor punch-through headers.
+# Hardware candidate: alpha-zero texels must preserve the destination. Default 0 retains old headers.
+PT_BLEND_FIX ?= 0
 UI_FRAG_RESERVE ?= 0
 ifeq ($(UI_FRAG_RESERVE),1)
 ifneq ($(UI_FRAG_LATCH)$(TEX_RESIDENT)$(MOVIE_WINDOW),111)
@@ -1139,6 +1166,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_UI_VRAM %s\n#define RE4DC_UI_VRAM_RESERVE_KB %s\n' '$(UI_VRAM)' '$(UI_VRAM_RESERVE_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_LATCH %s\n#define RE4DC_UI_OVERLAY_SLAB_KB %s\n' '$(UI_FRAG_LATCH)' '$(UI_OVERLAY_SLAB_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_RESERVE %s\n' '$(UI_FRAG_RESERVE)' >> $@.tmp
+	@printf '#define RE4DC_PT_BLEND_FIX %s\n' '$(PT_BLEND_FIX)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
@@ -1271,16 +1299,29 @@ $(OBJDIR)/model-position.h: model-position-force
 	@printf '#define RE4DC_MODEL_POSITION_CACHE %s\n' '$(MODEL_POSITION_CACHE)' > $@.tmp
 	@cmp -s $@.tmp $@ || cp $@.tmp $@
 	@rm -f $@.tmp
+$(OBJDIR)/platform/native_model.o: $(OBJDIR)/crash-screen.h
+$(OBJDIR)/platform/native_model.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/crash-screen.h
 $(OBJDIR)/platform/native_model.o: $(OBJDIR)/model-position.h
 $(OBJDIR)/platform/native_model.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/model-position.h
 
 # Compact structural plans share the existing native packet slab. No source
 # heap reservation and no copied display-list corners.
 MODEL_DRAW_PLANS ?= 0
+# Converted actor streams keep their meshlet decoder after fallback skinning.
+MODEL_STREAM_FIX ?= 0
+ifneq ($(filter-out 0 1,$(MODEL_STREAM_FIX)),)
+$(error MODEL_STREAM_FIX must be 0 or 1)
+endif
+ifeq ($(MODEL_STREAM_FIX),1)
+ifneq ($(NATIVE_ACTOR)$(NATIVE_ACTOR_FAST),11)
+$(error MODEL_STREAM_FIX requires NATIVE_ACTOR=1 and NATIVE_ACTOR_FAST=1)
+endif
+endif
 .PHONY: model-draw-plan-force
 $(OBJDIR)/model-draw-plan.h: model-draw-plan-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_MODEL_DRAW_PLANS %s\n' '$(MODEL_DRAW_PLANS)' > $@.tmp
+	@printf '#define RE4DC_MODEL_STREAM_FIX %s\n' '$(MODEL_STREAM_FIX)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_model.o $(OBJDIR)/platform/native_draw_plan_owner.o: $(OBJDIR)/model-draw-plan.h

@@ -17,6 +17,12 @@
 #include <string.h>
 
 #include "re4dc_platform.h"
+#if RE4DC_CRASH_FAULT_DETAIL
+#include "fault_trace.hpp"
+#endif
+#if RE4DC_KOS_HEAP_CHECK
+extern "C" int re4dc_heap_event_line(unsigned age, char* out, unsigned size);
+#endif
 
 #if RE4DC_CRASH_SCREEN
 
@@ -43,6 +49,14 @@ unsigned short* g_fb;  // the frame buffer being scanned out (FB_R_SOF1), as vid
 volatile int g_shown;
 kthread_t* g_threads[24];
 int g_nthreads;
+#if RE4DC_CRASH_FAULT_DETAIL
+struct FaultSnapshot {
+    std::uint32_t r[16], sr, stack_lo, stack_hi;
+    int tid;
+    bool valid;
+};
+FaultSnapshot g_fault{};
+#endif
 
 // First-failure state survives the 30-second watchdog delay. In issue 9 the
 // missing handler's deliberate sleep obscured a presentation timeout. Current
@@ -135,6 +149,9 @@ bool trace_waiter(const kthread_t* t)
 
 void put_text(int col, int row, const char* s, unsigned short fg)
 {
+#if RE4DC_CRASH_FAULT_DETAIL
+    if (row < 0 || row >= kRows) return;
+#endif
     unsigned short* fb = g_fb;
     for (; *s && col < kCols; ++s, ++col) {
         int c = (unsigned char) *s;
@@ -146,6 +163,33 @@ void put_text(int col, int row, const char* s, unsigned short fg)
         }
     }
 }
+
+#if RE4DC_CRASH_FAULT_DETAIL
+void fault_detail(int& row)
+{
+    if (!g_fault.valid) return;
+    char line[96];
+    snprintf(line, sizeof(line), "FAULT t%d sp %08x sr %08x", g_fault.tid, g_fault.r[15], g_fault.sr);
+    put_text(0, row++, line, 0xFFE0);
+    for (unsigned i = 0; i < 16; i += 4) {
+        snprintf(line, sizeof(line), "%x:%08x %x:%08x %x:%08x %x:%08x",
+                 i, g_fault.r[i], i+1, g_fault.r[i+1], i+2, g_fault.r[i+2], i+3, g_fault.r[i+3]);
+        put_text(0, row++, line, 0xFFFF);
+    }
+    std::uint32_t candidates[12];
+    const unsigned count = re4dc::fault_trace::collect(g_fault.r[15], g_fault.stack_lo, g_fault.stack_hi,
+        0x8c010000U, 0x8d000000U, candidates, 12,
+        [](std::uint32_t a) { return *reinterpret_cast<const std::uint32_t*>(a); },
+        [](std::uint32_t a) { return *reinterpret_cast<const std::uint16_t*>(a); });
+    for (unsigned i = 0; i < (count ? count : 1); i += 6) {
+        int used = snprintf(line, sizeof(line), "Fbt");
+        for (unsigned j = i; j < count && j < i+6; ++j)
+            used += snprintf(line+used, sizeof(line)-used, " %06x", candidates[j] & 0xffffffU);
+        if (!count) snprintf(line, sizeof(line), "Fbt none (bounded stack candidates)");
+        put_text(0, row++, line, 0xFFE0);
+    }
+}
+#endif
 
 #if RE4DC_CRASH_TASK_DETAIL
 }  // namespace
@@ -267,11 +311,21 @@ void show(const char* kind, const char* detail, bool wait_render)
     put_text(0, row++, line, 0xF800);
     snprintf(line, sizeof(line), "stage %08lx  ui frame %u", re4dc_stage, re4dc_ui_frame());
     put_text(0, row++, line, 0xFFFF);
+#if RE4DC_CRASH_FAULT_DETAIL
+    fault_detail(row);
+#endif
+#if RE4DC_KOS_HEAP_CHECK
+    for (unsigned age = 0; age < 2; ++age)
+        if (re4dc_heap_event_line(age, line, 54)) put_text(0, row++, line, 0xFFE0);
+#endif
 #if RE4DC_CRASH_TASK_DETAIL
     task_detail(row);  // rows 4..6, before the latch rows (at most 4 + 3 + 6 + 1 of the 20 rows)
     missing_detail(row);
 #endif
 #line 170
+#if RE4DC_CRASH_FAULT_DETAIL
+    if (!g_fault.valid) {
+#endif
 #if RE4DC_PVR_LATCH
     // PVR_LATCH: the same snapshot in two rows, then the latch rows (state, totals, event ring) captured at the
     // first failure; a hang without a failure prints the latch rows as they are now.
@@ -312,6 +366,10 @@ void show(const char* kind, const char* detail, bool wait_render)
         put_text(0, row++, line, 0xFFFF);
     }
 #endif
+#if RE4DC_CRASH_FAULT_DETAIL
+    }
+#endif
+#line 210
     if (re4dc_subscreen_brief) {
         re4dc_subscreen_brief(line, sizeof(line));
         if (line[0]) put_text(0, row++, line, 0xFFFF);
@@ -518,6 +576,23 @@ extern "C" void re4dc_crash_screen_fault(unsigned code, unsigned long pc, unsign
     snprintf(d, sizeof(d), "code %03x pc %08lx pr %08lx addr %08lx", code, pc, pr, addr);
     show("FAULT", d, true);
 }
+
+#if RE4DC_CRASH_FAULT_DETAIL
+extern "C" void re4dc_crash_screen_context(const irq_context_t* ctx)
+{
+    if (g_fault.valid || !ctx) return;
+    for (unsigned i = 0; i < 16; ++i) g_fault.r[i] = ctx->r[i];
+    g_fault.sr = ctx->sr;
+    const kthread_t* t = thd_current;
+    g_fault.tid = t ? t->tid : -1;
+    const std::uintptr_t lo = t ? reinterpret_cast<std::uintptr_t>(t->stack) : 0;
+    const unsigned bytes = t ? t->stack_size : 0;
+    if (lo >= 0x8c010000U && lo < 0x8d000000U && bytes <= 0x8d000000U-lo) {
+        g_fault.stack_lo = lo; g_fault.stack_hi = lo + bytes;
+    }
+    g_fault.valid = true;
+}
+#endif
 
 extern "C" void re4dc_crash_screen_halt(const char* file, int line)
 {

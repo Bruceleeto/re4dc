@@ -1,3 +1,9 @@
+#ifndef RE4DC_PT_BLEND_FIX
+#define RE4DC_PT_BLEND_FIX 0
+#endif
+#if RE4DC_KOS_HEAP_CHECK
+extern "C" void re4dc_heap_check(void);
+#endif
 #include <type_traits>
 #ifndef RE4DC_WORLD_AUTOSORT
 #define RE4DC_WORLD_AUTOSORT 0
@@ -3727,6 +3733,9 @@ extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=
 extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;door_banner_frame=frame;}
 #endif
 extern "C" void re4dc_ui_begin(){
+#if RE4DC_KOS_HEAP_CHECK
+    re4dc_heap_check();
+#endif
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
     door_ui_mark=~0U;
 #if RE4DC_TEX_RESIDENT
@@ -4953,7 +4962,9 @@ extern "C" int re4dc_model_pt_begin(unsigned crc,unsigned fnv,unsigned width,uns
     stream_select(PVR_LIST_PT_POLY);
     pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_PT_POLY,re4dc::texture::pvr_format(t),t.width,t.height,handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_GEQUAL;c.depth.write=PVR_DEPTHWRITE_ENABLE;
-    c.blend.src=PVR_BLEND_ONE;c.blend.dst=PVR_BLEND_ZERO;c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.alpha=PVR_TXRALPHA_ENABLE;
+    c.blend.src=RE4DC_PT_BLEND_FIX?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=RE4DC_PT_BLEND_FIX?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.txr.env=PVR_TXRENV_MODULATEALPHA;c.txr.alpha=PVR_TXRALPHA_ENABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_UV;
 #if RE4DC_NATIVE_FOG
     c.gen.fog_type=fog?PVR_FOG_TABLE:PVR_FOG_DISABLE;
@@ -5795,8 +5806,8 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
     c.gen.culling=PVR_CULLING_NONE; // authored cull already applied after clipping
     c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
     c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
-    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
-    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.blend.src=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;
@@ -5833,8 +5844,8 @@ extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned wi
     c.gen.culling=cull==0?PVR_CULLING_CW:cull==1?PVR_CULLING_CCW:PVR_CULLING_NONE;
     c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
     c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
-    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
-    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.blend.src=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;
@@ -5966,8 +5977,8 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
                 c.gen.culling=cull[k[5]];
                 c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
                 c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
-                c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
-                c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+                c.blend.src=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+                c.blend.dst=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
                 c.txr.env=PVR_TXRENV_MODULATEALPHA;
                 c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
                 c.txr.uv_clamp=PVR_UVCLAMP_NONE;
@@ -6028,8 +6039,8 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     c.gen.culling=cull[k[5]];
     c.depth.comparison=PVR_DEPTHCMP_GEQUAL;
     c.depth.write=pass==2?PVR_DEPTHWRITE_DISABLE:PVR_DEPTHWRITE_ENABLE;
-    c.blend.src=pass==2?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
-    c.blend.dst=pass==2?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
+    c.blend.src=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_SRCALPHA:PVR_BLEND_ONE;
+    c.blend.dst=(pass==2 || (RE4DC_PT_BLEND_FIX && pass==1))?PVR_BLEND_INVSRCALPHA:PVR_BLEND_ZERO;
     c.txr.env=PVR_TXRENV_MODULATEALPHA;
     c.txr.alpha=pass?PVR_TXRALPHA_ENABLE:PVR_TXRALPHA_DISABLE;
     c.txr.uv_clamp=PVR_UVCLAMP_NONE;

@@ -10,6 +10,9 @@
 #ifndef RE4DC_FRONT_LEAN
 #define RE4DC_FRONT_LEAN 0 // obj/frontend30.h (D367 frontend30)
 #endif
+#if RE4DC_MODEL_STREAM_FIX
+#include "native_actor.hpp"
+#endif
 #if RE4DC_MODEL_DRAW_PLANS
 #include "../../room/room_storage.hpp"
 #include <cstdlib>
@@ -76,6 +79,11 @@ extern "C" void re4dc_model_unbind_draw_owner(const void* key) {
 }
 static const re4dc::render::NativeDrawPlan* acquire_plan(const Re4dcModelPart* p,int* invalid,bool install) {
     *invalid=0;acquired_bounds=nullptr;acquired_locals=nullptr;
+#if RE4DC_MODEL_STREAM_FIX
+    // Actor conversion replaces GX commands in place without changing the
+    // stream address/size. Neither cached topology nor local ranges survive it.
+    if(re4dc_actor_stream_encoded(p->stream,p->stream_bytes)){++stats.uncovered;return nullptr;}
+#endif
     if(reset_pending) { ++stats.uncovered;return nullptr; }
     bool owned=false;
     for(const auto& o:owners) if(contains(o,p->part,32) && contains(o,p->stream,p->stream_bytes)) {owned=true;break;}

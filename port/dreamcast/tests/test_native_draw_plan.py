@@ -30,6 +30,7 @@ extern "C" void re4dc_model_invalidate_pending(){}
 extern "C" void re4dc_log(const char*,...){}
 extern "C" void re4dc_missing(const char*){assert(false);}
 extern "C" int re4dc_ui_heap_free(){return 66592;}
+extern "C" int re4dc_actor_stream_encoded(const unsigned char* p,unsigned n){return p && n>=32 && p[0]==0xfe && p[1]==3;}
 alignas(32) unsigned char native_metadata[32768];
 extern "C" void* re4dc_model_metadata_storage(unsigned* bytes){*bytes=sizeof(native_metadata);return native_metadata;}
 const re4dc::render::NativeDrawPlan* install(const Re4dcModelPart* p,int* invalid){
@@ -155,6 +156,21 @@ int main(){
  assert(large->primitive_count==1 && large->corner_count==9000);
  assert(re4dc::render::inspect_draw_plan(p.stream,p.stream_bytes,false,4,1,req) && req.bytes==24);
  re4dc_model_release_draw_plan();re4dc_model_retire_draw_plans();
+ // A source stream can become a native actor blob at the same address and
+ // size. Its cached GX plan and local metadata must stop being observable.
+ stream(archive,8);p.part=archive.data();p.stream=archive.data()+32;p.stream_bytes=archive.size()-32;
+ re4dc_model_bind_draw_owner(&key,archive.data(),archive.size(),1);
+ assert(install(&p,&invalid));re4dc_model_release_draw_plan();
+ const auto before_conversion=*re4dc_model_draw_plan_stats();
+ archive[32]=0xfe;archive[33]=3;
+ for(unsigned i=0;i<3;++i){
+  assert(!re4dc_model_acquire_draw_plan(&p,&invalid)&&!invalid);
+  assert(!re4dc_model_acquired_locals()&&!re4dc_model_acquired_bounds());
+  assert(re4dc_model_prepare_draw_plan(&p)==0);
+ }
+ assert(re4dc_model_draw_plan_stats()->hits==before_conversion.hits);
+ assert(re4dc_model_draw_plan_stats()->source_bytes==before_conversion.source_bytes);
+ re4dc_model_retire_draw_plans();assert(re4dc_model_draw_plan_stats()->used==0);
  // Repeated source commands retain one span; original bytes remain backing.
  archive.assign(32+9000*21,0);
  for(unsigned i=0;i<9000;++i){auto* c=archive.data()+32+i*21;c[0]=0x90;put16(c+1,3);}
@@ -245,7 +261,7 @@ int main(){
 }
 ''')
    game=ROOT/'port/dreamcast/game';room=ROOT/'port/dreamcast/room'
-   subprocess.run(['g++','-std=c++20','-O2','-DRE4DC_MODEL_DRAW_PLANS=1',
+   subprocess.run(['g++','-std=c++20','-O2','-DRE4DC_MODEL_DRAW_PLANS=1','-DRE4DC_MODEL_STREAM_FIX=1',
     '-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-fsanitize=address,undefined',
     '-I'+str(p),'-I'+str(game/'platform/include'),'-I'+str(room),str(p/'fixture.cpp'),
     str(game/'platform/native_draw_plan_owner.cpp'),str(room/'native_draw_plan.cpp'),

@@ -4039,6 +4039,9 @@ void census_note(const Re4dcModelPart& p) {
 #else
 #define RE4DC_CENSUS_DEC(pp) do { } while (0)
 #endif
+extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
+    return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
+}
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
 #if RE4DC_ACTOR_CENSUS

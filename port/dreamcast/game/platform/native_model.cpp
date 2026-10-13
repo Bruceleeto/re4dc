@@ -9,6 +9,9 @@ re4dc::profile::State re4dc::profile::state;
 #endif
 #include "re4dc_platform.h"
 #include "native_static.h"
+#if RE4DC_KOS_HEAP_CHECK
+extern "C" void re4dc_halt(const char*,int);
+#endif
 #include "../../room/pvr_geometry.hpp"
 #include "../../room/native_draw_plan.hpp"
 #ifndef RE4DC_NATIVE_STATIC
@@ -667,7 +670,18 @@ extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
     // Non-scenery parts (actors, weapons, room SMD objects): dense per-info
     // preparation (native_actor.cpp). It declines before any side effect and
     // the generic path below then runs unchanged.
+#if RE4DC_MODEL_STREAM_FIX && RE4DC_NATIVE_ACTOR_FAST
+    if(p && (!p->static_geometry || re4dc_actor_stream_encoded(p->stream,p->stream_bytes)) && re4dc_actor_submit(p))return;
+#else
     if(p && !p->static_geometry && re4dc_actor_submit(p))return;
+#endif
+#if RE4DC_KOS_HEAP_CHECK
+    if(p && p->stream && p->stream_bytes>=32 && p->stream[0]==0xfe){
+        re4dc_log("MODEL_BLOB_DECLINED pos=%08x normal=%08x static=%u info=%08x stream=%08x\n",
+          unsigned((std::uintptr_t)p->positions),unsigned((std::uintptr_t)p->normals),p->static_geometry,
+          unsigned((std::uintptr_t)p->info),unsigned((std::uintptr_t)p->stream));
+    }
+#endif
 #endif
 #if RE4DC_NATIVE_ACTOR_SKIN
     // Declined part of an info whose source CalcSk1_x pass was deferred
@@ -681,6 +695,36 @@ extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
     else
 #endif
     if(p)re4dc_actor_materialize(p);
+#endif
+#if RE4DC_MODEL_STREAM_FIX && RE4DC_NATIVE_ACTOR_FAST
+    // A previous part can materialize this info while a deferred view still
+    // has null arrays. Refreshing those arrays makes the packed actor path
+    // eligible again; its old GX plan describes bytes that no longer exist.
+    if(p && re4dc_actor_stream_encoded(p->stream,p->stream_bytes)){
+        if(re4dc_actor_submit(p))return;
+        // Invalid packed input has no GX fallback. Report the rejected part
+        // before any stale index can reach a position/normal/shading cache.
+#if RE4DC_KOS_HEAP_CHECK
+        re4dc_log("MODEL_BLOB_REJECTED stream=%08x info=%08x\n",unsigned((std::uintptr_t)p->stream),unsigned((std::uintptr_t)p->info));
+        re4dc_halt("Converted stream rejected",0);
+#endif
+        re4dc_model_result(1,0,0);return;
+    }
+#endif
+#if RE4DC_KOS_HEAP_CHECK
+    if(p && p->stream && p->stream_bytes>=32 && p->stream[0]==0xfe){
+        re4dc_log("MODEL_BLOB_FALLBACK model=%08x info=%08x part=%08x stream=%08x bytes=%u static=%u flags=%08x alpha=%u cull=%u blend=%u\n",
+          unsigned((std::uintptr_t)p->model),unsigned((std::uintptr_t)p->info),unsigned((std::uintptr_t)p->part),
+          unsigned((std::uintptr_t)p->stream),p->stream_bytes,p->static_geometry,p->flags,p->alpha_state,p->cull,p->blend);
+        re4dc_log("MODEL_BLOB_ARRAYS pos=%08x/%u/%u shift=%u normal=%08x/%u/%u shift=%u light=%08x colors=%08x uv=%08x\n",
+          unsigned((std::uintptr_t)p->positions),p->position_count,p->position_stride,p->shift,
+          unsigned((std::uintptr_t)p->normals),p->normal_count,p->normal_stride,p->normal_shift,
+          unsigned((std::uintptr_t)p->lighting),unsigned((std::uintptr_t)p->colors),unsigned((std::uintptr_t)p->uv));
+        if(p->lighting)re4dc_log("MODEL_BLOB_LIGHT enable=%u attenuation=%u ambient_vertex=%u material_vertex=%u projection=%f viewport=%f/%f\n",
+          p->lighting->enable,p->lighting->attenuation,p->lighting->ambient_vertex,p->lighting->material_vertex,
+          double(p->projection[0]),double(p->viewport[2]),double(p->viewport[3]));
+        re4dc_halt("Converted stream reached GX",0);
+    }
 #endif
     if(!p || p->alpha_state>511 || ((p->alpha_state&256) && (!(p->flags&0x80000000U) || !p->colors)) || p->shift>30 || (p->position_stride!=6 && p->position_stride!=8) ||
        !p->position_count || !p->normal_count || p->stream_bytes>1024*1024 ||
