@@ -2918,6 +2918,9 @@ void preload_identities(){
 #endif
 }
 #endif
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
+#include "include/native_effect_stage1_prepare.inc"
+#endif
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
 // VRAM_CENSUS (test only): texture RAM census. VRAM_PAGES reports its own lists; the KOS dlmalloc
 // heap is walked chunk by chunk (4-byte size word, PREV_INUSE in the next chunk; top chunk free).
@@ -4008,6 +4011,9 @@ extern "C" void re4dc_ui_begin(){
     if(preload_pending && frame_ready && !vram_claims)preload_identities();
 #endif
     re4dc_prepare_model_assets(); // registration/update work precedes frame submission
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
+    stage1_prepare_image(); // existing guarded preload/load path; no effect submission
+#endif
     re4dc::profile::begin();
 #if defined(__sh__)
     re4dc_profile_source(&render_source_begin);

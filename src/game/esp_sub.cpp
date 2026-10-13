@@ -1400,6 +1400,33 @@ static void Ps2fxStage1Prepare()
     s_stage1_pending={g_pEspSys->pEspBuf,EspgenArray,(u32)pG->Frame_cnt,(u16)G_ROOM_ID,
         g_pEspSys->nEsp,generation,nEspgen,true};
 }
+// Called only at native begin, before source Render submission. Revalidate
+// the pending source image without consuming it or advancing any private clock.
+extern "C" unsigned re4dc_ps2_fx_stage1_image(Re4dcUiImage* image)
+{
+    if(!image)return 0;
+    *image={};
+    const Ps2fxStage1Pending& ticket=s_stage1_pending;
+    if(!ticket.pending || !pG || !g_pEspSys ||
+       ticket.frame!=(u32)pG->Frame_cnt || ticket.room!=G_ROOM_ID ||
+       ticket.pool!=g_pEspSys->pEspBuf || ticket.slots!=g_pEspSys->nEsp ||
+       ticket.generators!=EspgenArray || ticket.generator_count!=nEspgen)return 0;
+    unsigned generation=0,cells,bytes,stale,refused;
+    if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || generation!=ticket.generation)return 0;
+    unsigned tex,width;
+    if(ticket.room==0x117 && (re4dc_ps2fx&PS2FX_STREAK)){tex=0x13;width=96;}
+    else if((ticket.room==0x118 || ticket.room==0x11c) && (re4dc_ps2fx&PS2FX_HAZE)){tex=0x1f;width=128;}
+    else return 0;
+    const EspTexWk* tw=&g_pEspSys->Esp_tex_tbl[tex];
+    if(tw->Owner==0xd2 || !tw->pTpl || tw->pTpl->numDescriptors!=1 || !tw->pAnm ||
+       tw->pAnm->Cx || tw->pAnm->Cy || tw->pAnm->Width!=width || tw->pAnm->Height!=width || tw->pAnm->Frames!=1)return 0;
+    const TEXDescriptor* td=TEXGet(tw->pTpl,0);
+    if(!td || !td->textureHeader || td->CLUTHeader)return 0;
+    const TEXHeader* th=td->textureHeader;
+    if(!th->data || th->width!=width || th->height!=width || th->format!=1)return 0;
+    *image={th->data,NULL,width,width,1,0xffffffffU,0};
+    return tex;
+}
 extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping)
 {
     const Ps2fxStage1Pending ticket=s_stage1_pending;s_stage1_pending={};
