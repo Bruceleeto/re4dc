@@ -23,8 +23,15 @@ constexpr unsigned kActorImmutableChunks=46;
 // ACTOR_PL08: the three pl08-only chunks (roles 0, 1, 8) follow every fixed ID. Its other roles and the 14 hair runs
 // use pl00's arrays and IDs unchanged (byte-identical source sections; NS/pl08 merge_pack.py proofs).
 constexpr unsigned kActorPl08Asset0=kActorImmutableChunks+1u;
+#if RE4DC_LEON_HAND_TABLE
+// LEON_HAND_POSES + LEON_HAND_DIR: the PS2 pose hands (ps2leon_hands.h) follow the pl08 IDs, one ID per pose.
+constexpr unsigned kLeonHandAsset0=kActorImmutableChunks+4u;
+ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks+3u+leon_hands::count];
+#define RE4DC_IMMUTABLE_CHUNK_COUNT (kActorImmutableChunks+3u+leon_hands::count)
+#else
 ActorImmutableChunk actor_immutable_chunks[kActorImmutableChunks+3u];
 #define RE4DC_IMMUTABLE_CHUNK_COUNT (kActorImmutableChunks+3u)
+#endif
 #else
 #define RE4DC_IMMUTABLE_CHUNK_COUNT kActorImmutableChunks
 #endif

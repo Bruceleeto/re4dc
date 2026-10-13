@@ -20,3 +20,14 @@ $(error MCHECK_SAFE=1 needs RENDER_OPTION=1 (the speed display))
 endif
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/letterbox_clip.o: PLATFORM_CPPFLAGS += -DRE4DC_MCHECK_SAFE=1
 endif
+# MCHECK_LEONGC=1 (issue #26, 2026-10-13; needs ACTOR_TRANSACTION=1): "LEONGC" when the player's model is left to the
+#   source (GameCube) path instead of the owner path (user: GC Leon is a bug, never a fallback): the transaction's last
+#   decline, the role-binding event, the material certificate error / role and the hand infos; "LEONGC armed" at the
+#   first transaction. leongc_check.py: PASS only with the armed line and zero LEONGC lines.
+MCHECK_LEONGC ?= 0
+ifeq ($(MCHECK_LEONGC),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error MCHECK_LEONGC=1 needs ACTOR_TRANSACTION=1)
+endif
+$(OBJDIR)/coarse_actor.o $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_MCHECK_LEONGC=1
+endif

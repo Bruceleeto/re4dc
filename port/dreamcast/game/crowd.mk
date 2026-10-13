@@ -80,6 +80,31 @@ endif
 #              pl08 keeps the whole source path. ACTOR_PL08_DIR is not used.
 ACTOR_PL08_PACK ?= 0
 ACTOR_PL08 ?= 0
+# LEON_HAND_POSES=1 (issue #26, 2026-10-13; default 0: no effect; render only): Leon (pl00 0x100 / pl08 0x108) keeps the
+#              PS2 owner path in every hand pose. The player's current right / left hand infos (cPlBody pRight / pLeft:
+#              setRightHand / setLeftHand, weapon grips, the empty hand, the r10b boat hand) are roles 5 / 6 whatever
+#              pose data they show, in any source info order (a swap re-appends its info at the end of the list);
+#              the certificate checks their live state and the player hand TPL against the standard hand row, not
+#              the pose geometry; the plan draws the PS2 hand of that pose (LEON_HAND_DIR's ps2leon_hands.h) or the
+#              PS2 standard hand when the pose has none. Before: any hand other than the handgun grip (wep02/10) and
+#              the left grip pl00/24 sent the whole Leon to the GameCube body until the next room load.
+#              LEON_HAND_DIR: the private dir with ps2leon_hands.h (tools/d367/ps2leon/build_hands.py); unset = the
+#              PS2 standard hands for every pose.
+LEON_HAND_POSES ?= 0
+LEON_HAND_DIR ?=
+ifeq ($(filter $(LEON_HAND_POSES),0 1),)
+$(error LEON_HAND_POSES must be 0 or 1)
+endif
+ifeq ($(LEON_HAND_POSES),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error LEON_HAND_POSES acts on the ACTOR_TRANSACTION owner path (ACTOR_TRANSACTION=1))
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_HAND_POSES=1
+ifneq ($(LEON_HAND_DIR),)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_HAND_TABLE=1 -I$(LEON_HAND_DIR)
+$(OBJDIR)/coarse_actor.o: $(LEON_HAND_DIR)/ps2leon_hands.h
+endif
+endif
 ifeq ($(filter $(ACTOR_PL08),0 1),)
 $(error ACTOR_PL08 must be 0 or 1)
 endif

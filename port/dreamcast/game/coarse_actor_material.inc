@@ -300,6 +300,28 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     }
     ++out.identity_roles;return Error::None;
 }
+#if RE4DC_LEON_HAND_POSES
+// LEON_HAND_POSES: a player hand info of any pose. The same live-state rules as info() (visible pass group, no
+// colour / texture / UV modifiers, no morph) and the player hand TPL's textures against the standard hand row;
+// the pose geometry and its ModelPart materials are not compared (the plan draws the PS2 hand, not this data).
+Error hand_info(cModelInfo* i,const Role& row,Result& out) {
+    if(!readable(i,sizeof(*i)) || !readable(i->pData,sizeof(ModelData)))return Error::BadRange;
+    if((i->be_flag&~8u)!=1u)return Error::PassGroup;
+    if(i->invisible_factor!=1.0f || i->blend_mode || i->colorWord!=0xffffffffu ||
+       i->color2[0] || i->color2[1] || i->color2[2] || i->color2[3] ||
+       i->flagsDC || i->pAddTpl || i->nAddTex || i->blendRatio || i->blendType ||
+       i->texBlendTbl || i->pTexAnim || i->uvU || i->uvV || i->uvScrollU || i->uvScrollV)return Error::LiveModifier;
+    const void* tp=i->tpl_addr;
+    if(!readable(tp,12) || u32at(tp,4)!=row.texture_count)return Error::Texture;
+    const void* td=ptrat(tp,8);
+    if(!readable(td,row.texture_count*8u))return Error::BadRange;
+    for(unsigned k=0;k<row.texture_count;++k) {
+        Error r=texture(static_cast<const unsigned char*>(td)+k*8,row.textures[k]);
+        if(r!=Error::None)return r;
+    }
+    ++out.identity_roles;return Error::None;
+}
+#endif
 #if RE4DC_ACTOR_MATERIAL_RECORD
 // rec: a record hit (its rows and archive verdict); rows_out: the rows this evaluation used (for a store).
 Result compare_core(cModel* m,const Re4dcActorPlan* p,bool diagnostic,const record::Record* rec,const Role** rows_out) {
@@ -324,7 +346,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     crow_rows=registry && m->id==0x23;
 #endif
     if(registry ? !re4dc_registry_model(m,p) :
-       ((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
+       ((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || RE4DC_LEON_OT_BAD(m))) ||
         (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type)))) {
         out.error=Error::UnknownAppearance;return out;
     }
@@ -335,7 +357,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
 #else
-    if((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || m->ot_type!=7)) ||
+    if((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || RE4DC_LEON_OT_BAD(m))) ||
        (!leon && (p->appearance>=5 || p->count<4 || p->count>5 || m->id<0x10 || m->id>0x20 || m->ot_type))) {
         out.error=Error::UnknownAppearance;return out;
     }
@@ -356,6 +378,20 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     const Role* rows[kLeanRoles]{};
     if(p->count>kLeanRoles){out.error=Error::BadRange;return out;}
     for(unsigned k=0;k<p->count;++k) {
+#if RE4DC_LEON_HAND_POSES
+        // LEON_HAND_POSES: the player's current hand infos (any pose) are certified by their live state and the
+        // player hand TPL against the standard hand row; their geometry is never drawn (the PS2 hand is).
+        if(leon && !diagnostic && re4dc_leon_hand_role(m,p->info[k])==k) {
+            out.role=k;const auto* row=find(p->appearance,k);
+            if(!row){out.error=Error::MissingRole;return out;}
+            rows[k]=row;
+#if RE4DC_ACTOR_MATERIAL_RECORD
+            if(rows_out)rows_out[k]=row;
+#endif
+            out.error=hand_info(p->info[k],*row,out);if(out.error!=Error::None)return out;
+            continue;
+        }
+#endif
 #if RE4DC_ACTOR_MATERIAL_RECORD
         out.role=k;const auto* row=diagnostic?find(p->appearance,k):rec?&RE4DC_ROLE(rec->row[k]):
                                    actor_current_role(m,p->info[k],p->appearance,k);
@@ -384,6 +420,14 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
 #endif
 #else
     for(unsigned k=0;k<p->count;++k) {
+#if RE4DC_LEON_HAND_POSES
+        if(leon && !diagnostic && re4dc_leon_hand_role(m,p->info[k])==k) {
+            out.role=k;const auto* row=find(p->appearance,k);
+            if(!row){out.error=Error::MissingRole;return out;}
+            out.error=hand_info(p->info[k],*row,out);if(out.error!=Error::None)return out;
+            continue;
+        }
+#endif
         out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
         if(!row){out.error=Error::MissingRole;return out;}
         if(!diagnostic && !re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,k,RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
@@ -551,6 +595,10 @@ static int lean_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned
 }
 extern "C" int re4dc_actor_material_certificate(cModel* m,const Re4dcActorPlan* p) {
     const auto r=re4dc_material::compare(m,p,false);
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
+    extern unsigned re4dc_leon_gc_cert_error,re4dc_leon_gc_cert_role;
+    if(m==(cModel*)pPL && r.error!=re4dc_material::Error::None){re4dc_leon_gc_cert_error=unsigned(r.error);re4dc_leon_gc_cert_role=r.role;}
+#endif
     if(r.error!=re4dc_material::Error::None) {
         static unsigned logged;
         if(logged++<8)re4dc_log("ACTOR_MATERIAL decline=%u app=%u role=%u part=%u need=%x matched=%u\n",

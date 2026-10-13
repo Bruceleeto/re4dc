@@ -34,6 +34,9 @@
 #include "filter.h"
 #include "foot_shadow.h"
 #include "db_cam.h"
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
+extern "C" void re4dc_leon_gc_note(cModel*); // mcheck.mk MCHECK_LEONGC (coarse_actor_transaction.inc)
+#endif
 
 #line 1 "D:/Bio4/Prog/trans.cpp"
 
@@ -2589,6 +2592,10 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
         const int owned=re4dc_actor_transaction_draw(m);
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
+        // mcheck.mk MCHECK_LEONGC (test builds): the player's model left to the source (GameCube) path.
+        if(owned==0 && m==(cModel*)pPL)re4dc_leon_gc_note(m);
+#endif
         if(owned<0)return; // caller still restores alpha state and shaderReset
         if(owned>0)info=nullptr; // original postlude still executes below
     }

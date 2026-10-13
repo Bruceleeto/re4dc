@@ -899,3 +899,42 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     if(r->done==r->passes && !actor_release(*r))return -1;
     return 1;
 }
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
+// mcheck.mk MCHECK_LEONGC (test builds): every hand-off of the player's model to the source (GameCube) path is a
+// bug (user, 2026-10-13: never the GC Leon). trans.cpp calls re4dc_leon_gc_note when the transaction did not own
+// pPL; the line names the transaction's last decline (why: 1 identity, 2 sticky source choice, 3 second-pass group,
+// 4 no plan, 5 layout, 6 semantics / certificate; bind: the role-binding event 21..30 of the last plan attempt;
+// cert: the material certificate error / role) and the hand infos. Bounded: a line on each change of the cause,
+// else one per 600 frames, each with the running total. tools/d367/mcheck/leongc_check.py turns them into PASS / FAIL.
+#include "player.h"
+#include "pl_body.h"
+namespace { unsigned leon_gc_why,leon_gc_a,leon_gc_b,leon_gc_bind,leon_gc_total,leon_gc_last_key,leon_gc_last_frame; }
+unsigned re4dc_leon_gc_cert_error,re4dc_leon_gc_cert_role;
+extern "C" void re4dc_leon_gc_atd(cModel* m,unsigned e,unsigned a,unsigned b) {
+    static bool armed;
+    if(!armed){armed=true;re4dc_log("LEONGC armed (MCHECK_LEONGC)\n");}
+    if(!m || m!=(cModel*)pPL)return;
+    if(e==0){leon_gc_why=leon_gc_bind=0;re4dc_leon_gc_cert_error=re4dc_leon_gc_cert_role=0;return;}
+    if(e<=6){leon_gc_why=e;leon_gc_a=a;leon_gc_b=b;}
+    else if(e>=20 && e<=31)leon_gc_bind=e;
+}
+extern "C" void re4dc_leon_gc_note(cModel* m) {
+    if(!m || m!=(cModel*)pPL)return;
+    ++leon_gc_total;
+    const unsigned f=pG->Frame_cnt;
+    const unsigned key=leon_gc_why|leon_gc_bind<<8|re4dc_leon_gc_cert_error<<16|re4dc_leon_gc_cert_role<<24;
+    // Both source passes of a frame may decline for different causes: keep the last two causes.
+    static unsigned prev_key=~0u;
+    // Throttle on the note count: pG->Frame_cnt holds still in some scripted states (the r10b boat ride).
+    static unsigned last_total;
+    if((key==leon_gc_last_key || key==prev_key) && leon_gc_total-last_total<600u)return;
+    last_total=leon_gc_total;
+    if(key!=leon_gc_last_key){prev_key=leon_gc_last_key;leon_gc_last_key=key;}
+    leon_gc_last_frame=f;
+    const auto* body=pPL->Body;
+    re4dc_log("LEONGC f=%u room=%04x why=%u a=%u b=%u bind=%u cert=%u/%u total=%u right=%p/%p left=%p/%p infos=%u\n",f,
+              unsigned(pG->room_id),leon_gc_why,leon_gc_a,leon_gc_b,leon_gc_bind,re4dc_leon_gc_cert_error,re4dc_leon_gc_cert_role,
+              leon_gc_total,body?(void*)body->pRight:nullptr,body?body->pRightData:nullptr,body?(void*)body->pLeft:nullptr,
+              body?body->pLeftData:nullptr,[&]{unsigned n=0;for(auto* q=m->pModelInfo;q && n<64;q=q->pList)++n;return n;}());
+}
+#endif

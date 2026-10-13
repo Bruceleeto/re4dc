@@ -2,6 +2,16 @@
 // Full BIN identity is computed at archive adoption, before relocation/FE.
 // Metadata borrows real source allocations; it never owns or duplicates them.
 #include "actor_transaction_diag.h"
+#if RE4DC_LEON_HAND_POSES
+#include "pl_body.h"
+// LEON_HAND_POSES: 5 when info is the player's current right hand info, 6 the left hand, else 0 (m must be the player).
+static unsigned re4dc_leon_hand_role(const cModel* m,const cModelInfo* info) {
+    if(!pPL || m!=(const cModel*)pPL || !pPL->Body || !info)return 0;
+    if(info==pPL->Body->pRight)return 5;
+    if(info==pPL->Body->pLeft)return 6;
+    return 0;
+}
+#endif
 #if RE4DC_CROWD_CENSUS
 unsigned crowd_adopt_calls,crowd_adopt_ok,crowd_adopt_fail[4],crowd_archive_full,crowd_archive_unsupported,crowd_revokes,crowd_revoked_infos,crowd_readopt_ok,crowd_readopt_fail;
 #define CROWD_LIFE(stmt) stmt
@@ -505,6 +515,15 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
         if(!i && (RE4DC_CROWD_READOPT==2 || appearance!=256)){re4dc_actor_info_adopt(p);i=find_info(p);CROWD_LIFE(++(i?crowd_readopt_ok:crowd_readopt_fail));}
 #endif
 #endif
+#if RE4DC_LEON_HAND_POSES
+        // LEON_HAND_POSES (crowd.mk): the player's current right / left hand infos (cPlBody pRight / pLeft) are roles
+        // 5 / 6 whatever pose data they show (weapon grips, the empty hand, the boat hand); the plan draws the PS2
+        // hand for that pose (re4dc_leon_hand_chunk). Every other info still needs its exact record.
+        if(const unsigned hand=re4dc_leon_hand_role(m,p)) {
+            if(hand>=count || (seen&(1u<<hand))){ATD(m,23,appearance,(n-1)*256+hand);return 0;}
+            out[hand]=p;seen|=1u<<hand;continue;
+        }
+#endif
 #if RE4DC_ACTOR_TRANSACTION_DIAG
         if(!i)re4dc_actor_txdiag_info(m,p,n-1);
 #endif
@@ -536,7 +555,24 @@ extern "C" int re4dc_actor_role_bindings(cModel* m,unsigned appearance,cModelInf
 #else
         const unsigned expected=appearance==256?leon_order[n-1]:n-1;
 #endif
-        if(role>=count || role!=expected || (seen&(1u<<role))){ATD(m,23,appearance,(n-1)*256+role);return 0;}out[role]=p;seen|=1u<<role;
+#if RE4DC_LEON_HAND_POSES
+        // LEON_HAND_POSES: Leon's roles may appear in any source order (a hand swap re-appends its info at the end).
+        const bool order_ok=(appearance==256 || appearance==264) || role==expected;
+#else
+        const bool order_ok=role==expected;
+#endif
+        if(role>=count || !order_ok || (seen&(1u<<role))){
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+            static unsigned i26_logs;
+            if(appearance==264 && i26_logs++<12){
+                re4dc_log("I26 bind23 f=%u pos=%u role=%u expected=%u seen=%x info=%p data=%p\n",re4dc_ui_frame(),n-1,role,expected,seen,p,p->pData);
+                unsigned k=0;for(auto* q=m->pModelInfo;q;q=q->pList,++k){auto* qi=find_info(q);unsigned rr=99;
+                    if(qi)for(unsigned r=0;r<RE4DC_ROLE_COUNT;++r)if(RE4DC_ROLE(r).appearance==appearance && info_current(*qi,r)){rr=RE4DC_ROLE(r).role;break;}
+                    re4dc_log("I26  list %u info=%p data=%p rec=%u role=%u\n",k,q,q->pData,unsigned(qi!=nullptr),rr);}
+            }
+#endif
+            ATD(m,23,appearance,(n-1)*256+role);return 0;}
+        out[role]=p;seen|=1u<<role;
     }
     if(n!=count || seen!=((1u<<count)-1)){ATD(m,25,n,seen);return 0;}return 1;
 }
