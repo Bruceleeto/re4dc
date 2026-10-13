@@ -2234,6 +2234,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
             frag_key=key;frag_frame=frame;
             re4dc_log("native UI: no contiguous block for %ux%u (need=%u free=%u): latched %u frames\n",image.width,image.height,need,(unsigned)pvr_mem_available(),kFragRetryFrames);
+#if RE4DC_VRAM_CENSUS && RE4DC_VRAM_PAGES
+            {void vram_frag_dump(unsigned);vram_frag_dump(need);}
+#endif
         }
 #endif
         ok=ok && slot->package.release_payload();
@@ -2742,6 +2745,48 @@ void vram_census(const char* where){
     re4dc_log("vram census: %s frame=%u pages=%d budget=%u used=%u textures=%u tex_bytes=%u claims=%u avail=%u allocs=%u alloc_bytes=%u extents=%u free=%u largest=%u hist=%u/%u/%u/%u/%u fails=%u peak_alloc=%u peak_free=%u retries=%u evicted=%u\n",
         where,frame,RE4DC_VRAM_PAGES,vram_budget,used,ntex,tex_bytes,vram_claims,(unsigned)pvr_mem_available(),c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],vram_retries,reclaimed);
 }
+#if RE4DC_VRAM_PAGES
+// VRAM_CENSUS: the texture RAM map when a load finds no contiguous block (first two failures of a run).
+// One token per allocation: offset/KiB then P (cache entry used this frame or leased), U (cache entry,
+// evictable) or X (no cache entry: glyph atlas, overlay slab, OSD, movie, sub screen, lake, ...), and the
+// entry key for P / U. Free extents in between show as gaps in the offsets.
+extern "C" unsigned re4dc_vram_pages_snapshot(unsigned* off,unsigned* len,unsigned cap,unsigned* base,unsigned* pool);
+void vram_frag_dump(unsigned need){
+    static unsigned dumps;
+    if(dumps>=2)return;
+    ++dumps;
+    constexpr unsigned kCap=512;
+    static unsigned off[kCap],len[kCap];static short owner[kCap];
+    unsigned base=0,pool=0;
+    const unsigned n=re4dc_vram_pages_snapshot(off,len,kCap,&base,&pool);
+    auto block_of=[&](unsigned a)->int{unsigned lo=0,hi=n;while(lo<hi){const unsigned m=(lo+hi)/2;if(off[m]+len[m]<=a)lo=m+1;else hi=m;}
+        return lo<n && off[lo]<=a ? int(lo) : -1;};
+    for(unsigned i=0;i<n;++i)owner[i]=-1;
+    for(unsigned ei=0;ei<kTextureCount;++ei){
+        const Entry& e=entries[ei];
+        if(!e.valid || !e.package.vram_bytes())continue;
+        const unsigned count=e.package.header().texture_count;
+        for(unsigned t=0;t<count;++t){
+            const pvr_ptr_t p=e.package.pvr_texture(t);if(!p)continue;
+            const int b=block_of(unsigned(p)-base);if(b>=0)owner[b]=short(ei);
+        }
+    }
+    unsigned xb=0,pb=0,ub=0;
+    for(unsigned i=0;i<n;++i){if(owner[i]<0)xb+=len[i];else if(RE4DC_ENTRY_PINNED(entries[owner[i]]))pb+=len[i];else ub+=len[i];}
+    re4dc_log("vram frag: frame=%u need=%u base=%08x pool=%u allocs=%u other=%u pinned=%u evictable=%u free=%u\n",
+        frame,need,base,pool,n,xb,pb,ub,(unsigned)pvr_mem_available());
+    char line[200];unsigned at=0;
+    for(unsigned i=0;i<n;++i){
+        int w;
+        if(owner[i]<0)w=snprintf(line+at,sizeof(line)-at," %x/%uX",off[i],len[i]/1024U);
+        else{const Entry& e=entries[owner[i]];
+            w=snprintf(line+at,sizeof(line)-at," %x/%u%c%08x",off[i],len[i]/1024U,RE4DC_ENTRY_PINNED(e)?'P':'U',e.key.crc);}
+        if(w<0)break;
+        at+=unsigned(w);
+        if(at>150 || i+1==n){re4dc_log("vram frag:%s\n",line);at=0;}
+    }
+}
+#endif
 #endif
 }
 #if RE4DC_PVR_PIPELINE
