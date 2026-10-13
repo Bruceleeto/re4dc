@@ -124,7 +124,7 @@ extern "C" void re4dc_option_rows_art(const Re4dcUiQuad* audio)
     const float value_x = center + (label_width + 16 - value_width) * 0.5f * sx;
     const char* labels[2] = {"FRAME PACING", "RENDERING"};
     const char* values[2] = {kPace[pace_value()], kRender[render_value()]};
-    for (int row = 0; row != 2; ++row) {
+    for (int row = 0; row != kRows; ++row) {
         const float x = value_x - (16 + option_text_width(labels[row])) * sx;
         const float y = audio->xy[1] + (row + 1) * gap * sy;
         unsigned col = (audio->color & 0xFF000000U) | 0xFFFFFFU;

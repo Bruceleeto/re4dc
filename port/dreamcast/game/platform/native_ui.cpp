@@ -1836,11 +1836,18 @@ void speed_draw(){
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);
     std::memcpy(&b.v[0],&header,sizeof(header));
+#if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+    // letterbox_clip.cpp (b): at 640x480 tile row 0 (y 0..31) renders no translucent list under the top bar, which
+    // cut the counter's first row on consoles (issue #26); start below it.
+    constexpr float SY=34;
+#else
+    constexpr float SY=24;
+#endif
     if(counter){
-        hud_number(b,566,24,v[0],true,0xe0ffffffU);
-        hud_number(b,566,42,v[1],false,0xe0ffd0a0U);
+        hud_number(b,566,SY,v[0],true,0xe0ffffffU);
+        hud_number(b,566,SY+18,v[1],false,0xe0ffd0a0U);
 #if RE4DC_PACE_DEBUG
-        hud_number(b,566,60,v[2],false,0xe0a0d0ffU);
+        hud_number(b,566,SY+36,v[2],false,0xe0a0d0ffU);
 #endif
     }
 #if defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT

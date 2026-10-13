@@ -455,6 +455,9 @@ extern "C" void re4dc_res_apply_pending()
 // Test builds (pad.cpp chord): the next available mode, applied at the next safe point.
 extern "C" void re4dc_res_cycle()
 {
+#if RE4DC_RENDER_QUALITY_ONLY
+    return;  // game30.mk RENDER_QUALITY_ONLY: Quality (mode 0) only
+#endif
     unsigned m = cur == ~0U ? 0U : cur;
     for (unsigned i = 0; i < kModeCount; ++i) {
         m = (m + 1U) % kModeCount;

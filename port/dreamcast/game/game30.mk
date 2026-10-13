@@ -202,6 +202,14 @@ ifeq ($(PACE_CATCHUP),0)
 $(error RENDER_OPTION needs PACE_CATCHUP (the Frame pacing row))
 endif
 override RES_MODES := 19
+# RENDER_QUALITY_ONLY=1 (test 9, user 2026-10-13, issue #26: switching Rendering on a console crashed a few seconds
+#   later, sometimes): Options loses the Rendering row and the game always shows Quality (mode 0). The stored
+#   RE4DCCFG Rendering field and quality.txt render= are ignored, never rewritten; the LOOK_TOGGLE resolution chord
+#   is inert. The Frame pacing row and the speed display stay. Default 0: unchanged.
+ifeq ($(RENDER_QUALITY_ONLY),1)
+GAME_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
+PLATFORM_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
+endif
 GAME_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 OBJS += $(OBJDIR)/option_rows.o

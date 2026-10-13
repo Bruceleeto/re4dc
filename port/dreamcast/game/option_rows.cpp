@@ -25,6 +25,11 @@ extern "C" int re4dc_res_vga(void);                                // res_mode.c
 
 namespace {
 constexpr int kRowPacing = 5, kRowRender = 6, kBack = 4;
+#if RE4DC_RENDER_QUALITY_ONLY
+constexpr int kRows = 1;  // game30.mk RENDER_QUALITY_ONLY: no Rendering row
+#else
+constexpr int kRows = 2;
+#endif
 constexpr int kSlot0 = 13;  // message slots of the two rows (slot 0 is the screen's help line)
 constexpr u32 kKeyA = 0x80000000, kKeyB = 0x40000000, kKeyUp = 0x01000000, kKeyDown = 0x02000000,
               kKeyLeft = 0x08000000, kKeyRight = 0x04000000;
@@ -100,8 +105,9 @@ void mes(int no, int x, int y, u32 attr, int slot)
 }
 u32 rgba(const IdUnit* u) { return (u32(u8(u->col[0])) << 24) | (u32(u8(u->col[1])) << 16) | (u32(u8(u->col[2])) << 8) | u8(u->col[3]); }
 // Cursor order 0, 1, 2, 3, 5, 6, 4 (rows 0..3, the two new rows, EXIT).
-const s8 kOrder[7] = {0, 1, 2, 3, kRowPacing, kRowRender, kBack};
-int order_index(int row) { for (int i = 0; i < 7; ++i) if (kOrder[i] == row) return i; return 0; }
+constexpr int kOrderN = 5 + kRows;
+const s8 kOrder[7] = {0, 1, 2, 3, kRowPacing, kRows == 2 ? kRowRender : kBack, kBack};
+int order_index(int row) { for (int i = 0; i < kOrderN; ++i) if (kOrder[i] == row) return i; return 0; }
 void change(int row, int dir)
 {
     if (row == kRowPacing) {
@@ -133,7 +139,7 @@ extern "C" int re4dc_option_rows_key(s8* rno1)
     }
     if (t & (kKeyUp | kKeyDown)) {
         int i = order_index(row) + ((t & kKeyUp) ? -1 : 1);
-        i = i < 0 ? 0 : (i > 6 ? 6 : i);
+        i = i < 0 ? 0 : (i > kOrderN - 1 ? kOrderN - 1 : i);
         if (kOrder[i] == 0 && (pG->Status_flg[2] & 0x8000)) i = 1;  // retry / load disabled
         if (kOrder[i] != row) { *rno1 = kOrder[i]; SndCall(0, 0x34, 0, 0, 0, 0); re4dc_log("options: cursor %d\n", kOrder[i]); }
         return 1;
@@ -151,7 +157,7 @@ extern "C" int re4dc_option_rows_draw(OptionScreen* o, int x0, int* y0)
     IdUnit* back = IdSys.unitPtr(6, kIdOpt);
     IdUnit* base = IdSys.unitPtr(8, kIdOpt);
     const f32 gap = bright->scr.y - audio->scr.y;  // one row (screen y grows upwards in id units)
-    back->scr.y = audio->scr.y - 3.0f * gap;
+    back->scr.y = audio->scr.y - f32(kRows + 1) * gap;
     build();
 #if RE4DC_OPTION_ROW_STYLE
     if (option_art_ready()) {
@@ -159,7 +165,7 @@ extern "C" int re4dc_option_rows_draw(OptionScreen* o, int x0, int* y0)
         cMes.Delete(kSlot0 + 1);
     } else
 #endif
-    for (int k = 0; k < 2; ++k) {
+    for (int k = 0; k < kRows; ++k) {
         // Message coordinates: (240 - scr.y) x 0.8 (ss_term.cpp OpeMesSet), the row's centre line.
         const f32 sy = audio->scr.y - f32(k + 1) * gap;
 #if RE4DC_OPTION_ROW_STYLE
@@ -170,7 +176,7 @@ extern "C" int re4dc_option_rows_draw(OptionScreen* o, int x0, int* y0)
         mes(k, x0, y, o->_msg_attr, kSlot0 + k);
         cMes.getMes(kSlot0 + k)->m_col = (o->_rno1 == kRowPacing + k) ? rgba(base) : 0xFFFFFFFFU;
     }
-    *y0 += int(2.0f * gap * 0.8f);
+    *y0 += int(f32(kRows) * gap * 0.8f);
     if (o->_rno1 == kRowPacing || o->_rno1 == kRowRender) {
         mes(o->_rno1 == kRowPacing ? 2 : 3, x0, *y0, o->_msg_attr, 0);
         return 1;

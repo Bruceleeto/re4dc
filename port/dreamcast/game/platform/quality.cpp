@@ -272,6 +272,17 @@ extern "C" int re4dc_quality_set_speed(int speed)
     return stored_features == q.features;
 }
 
+#if RE4DC_RENDER_QUALITY_ONLY
+// RENDER_QUALITY_ONLY (game30.mk): always Quality; the stored field is ignored and left as it is.
+extern "C" int re4dc_quality_render(void) { return RE4DC_RENDER_QUALITY; }
+
+extern "C" int re4dc_quality_set_render(int render)
+{
+    re4dc_log("quality: render=quality (fixed; asked %d)\n", render);
+    re4dc_res_set(0U);
+    return 1;
+}
+#else
 extern "C" int re4dc_quality_render(void) { return int((q.features & RQ_RENDER_MASK) >> RQ_RENDER_SHIFT); }
 
 extern "C" int re4dc_quality_set_render(int render)
@@ -287,6 +298,7 @@ extern "C" int re4dc_quality_set_render(int render)
     cfg_write();
     return stored_features == q.features;
 }
+#endif
 #endif
 
 extern "C" void re4dc_quality_picker_done(void)
