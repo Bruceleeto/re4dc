@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstdarg>
 #include <cstring>
 #include <algorithm>
 #include <new>
@@ -27,16 +28,21 @@ static unsigned char* deferred_spill;static DeferredPart* deferred_first;static 
 static bool frame_ready,stream_aborted,draining_parts,source_draws_finished;
 static unsigned frame,fx_frame,fx_count,fx_new_loads,fx_culled,fx_capped,fx_dropped,fx_missing,fx_queued,fx_peak,frame_queue_peak,nquad;
 static float re4dc_ui_sx=.5f,re4dc_ui_sy=.5f,fog_far;
+static bool fake_image_size=true,fake_key=true;static unsigned batch_logs,batch_why;static char batch_log[512];
 static Entry entries[3];static unsigned fake_packet_calls,fake_identity_calls;
 static float fake_fog(){return fog_far;}static float (*re4dc_fog_gate_far)()=fake_fog;
 static bool same_image(const Re4dcUiImage& a,const Re4dcUiImage& z){return a.pixels==z.pixels && a.palette==z.palette && a.width==z.width && a.height==z.height && a.format==z.format && a.palette_format==z.palette_format && a.palette_bytes==z.palette_bytes;}
-static unsigned image_size(const Re4dcUiImage& s){return s.width*s.height*2;}
-static bool image_key(const Re4dcUiImage&,Key& k){++fake_identity_calls;k={1,2};return true;}
+static unsigned image_size(const Re4dcUiImage& s){return fake_image_size?s.width*s.height*2:0;}
+static bool image_key(const Re4dcUiImage&,Key& k){++fake_identity_calls;k={1,2};return fake_key;}
 static void fx_packet(const Re4dcEffectSprite& s,Entry*,unsigned char* out){++fake_packet_calls;std::memset(out,0,kSpritePacket);std::memcpy(out,&s.color,sizeof(s.color));}
+extern "C" void re4dc_log(const char* format,...){
+    va_list ap;va_start(ap,format);std::vsnprintf(batch_log,sizeof(batch_log),format,ap);va_end(ap);
+    const char* p=std::strstr(batch_log,"why=");assert(p && std::sscanf(p,"why=%u",&batch_why)==1);++batch_logs;
+}
 #include "../port/dreamcast/game/platform/include/native_effect_haze_batch.inc"
 static Re4dcEffectSprite sprites[12];
 static void setup(){
-    ++frame;fx_frame=frame;frame_ready=true;stream_aborted=draining_parts=source_draws_finished=false;
+    ++frame;fx_frame=frame;fake_image_size=fake_key=true;re4dc_ui_sx=re4dc_ui_sy=.5f;frame_ready=true;stream_aborted=draining_parts=source_draws_finished=false;
     deferred_top=sizeof(frame_storage);deferred_spill=nullptr;deferred_spill_top=deferred_spill_capacity=deferred_count=0;
     deferred_first=deferred_last=nullptr;fx_count=fx_culled=fx_capped=fx_dropped=fx_missing=fx_queued=fx_peak=frame_queue_peak=nquad=0;
     fake_packet_calls=fake_identity_calls=0;fog_far=0;tabin::fill_haze=tabin::fill_fx=0;
@@ -47,6 +53,50 @@ static void setup(){
     }
 }
 static void empty(){assert(!deferred_first && !deferred_last && !deferred_count && !fake_packet_calls && !fx_queued);}
+static void expect_batch_refusal(unsigned why,unsigned count=12,Re4dcEffectSprite* input=sprites){
+    const unsigned logs=batch_logs,top=deferred_top,spill_top=deferred_spill_top;
+    const Entry textures[3]={entries[0],entries[1],entries[2]};unsigned submitted=999;
+    assert(!re4dc_effect_haze_batch(input,count,&submitted) && submitted==0);
+    assert(batch_logs==logs+1 && batch_why==why);empty();
+    assert(deferred_top==top && deferred_spill_top==spill_top && !std::memcmp(entries,textures,sizeof(entries)));
+    assert(!re4dc_effect_haze_batch(input,count,&submitted) && submitted==0 && batch_logs==logs+1);empty();
+}
+static void test_refusals(){
+    const unsigned before=batch_logs;
+    setup();frame_ready=false;expect_batch_refusal(1);
+    setup();stream_aborted=true;expect_batch_refusal(2);
+    setup();draining_parts=true;expect_batch_refusal(3);
+    setup();source_draws_finished=true;expect_batch_refusal(4);
+    setup();expect_batch_refusal(5,13);
+    setup();expect_batch_refusal(6,1,nullptr);
+    setup();sprites[11].src=1;expect_batch_refusal(7);
+    setup();sprites[11].dst=1;expect_batch_refusal(8);
+    setup();sprites[11].screen=1;expect_batch_refusal(9);
+    setup();sprites[11].pad=1;expect_batch_refusal(10);
+    setup();sprites[11].image.width=64;expect_batch_refusal(11);
+    for(unsigned i=0;i<4;++i){
+        setup();sprites[11].x[i]=NAN;expect_batch_refusal(12);
+        setup();sprites[11].y[i]=NAN;expect_batch_refusal(13);
+        setup();sprites[11].z[i]=INFINITY;expect_batch_refusal(14);
+        setup();sprites[11].z[i]=0;expect_batch_refusal(15);
+        setup();sprites[11].u[i]=NAN;expect_batch_refusal(16);
+        setup();sprites[11].v[i]=NAN;expect_batch_refusal(17);
+    }
+    setup();re4dc_ui_sx=INFINITY;expect_batch_refusal(18);
+    setup();re4dc_ui_sy=INFINITY;expect_batch_refusal(19);
+    setup();fx_count=65;expect_batch_refusal(20);
+    setup();fx_count=53;expect_batch_refusal(21);
+    setup();deferred_top=16384;expect_batch_refusal(22);
+    setup();deferred_top=16384;deferred_spill=spill;deferred_spill_top=16;expect_batch_refusal(23);
+    setup();for(auto& x:sprites)x.image.pixels=nullptr;expect_batch_refusal(24);
+    setup();for(auto& x:sprites)x.image.width=0;expect_batch_refusal(25);
+    setup();for(auto& x:sprites)x.image.height=0;expect_batch_refusal(26);
+    setup();for(auto& x:sprites)x.image.width=1025;expect_batch_refusal(27);
+    setup();for(auto& x:sprites)x.image.height=1025;expect_batch_refusal(28);
+    setup();fake_image_size=false;expect_batch_refusal(29);
+    setup();fake_key=false;expect_batch_refusal(30);
+    setup();entries[0].valid=false;expect_batch_refusal(31);assert(batch_logs==before+49);
+}
 int main(){unsigned submitted=999;
     setup();assert(re4dc_effect_haze_batch(sprites,12,&submitted)==1 && submitted==12);assert(fake_packet_calls==12 && fx_count==12 && entries[0].frame==frame);
     assert(deferred_top==sizeof(frame_storage)-12*(kSpriteNode+kSpritePacket));unsigned n=0;
@@ -69,5 +119,5 @@ int main(){unsigned submitted=999;
     setup();fog_far=500;assert(re4dc_effect_haze_batch(sprites,12,&submitted) && !submitted);empty();
     setup();sprites[1].color=sprites[5].color=0;assert(re4dc_effect_haze_batch(sprites,12,&submitted) && submitted==10 && fx_queued==10 && fx_culled==2);
     setup();assert(re4dc_effect_haze_batch(nullptr,0,&submitted) && !submitted);empty();assert(!re4dc_effect_haze_batch(sprites,13,&submitted));empty();
-    std::puts("PASS actual batch: whole queue/cap/identity preflight, resident-only texture, pre-existing spill, 12/10/0 quads, final-invalid rollback, no partial packet calls; source-finished rejection.");
+    test_refusals();std::puts("PASS all 31 precise refusal codes plus actual batch: whole queue/cap/identity preflight, resident-only texture, pre-existing spill, 12/10/0 quads, final-invalid rollback, no partial packet calls; source-finished rejection.");
 }

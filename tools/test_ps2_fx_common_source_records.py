@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check common-haze parent/release fields against the 28 qualified source records.
+"""Check common-haze parent/release/floor fields against the 28 qualified source records.
 
 Usage: python3 tools/test_ps2_fx_common_source_records.py /private/eff/cache
 The cache must contain r100.gc.eff0, r100.ps2.eff0, etc. No game assets are
@@ -7,6 +7,7 @@ written or copied. A record must match its reviewed SHA before fields are read.
 """
 import argparse
 import hashlib
+import struct
 from pathlib import Path
 
 RECORDS = (
@@ -53,6 +54,12 @@ def verify(cache):
         # EspSeqSet copies release unchanged and binds Parts_no 0xfe to world.
         if record[7] != 0xfe or record[0xc0] != 0:
             raise ValueError(f'{path}: unexpected parent/release source contract')
+        # SetFreeWork copies Vec0.x @ 0xd8 into the GC particle's Min_y.
+        # Every qualified PS2 replacement has no floor; these are source-only certificates.
+        expected_floor = (0x44610000 if room == 'r103' else 0xc47d78e2 if room == 'r10b' else 0) if side == 'gc' else 0
+        bits = struct.unpack_from(('>' if side == 'gc' else '<') + 'I', record, 0xd8)[0]
+        if bits != expected_floor:
+            raise ValueError(f'{path}: unexpected floor {bits:08x}, expected {expected_floor:08x}')
         checked += 1
     return checked
 
@@ -61,4 +68,4 @@ if __name__ == '__main__':
     parser.add_argument('cache', type=Path)
     args = parser.parse_args()
     count = verify(args.cache)
-    print(f'PASS {count} SHA-bound source records: free world particles, Release_time=0')
+    print(f'PASS {count} SHA-bound source records: free world particles, Release_time=0, exact GC floors and zero PS2 floors')

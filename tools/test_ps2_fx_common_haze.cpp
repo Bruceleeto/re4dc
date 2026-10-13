@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cstdarg>
 #include <new>
 #include <cstdint>
 #include <initializer_list>
@@ -40,13 +41,15 @@ static Sys sys;static Global globals;static Player player;static Sys* g_pEspSys=
 static unsigned G_ROOM_ID,re4dc_ps2fx=PS2FX_HAZE;static void* pEffParentWorld=(void*)1;
 static unsigned fake_generation=1,fake_batch_calls,fake_submitted;static bool fake_resident=true,fake_submit=true,fake_area=true;
 static bool fake_other_indoor=false,fake_ps2_indoor=false;static unsigned fake_other_calls,fake_ps2_calls;
+static bool fake_descriptor=true;static float fake_viewport[6]={0,0,640,480,0,1};
+static unsigned submit_log_count,submit_log_why;static char submit_log[512];
 static TEXHeader tex={(void*)2,128,128,5};static TEXDescriptor td={&tex,nullptr};static TPL tpl={1};static Anm anm={0,0,128,128,1};
 static void PSVECSubtract(const Vec* a,const Vec* z,Vec* o){*o={a->x-z->x,a->y-z->y,a->z-z->z};}
 static void PSVECCrossProduct(const Vec* a,const Vec* z,Vec* o){*o={a->y*z->z-a->z*z->y,a->z*z->x-a->x*z->z,a->x*z->y-a->y*z->x};}
 static void PSVECNormalize(const Vec* a,Vec* o){const float r=std::sqrt(a->x*a->x+a->y*a->y+a->z*a->z);*o={a->x/r,a->y/r,a->z/r};}
 static void PSMTXMultVec(const Mtx m,const Vec* v,Vec* o){*o={m[0][0]*v->x+m[0][1]*v->y+m[0][2]*v->z+m[0][3],m[1][0]*v->x+m[1][1]*v->y+m[1][2]*v->z+m[1][3],m[2][0]*v->x+m[2][1]*v->y+m[2][2]*v->z+m[2][3]};}
-static const TEXDescriptor* TEXGet(TPL*,unsigned){return &td;}
-static void GXGetViewportv(float* o){const float v[6]={0,0,640,480,0,1};std::memcpy(o,v,sizeof(v));}
+static const TEXDescriptor* TEXGet(TPL*,unsigned){return fake_descriptor?&td:nullptr;}
+static void GXGetViewportv(float* o){std::memcpy(o,fake_viewport,sizeof(fake_viewport));}
 static int EffIsSetFinalCol(){return 0;}static void EffGetFinalCol(GXColor* c){*c={255,255,255,255};}
 static int EffGetAreaState(unsigned n){assert(n<32);return fake_area;}
 static int EspSpriteEligible(cEsp*){return 1;}
@@ -54,7 +57,12 @@ static int AreaHitCheck(void*,Vec*){++fake_other_calls;return fake_other_indoor;
 static int areaHitCheck_xz4(AreaXZ4* a,Vec*){++fake_ps2_calls;assert(a->height==5827.89599609375f);assert(a->p[2].x==24412.912109375f);assert(a->p[3].z==-25024.001953125f);return fake_ps2_indoor;}
 extern "C" int ESP_IsActive(cEsp* e){return (e->m_Be_flg&1)!=0;}
 extern "C" int re4dc_room4_state(unsigned* gen,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused){*gen=fake_generation;*cells=*bytes=*stale=*refused=0;return fake_resident;}
-extern "C" void re4dc_log(const char*,...){}
+extern "C" void re4dc_log(const char* format,...){
+    if(std::strstr(format,"PS2FXCOMMON_SUBMIT ")){
+        va_list ap;va_start(ap,format);std::vsnprintf(submit_log,sizeof(submit_log),format,ap);va_end(ap);
+        const char* p=std::strstr(submit_log,"why=");assert(p && std::sscanf(p,"why=%u",&submit_log_why)==1);++submit_log_count;
+    }
+}
 extern "C" int re4dc_effect_haze_batch(Re4dcEffectSprite* s,unsigned n,unsigned* submitted){
     ++fake_batch_calls;assert(n<=12);
     for(unsigned i=0;i<n;++i){assert(s[i].src==4 && s[i].dst==5 && s[i].pad==2);for(unsigned j=0;j<4;++j)assert(std::isfinite(s[i].x[j]) && std::isfinite(s[i].y[j]) && s[i].z[j]>0);}
@@ -79,11 +87,58 @@ static void fill(unsigned room,unsigned age=200){
         e.m_D_size_plus=.9900000095367432f;e.m_D_speed=e.m_Col_d_r=e.m_Col_d_g=e.m_Col_d_b=e.m_Col_d_a=1;
         e.m_Col_start_r=r.rgba[0];e.m_Col_start_g=r.rgba[1];e.m_Col_start_b=r.rgba[2];e.m_Col_start_a=r.rgba[3];
         e.m_Col_max_cnt=r.color_max;e.m_Del_far=r.work[0]*10;e.m_Del_near=r.work[1]*10;
-        e.m_Free.Range=r.gc_range;e.m_Free.Del_ratio=1.0f-(float)r.work[2]/100.0f;e.m_Free.Room_del_frame=r.work[3];
+        e.m_Free.Min_y=r.gc_min_y;e.m_Free.Range=r.gc_range;e.m_Free.Del_ratio=1.0f-(float)r.work[2]/100.0f;e.m_Free.Room_del_frame=r.work[3];
         source_age(e,(u16)age,r.gc_initial_plus);
     }
 }
 static void draw_unchanged(){std::memcpy(source_copy,source_pool,sizeof(source_pool));Ps2fxCommonHazeDraw();assert(!std::memcmp(source_copy,source_pool,sizeof(source_pool)));}
+static ps2fx::CommonHazeState submit_state;
+static void setup_submit(){
+    auto& tw=sys.Esp_tex_tbl[kPs2CommonHaze[0].visual.texture];tw={};tw.pTpl=&tpl;tw.pAnm=&anm;tw.mtx[0][0]=tw.mtx[1][1]=1;
+    tpl={1};anm={0,0,128,128,1};td={&tex,nullptr};fake_descriptor=fake_submit=true;
+    const float viewport[6]={0,0,640,480,0,1};std::memcpy(fake_viewport,viewport,sizeof(viewport));
+    std::memset(globals.Cam.v_mat,0,sizeof(globals.Cam.v_mat));std::memset(globals.Cam.ProjMat,0,sizeof(globals.Cam.ProjMat));
+    for(unsigned i=0;i<3;++i)globals.Cam.v_mat[i][i]=1;
+    globals.Cam.ProjMat[0][0]=globals.Cam.ProjMat[1][1]=1;globals.Cam.ProjMat[2][2]=-.0001f;globals.Cam.ProjMat[2][3]=-1;
+    submit_state.start(kPs2CommonHaze[0].visual,false);
+    for(auto& particle:submit_state.particles)particle.position={0,0,-4000};
+}
+static void expect_submit_refusal(unsigned why){
+    ++globals.Frame_cnt;const unsigned logs=submit_log_count;unsigned submitted=999;
+    const auto state=submit_state;std::memcpy(source_copy,source_pool,sizeof(source_pool));
+    assert(!Ps2fxCommonSubmit(kPs2CommonHaze[0],submit_state,submitted));
+    assert(submit_log_count==logs+1 && submit_log_why==why);
+    assert(!Ps2fxCommonSubmit(kPs2CommonHaze[0],submit_state,submitted));assert(submit_log_count==logs+1);
+    assert(!std::memcmp(&state,&submit_state,sizeof(state)));assert(!std::memcmp(source_copy,source_pool,sizeof(source_pool)));
+}
+static void test_submit_refusals(){
+    const unsigned before=submit_log_count;
+    auto& tw=sys.Esp_tex_tbl[kPs2CommonHaze[0].visual.texture];
+    setup_submit();tw.Owner=0xd2;expect_submit_refusal(1);
+    setup_submit();tw.pTpl=nullptr;expect_submit_refusal(2);
+    setup_submit();tpl.numDescriptors=2;expect_submit_refusal(3);
+    setup_submit();tw.pAnm=nullptr;expect_submit_refusal(4);
+    setup_submit();anm.Cx=1;expect_submit_refusal(5);
+    setup_submit();anm.Cy=1;expect_submit_refusal(6);
+    setup_submit();anm.Width=64;expect_submit_refusal(7);
+    setup_submit();anm.Height=64;expect_submit_refusal(8);
+    setup_submit();anm.Frames=2;expect_submit_refusal(9);
+    setup_submit();fake_descriptor=false;expect_submit_refusal(10);
+    setup_submit();td.textureHeader=nullptr;expect_submit_refusal(11);
+    for(unsigned i=0;i<6;++i){setup_submit();fake_viewport[i]=INFINITY;expect_submit_refusal(12);}
+    for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j){setup_submit();globals.Cam.ProjMat[i][j]=NAN;expect_submit_refusal(13);}
+    setup_submit();fake_viewport[2]=0;expect_submit_refusal(14);
+    setup_submit();fake_viewport[3]=-1;expect_submit_refusal(15);
+    setup_submit();globals.Cam.ProjMat[2][2]=1;expect_submit_refusal(16);
+    setup_submit();globals.Cam.ProjMat[2][2]=0;expect_submit_refusal(17);
+    setup_submit();globals.Cam.ProjMat[2][3]=1;expect_submit_refusal(18);
+    setup_submit();globals.Cam.ProjMat[2][2]=.5f;expect_submit_refusal(19);
+    setup_submit();submit_state.particles[0].position.z=NAN;expect_submit_refusal(20);
+    setup_submit();submit_state.base_alpha=INFINITY;expect_submit_refusal(21);
+    setup_submit();submit_state.base_alpha=1000;expect_submit_refusal(22);
+    setup_submit();fake_submit=false;expect_submit_refusal(23);
+    setup_submit();unsigned submitted=0;assert(Ps2fxCommonSubmit(kPs2CommonHaze[0],submit_state,submitted) && submitted);assert(submit_log_count==before+43);
+}
 int main(){
     sys.pEspBuf=source_pool;globals.Cam.param.at={0,0,-1};globals.Cam.up={0,1,0};for(unsigned i=0;i<3;++i)globals.Cam.v_mat[i][i]=1;
     globals.Cam.ProjMat[0][0]=globals.Cam.ProjMat[1][1]=1;globals.Cam.ProjMat[2][2]=-.0001f;globals.Cam.ProjMat[2][3]=-1;
@@ -115,6 +170,16 @@ int main(){
         ++release_profiles;
     }
     assert(release_profiles==14);
+    for(const auto& r:kPs2CommonHaze){
+        const unsigned expected=r.room==0x103?0x44610000U:r.room==0x10b?0xc47d78e2U:0U;
+        assert(Ps2fxCommonBits(r.gc_min_y)==expected);fill(r.room);
+        cPs2fxEsp15* e=nullptr;for(unsigned i=0;i<sys.nEsp;++i)if(Ps2fxCommonSignature(particle(i),r)){e=particle(i);break;}
+        assert(e && Ps2fxCommonSource(e,r));const float correct=e->m_Free.Min_y;
+        e->m_Free.Min_y=correct==0?1:0;assert(!Ps2fxCommonSource(e,r));
+        const auto refusal=Ps2fxCommonSourceRefusal(e,r);assert(refusal.code==44 && refusal.want==expected);
+        draw_unchanged();assert(!Ps2fxCommonHazeSuppress(e));e->m_Free.Min_y=correct;
+        draw_unchanged();assert(Ps2fxCommonHazeSuppress(e));
+    }
     fill(0x100);--sys.nEsp;draw_unchanged();assert(!s_common_accepted && !Ps2fxCommonHazeSuppress(particle(0)));
     fill(0x100);++particle(2)->info.Call_no;draw_unchanged();assert(!s_common_accepted);
     fill(0x100);++particle(2)->m_Life_time;draw_unchanged();assert(!s_common_accepted);
@@ -134,6 +199,6 @@ int main(){
     fill(0x101);SstArea saved=area;fake_ps2_indoor=true;draw_unchanged();assert(s_common_accepted==1 && s_common_haze[0].state.indoor_count==30);assert(!std::memcmp(&saved,&area,sizeof(area)));fake_ps2_indoor=false;
     fill(0x101);area.ent[10].no=11;draw_unchanged();assert(!s_common_accepted);setup_weather();
     fill(0x101);globals.Stop_flg=0x20;globals.Status_flg[1]=0x800;draw_unchanged();assert(s_common_accepted==1 && s_common_haze[0].state.indoor_count==30);globals.Stop_flg=globals.Status_flg[1]=0;
-    assert(fake_submitted>0);
-    std::printf("PASS actual common adapter: %u rooms/14 profiles, complete/mixed/partial/duplicate/source-clock/resource/area/room-generation fallback, source bytes unchanged; submitted=%u calls=%u. Host sizes row=%zu clock=%zu scratch=%zu\n",rooms,fake_submitted,fake_batch_calls,sizeof(Ps2fxCommonRow),sizeof(ps2fx::CommonHazeClock),sizeof(Re4dcEffectSprite)*12);
+    assert(fake_submitted>0);test_submit_refusals();
+    std::printf("PASS actual common adapter: %u rooms/14 exact floor profiles, 23 submit refusal codes/43 cases, complete/mixed/partial/duplicate/source-clock/resource/area/room-generation fallback, source bytes unchanged; submitted=%u calls=%u. Host sizes row=%zu clock=%zu scratch=%zu\n",rooms,fake_submitted,fake_batch_calls,sizeof(Ps2fxCommonRow),sizeof(ps2fx::CommonHazeClock),sizeof(Re4dcEffectSprite)*12);
 }

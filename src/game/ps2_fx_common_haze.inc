@@ -36,7 +36,7 @@ static int Ps2fxCommonSource(cEsp* e,const Ps2fxCommonRow& r)
         e->m_Ang.x==0 && e->m_Ang.y==0 && e->m_Ang_plus.x==0 && e->m_Ang_plus.y==0 &&
         e->m_Col_start_a==r.rgba[3] && e->m_Col_d_r==1 && e->m_Col_d_g==1 && e->m_Col_d_b==1 && e->m_Col_d_a==1 &&
         e->m_Col_max_cnt==r.color_max && !e->m_Col_start_cnt && !e->m_Pos_start_cnt && !e->m_Size_start_cnt &&
-        e->m_Del_far==r.work[0]*10 && e->m_Del_near==r.work[1]*10 && w.Min_y==0 &&
+        e->m_Del_far==r.work[0]*10 && e->m_Del_near==r.work[1]*10 && w.Min_y==r.gc_min_y &&
         w.Del_ratio==1.0f-(f32)r.work[2]/100.0f && w.Room_del_frame==r.work[3] &&
         ESP_IsActive(e) && EspSpriteEligible(e);
 }
@@ -69,7 +69,7 @@ static Ps2fxCommonRefusal Ps2fxCommonSourceRefusal(cEsp* e,const Ps2fxCommonRow&
     PS2FX_COMMON_F(36,e->m_Col_d_b,1);PS2FX_COMMON_F(37,e->m_Col_d_a,1);
     PS2FX_COMMON_I(38,e->m_Col_max_cnt,r.color_max);PS2FX_COMMON_I(39,e->m_Col_start_cnt,0);
     PS2FX_COMMON_I(40,e->m_Pos_start_cnt,0);PS2FX_COMMON_I(41,e->m_Size_start_cnt,0);
-    PS2FX_COMMON_I(42,e->m_Del_far,r.work[0]*10);PS2FX_COMMON_I(43,e->m_Del_near,r.work[1]*10);PS2FX_COMMON_F(44,w.Min_y,0);
+    PS2FX_COMMON_I(42,e->m_Del_far,r.work[0]*10);PS2FX_COMMON_I(43,e->m_Del_near,r.work[1]*10);PS2FX_COMMON_F(44,w.Min_y,r.gc_min_y);
     PS2FX_COMMON_F(45,w.Del_ratio,1.0f-(f32)r.work[2]/100.0f);PS2FX_COMMON_I(46,w.Room_del_frame,r.work[3]);
     PS2FX_COMMON_I(47,ESP_IsActive(e)!=0,1);PS2FX_COMMON_I(48,EspSpriteEligible(e)!=0,1);
 #undef PS2FX_COMMON_I
@@ -149,34 +149,63 @@ static int Ps2fxCommonIndoors(int& indoors)
     }
     return flagged==13;
 }
+// Submission refusal codes are the ordered guards below. Values are raw IEEE
+// words for floats; want is the equality/reference bound (code 1 excludes it).
+// Report only the first refusal for this source frame/row.
+static int Ps2fxCommonSubmitRefuse(const Ps2fxCommonRow& row,unsigned why,unsigned got,unsigned want,unsigned item=0)
+{
+    static unsigned last_frame[14],last_room[14];static bool reported[14];
+    const unsigned index=(unsigned)(&row-kPs2CommonHaze),frame=(unsigned)pG->Frame_cnt;
+    if(index<14 && (!reported[index] || last_frame[index]!=frame || last_room[index]!=G_ROOM_ID)){
+        re4dc_log("PS2FXCOMMON_SUBMIT f=%u r=%03x row=%u tex=%u why=%u got=%08x want=%08x item=%u\n",
+            frame,(unsigned)G_ROOM_ID,index,(unsigned)row.visual.texture,why,got,want,item);
+        reported[index]=true;last_frame[index]=frame;last_room[index]=G_ROOM_ID;
+    }
+    return 0;
+}
 static int Ps2fxCommonSubmit(const Ps2fxCommonRow& row,const ps2fx::CommonHazeState& state,unsigned& submitted)
 {
     const ps2fx::CommonHazeRecipe& recipe=row.visual;
     EspTexWk* tw=&g_pEspSys->Esp_tex_tbl[recipe.texture];
-    if(tw->Owner==0xd2 || !tw->pTpl || tw->pTpl->numDescriptors!=1 || !tw->pAnm ||
-       tw->pAnm->Cx || tw->pAnm->Cy || tw->pAnm->Width!=128 || tw->pAnm->Height!=128 || tw->pAnm->Frames!=1)return 0;
+    if(tw->Owner==0xd2)return Ps2fxCommonSubmitRefuse(row,1,tw->Owner,0xd2);
+    if(!tw->pTpl)return Ps2fxCommonSubmitRefuse(row,2,0,1);
+    if(tw->pTpl->numDescriptors!=1)return Ps2fxCommonSubmitRefuse(row,3,tw->pTpl->numDescriptors,1);
+    if(!tw->pAnm)return Ps2fxCommonSubmitRefuse(row,4,0,1);
+    if(tw->pAnm->Cx)return Ps2fxCommonSubmitRefuse(row,5,tw->pAnm->Cx,0);
+    if(tw->pAnm->Cy)return Ps2fxCommonSubmitRefuse(row,6,tw->pAnm->Cy,0);
+    if(tw->pAnm->Width!=128)return Ps2fxCommonSubmitRefuse(row,7,tw->pAnm->Width,128);
+    if(tw->pAnm->Height!=128)return Ps2fxCommonSubmitRefuse(row,8,tw->pAnm->Height,128);
+    if(tw->pAnm->Frames!=1)return Ps2fxCommonSubmitRefuse(row,9,tw->pAnm->Frames,1);
     const TEXDescriptor* td=TEXGet(tw->pTpl,0);
-    if(!td || !td->textureHeader)return 0;
+    if(!td)return Ps2fxCommonSubmitRefuse(row,10,0,1);
+    if(!td->textureHeader)return Ps2fxCommonSubmitRefuse(row,11,0,1);
     const TEXHeader* th=td->textureHeader;
     Re4dcUiImage image={th->data,NULL,th->width,th->height,th->format,0xffffffffU,0};
     if(td->CLUTHeader){image.palette=td->CLUTHeader->data;image.palette_format=td->CLUTHeader->format;
         image.palette_bytes=td->CLUTHeader->numEntries*2;}
     f32 viewport[6];GXGetViewportv(viewport);const Mtx44& projection=pG->Cam.ProjMat;
     const f32 near_d=projection[2][3]/(projection[2][2]-1.0f),far_d=projection[2][3]/projection[2][2];
-    for(unsigned i=0;i<6;++i)if(!ps2fx::CommonHazeClock::finite(viewport[i]))return 0;
-    for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j)if(!ps2fx::CommonHazeClock::finite(projection[i][j]))return 0;
-    if(viewport[2]<=0 || viewport[3]<=0 || !ps2fx::CommonHazeClock::finite(near_d) ||
-       !ps2fx::CommonHazeClock::finite(far_d) || near_d<=0 || far_d<=near_d)return 0;
+    for(unsigned i=0;i<6;++i)if(!ps2fx::CommonHazeClock::finite(viewport[i]))
+        return Ps2fxCommonSubmitRefuse(row,12,Ps2fxCommonBits(viewport[i]),0,i);
+    for(unsigned i=0;i<4;++i)for(unsigned j=0;j<4;++j)if(!ps2fx::CommonHazeClock::finite(projection[i][j]))
+        return Ps2fxCommonSubmitRefuse(row,13,Ps2fxCommonBits(projection[i][j]),0,i*4+j);
+    if(viewport[2]<=0)return Ps2fxCommonSubmitRefuse(row,14,Ps2fxCommonBits(viewport[2]),0);
+    if(viewport[3]<=0)return Ps2fxCommonSubmitRefuse(row,15,Ps2fxCommonBits(viewport[3]),0);
+    if(!ps2fx::CommonHazeClock::finite(near_d))return Ps2fxCommonSubmitRefuse(row,16,Ps2fxCommonBits(near_d),0);
+    if(!ps2fx::CommonHazeClock::finite(far_d))return Ps2fxCommonSubmitRefuse(row,17,Ps2fxCommonBits(far_d),0);
+    if(near_d<=0)return Ps2fxCommonSubmitRefuse(row,18,Ps2fxCommonBits(near_d),0);
+    if(far_d<=near_d)return Ps2fxCommonSubmitRefuse(row,19,Ps2fxCommonBits(far_d),Ps2fxCommonBits(near_d));
     Re4dcEffectSprite sprites[ps2fx::CommonHazeState::Capacity];unsigned count=0;
     for(unsigned n=0;n<recipe.count;++n){
         const ps2fx::HazeParticle& particle=state.particles[n];
         Vec point={particle.position.x,particle.position.y,particle.position.z},center;
         PSMTXMultVec(pG->Cam.v_mat,&point,&center);center.z+=1.0f;
         const f32 depth=-center.z;
-        if(!ps2fx::CommonHazeClock::finite(depth))return 0;
+        if(!ps2fx::CommonHazeClock::finite(depth))return Ps2fxCommonSubmitRefuse(row,20,Ps2fxCommonBits(depth),0,n);
         if(depth<near_d || depth>far_d)continue;
         const f32 alpha=state.alpha(recipe,depth);
-        if(!ps2fx::CommonHazeClock::finite(alpha) || alpha>255)return 0;
+        if(!ps2fx::CommonHazeClock::finite(alpha))return Ps2fxCommonSubmitRefuse(row,21,Ps2fxCommonBits(alpha),0,n);
+        if(alpha>255)return Ps2fxCommonSubmitRefuse(row,22,Ps2fxCommonBits(alpha),Ps2fxCommonBits(255.0f),n);
         u32 r=recipe.rgba[0],g=recipe.rgba[1],b=recipe.rgba[2],a=alpha>0?(u32)alpha:0;
         if(EffIsSetFinalCol()){GXColor final;EffGetFinalCol(&final);r=r*final.r>>8;g=g*final.g>>8;b=b*final.b>>8;a=a*final.a>>8;}
         if(!a)continue;
@@ -199,7 +228,8 @@ static int Ps2fxCommonSubmit(const Ps2fxCommonRow& row,const ps2fx::CommonHazeSt
         sprite.pad=2;
 #endif
     }
-    return re4dc_effect_haze_batch(sprites,count,&submitted);
+    if(!re4dc_effect_haze_batch(sprites,count,&submitted))return Ps2fxCommonSubmitRefuse(row,23,count,0);
+    return 1;
 }
 static void Ps2fxCommonHazeDraw()
 {
