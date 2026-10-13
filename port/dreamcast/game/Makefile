@@ -462,6 +462,9 @@ $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -include $(OBJDIR)/moti
 # aligned storage the same way (one stream + tail) instead of a misaligned body read.
 MOTION_FAST_READ ?= 0
 IO_ALIGNED ?= 0
+# MOTION_READ_FAULT_TEST=<n> (test only, default 0): the first read of every <n>th motion key miss reports short, so
+# the motion key read retry runs in Flycast (which never fails a GD read).
+MOTION_READ_FAULT_TEST ?= 0
 # MOTION_RESERVE=1: the two cold-clip slots of each motion binding are allocated at bind, so a
 # cold miss never allocates from a full heap 4 (r100 ambush). MOTION_USAGE_LOG=1 (diagnostic):
 # log each entry's first acquire ("motion use:") for the hot-set audit.
@@ -501,6 +504,7 @@ endif
 $(OBJDIR)/motion-read.h: motion-read-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_MOTION_FAST_READ %s\n#define RE4DC_MOTION_RESERVE %s\n#define RE4DC_MOTION_USAGE_LOG %s\n#define RE4DC_IO_ALIGNED %s\n' '$(MOTION_FAST_READ)' '$(MOTION_RESERVE)' '$(MOTION_USAGE_LOG)' '$(IO_ALIGNED)' > $@.tmp
+	@printf '#define RE4DC_MOTION_READ_FAULT_TEST %s\n' '$(MOTION_READ_FAULT_TEST)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/platform/native_motion.o: $(OBJDIR)/motion-read.h

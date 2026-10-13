@@ -326,8 +326,15 @@ unsigned* load(Binding& b,unsigned i) {
         if(!data)fail("motion key allocation");
         re4dc::storage::Arena arena;arena.init(data,bytes);
         char path[64];snprintf(path,sizeof(path),"/cd/dc/mot/%08x-%08x.fcv",word(e+8),word(e+12));
+#if RE4DC_MOTION_READ_FAULT_TEST
+        static unsigned faults;const bool fault=++faults%unsigned(RE4DC_MOTION_READ_FAULT_TEST)==0;
+#endif
 #if RE4DC_MOTION_FAST_READ
+#if RE4DC_MOTION_READ_FAULT_TEST
+        const int fast=fault?0:fast_key_read(path,data,size);
+#else
         const int fast=fast_key_read(path,data,size);
+#endif
         if(fast>=0 && unsigned(fast)==size) {
             stats.bytes_read+=size;
         } else {
@@ -341,6 +348,24 @@ unsigned* load(Binding& b,unsigned i) {
         while(result.error && !std::strcmp(result.error,"storage reader re-entry") &&
               timer_us_gettime64()-started<5000000) {
             thd_pass();result=re4dc::storage::read_file(arena,path);
+        }
+#if RE4DC_MOTION_READ_FAULT_TEST
+        if(fault)result.size=0;  // test: the first storage read of a faulted key reports short
+#endif
+        // Issue #25: a GD read error on hardware stopped the game during the intro ("motion key read"). Read the
+        // key again into the same block (fresh arena) up to 3 times before giving up. Error path only.
+        for(unsigned retry=1;(result.error || result.size!=size) && retry<=3U;++retry) {
+            static unsigned retries;
+            if(++retries<=16 || (retries&63)==0)
+                re4dc_log("motion key read retry %u (#%u): %s error=%s got=%u size=%u\n",retry,retries,path,
+                          result.error?result.error:"short",unsigned(result.size),size);
+            thd_sleep(10);
+            arena.init(data,bytes);
+            result=re4dc::storage::read_file(arena,path);
+            while(result.error && !std::strcmp(result.error,"storage reader re-entry") &&
+                  timer_us_gettime64()-started<5000000) {
+                thd_pass();result=re4dc::storage::read_file(arena,path);
+            }
         }
         if(result.error || result.size!=size) { re4dc_motion_free(data);fail("motion key read"); }
         stats.bytes_read+=result.size;
