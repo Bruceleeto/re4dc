@@ -50,8 +50,12 @@ immutable key mapper and pre-scene hook against synthetic source owners. It chec
 retirement, reused serials, cyclic/missing roles, stale/pending assets, revoked or
 ambiguous TPL owners, changed descriptor/sampler state, hidden roles, source hands
 and accessories, variant/far differences and pre-scene guards. Memory snapshots
-verify that pure proofs preserve lifetime records and source presentation entries;
-loader tests verify no actor texture lease is acquired by preparation.
+verify that pure proofs preserve lifetime records and source presentation entries.
+Material tests compile `ACTOR_MATERIAL_RECORD=0/1/2`, retain the full archive reader,
+and snapshot the actual record table, replacement cursor and compare counters.
+Source tests use the actual room-state reader and preserve manager/model identities,
+primitive ownership and room state. Loader tests verify no actor texture lease is
+acquired by preparation.
 
 These host checks do not establish target ABI, performance or first-frame texture
 acceptance. Required target checks are the disabled program identity, an enabled

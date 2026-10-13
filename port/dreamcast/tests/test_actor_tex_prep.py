@@ -28,9 +28,10 @@ def material_harness():
         "inline const void* ptrat(", "inline unsigned floatbits(", "bool digest(",
         "inline bool base_level_sampler(", "inline bool source_appearance_type(",
         "inline bool room_colour_scale(", "Error texture("))
-    info = "Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) " + function(
-        mat, "Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic)", True)
-    info = info.replace("{\n#endif", "{", 1)  # conditional signature ends just inside the body
+    begin = mat.index("#if RE4DC_ACTOR_MATERIAL_RECORD\n// archive=false:")
+    info = mat[begin:mat.index("\n#if RE4DC_LEON_HAND_POSES", begin)]
+    begin = mat.index("namespace re4dc_material { namespace record {")
+    record = mat[begin:mat.index("\n#endif\nnamespace re4dc_material {", begin)]
     return r'''
 #include <cassert>
 #include <cmath>
@@ -84,6 +85,10 @@ Role roles[32]{};SourceBlob source_blobs[16]{};unsigned role_count=0,blob_count=
 ''' + pure + r'''
 }
 #include "actor_lifetime.inc"
+#if RE4DC_ACTOR_MATERIAL_RECORD
+struct Re4dcActorPlan {unsigned count,appearance;cModelInfo* info[kRe4dcActorRoles];};
+''' + record + r'''
+#endif
 namespace re4dc_material {
 ''' + info + r'''
 }
@@ -111,6 +116,12 @@ void reset(unsigned n=4) {
  std::memset(arena,0,kArenaBytes);for(auto& x:archives)x={};for(auto& x:assets)x={};
  for(auto& x:infos_live)x={};for(auto& x:bindings)x={};for(auto& x:adopt_miss)x={};adopt_miss_next=0;
  serial=epoch=1;exhausted=false;role_count=blob_count=n;
+#if RE4DC_ACTOR_MATERIAL_RECORD
+ for(auto& r:record::records)r={};record::replace=37;
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+ record::c={11,13,17,19,23};
+#endif
+#endif
  source_calls=0;source_current=true;change_source_after_first=false;*model=cModel{};
  model->pParts=arena+0x85000;model->pList=model->pParts;model->pModelInfo=links;
  pPL=pSubEm=nullptr;gxCsScale[0]=0;
@@ -143,11 +154,30 @@ struct Snapshot {
  std::vector<unsigned char> memory;
  Archive ar[kArchives];Asset as[kAssets];Info in[kInfos];Binding bi[kModels];AdoptMiss misses[4];
  unsigned s,e,memo;bool ex;
+#if RE4DC_ACTOR_MATERIAL_RECORD
+ record::Record cached[record::kRecords];unsigned replace;
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+ record::Count counters;
+#endif
+#endif
  Snapshot():memory(arena,arena+kArenaBytes),s(serial),e(epoch),memo(adopt_miss_next),ex(exhausted){
   std::memcpy(ar,archives,sizeof ar);std::memcpy(as,assets,sizeof as);std::memcpy(in,infos_live,sizeof in);
   std::memcpy(bi,bindings,sizeof bi);std::memcpy(misses,adopt_miss,sizeof misses);
+#if RE4DC_ACTOR_MATERIAL_RECORD
+  std::memcpy(cached,record::records,sizeof cached);replace=record::replace;
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+  counters=record::c;
+#endif
+#endif
  }
- bool same()const{return memory==std::vector<unsigned char>(arena,arena+kArenaBytes) && s==serial && e==epoch && ex==exhausted && memo==adopt_miss_next &&
+ bool same()const{
+#if RE4DC_ACTOR_MATERIAL_RECORD
+  if(replace!=record::replace || std::memcmp(cached,record::records,sizeof cached))return false;
+#if RE4DC_ACTOR_MATERIAL_RECORD == 2
+  if(std::memcmp(&counters,&record::c,sizeof counters))return false;
+#endif
+#endif
+  return memory==std::vector<unsigned char>(arena,arena+kArenaBytes) && s==serial && e==epoch && ex==exhausted && memo==adopt_miss_next &&
   !std::memcmp(ar,archives,sizeof ar)&&!std::memcmp(as,assets,sizeof as)&&!std::memcmp(in,infos_live,sizeof in)&&
   !std::memcmp(bi,bindings,sizeof bi)&&!std::memcmp(misses,adopt_miss,sizeof misses);}
 };
@@ -189,6 +219,10 @@ int main(){
  reset();word(const_cast<void*>(links[0].tpl_addr),44,0);inspect_expected(Re4dcActorTexReason::Owner); // sampler
  reset();re4dc_actor_info_adopt(links);word(const_cast<void*>(links[0].tpl_addr),88,123);inspect_expected(Re4dcActorTexReason::Row);
  reset();links[0].uvScrollU=1;inspect_expected(Re4dcActorTexReason::Material);
+ // Archive=true must inspect ModelPart bytes even when record caching is enabled.
+ reset();for(unsigned k=0;k<4;++k)re4dc_actor_info_adopt(links+k);
+ static_cast<unsigned char*>(const_cast<void*>(links[0].pData->pParts))[11]=0x80;
+ inspect_expected(Re4dcActorTexReason::Material);
  reset();for(unsigned k=0;k<4;++k)links[k].be_flag=1;inspect_expected(Re4dcActorTexReason::Hidden);
  reset();roles[2].source_bin=451;roles[3].source_bin=456;links[0].be_flag=links[1].be_flag=1;inspect_expected(Re4dcActorTexReason::Hidden);
  reset(5);out=inspect_expected(Re4dcActorTexReason::None);check(out.roles==5 && out.dry==5 && out.visible_atlas_roles==15);
@@ -207,11 +241,15 @@ def ledger_harness():
     trans = (ROOT / "src/game/trans.cpp").read_text()
     identity = function(trans, "bool sourceActorIdentity(")
     model = function(trans, "ModelIdentity sourceActorModel(")
+    bridge = (GAME / "ui_bridge.cpp").read_text()
+    room_type = bridge[bridge.index("struct Room4 {"):bridge.index("\nRoom4 room4", bridge.index("struct Room4 {"))]
+    room_state = function(bridge, 'extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused){')
     return r'''
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <vector>
 #define RE4DC_ACTOR_TRANSACTION 1
 #include "actor_tex_prep.h"
 using namespace re4dc_source;
@@ -222,10 +260,11 @@ struct Manager {cUnit* pAlive;unsigned nArray;} EmMgr{};
 struct Global {unsigned prim_cnt=100,nPrim=1000,vtx_buf_no=0,Frame_cnt=9,stage_no=1,room_no=1;} global;
 Global* pG=&global;unsigned re4dc_alive_gen[3]{0,3,4};
 unsigned sourceActorEpoch=1,sourceActorPrimBase=100,sourceActorPrimBytes=1000,sourceActorPrimBuffer=0,sourceActorCount;
-bool sourceActorActive=true,sourceActorRenderActive=false,room_good=true;unsigned room_generation=12;
+bool sourceActorActive=true,sourceActorRenderActive=false;
 FrameLedger sourceActorLedger;alignas(16) FrameEntry entries[FrameLedger::MaxEntries];
-extern "C" int re4dc_room4_state(unsigned* gen,unsigned*,unsigned*,unsigned*,unsigned*){*gen=room_generation;return room_good;}
-''' + identity + "\n" + model + r'''
+''' + room_type + r'''
+Room4 room4{true,12,2,4096,3,4};bool& room_good=room4.live;unsigned& room_generation=room4.generation;
+''' + room_state + "\n" + identity + "\n" + model + r'''
 unsigned life_serial=1,life_epoch=1,variant=0,metadata_calls=0,mutation=0;bool life_good=true;
 extern "C" int re4dc_actor_tex_lifetime(unsigned* s,unsigned* e){*s=life_serial;*e=life_epoch;return life_good;}
 extern "C" unsigned re4dc_ganado_tex_variant(){return variant;}
@@ -257,10 +296,20 @@ void reset(unsigned n=3,bool complete=true){
  check(sourceActorLedger.seal(frame));
  if(complete)for(unsigned i=0;i<n;++i){PreparationTicket t{};check(sourceActorLedger.claim(frame,t));check(sourceActorLedger.complete(frame,t,sourceActorModel(models+i)));}
 }
+std::vector<unsigned char> source_state(){
+ std::vector<unsigned char> bytes;
+ auto add=[&](const auto& x){const auto* p=reinterpret_cast<const unsigned char*>(&x);bytes.insert(bytes.end(),p,p+sizeof x);};
+ add(global);add(EmMgr);add(models);add(pPL);add(pSUB);add(re4dc_alive_gen);add(room4);
+ add(sourceActorActive);add(sourceActorRenderActive);add(sourceActorCount);add(sourceActorEpoch);
+ add(sourceActorPrimBase);add(sourceActorPrimBytes);add(sourceActorPrimBuffer);
+ return bytes;
+}
 Re4dcActorTexBatch run(bool success){
+ const auto before=source_state();
  unsigned char ledger[sizeof sourceActorLedger],storage[sizeof entries];std::memcpy(ledger,&sourceActorLedger,sizeof ledger);std::memcpy(storage,entries,sizeof storage);
  Re4dcActorTexBatch b{};b.count=5;check(bool(re4dc_actor_tex_enumerate(&b))==success);
  check(!std::memcmp(ledger,&sourceActorLedger,sizeof ledger) && !std::memcmp(storage,entries,sizeof storage));
+ if(!mutation)check(before==source_state()); // injected changes are deliberately external to the reader
  if(!success){check(!b.count);for(const auto& p:b.picks)check(!p.crc&&!p.fnv&&!p.image.pixels);}
  return b;
 }
@@ -439,7 +488,9 @@ def run_harness(name, source, defines=()):
 
 
 if __name__ == "__main__":
-    run_harness("material", material_harness())
+    for mode in (0, 1, 2):
+        run_harness(f"material_record{mode}", material_harness(),
+                    (f"-DRE4DC_ACTOR_MATERIAL_RECORD={mode}",))
     run_harness("ledger", ledger_harness())
     run_harness("mapping", mapping_harness())
     run_harness("loader", loader_harness())
