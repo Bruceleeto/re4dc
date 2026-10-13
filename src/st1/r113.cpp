@@ -26,6 +26,20 @@
 #include "flr_at.h"
 #include "rnd.h"
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH22_PS2_ROOM 1
+#include "libgpu.h"
+#include "sce_at.h"
+#include "em_set.h"
+#include "global.h"
+#include "sce.h"
+#include "sce_sys.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
+#else
+#define CH22_PS2_ROOM 0
+#endif
+
 // Room 1-13 (D:/Bio4/Prog/r113.cpp): the village house in the storm; r103's cesspit / shelves /
 // sub-mission target, the closet Ashley hides in, the ride-on-shoulder event and the thunder task.
 
@@ -91,6 +105,62 @@ static void r113_checkAshleyPos();
 static void r113_DoorCheck();
 static void r113_ThunderMove();
 
+#if CH22_PS2_ROOM
+// PS2 AEV13..15 all set flag64; the native table ends at12/type8.
+static AreaData r113Ps2Areas[3] = {
+    {1, AREA_TYPE_XZ4, 0, {{32.5003052f, 1000.0f, 750.0f, {{-26312.6113f, -14706.1592f}, {-17487.4805f, -14422.04f}, {-17436.9434f, -7977.30371f}, {-26382.7109f, -7923.72168f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{32.6435547f, 1000.0f, 750.0f, {{-24318.209f, -18353.9473f}, {-11661.4727f, -19298.4551f}, {-14818.0254f, -11975.749f}, {-24333.5723f, -11750.3389f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{3334.6582f, 1000.0f, 750.0f, {{-17208.0156f, -6026.54736f}, {-9807.21387f, -5861.26855f}, {-9825.48828f, 686.032959f}, {-17262.9453f, 952.183105f}}}}},
+};
+
+// Allocate with native ownership/cleanup and a free number, then insert at the
+// source AEV position. Item areas can already occupy the PS2 logical number.
+static SceAtWork* r113_ps2FlagArea(SceAtWork* prev, AreaData* area, int flagNo)
+{
+    if (prev == 0 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch22 r113: unexpected AEV boundary");
+        return 0;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = area->u.xz4.p[i].x;
+        corners[i].y = area->u.xz4.floor;
+        corners[i].z = area->u.xz4.p[i].z;
+    }
+    int no = SceAtCreateExecAt(pPL, corners, 0, 1, 1, area->u.xz4.height,
+                             2, 0.0f, 0.0f, 0, 0, 0, 0, 0);
+    SceAtWork* at = no >= 0 ? SceAtPtr(no) : 0;
+    if (at == 0) {
+        OSPanic(__FILE__, __LINE__, "ch22 r113: PS2 AEV allocation failed");
+        return 0;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) at);
+    at->area = *area;
+    at->type = 4;
+    at->pParent = 0;
+    at->parentParts = 0;
+    at->angleRange = 45;
+    at->flg.kind = 0;
+    at->flg.off = 0;
+    at->flg.no = flagNo;
+    AddPrim((u32*) prev, (u32*) at);
+    return at;
+}
+
+static void r113_ps2Init()
+{
+    SceAtWork* prev = SceAtPtr(12);
+    if (prev == 0 || prev->type != 8 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch22 r113: expected source AEV12 boundary");
+        return;
+    }
+    for (int i = 0; i < 3; i++) {
+        prev = r113_ps2FlagArea(prev, &r113Ps2Areas[i], 64);
+        if (prev == 0) return;
+    }
+}
+#endif
+
 // Room init (Ashley with Leon, storm): thunder task, rain effects on the player, Status_flg[1] 0x400
 // (raining); area 2 = front door check; area 3 = the window shoulder-ride prompt while the door is still
 // locked (door_unlock[0] 0x08000000 clear) and Ashley is following (Status_flg[3] 0x04000000); the shared
@@ -103,6 +173,9 @@ void R113Init()
 
 #line 73 "D:/Bio4/Prog/r113.cpp"
     r113_work = (R113Work*) MEM_CALLOC(sizeof(R113Work), 1, 0xd);
+#if CH22_PS2_ROOM
+    r113_ps2Init();
+#endif
 
     SceExec(0x12, (TaskFunc) r113_ThunderMove, 0, 0, SCE_PRIO_DEF_2, 0);
     EstSet((int) pPL, -1, 0, 0, 3, 2, 0x800, 0, (u32) zero, zero);
@@ -131,9 +204,18 @@ void R113Init()
     }
 }
 
-// Per-frame room main: nothing.
+// PS2 room main activates held B7 once an authored flag area is entered.
 void R113Main()
 {
+#if CH22_PS2_ROOM
+    // PS2 USA st1_3.rel 0x99d0..0x9a70; source sets the save bit after
+    // EmSetFromList2 even if allocation fails. Held B8 has no source callback.
+    if ((pG->Room_flg[2] & 0x80000000) && RsfCheck(G_ROOM_ID, 3) == 0 &&
+        SceCountEmAlive(0x10, 0x20) < 6) {
+        EmSetFromList2(0xB7, 1);
+        RsfSet(G_ROOM_ID, 3);
+    }
+#endif
 }
 
 // The file item was taken: its glow goes away.
