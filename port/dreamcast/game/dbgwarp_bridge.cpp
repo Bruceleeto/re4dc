@@ -40,7 +40,7 @@
 //
 // /cd/dc/warp.txt (tools/d367/warp.py writes it from a named preset):
 //   room 0x100 | jp 0 | pos x y z | dir 0x8000 | ang <rad> | rsf <room> <bit>... |
-//   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | dead <no>... | inv default | area <no> [dx dz] |
+//   scenario <0|1> <hex> | find <hex> | unlock <0|1> <hex> | status <0..3> <hex> | dead <no>... | inv default | area <no> [dx dz] |
 //   act <frame> <a|b|x|y|start|fwd|back|none|0xMASK> <hold> | arm <frame> <item id> | trg <no> <frame> [room] | kill <id> <frame> [room [kind]] |
 //   goto <frame> x y z [ang] | dump | name <preset> | late <mask> [tick] [room] (warp_late.h) | entry <n> |
 //   radio <frame> <call no 0..23> (source radio replay, resource-lifetime test only)
@@ -117,6 +117,7 @@ struct Warp {
     Rsf rsf[32];
     unsigned n_rsf;
     u32 scenario[2], find, unlock[2], items[2];  // items: pG->item_flags[0..1] (key-item pickups, r105 area 8)
+    u32 status[4];  // `status <0..3> <hex>`: pG->Status_flg bits (3: 0x04000000 Ashley follows, sce_sys.cpp)
     u8 dead[64];
     unsigned n_dead;
     Act act[16];
@@ -243,6 +244,8 @@ void load()
             wp.find |= num(tok[1]);
         } else if (!strcmp(k, "unlock") && n >= 3) {
             wp.unlock[num(tok[1]) & 1] |= num(tok[2]);
+        } else if (!strcmp(k, "status") && n >= 3) {
+            wp.status[num(tok[1]) & 3] |= num(tok[2]);
         } else if (!strcmp(k, "items") && n >= 3) {
             wp.items[num(tok[1]) & 1] |= num(tok[2]);
         } else if (!strcmp(k, "dead") && n >= 2) {
@@ -678,6 +681,11 @@ void re4dc_warp_room_enter(void)
     pG->door_unlock[1] |= wp.unlock[1];
     pG->item_flags[0] |= wp.items[0];
     pG->item_flags[1] |= wp.items[1];
+    for (unsigned i = 0; i < 4; ++i) {
+        if (!wp.status[i]) continue;
+        pG->Status_flg[i] |= wp.status[i];
+        re4dc_log("warp: Status_flg[%u] |= %08x\n", i, (unsigned) wp.status[i]);
+    }
     if (wp.items[0] | wp.items[1]) re4dc_log("warp: item_flags %08x/%08x\n", (unsigned) pG->item_flags[0], (unsigned) pG->item_flags[1]);
     for (unsigned i = 0; i < wp.n_dead; ++i) EmListSetAlive(wp.dead[i], 0);
     if (wp.n_dead) re4dc_log("warp: %u enemy-list entries set dead\n", wp.n_dead);
