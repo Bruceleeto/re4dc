@@ -348,6 +348,75 @@ int main(){
 """
 
 
+def nomination_harness():
+    """Compare the actual helper with the reserve-off original OT predicate."""
+    prefix = source_harness().split("int main(){")[0]
+    # These functions live inside the production reserve guard. Source-harness
+    # extraction deliberately includes the helper for direct equivalence checks.
+    reserve = function(prefix, "static int sourceActorReserveNative(")
+    prefix = prefix.replace(reserve, "#if RE4DC_ACTOR_SKIN_RESERVE\n" + reserve + "\n#endif")
+    prefix = prefix.replace("Descriptor descriptors[]{{0x26,27},{0x28,19}};",
+                            "Descriptor descriptors[]{{0x26,27},{0x28,19},{4,90},{7,12}};")
+    prefix = prefix.replace("registry{2,descriptors}", "registry{4,descriptors}")
+    return prefix + r"""
+int main(){
+ cModelInfo infos[8]{};for(unsigned i=0;i<8;++i){infos[i].role=i;std::memset(infos[i].source_bytes,int(i),20);}
+ cModel models[5]{{{&models[1]},10,0,&infos[0],119},{{&models[2]},11,0x13,&infos[1],34},
+  {{&models[3]},12,0x26,&infos[2],27},{{&models[4]},13,4,&infos[3],90},{{nullptr},14,7,&infos[4],12}};
+ const cModelInfo original[8]={infos[0],infos[1],infos[2],infos[3],infos[4],infos[5],infos[6],infos[7]};
+ pPL=&models[0];pSUB=&models[3];EmMgr={models,5};
+ const bool luis=RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY;
+ check(!sourceActorNativeOwner(nullptr) && !re4dc_actor_transaction_candidate(nullptr));
+ // A model class alone cannot grant an OT callback before a prepared ledger.
+ check(!re4dc_actor_transaction_candidate(pPL));check(!re4dc_actor_transaction_candidate(pSUB));
+ check(sourceActorPlan()==1);
+#if RE4DC_ACTOR_SKIN_RESERVE
+ const unsigned reserved=2+2*RE4DC_NATIVE_MODEL_REGISTRY+unsigned(luis);
+ check(skin_frame==400 && skin_count==reserved);
+ for(unsigned i=0;i<5;++i){const bool eligible=i<2 || (i==3?luis:bool(RE4DC_NATIVE_MODEL_REGISTRY));
+  check(bool(find_skin(&infos[i],nullptr))==eligible);}
+#else
+ check(!skin_count && skin_frame==~0u);
+#endif
+ // Storage placeholders do not replace any original source callback or bytes.
+ check(!prepared_n && !materialize_calls && !resolve_calls);
+ check(sourceActorPrepare() && prepared_n==5);sourceActorRenderActive=true;
+ const unsigned order[]={0,0x13,0x26,4,7};
+ for(unsigned i=0;i<5;++i){check(prepared_order[i]==order[i]);
+  const bool eligible=i<2 || (i==3?luis:bool(RE4DC_NATIVE_MODEL_REGISTRY));
+  check(sourceActorNativeOwner(&models[i])==eligible);
+  check(re4dc_actor_transaction_candidate(&models[i])==int(eligible));
+ }
+ FrameIdentity now{};ModelIdentity model{};
+ check(re4dc_actor_transaction_identity(pSUB,&now,&model)==1);
+ Re4dcActorSource owned{};check(!re4dc_actor_owned_source(pSUB->pModelInfo,400,&owned));
+ // A prepared, correctly sized non-Luis registry partner remains excluded.
+ pSUB=&models[4];check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));
+ pSUB=&models[2];check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));
+ pSUB=&models[1];check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));
+ pSUB=&models[3];
+ // Luis requires the exact loaded registry skeleton as well as route and id.
+ ++models[3].nParts;check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));--models[3].nParts;
+ const unsigned count=registry.descriptor_count;registry.descriptor_count=2;
+ check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));registry.descriptor_count=count;
+ models[3].id=7;models[3].nParts=12;
+ check(!sourceActorNativeOwner(pSUB) && !re4dc_actor_transaction_candidate(pSUB));models[3].id=4;models[3].nParts=90;
+ // Object-manager/non-ledger lookalikes cannot acquire native candidate status.
+ cModel outsider{{nullptr},99,4,&infos[7],90};pSUB=&outsider;
+ check(sourceActorNativeOwner(pSUB)==luis && !re4dc_actor_transaction_candidate(pSUB));pSUB=&models[3];
+ sourceActorRenderActive=false;check(!re4dc_actor_transaction_candidate(pSUB));sourceActorRenderActive=true;
+ unsigned choice=99;check(re4dc_actor_transaction_choice(pPL,&choice) && !choice);
+ check(!std::memcmp(original,infos,sizeof infos));
+ // A fresh source plan still prepares the exact same order and five callbacks.
+ ++globals.Frame_cnt;prepared_n=0;check(sourceActorPlan()==1 && sourceActorPrepare() && prepared_n==5);
+ for(unsigned i=0;i<5;++i)check(prepared_order[i]==order[i]);
+ check(!std::memcmp(original,infos,sizeof infos));
+ std::printf("PASS actual nomination reserve=%u route22=%u registry=%u roles=%u checks=%u callbacks=0,19,38,4,7: exact guarded Luis, all other partners excluded, ledger/registry proofs unchanged\n",
+  unsigned(RE4DC_ACTOR_SKIN_RESERVE),unsigned(RE4DC_ROUTE_CH22),unsigned(RE4DC_NATIVE_MODEL_REGISTRY),kRe4dcActorRoles,checks);
+}
+"""
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="actor-skin-reserve-") as tmp:
         for name, code in (("registry", registry_harness()), ("source", source_harness())):
@@ -364,6 +433,21 @@ def main():
                     command.insert(1, "-Wno-unused-parameter")  # existing sourceActorPath signature
                 subprocess.run(command, check=True)
                 subprocess.run([str(binary)], check=True)
+
+        source = Path(tmp) / "nomination.cpp"
+        source.write_text(nomination_harness())
+        for reserve, route, registry, pl08 in ((a, b, c, d) for a in (0, 1) for b in (0, 1) for c in (0, 1) for d in (0, 1)):
+            binary = Path(tmp) / f"nomination-{reserve}-{route}-{registry}-{pl08}"
+            command = [os.environ.get("CXX", "g++"), "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                       "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-misleading-indentation",
+                       "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                       "-DRE4DC_ACTOR_TRANSACTION=1", f"-DRE4DC_ACTOR_SKIN_RESERVE={reserve}",
+                       f"-DRE4DC_ROUTE_CH22={route}", f"-DRE4DC_NATIVE_MODEL_REGISTRY={registry}",
+                       f"-DRE4DC_ACTOR_PL08={pl08}", "-DRE4DC_ACTOR_EARLY_COARSE=0",
+                       "-DRE4DC_NATIVE_ACTOR_FAST=1", "-DRE4DC_NATIVE_ACTOR_SKIN_LAZY=1", "-DRE4DC_SKIN_PALETTE_LAZY=1",
+                       "-I" + str(INCLUDE), str(source), "-o", str(binary)]
+            subprocess.run(command, check=True)
+            subprocess.run([str(binary)], check=True)
 
 
 if __name__ == "__main__":

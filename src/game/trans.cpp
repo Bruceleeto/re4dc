@@ -728,8 +728,14 @@ extern "C" int re4dc_registry_candidate(const cModel*);
 // This grants storage priority only; every later owner proof still applies.
 static bool sourceActorNativeOwner(cModel* m) {
 #if RE4DC_NATIVE_MODEL_REGISTRY
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+    // Keep the original OT candidate's exact cabin-Luis partner exception.
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
+        re4dc_registry_candidate(m))) || (m==(cModel*)pSUB && m->id==4 && re4dc_registry_candidate(m)));
+#else
     return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
         re4dc_registry_candidate(m))));
+#endif
 #else
     return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && m->id>=0x10 && m->id<=0x20));
 #endif
