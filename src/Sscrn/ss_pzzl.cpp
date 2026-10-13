@@ -2274,6 +2274,66 @@ void PieceCombine::quit(SUB_SCREEN* wk)
     back2PieceSelect(wk);
 }
 
+#if RE4DC_SS_MENU_ANIM_RT
+// SS_MENU_ANIM_RT: the command menu's ID class (0x1C / 0x1D) steps once per elapsed game tick
+// (vblanks / GetSystemVcnt(), the GameCube's 30 Hz sub screen) instead of once per drawn frame.
+// IdSub.move() already runs one step each frame; this adds the missed ones for that class only,
+// in the same level order. UI only: the game is stopped under the sub screen and no logic reads
+// these units' curves (the command menu never tests their end flags).
+extern "C" u32 re4dc_vi_retrace_count(void);
+static u32 ss_menu_rt_last;
+static u32 ss_menu_rt_acc;
+
+static void ssMenuAnimRtStart()
+{
+    ss_menu_rt_last = re4dc_vi_retrace_count();
+    ss_menu_rt_acc = 0;
+}
+
+static void ssMenuAnimRtStep(u8 cls)
+{
+    u32 now = re4dc_vi_retrace_count();
+    u32 vc = (u32) GetSystemVcnt();
+    u32 steps;
+    int extra;
+    int lv;
+    int i;
+    int k;
+
+    ss_menu_rt_acc += now - ss_menu_rt_last;
+    ss_menu_rt_last = now;
+    if (vc == 0) {
+        vc = 1;
+    }
+    steps = ss_menu_rt_acc / vc;
+    ss_menu_rt_acc -= steps * vc;
+    if (pG->Stop_flg & 0x40) {
+        return;
+    }
+    extra = (int) steps - 1;  // this frame's IdSub.move() is the first step
+    if (extra > 8) {
+        extra = 8;  // a load stall: the flash is over by then anyway
+    }
+    for (k = 0; k < extra; k++) {
+        for (lv = 0; lv <= IdSub.m_levelMax; lv++) {
+            IdUnit* u = IdSub.pUnit;
+            for (i = 0; i < IdSub.m_maxId; i++, u++) {
+                if (u->be_flag == 0xFF || (u->be_flag & 0x5) != 0x5) {
+                    continue;
+                }
+                if (u->classNo == cls && lv == u->levelNo) {
+                    idSysMove00(u);
+                    idSysMove01(u);
+                    idSysMove02(u);
+                    idSysMove03(u);
+                    idSysMove04(u);
+                }
+            }
+        }
+    }
+}
+#endif
+
 // Command menu open for pzzl_sel: picks the id set by itemCommandType and board (case / space),
 // anchors it at the piece's cursor corner (below or above the piece by `lower`), cursor on the
 // first command.
@@ -2320,6 +2380,9 @@ void PieceCommand::init(SUB_SCREEN* wk)
     mode = 0;
     wk->cmd_menu_no = 0;
     SndCall(0, 4, 0, 0, 0, 0);
+#if RE4DC_SS_MENU_ANIM_RT
+    ssMenuAnimRtStart();
+#endif
 }
 
 // Command menu: mode 0 B cancels, A runs the command (per type row -> command_id: 0 equip (blocked
@@ -2342,6 +2405,9 @@ void PieceCommand::move(SUB_SCREEN* wk)
     if (lower) {
         id[0]->scr.y += id[2]->size_H;
     }
+#if RE4DC_SS_MENU_ANIM_RT
+    ssMenuAnimRtStep(id[0]->classNo);
+#endif
     switch (mode) {
     case 0:
         if (Key.trg & 0x40000000) {

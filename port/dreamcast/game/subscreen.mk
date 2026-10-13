@@ -62,6 +62,21 @@ ifeq ($(SUBSCREEN),1)
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_TRANS_SS_GUARD=1
 endif
 W11_FIXTURE ?= 0
+# SS_MENU_ANIM_RT=1 (test 9, user: play the inventory command menu's opening flash at GameCube speed): the
+# command menu's ID class (PieceCommand, Equip / Examine / Combine / Discard; ss_pzzl.cpp) steps its curves
+# once per elapsed game tick (60 Hz vblanks / GetSystemVcnt(), 2 = the GameCube's 30 Hz sub screen) instead
+# of once per drawn frame, so the white panel flash ends in GameCube wall time at any frame rate. UI only:
+# the game is stopped while the sub screen runs and no logic reads those units' curves. Default 0.
+SS_MENU_ANIM_RT ?= 0
+ifneq ($(filter-out 0 1,$(SS_MENU_ANIM_RT)),)
+$(error SS_MENU_ANIM_RT must be 0 or 1)
+endif
+ifeq ($(SS_MENU_ANIM_RT),1)
+ifneq ($(SUBSCREEN),1)
+$(error SS_MENU_ANIM_RT=1 requires SUBSCREEN=1)
+endif
+$(OBJDIR)/mod/Sscrn/src/Sscrn/ss_pzzl.o: GAME_CPPFLAGS += -DRE4DC_SS_MENU_ANIM_RT=1
+endif
 SUBSCREEN_OVL ?= 0
 SS_POOL_HIGH ?= 0
 # Source-ordered UI/model compositing only while the subscreen area is swapped.
