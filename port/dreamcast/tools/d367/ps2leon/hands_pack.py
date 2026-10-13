@@ -33,8 +33,11 @@ MAGIC = 0x3150484C        # 'LHP1'
 VERSION = 1
 SLOT_CAP = {5: 6144, 6: 6400}   # coarse_actor_leon_hands.inc kSlotBytes: the fixed draw slots (right, left)
 CAPS = dict(rows=48, blobs=32, sources=64)   # the resident directory's capacity (coarse_actor_leon_hands.inc)
-FLAG_STANDARD, FLAG_HOME = 1, 2
+FLAG_STANDARD, FLAG_HOME, FLAG_ALT = 1, 2, 4
 HOME = {5: ('pl00', 0x12), 6: ('pl00', 0x14)}
+# Alternating poses (seen swapping with the standard hand in real time: h2 / f6s, 2026-10-13): prefetched with the
+# standard hand at room load and at weapon equip when the weapon has no hand of its own on that side.
+ALT = {6: ('pl00', 0x16)}
 ARR = re.compile(r'alignas\(32\)\s+static\s+(?:const\s+)?unsigned\s+char\s+(\w+?)_(pos|nrm|uv|gx)\[\]\s*=\s*\{([^}]*)\};', re.S)
 WGT = re.compile(r'static\s+const\s+(?:leon4k::)?Weight\s+(\w+?)_weights\[\]\s*=\s*\{(.*?)\};\n', re.S)
 WROW = re.compile(r'\{\{(\d+),(\d+),(\d+)\},(\d+),\{([^,}]+),([^,}]+),([^,}]+)\}\}')
@@ -131,6 +134,8 @@ def pack(runtime_h, hands_dir, inv_json, out, report=None):
             continue
         home = any(s == '%s/%#x' % HOME[role] for s in p['sources'])
         b['flags'] = FLAG_HOME if home else 0
+        if role in ALT and any(s == '%s/%#x' % ALT[role] for s in p['sources']):
+            b['flags'] |= FLAG_ALT
         b['name'] = name + ' ' + ','.join(p['sources'][:3])
         blobs.append(b)
         pose_blob[p['pose']] = len(blobs) - 1
