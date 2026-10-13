@@ -1,5 +1,6 @@
 // Default-off, render-owned adapter; see common recipes and source proof.
 #include "ps2_fx_common_haze_recipes.h"
+#include <stddef.h>
 static ps2fx::CommonHazeClock s_common_haze[2];
 static u8* s_common_pool;
 static u32 s_common_frame;
