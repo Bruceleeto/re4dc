@@ -28,6 +28,9 @@ static void Pl11Init(cEm* em)
 
     sub->modelSet();
     sub->init();
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_companion(sub, 2);
+#endif
     pG->Status_flg[1] &= ~0x00020000;
 }
 

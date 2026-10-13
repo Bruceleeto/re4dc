@@ -1,0 +1,6 @@
+{
+  "handoff_manifest_sha256": "7305ad8a8f5c3ac81a5bca0d72940d7c2d7f0aaefa169b1246dda5bbfe7a5207",
+  "luis_source_sha256": "bc2afac15d039ce7d127d1fc810441df061f031a90b15e8685f6af67126a649a",
+  "encoding": "48x27, row-major MSB, 1=ink",
+  "luis_generation": "Built-in image_gen, 2026-10-12. Luis Sera 2005, neutral/blink, binary pixel art matching supplied Ashley/Hunnigan; see VMU implementation report for prompt."
+}

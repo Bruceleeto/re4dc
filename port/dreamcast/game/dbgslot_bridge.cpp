@@ -131,6 +131,10 @@ u32 status_code, status_saves;
 
 void lcd_try()
 {
+#if RE4DC_VMU_CONTEXT
+    re4dc_vmu_debug(lcd.data);
+    lcd_tries = 0;
+#else
     maple_device_t* dev = maple_enum_type(0, MAPLE_FUNC_LCD);
     if (!dev) { lcd_tries = 0; return; }
     // vmufb_present's orientation rule, keeping the return code (EAGAIN: retry next frame).
@@ -141,8 +145,10 @@ void lcd_try()
                        : vmu_draw_lcd_rotated(dev, lcd.data);
     lcd_tries = rc == MAPLE_EAGAIN ? lcd_tries - 1 : 0;
     if (!lcd_tries) re4dc_log("dbg: lcd %c%c rc=%d\n", 'A' + dev->port, '0' + dev->unit, rc);
+#endif
 }
 
+#line 146 // Preserve pre-existing MEM_ALLOC source-line diagnostics when the feature is off.
 void status(u32 code, int rc)
 {
     status_code = code;

@@ -35,6 +35,9 @@ GAME_SRCS = $(filter-out $(addprefix $(ROOT)/,$(GAME_EXCLUDE)), \
 CENSUS_SRCS = $(filter-out $(addprefix $(ROOT)/,$(GAME_EXCLUDE)), \
 	$(foreach d,$(CENSUS_DIRS),$(wildcard $(ROOT)/$(d)/*.cpp)))
 PLATFORM_SRCS = $(wildcard platform/*.cpp)
+ifneq ($(VMU_CONTEXT),1)
+PLATFORM_SRCS := $(filter-out platform/vmu_lcd.cpp,$(PLATFORM_SRCS))
+endif
 # SDK units compiled from the game's src/lib with the CodeWarrior asm bodies
 # stripped (platform/sdk/strip_cw_asm.py) over the shim headers in platform/sdk.
 SDK_UNITS = mtx mtxvec mtx44 vec quat OSAlloc
@@ -1413,5 +1416,6 @@ include native_model_registry.mk
 include charbake.mk
 # D367 ps2leon (PS2_LEON test arms; default off: no effect).
 include ps2leon.mk
+include vmu_context.mk
 # Resolved knobs for tools/d367/build-r21.sh (re4dc-knobs; builds nothing).
 include knobs.mk

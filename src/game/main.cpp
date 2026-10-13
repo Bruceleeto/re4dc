@@ -201,6 +201,9 @@ int main()
 RESTART:
     {
         systemRestartInit();
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+        re4dc_vmu_reset();
+#endif
 #if RE4DC_PACE_CATCHUP
         re4dc_pace_reset();
 #endif
@@ -259,6 +262,9 @@ RESTART:
             ClearOt();
             pG->Frame_cnt++;
             TaskScheduler();
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+            re4dc_vmu_snapshot();
+#endif
 #if RE4DC_PACE_CATCHUP
             re4dc_pace_test_tick();
             re4dc_pace_decide_image();  // v2: whether this tick's image (models) is dropped

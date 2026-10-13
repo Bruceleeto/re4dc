@@ -240,6 +240,9 @@ void SubScreenGameInit()
 // size from the case items 0x7C..0x7F owned (0 for Ashley), map manager room init.
 void SubScreenRoomInit()
 {
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_invalidate();
+#endif
     SubScreenWork* wk = &SubScreenWk;
 
     wk->type = 0;
@@ -1009,12 +1012,18 @@ END:
 // The radio call was skipped (SubScreenWk.cancel).
 void OpeSetOpenTermCancel()
 {
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_call(-1);
+#endif
     SubScreenWk.cancel = 1;
 }
 
 // Radio call end: stream stopped, radio model removed, hand restored, fade back in.
 void OpeSetOpenTermEnd()
 {
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_call(-1);
+#endif
     SubScreenWork* wk = &SubScreenWk;
     cPlayer* pl = pPL;
 

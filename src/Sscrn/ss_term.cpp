@@ -855,6 +855,9 @@ static Vec term_zero1 = {0.0f, 0.0f, 0.0f};
 // The op starts after ope.wait (30 frames).
 void SsTermMain::init(SUB_SCREEN* wk)
 {
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_call(wk->opeMdtNo);
+#endif
     IdUnit* u;
     cModel* m;
 
@@ -968,6 +971,9 @@ void SsTermMain::move(SUB_SCREEN* wk)
 // Codec screen close sound, releases the Japanese operator font; close_flag bit 3.
 void SsTermMain::quit(SUB_SCREEN* wk)
 {
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_call(-1);
+#endif
     SndCall(0, 0x15, 0, 0, 0, 0);
     if (pSys->language == 0) {
         cMes.releaseFont(3);

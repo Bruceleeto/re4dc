@@ -81,6 +81,9 @@ void LuisInit(cEm* em)
     luis->modelSet();
     luis->init();
     luis->equipWeapon();
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    re4dc_vmu_companion(luis, 3);
+#endif
 }
 
 // Routine handlers by routine number (owner->xFC); 4 (event) calls cSubLuis::evFunc instead.

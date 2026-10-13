@@ -462,6 +462,10 @@ void SubCharInit(int type, Vec* pos, f32 ang)
     }
     sub->flag |= 1;
     pSUB = sub;
+#if RE4DC_VMU_CONTEXT && !defined(__PPC__)
+    // The explicit caller type identifies Ashley, including costume remapping.
+    if (type == 1) re4dc_vmu_companion(sub, 2);
+#endif
 }
 
 // Partner command: mode 0 follow, 1 wait here, 2 destroy, 3 stop, 4 warp to the player, 5 routine

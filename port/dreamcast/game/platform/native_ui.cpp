@@ -1789,7 +1789,12 @@ void speed_draw(){
         hud_number(b,566,60,v[2],false,0xe0a0d0ffU);
 #endif
     }
-    if(note)for(int k=0;k<4;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
+#if defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT
+    const int boxes=3;   // VMU_CONTEXT: Off, VMU, Screen (no Both)
+#else
+    const int boxes=4;
+#endif
+    if(note)for(int k=0;k<boxes;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
     hud_flush(b);
 }
 #endif

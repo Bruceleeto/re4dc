@@ -448,6 +448,9 @@ unsigned re4dc_pad_prompt_kind(unsigned index, int live_zoom)
 
 u32 PADRead(PADStatus* status)
 {
+#if RE4DC_VMU_CONTEXT
+    re4dc_vmu_poll();
+#endif
     // The sound driver's audio-frame callback (audio_stub.cpp): once per game
     // frame from the frame loop, the earliest point on the game's own thread.
     re4dc_audio_frame();

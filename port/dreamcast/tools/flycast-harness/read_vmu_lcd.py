@@ -1,15 +1,10 @@
-"""Save the PACE_VMU speed page (pace.cpp, PACE_VMU=1) out of a running Flycast, as the VMU would show it.
+"""Read a docked VMU frame from Flycast guest RAM (observation only).
 
-    python read_vmu_lcd.py <evidence-dir> [seconds] [period-seconds]
-
-Every <period> seconds (default 5) for <seconds> (default 600) it reads the game's LCD buffer (pace.cpp v_lcd, a KOS
-vmufb_t: 48x32 pixels, 192 bytes) out of the emulated main RAM of the Flycast whose pid is in <dir>/flycast.pid, and
-when the page changed saves <dir>/vmu/vmu-<n>-<host s>s.png (x8, VMU-style colours) and appends the page as text rows
-to <dir>/vmu/vmu.txt. With PACE_VMU_GPU=1 the page has five lines: FPS / SPD / CPU / GPU <mean>/<max> ms / MODE.
-- The address of v_lcd comes from <dir>/re4dc-game.elf (its ELF32 symbol table; the anonymous-namespace symbol ends in
-  "5v_lcdE"); the RAM host address from <dir>/flycast.log ("RAM(16 MB) <addr>"); SH-4 0x8C000000 is its first byte.
-- KOS layout (util/vmu_fb.c insert_bits): pixel (x, y) is bit (y * 48 + x) of the byte array, most significant first.
-Observation only (Windows, ReadProcessMemory); start it with the run, it waits for flycast.pid.
+Usage: python read_vmu_lcd.py <evidence-dir> [seconds] [period] [symbol]
+Prefers VMU_CONTEXT re4dc_vmu_lcd_frame; falls back to legacy PACE_VMU v_lcd.
+Reads 192-byte 48x32 MSB-first frames through ReadProcessMemory and saves changed
+pages under <evidence-dir>/vmu. This proves the composed RAM image, not physical
+LCD delivery. Run alongside the harness; it waits for flycast.pid.
 """
 import ctypes
 import re
@@ -21,11 +16,12 @@ from pathlib import Path
 from PIL import Image
 
 
-def lcd_address(elf):
+def lcd_address(elf, symbol=None):
     data = elf.read_bytes()
     shoff, = struct.unpack_from("<I", data, 0x20)
     shentsize, shnum = struct.unpack_from("<HH", data, 0x2E)
     sections = [struct.unpack_from("<10I", data, shoff + i * shentsize) for i in range(shnum)]
+    fallback = None
     for sh in sections:
         if sh[1] != 2:          # SHT_SYMTAB
             continue
@@ -34,9 +30,16 @@ def lcd_address(elf):
         for off in range(sh[4], sh[4] + sh[5], 16):
             st_name, st_value, st_size = struct.unpack_from("<III", data, off)
             end = names.index(b"\0", st_name)
-            if names[st_name:end].endswith(b"5v_lcdE") and st_size == 192:
+            name = names[st_name:end]
+            if st_size != 192:
+                continue
+            if name.lstrip(b"_") == (symbol.encode() if symbol else b"re4dc_vmu_lcd_frame").lstrip(b"_"):
                 return st_value
-    raise SystemExit("no v_lcd symbol in %s (a PACE_VMU=1 build is needed)" % elf)
+            if symbol is None and name.endswith(b"5v_lcdE"):
+                fallback = st_value
+    if fallback is not None:
+        return fallback
+    raise SystemExit("no requested LCD symbol in %s (VMU_CONTEXT=1 or PACE_VMU=1 needed)" % elf)
 
 
 def ram_base(ev):
@@ -65,7 +68,7 @@ def main():
     ev = Path(sys.argv[1])
     secs = float(sys.argv[2]) if len(sys.argv) > 2 else 600
     period = float(sys.argv[3]) if len(sys.argv) > 3 else 5
-    addr = lcd_address(ev / "re4dc-game.elf")
+    addr = lcd_address(ev / "re4dc-game.elf", sys.argv[4] if len(sys.argv) > 4 else None)
     out = ev / "vmu"
     out.mkdir(exist_ok=True)
     k = ctypes.WinDLL("kernel32", use_last_error=True)
