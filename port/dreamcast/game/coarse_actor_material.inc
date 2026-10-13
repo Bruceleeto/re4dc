@@ -113,6 +113,13 @@ inline bool room_colour_scale(unsigned scale,bool flat_native_look) {
     // TEV scales 0/1/2 are valid source environment states, not actor fades.
     return flat_native_look ? scale<=2 : scale==2;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY && defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+inline unsigned source_model_tev_group(const cModel* m,bool leon,bool registry) {
+    // cSubLuis::init uses group 1. pSubEm is player.h's canonical pSUB alias;
+    // registry_model and frame membership have already proved this descriptor.
+    return registry && m && m==(const cModel*)pSubEm && m->id==4 ? 1u : (leon?1u:0u);
+}
+#endif
 Error texture(const void* descriptor,const Texture& e) {
     if(!readable(descriptor,8))return Error::BadRange;
     const void* h=ptrat(descriptor,0);const void* clut=ptrat(descriptor,4);
@@ -346,7 +353,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // NATIVE_MODEL_REGISTRY: a registry appearance names its descriptor's model id, bone count and section count; its
     // appearance is the exact source BIN + TPL rows every role proves below (no cModel::type table: the TPL row is
-    // the authored appearance). Model-level modifiers are the Ganado rules (TEV group 0, flat native look).
+    // the authored appearance). Registry actors retain the flat native look; CH22 Luis has source TEV group 1.
     const bool registry=re4dc_registry_sections(p->appearance)!=0;
 #if RE4DC_NMR_CROW
     crow_rows=registry && m->id==0x23;
@@ -359,7 +366,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     if(m->pTexChg || m->Shader_type || m->CullMode ||
        (!registry && !source_appearance_type(p->appearance,m->id,m->type)) ||
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+       m->TevScaleGroup!=source_model_tev_group(m,leon,registry) ||
+#else
        m->TevScaleGroup!=(leon?1:0) ||
+#endif
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
 #else
