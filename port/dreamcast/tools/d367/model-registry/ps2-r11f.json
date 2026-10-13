@@ -1,0 +1,21 @@
+{
+  "registry": "ps2-r11f-mendez",
+  "about": "CH23 em35 types0/1/2: full body+extra, upper body and separated legs. Host conversion candidate; native material certificate and room package memory need qualification.",
+  "cast_dir": "/root/probe/codex-ch23-enemies-20261013/regcast-mendez",
+  "revision_overlay": "ps2-overlay",
+  "level": "conservative",
+  "archive_audit": "source/archive-audit.json",
+  "descriptors": [
+    {"name": "mendez35-full", "archive": "em35", "model_id": "0x35", "source_types": [0],
+     "module": "src/em35/em35.cpp em35_R0_Init type0: BIN4+6/TPL5",
+     "mask_runs": {"0": "/root/probe/codex-ch23-enemies-20261013/models/mendez35-full-mask"}, "source_drops": ["bump"]},
+    {"name": "mendez35-upper", "archive": "em35", "model_id": "0x35", "source_types": [1],
+     "module": "src/em35/em35.cpp em35_R0_Init type1: BIN7/TPL5",
+     "mask_runs": {"0": "/root/probe/codex-ch23-enemies-20261013/models/mendez35-upper-mask"}, "source_drops": ["bump"]},
+    {"name": "mendez35-legs", "archive": "em35", "model_id": "0x35", "source_types": [2],
+     "module": "src/em35/em35.cpp em35_R0_Init type2: BIN8/TPL5", "source_drops": ["bump"]}
+  ],
+  "room_packages": {
+    "11f": {"descriptors": ["mendez35-full", "mendez35-upper", "mendez35-legs"], "evidence": "PS2 ESL r11f rows0xf8/0xf9/0xfa select em35 types0/1/2; no form or encounter removed."}
+  }
+}

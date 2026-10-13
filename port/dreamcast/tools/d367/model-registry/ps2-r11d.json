@@ -1,0 +1,15 @@
+{
+  "registry": "ps2-r11d-cart",
+  "about": "CH23 em3b type2 cart: original seven-bone skeleton and all 2328 PS2 triangles. Only complete triangles using repeated negative U coordinates are shifted by a whole source texture period.",
+  "cast_dir": "/root/probe/codex-ch23-enemies-20261013/regcast-cart",
+  "revision_overlay": "ps2-overlay",
+  "level": "conservative",
+  "archive_audit": "source/archive-audit.json",
+  "descriptors": [
+    {"name": "cart-em3b-02", "archive": "em3b", "model_id": "0x3b", "source_types": [2],
+     "module": "src/em3b/em3b.cpp em3b_R0_Init: modelInit ARC0xb / TPL0xc"}
+  ],
+  "room_packages": {
+    "11d": {"descriptors": ["cart-em3b-02"], "evidence": "Source type2 cart BIN0xb/TPL0xc; seven identical PS2/GC bones."}
+  }
+}
