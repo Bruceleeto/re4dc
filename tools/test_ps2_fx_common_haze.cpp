@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <new>
 #include <cstdint>
+#include <initializer_list>
 using u8=unsigned char;using u16=unsigned short;using u32=unsigned;using f32=float;
 #define RE4DC_PS2_FX_COMMON_HAZE 1
 #define RE4DC_TA_BIN_DIAG 1
@@ -73,7 +74,7 @@ static void fill(unsigned room,unsigned age=200){
     std::memset(source_pool,0,sizeof(source_pool));G_ROOM_ID=room;++fake_generation;++globals.Frame_cnt;sys.nEsp=0;
     for(const auto& r:kPs2CommonHaze)if(r.room==room)for(unsigned n=0;n<r.count;++n){
         auto& e=*new(source_pool+sys.nEsp++*0x150)cPs2fxEsp15{};
-        e.info={unsigned(r.kind)+300,0,0x4001,r.kind,0xd0};e.m_Be_flg=1;e.m_Id=0x15;e.m_Tex_id=r.visual.texture;e.m_Parts_no=0xfe;e.m_Release_time=0xff;
+        e.info={unsigned(r.kind)+300,0,0x4001,r.kind,0xd0};e.m_Be_flg=1;e.m_Id=0x15;e.m_Tex_id=r.visual.texture;e.m_Parts_no=0xfe;e.m_Release_time=0;
         e.parent=pEffParentWorld;e.xA4=1;e.xA5=4;e.xA6=5;e.m_Anm_rate=0x20;e.m_Size_base_x=e.m_Size_base_y=r.gc_size;
         e.m_D_size_plus=.9900000095367432f;e.m_D_speed=e.m_Col_d_r=e.m_Col_d_g=e.m_Col_d_b=e.m_Col_d_a=1;
         e.m_Col_start_r=r.rgba[0];e.m_Col_start_g=r.rgba[1];e.m_Col_start_b=r.rgba[2];e.m_Col_start_a=r.rgba[3];
@@ -94,6 +95,26 @@ int main(){
         for(unsigned n=0;n<sys.nEsp;++n){auto& e=*particle(n);++e.m_Life_time;e.m_Size_mul+=e.m_Size_plus;e.m_Size_plus*=.9900000095367432f;}
         ++globals.Frame_cnt;draw_unchanged();assert(s_common_haze[0].state.age==201);assert(Ps2fxCommonHazeSuppress(particle(0)));
     }
+    unsigned release_profiles=0;
+    for(unsigned row=0;row<sizeof(kPs2CommonHaze)/sizeof(kPs2CommonHaze[0]);++row){
+        const auto& r=kPs2CommonHaze[row];fill(r.room);
+        cPs2fxEsp15* e=nullptr;
+        for(unsigned i=0;i<sys.nEsp;++i)if(Ps2fxCommonSignature(particle(i),r)){e=particle(i);break;}
+        assert(e && e->m_Release_time==0 && e->parent==pEffParentWorld && e->m_Parts_no==0xfe);
+        assert(Ps2fxCommonSource(e,r));assert(!Ps2fxCommonSourceRefusal(e,r).code);
+        for(unsigned timer: {1U,255U}){
+            e->m_Release_time=(u8)timer;assert(!Ps2fxCommonSource(e,r));
+            const auto refusal=Ps2fxCommonSourceRefusal(e,r);
+            assert(refusal.code==11 && refusal.got==timer && refusal.want==0);
+            draw_unchanged();assert(!Ps2fxCommonHazeSuppress(e));
+            e->m_Release_time=0;assert(Ps2fxCommonSource(e,r));
+        }
+        // A zero timer cannot waive the world-parent or free-parts certificate.
+        e->parent=(void*)3;assert(!Ps2fxCommonSource(e,r));e->parent=pEffParentWorld;
+        e->m_Parts_no=0xff;assert(!Ps2fxCommonSource(e,r));e->m_Parts_no=0xfe;
+        ++release_profiles;
+    }
+    assert(release_profiles==14);
     fill(0x100);--sys.nEsp;draw_unchanged();assert(!s_common_accepted && !Ps2fxCommonHazeSuppress(particle(0)));
     fill(0x100);++particle(2)->info.Call_no;draw_unchanged();assert(!s_common_accepted);
     fill(0x100);++particle(2)->m_Life_time;draw_unchanged();assert(!s_common_accepted);

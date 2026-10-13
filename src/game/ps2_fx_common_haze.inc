@@ -22,11 +22,13 @@ static ps2fx::CommonHazeBinding Ps2fxCommonIdentity(const cEsp* e,unsigned row,u
 }
 static int Ps2fxCommonSource(cEsp* e,const Ps2fxCommonRow& r)
 {
+    // All qualified SST records use Parts_no 0xfe and Release_time 0.
+    // EspSeqSet copies the timer verbatim and binds these particles to world.
     const Ps2fxEsp15Work& w=static_cast<cPs2fxEsp15*>(e)->m_Free;
     return ps2fx::population_source_matches(r.room,e->m_Life_max,e->m_Parts_no,e->m_Tool_flg,
                e->m_Tex_id,e->m_Type,e->parent==pEffParentWorld) &&
         !e->info.Core_pEm && (e->info.Core_flg==0x4001 || e->info.Core_flg==0x6001) && !e->m_pMod &&
-        !e->m_Flg && e->m_Release_time==0xff && !e->m_Blend_type && e->xA4==1 && e->xA5==4 && e->xA6==5 &&
+        !e->m_Flg && e->m_Release_time==0 && !e->m_Blend_type && e->xA4==1 && e->xA5==4 && e->xA6==5 &&
         !e->m_Shimmer_type && !e->m_Shimmer_pow && !e->m_MaskTex_id && !e->m_Ptn_no && e->m_Anm_rate==0x20 &&
         e->m_Size_base_x==e->m_Size_base_y && e->m_Size_base_x>=r.gc_size-40.0f && e->m_Size_base_x<=r.gc_size+40.0f &&
         e->m_D_size_plus==.9900000095367432f && e->m_D_speed==1.0f &&
@@ -53,7 +55,7 @@ static Ps2fxCommonRefusal Ps2fxCommonSourceRefusal(cEsp* e,const Ps2fxCommonRow&
     PS2FX_COMMON_I(5,e->m_Type,0);
     PS2FX_COMMON_I(6,(size_t)e->parent,(size_t)pEffParentWorld);PS2FX_COMMON_I(7,e->info.Core_pEm,0);
     if(e->info.Core_flg!=0x4001 && e->info.Core_flg!=0x6001){d.code=8;d.got=e->info.Core_flg;d.want=0x4001;return d;}
-    PS2FX_COMMON_I(9,(size_t)e->m_pMod,0);PS2FX_COMMON_I(10,e->m_Flg,0);PS2FX_COMMON_I(11,e->m_Release_time,0xff);
+    PS2FX_COMMON_I(9,(size_t)e->m_pMod,0);PS2FX_COMMON_I(10,e->m_Flg,0);PS2FX_COMMON_I(11,e->m_Release_time,0);
     PS2FX_COMMON_I(12,e->m_Blend_type,0);PS2FX_COMMON_I(13,e->xA4,1);PS2FX_COMMON_I(14,e->xA5,4);PS2FX_COMMON_I(15,e->xA6,5);
     PS2FX_COMMON_I(16,e->m_Shimmer_type,0);PS2FX_COMMON_I(17,e->m_Shimmer_pow,0);PS2FX_COMMON_I(18,e->m_MaskTex_id,0);
     PS2FX_COMMON_I(19,e->m_Ptn_no,0);PS2FX_COMMON_I(20,e->m_Anm_rate,0x20);
