@@ -480,6 +480,16 @@ ROOM_CONTRACTS={
     'r111':dict(slots=29,smd=4,effs=(7,),itm=9,model_slots=()),
     'r113':dict(slots=40,smd=4,effs=(7,),itm=9,model_slots=(),header_grow=32),
     'r11c':dict(slots=31,smd=4,effs=(7,),itm=9,model_slots=(28,)),
+    # Chapter 2-3: standard scenery/effect/item owners; retain every script, collision and motion slot.
+    # r11d: local EFF#27 (ROOM_ARC 0x1F, owner CA), model TPL#30 (BIN#29, sisters' attachment).
+    # r11e: local EFF#30 (ROOM_ARC 0x22, owner C8), model TPL#29 (BIN#28); its 42-slot header
+    # needs 32 B for NTR. The rock model/motions and SAT/EAT pieces remain source data.
+    # r11f: four event prop model TPLs #28/#31/#34/#37 and beetle TPL#40; damage AEV stays intact.
+    # r200: 28 slots, standard owners only; EMI#27 and truck collision remain byte-identical.
+    'r11d':dict(slots=32,smd=4,effs=(7,27),itm=9,model_slots=(30,)),
+    'r11e':dict(slots=42,smd=4,effs=(7,30),itm=9,model_slots=(29,),header_grow=32),
+    'r11f':dict(slots=44,smd=4,effs=(7,),itm=9,model_slots=(28,31,34,37,40)),
+    'r200':dict(slots=28,smd=4,effs=(7,),itm=9,model_slots=()),
     # r40b (St4, st4_0 + em1f; follow-up 7): r40c's 27-slot layout (header ends at 232 of 256: no growth).
     'r40b':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
 }
