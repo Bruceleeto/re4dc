@@ -670,6 +670,9 @@ void re4dc_warp_poll(void)
     if (!wp.active) return;
     if (wp.has_freeze && pG && (u32) pG->Frame_cnt >= wp.freeze_tick) {
         re4dc_log("warp: frozen at tick %u\n", (unsigned) pG->Frame_cnt);
+        // A still fixture, not a hang: set the game's own "no hang check" bit (exception.cpp sets it
+        // too) so haltExecCheck does not HALT main.cpp(548) 60 s into the freeze.
+        pG->System_flg |= 0x20000000;
         for (;;) thd_sleep(1000);
     }
     ++wp.room_frames;
