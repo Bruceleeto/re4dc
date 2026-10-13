@@ -432,6 +432,16 @@ LUIS_NORMALIZED = {
     10: [13312, 0xefcc04b2, 0xe438fb43], 11: [13120, 0x01e766c0, 0x671da641]}
 
 
+# Each complete source map is paired with its exact proved native header.
+# Keep the sealed first candidate reproducible; the second corrects character
+# TPL orientation without changing geometry, weights, bones, or source roles.
+LUIS_COVERAGE_HEADERS = {
+    'd994ab69fcd9ca9a28723858f8919a4d7658be4500db043cd8892706865c4488':
+        '90812064b25cc7305eb58a0c528fb020fa4ef600495b0f4b18599512460308e8',
+    '75c2655ee619f800e921850edcea9e0dffcc3af379996cfe9472f89929c36aa0':
+        '6fc181444d83b784780d2724732520e71b3c111eb7a7d7e77f35024659c92846'}
+
+
 def luis_coverage(inputs, descriptor, source, bindings, arc, archive_name):
     """The exact offline six-info/five-draw mapping, never a generic alias option."""
     manifest = descriptor.get('source_coverage_manifest')
@@ -442,7 +452,8 @@ def luis_coverage(inputs, descriptor, source, bindings, arc, archive_name):
        '2b5b554d45a67f12612474a9ed0a1bbeb7cf5882d16a7c67ce7ff25018676f27':
         raise Fail('Luis coverage requires the explicit pinned CH22 source descriptor')
     coverage = inputs.json(manifest, 'coverage/luis-actor.json')
-    if sha(open(manifest, 'rb').read()) != 'd994ab69fcd9ca9a28723858f8919a4d7658be4500db043cd8892706865c4488':
+    manifest_sha = sha(open(manifest, 'rb').read())
+    if manifest_sha not in LUIS_COVERAGE_HEADERS:
         raise Fail('Luis coverage manifest differs from the reviewed source triangle map')
     source_input = dict(source); source_input.pop('source_model_id')
     if sha(json.dumps(source_input).encode()) != coverage['source_sha256']:
@@ -455,7 +466,7 @@ def luis_coverage(inputs, descriptor, source, bindings, arc, archive_name):
         expected = [dict(id=p.no,parent=p.parent,attach=p.attach,translation=list(p.pos)) for p in model.parts]
         if binding['part_bindings'] != expected:
             raise Fail('Luis sparse part table differs from its exact source BIN')
-    return coverage
+    return dict(coverage, reviewed_manifest_sha256=manifest_sha)
 
 
 # ---------------------------------------------------------------- main
@@ -592,7 +603,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             arcs[arcname] = archive.Archive(p)
         arc = arcs[arcname]
         luis = luis_coverage(inputs, d, src, binds, arc, arcname)
-        if luis and L['header_sha256'] != '90812064b25cc7305eb58a0c528fb020fa4ef600495b0f4b18599512460308e8':
+        if luis and L['header_sha256'] != LUIS_COVERAGE_HEADERS[luis['reviewed_manifest_sha256']]:
             raise Fail('Luis native header differs from the proved complete source triangle set')
         # ---- skeleton (one per model; every section's bone table agrees)
         pb = binds[0]['part_bindings']
@@ -785,7 +796,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                      needs=need_names(need), category=e.get('category'), status=e.get('status'), spec=d,
                      position_shift=int(e.get('position_shift', 4)))
         if luis:
-            entry['source_coverage_manifest_sha256'] = 'd994ab69fcd9ca9a28723858f8919a4d7658be4500db043cd8892706865c4488'
+            entry['source_coverage_manifest_sha256'] = luis['reviewed_manifest_sha256']
         if not 1 <= entry['position_shift'] <= 4:
             raise Fail(f'{name}: position_shift {entry["position_shift"]} outside 1..4')
         # "source_drops": ["bump"] (lane ps2cast-2): the source path itself never draws the bump stage (trans.cpp
