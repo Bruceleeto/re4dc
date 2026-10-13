@@ -233,7 +233,7 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r103: GC 41 x 1283.056 mm, alpha 30, R 7954.4; PS2 11 x 2100 mm, (255,255,225,35), R 5300
     {0x103, 1, 255, 255, 225, 35, 5300.0f, 2100.0f / 1283.056f},
 #if RE4DC_WATER45_NATIVE
-    // r10b (ROUTE_CH13 WATER45_NATIVE): GC 80 x 1731.403 mm, alpha 20, R 12093.6; PS2 30 x 2100 mm, (180,185,175,30), R 5000
+    // r10b (ROUTE_CH13 WATER45_NATIVE): GC 21 x 1731.403 mm, alpha 20, R 12093.6; PS2 10 x 2100 mm, (180,185,175,30), R 5000
     {0x10b, 1, 180, 185, 175, 30, 5000.0f, 2100.0f / 1731.403f},
 #endif
 #if RE4DC_PS2_FX_ROOMS
@@ -400,10 +400,8 @@ struct Ps2fxPopulationReader {
         key.source_count = h->gc_count;
         key.target_count = h->ps2_count;
         // An unexpected instance of the signature is explicit fallback, never accepted as the source emitter.
-        const u32 expected_tool = h->room == 0x10f ? 0x80U : 0U;
-        const u8 expected_tex = h->room == 0x10f ? 0x1e : 0x1f;
-        if (esp->m_Life_max || esp->m_Parts_no != 0xFE || esp->m_Tool_flg != expected_tool ||
-            esp->m_Tex_id != expected_tex || esp->m_Type || esp->parent != pEffParentWorld) key.source_count = 0;
+        if (!ps2fx::population_source_matches(h->room, esp->m_Life_max, esp->m_Parts_no,
+                esp->m_Tool_flg, esp->m_Tex_id, esp->m_Type, esp->parent == pEffParentWorld)) key.source_count = 0;
         return true;
     }
 };

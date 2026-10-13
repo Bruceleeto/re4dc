@@ -114,6 +114,19 @@ static void test_additions() {
     std::printf("PS2 additions helper PASS: deterministic private particles, area exit/reentry, pause, slow, wrap, fades, repeated draws, clock bounds and gate evidence; state bytes=%zu\n",sizeof(a));
 }
 int main() {
+    // Actual source certificate: r104 haze uses 1e; the substituted r10f source
+    // also uses 1e but needs tool80. Other qualified haze uses 1f/tool0.
+    const unsigned source_cases[][3]={{0x104,0,0x1e},{0x10f,0x80,0x1e},{0x102,0,0x1f},{0x200,0,0x1f}};
+    for(unsigned i=0;i<4;++i) {
+        const unsigned room=source_cases[i][0],tool=source_cases[i][1],texture=source_cases[i][2];
+        assert(ps2fx::population_source_matches(room,0,0xfe,tool,texture,0,true));
+        assert(!ps2fx::population_source_matches(room,1,0xfe,tool,texture,0,true));
+        assert(!ps2fx::population_source_matches(room,0,0,tool,texture,0,true));
+        assert(!ps2fx::population_source_matches(room,0,0xfe,tool^1,texture,0,true));
+        assert(!ps2fx::population_source_matches(room,0,0xfe,tool,texture^1,0,true));
+        assert(!ps2fx::population_source_matches(room,0,0xfe,tool,texture,1,true));
+        assert(!ps2fx::population_source_matches(room,0,0xfe,tool,texture,0,false));
+    }
     ps2fx::TrailPoint trail[50],gc_trail[50];
     unsigned trail_count=ps2fx::puzzle_trail(trail);
     assert(trail_count==27 && trail[0].alpha==60.0f && trail[1].alpha==60.0f);

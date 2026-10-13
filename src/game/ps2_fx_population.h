@@ -4,6 +4,15 @@
 // Render-owned, allocation-free selection. Reader returns immutable source identity
 // and counts for a live qualifying particle. No source slot is written or retained.
 namespace ps2fx {
+// Immutable source certificate shared by the runtime and host qualification.
+// r104 keeps core texture 1e on both platforms; r10f replaces GC 1e with PS2 1f.
+inline bool population_source_matches(unsigned room, unsigned life_max, unsigned parts,
+                                      unsigned tool, unsigned texture, unsigned type, bool world_parent)
+{
+    const unsigned expected_tool = room == 0x10f ? 0x80U : 0U;
+    const unsigned expected_texture = room == 0x104 || room == 0x10f ? 0x1eU : 0x1fU;
+    return !life_max && parts == 0xfe && tool == expected_tool && texture == expected_texture && !type && world_parent;
+}
 // Expanding a quad around its texture anchor also handles noncentral anchors.
 // row_x/y already include the source dimensions and orientation.
 inline float anchored_corner_delta(float row_x,float row_y,float change_x,float change_y,

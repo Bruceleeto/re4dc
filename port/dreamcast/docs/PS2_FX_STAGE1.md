@@ -430,6 +430,14 @@ size about twice base). r10b's old comment saying 80 -> 30 sprites reads near-fa
 bytes as counts; actual source emission counts are 21 -> 10. This checkpoint
 records the discrepancy without changing the existing reference path.
 
+The r104 population source certificate accepts texture `0x1e`, which both
+GC SST0/0 and PS2 SST0/1 use. The earlier guard expected `0x1f` outside r10f,
+causing r104's otherwise qualified 21-to-11 population mapping to fall back.
+The portable `population_source_matches` predicate now retains r104's actual
+texture while preserving every lifetime, parts, tool, type and parent check.
+The r10b source-count comment is corrected to 21-to-10; its runtime recipe is
+unchanged by this correction.
+
 Remaining chapter-1 work is explicit: the reference haze residuals above;
 r101's four streak removals; r102 SST3/0 alpha15 ->13 and SST1/16 ->PS2 SST7/6
 size1400 ->1500/alpha55 ->35; remaining common sprites, fire/smoke and special
