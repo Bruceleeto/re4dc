@@ -187,6 +187,11 @@ struct Warp {
     // stays on screen, the same image in two arms whose logic is STRICT).
     bool has_freeze;
     u32 freeze_tick;
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+    // after_reset (WARP_AFTER_RESET=1, lane resetmem): the rig stays passive (title, card load, play) until the first
+    // soft reset, then warps from the title shown after it (the s30 heap gate after load -> reset -> New Game).
+    bool after_reset;
+#endif
 };
 Warp wp;
 
@@ -363,10 +368,20 @@ void load()
             if (n < 3) re4dc_charbake_set(num(tok[1]));
             else if (wp.n_charbake_at < 8) wp.charbake_at[wp.n_charbake_at++] = {num(tok[2]), (u8) num(tok[1]), false};
 #endif
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+        } else if (!strcmp(k, "after_reset")) {
+            wp.after_reset = true;
+#endif
         } else {
             re4dc_log("warp: unknown line '%s'\n", k);
         }
     }
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+    if (wp.after_reset && wp.active) {
+        wp.active = false;
+        re4dc_log("warp: after_reset: passive until the first soft reset\n");
+    }
+#endif
     re4dc_log("warp: /cd/dc/warp.txt %s room=%03x jp=%d pos=%s rsf=%u scenario=%08x/%08x find=%08x unlock=%08x/%08x acts=%u\n",
               wp.name[0] ? wp.name : "-", (unsigned) wp.room, wp.jp, wp.has_pos ? "set" : "jump point", wp.n_rsf,
               (unsigned) wp.scenario[0], (unsigned) wp.scenario[1], (unsigned) wp.find, (unsigned) wp.unlock[0],
@@ -611,6 +626,19 @@ void jump_poll()
 }  // namespace
 
 extern "C" {
+
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+// main.cpp systemSoftReset: an after_reset warp turns active for the title that follows.
+void re4dc_warp_soft_reset(void)
+{
+    if (!wp.loaded) load();
+    if (wp.after_reset && !wp.active && wp.room) {
+        wp.active = true;
+        wp.boot_us = 0;
+        stamp("after_reset armed");
+    }
+}
+#endif
 
 // title.cpp Title_task: 1 = skip the title screens and go to titleExit.
 int re4dc_warp_title(void)

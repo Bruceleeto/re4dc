@@ -2580,6 +2580,14 @@ MESH_CLIP_ACCEPT_SELECT ?= 0
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_MESH_CLIP_ACCEPT_SELECT=$(MESH_CLIP_ACCEPT_SELECT)
 endif
 endif
+# KOS_CENSUS=1 (diagnostic builds only, lane resetmem): wrap malloc / calloc / realloc / memalign / free / operator new
+# and log the live KOS malloc blocks by caller at every room lifecycle audit ("kos census:", platform/kos_census.cpp).
+KOS_CENSUS ?= 0
+ifneq ($(KOS_CENSUS),0)
+GAME_LDFLAGS += -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=memalign -Wl,--wrap=free -Wl,--wrap=_Znwj -Wl,--wrap=_Znaj
+$(OBJDIR)/platform/kos_census.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_CENSUS=1
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_CENSUS=1
+endif
 # UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
 # minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".
 UI_HUD_LENS_ALPHA ?= 0
@@ -2727,6 +2735,14 @@ OSFREE_CHECK ?= 0
 RESET_HEAP_FIX ?= 0
 ifeq ($(RESET_HEAP_FIX),1)
 GAME_CPPFLAGS += -DRE4DC_RESET_HEAP_FIX=1
+endif
+# RESET_MEM_FIX=1 (lane resetmem; load a save, Game Reset / Retry, New Game: r100 started with less heap 4 and KOS
+#   malloc than after a fresh boot): state the port keeps across a soft reset goes back to its fresh-boot value.
+#   ACTOR_PL08_PACK: the bound player file is forgotten with the player archive (systemResetCommon), so a New Game's
+#   r100 no longer reloads the 61 KB pl08 cell. Default 0: unchanged.
+RESET_MEM_FIX ?= 0
+ifeq ($(RESET_MEM_FIX),1)
+GAME_CPPFLAGS += -DRE4DC_RESET_MEM_FIX=1
 endif
 ifeq ($(OSFREE_CHECK),1)
 SDK_CFLAGS += -DRE4DC_OSFREE_CHECK=1

@@ -239,6 +239,9 @@ extern "C" void re4dc_module_counts(unsigned* fresh,unsigned* restarts,unsigned*
 extern "C" void re4dc_os_thread_stats(unsigned* registered,unsigned* reaped,unsigned* pending);
 extern "C" void re4dc_room4_open();
 extern "C" void re4dc_room4_close();
+#if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS
+extern "C" void re4dc_kos_census_log(const char* phase,unsigned room);  // platform/kos_census.cpp
+#endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace {
 struct AuditValues { int heap4_free; unsigned vram_free,kos_free,kos_break; bool valid; };
@@ -282,6 +285,9 @@ void audit(int phase){
     // KOS malloc has only a few KB left once the source arena is carved;
     // thread records, file handles and texture metadata come out of it.
     if(kos_free+kos_break<1024)re4dc_log("room lifecycle: WARNING KOS headroom %u < 1024\n",kos_free+kos_break);
+#if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS
+    re4dc_kos_census_log(kPhase[phase],unsigned(pG?pG->room_id:0));  // KOS_CENSUS=1 (diagnostic): live KOS blocks by caller
+#endif
 }
 }
 

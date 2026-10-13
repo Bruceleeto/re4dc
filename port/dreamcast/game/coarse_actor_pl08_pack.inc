@@ -84,3 +84,12 @@ extern "C" void re4dc_pl08_pack_room_leave() {
     const bool p=pl08_pack.published;const unsigned char* c=pl08_pack.cell;
     pl08_life_room_leave(pl08_pack,"leave");pl08_pack_note("leave",p,c);
 }
+#if defined(RE4DC_RESET_MEM_FIX) && RE4DC_RESET_MEM_FIX
+// RESET_MEM_FIX (game30.mk): systemResetCommon released the player archive. Forget the bound file as a fresh boot
+// has it (0), so the next room enter does not reload the 61 KB pl08 cell into heap 4 for a New Game's Leon
+// (the cell itself goes with the reset's room leave).
+extern "C" void re4dc_pl08_pack_forget() {
+    if(pl08_pack.player_file)re4dc_log("P8PACK forget file=%02x at reset\n",pl08_pack.player_file);
+    pl08_pack.player_file=0;
+}
+#endif

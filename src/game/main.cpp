@@ -131,6 +131,12 @@ void CardDbgCacheSet();
 void EmReadInit();
 void ReleasePlData();
 void ReleaseWepData();
+#if defined(RE4DC_RESET_MEM_FIX) && RE4DC_RESET_MEM_FIX && defined(RE4DC_ACTOR_PL08_PACK) && RE4DC_ACTOR_PL08_PACK
+extern "C" void re4dc_pl08_pack_forget();  // port/dreamcast/game/coarse_actor_pl08_pack.inc
+#endif
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+extern "C" void re4dc_warp_soft_reset(void);  // port/dreamcast/game/dbgwarp_bridge.cpp
+#endif
 // game/exception.cpp
 void ExceptionInit();
 // game/espgen.cpp
@@ -640,6 +646,9 @@ void systemResetCommon()
     TaskAllClear();
     EmReadInit();
     ReleasePlData();
+#if defined(RE4DC_RESET_MEM_FIX) && RE4DC_RESET_MEM_FIX && defined(RE4DC_ACTOR_PL08_PACK) && RE4DC_ACTOR_PL08_PACK
+    re4dc_pl08_pack_forget();  // RESET_MEM_FIX: the pl08 package follows the released archive (coarse_actor_pl08_pack.inc)
+#endif
     ReleaseWepData();
     RoomData.stopRelData();
     U32Set(pRK->sys_flags, pSys->flags);
@@ -688,6 +697,9 @@ void systemSoftReset()
     systemResetCommon();
     RomFontSetting();
     pG->IsMessageInit = 0;
+#if defined(RE4DC_WARP_AFTER_RESET) && RE4DC_WARP_AFTER_RESET
+    re4dc_warp_soft_reset();  // test rig (WARP_AFTER_RESET=1): an after_reset warp.txt warps from the next title
+#endif
     OSReport("--SOFT_RESET END!!\n");
 }
 
