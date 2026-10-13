@@ -283,16 +283,39 @@ void R11cMain()
     }
 }
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH22
+// Route cutscenes (ROUTE_CH22, r11c the chapter 2-2 end): s00 (the siege begins), s10 (the siege ends) and s20 (the
+// way out) are presented by their PS2 movies, the r117 pattern. While the movies own the events no evd is read: the
+// two DC.setData registrations, both ARAM loads and the s20 ARAM read are skipped, and enemy modules 0x13 / 3 / 4 are
+// read at their own size instead of being sized for the evd swaps. The handlers' begin / end modes run; the rest of
+// the source (flags, waves, Ashley, ladders, windows, merchant, chapter end) is unchanged. All three movies must exist.
+#include "route_movie.h"
+#define R11C_ROUTE_MOVIES 1
+#define R11C_MOVIES_OWN() (re4dc_movie_available(0x11c00) && re4dc_movie_available(0x11c10) && re4dc_movie_available(0x11c20))
+#else
+#define R11C_ROUTE_MOVIES 0
+#define R11C_MOVIES_OWN() 0
+#endif
+
 // Before the siege: pre-load evd r11cs00 to ARAM and register r11cs10, pre-read enemy modules 0x13 and 3
 // (Luis), mark Ashley as following (Status_flg[3] 0x04000000), init the partner at Leon's position in
 // chase mode, and keep module 3 for the event-data swap.
 extern "C" void r11c_eventInit()
 {
+#if R11C_ROUTE_MOVIES
+    if (R11C_MOVIES_OWN()) {
+        EmReadSearch(0x13, 0, 0);
+        EmReadSearch(3, 0, 0);
+    } else {
+#endif
     W->evd0 = DC.setData(EvtMgr.NameChange("evd/r11cs00.evd"));
     W->evd0->setCommand(CMND_ARAM_LOAD, 0, 0);
     W->evd1 = DC.setData(EvtMgr.NameChange("evd/r11cs10.evd"));
     EmReadSearch(0x13, 0, W->evd0->m_size);
     EmReadSearch(3, 0, 0x120000);
+#if R11C_ROUTE_MOVIES
+    }
+#endif
     BitOn(pG->Status_flg[3], 0x04000000);
     SubCharInit(1, &pPL->pos, pPL->ang.y);
     SubCharCtrl(SCC_CHASE, 0);
@@ -322,6 +345,14 @@ static void r11c_EventBesiegedStart()
         cEmDoorSetCloseLock(door);
     }
     pG->System_flg |= 0x400;
+#if R11C_ROUTE_MOVIES
+    if (!W->evd0) {
+        EmMgr.destroy(W->em);
+        SceSleep(2);
+        InitModule(W->mod3);
+        RouteMoviePlay(0x11c00, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS00_Func, 0);
+    } else {
+#endif
     err = W->evd0->waitLoadOk() == 0;
     EmMgr.destroy(W->em);
     SceSleep(2);
@@ -368,8 +399,15 @@ static void r11c_EventBesiegedStart()
         MemorySwap(mod->pArc, (u32) W->evd0->m_addr, W->evd0->m_size);
     }
     W->evd0->setCommand(CMND_DEL_DATA, 0, 0);
+#if R11C_ROUTE_MOVIES
+    }
+#endif
     pG->System_flg |= 0x400;
+#if R11C_ROUTE_MOVIES
+    EmReadSearch(4, 0, W->evd1 ? 0x120000 : 0);
+#else
     EmReadSearch(4, 0, 0x120000);
+#endif
     W->ashley = EmMgr.create(4);
     // Mid-function declarations: the two error arms above own block-local pos/ang pairs, so these
     // reuse their (combined) temp slots and the em[] array lands behind them.
@@ -416,12 +454,18 @@ static void r11c_EventBesiegedStart()
     ReadModule* mod2;
     int err2;
 
+#if R11C_ROUTE_MOVIES
+    if (W->evd1)
+#endif
     W->evd1->setCommand(CMND_ARAM_LOAD, 0, 0);
     SceSleep(2);
     pG->System_flg &= ~0x400;
     SceEventEnd(0);
     CamCtrl.AreaOnOff(1, 0, 1);
     SndRoomStrStart(1, 3, 1);
+#if R11C_ROUTE_MOVIES
+    if (W->evd1)
+#endif
     EvtMgr.EvtReadAram("event/evd/r11cs20.evd", 0, 0, 0, 0);
     EffectEspDelete(0, 2, 0, 0);
     EffectEspgenDelete(0, 2, 0);
@@ -505,6 +549,11 @@ static void r11c_EventBesiegedStart()
                 SceDestroyEm(0x10, 0x20);
                 SceSleep(2);
                 InitModule(SearchEmModule(0x13));
+#if R11C_ROUTE_MOVIES
+                if (!W->evd1) {
+                    RouteMoviePlay(0x11c20, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS20_Func, 0);
+                } else
+#endif
                 EvtMgr.EvtReadExec("event/evd/r11cs20.evd", 0, 2);
                 SceEventEnd(0);
                 SceExit();
@@ -561,7 +610,11 @@ static void r11c_EventBesiegedStart()
     SndRoomStrStop(5);
     SceEventStart(0);
     pG->System_flg |= 0x400;
+#if R11C_ROUTE_MOVIES
+    err2 = W->evd1 ? W->evd1->waitLoadOk() == 0 : 0;
+#else
     err2 = W->evd1->waitLoadOk() == 0;
+#endif
     for (i = 0; i < n; i++) {
         e = em[i];
         if ((e->be_flag & 0x201) == 1) {
@@ -573,6 +626,11 @@ static void r11c_EventBesiegedStart()
     SceSleep(2);
     InitModule(W->mod4);
     mod2 = SearchEmModule(0x13);
+#if R11C_ROUTE_MOVIES
+    if (!W->evd1) {
+        RouteMoviePlay(0x11c10, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS10_Func, 0);
+    } else
+#endif
     if (err2 != 1) {
         if (W->evd1->m_size > mod2->size) {
             pLog->err(0, 0, "r11c_Event10 exec error");
@@ -587,6 +645,9 @@ static void r11c_EventBesiegedStart()
             MemorySwap(mod2->pArc, (u32) W->evd1->m_addr, W->evd1->m_size);
         }
     }
+#if R11C_ROUTE_MOVIES
+    if (W->evd1)
+#endif
     W->evd1->setCommand(CMND_DEL_DATA, 0, 0);
     pG->System_flg &= ~0x400;
     SceEventEnd(0);
