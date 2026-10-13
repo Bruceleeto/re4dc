@@ -51,6 +51,15 @@ extern f32 ZFAR;
 #if defined(RE4DC_ESP_SPRITE_FAST) && RE4DC_ESP_SPRITE_FAST && !(RE4DC_EFFECT_LEAN && RE4DC_EFFECT_SPRITES)
 #error ESP_SPRITE_FAST needs EFFECT_LEAN=1 and EFFECT_SPRITES=1
 #endif
+#ifndef RE4DC_PS2_FX_POPULATION
+#define RE4DC_PS2_FX_POPULATION 0
+#endif
+#if RE4DC_PS2_FX_POPULATION
+#if !RE4DC_PS2_FX_STAGE1 || !RE4DC_EFFECT_PS2_HAZE
+#error PS2_FX_POPULATION needs PS2_FX_STAGE1 and EFFECT_PS2_HAZE
+#endif
+#include "ps2_fx_population.h"
+#endif
 #ifndef RE4DC_EFFECT_PS2_HAZE
 #define RE4DC_EFFECT_PS2_HAZE 0
 #endif
@@ -186,6 +195,9 @@ struct Ps2fxHaze {
     u8 gc_room_frames_p1;
     u8 gc_owner; // 0: room-SST owner 0xd0; r200 EST 2 explicitly uses owner 1.
 #endif
+#if RE4DC_PS2_FX_POPULATION
+    u8 gc_count, ps2_count; // audited one-shot emissions; zero preserves the earlier room path
+#endif
 };
 #if RE4DC_WATER45_NATIVE
 #define PS2FX_HAZE_ROOMS0 4
@@ -193,11 +205,16 @@ struct Ps2fxHaze {
 #define PS2FX_HAZE_ROOMS0 3
 #endif
 #if RE4DC_PS2_FX_STAGE1
-#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 19)
+#define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3 + 19 + RE4DC_PS2_FX_POPULATION)
 #elif RE4DC_PS2_FX_ROOMS
 #define PS2FX_HAZE_ROOMS (PS2FX_HAZE_ROOMS0 + 3)
 #else
 #define PS2FX_HAZE_ROOMS PS2FX_HAZE_ROOMS0
+#endif
+#if RE4DC_PS2_FX_POPULATION
+#define PS2FX_POP_COUNTS(gc, ps2) , gc, ps2
+#else
+#define PS2FX_POP_COUNTS(gc, ps2)
 #endif
 static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // r100: GC 60 x 1283.056 mm (+0.011), alpha 70, R 5090.2; PS2 11 x 2000 mm (+0.010), (235,235,210,34), R 5000
@@ -226,44 +243,50 @@ static const Ps2fxHaze kPs2Haze[PS2FX_HAZE_ROOMS] = {
     // First decoded stage-1 group, from the GC/PS2 EFF records audited by tools/audit_ps2_fx_recipes.py.
     // The pool-slot stride approximates PS2 counts after source-box clipping; generators and motion stay GC.
     // r102: GC sst 02/0 59 x 1099.956 (+.01), R4000.199 -> PS2 sst 00/1 10 x 1700 (+.01), R5000.
-    {0x102, 6, 255, 235, 215, 40, 5000.0f, 1700.0f / 1099.956f, 4000.199f, 3000.0f, 500.0f, 255, 235, 215},
+    {0x102, 6, 255, 235, 215, 40, 5000.0f, 1700.0f / 1099.956f, 4000.199f, 3000.0f, 500.0f, 255, 235, 215, 0, 0 PS2FX_POP_COUNTS(59, 10)},
     // r104: GC sst 00/0 21 x 1887.222 (+.03), R5090.199 -> PS2 sst 00/1 11 x 2500 (+.01), R5300.
-    {0x104, 2, 225, 225, 200, 46, 5300.0f, (2500.0f * 2.0f) / (1887.222f * 4.0f), 5090.199f, 3500.0f, 500.0f, 225, 225, 200},
+    {0x104, 2, 225, 225, 200, 46, 5300.0f, (2500.0f * 2.0f) / (1887.222f * 4.0f), 5090.199f, 3500.0f, 500.0f, 225, 225, 200, 0, 0 PS2FX_POP_COUNTS(21, 11)},
     // r105: sst 04/0 (area 0), 05/0 (area 1); each GC 51 x 1283.056 -> PS2 10 x 2100; all +.01.
-    {0x105, 5, 225, 225, 205, 36, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 225, 225, 205},
-    {0x105, 5, 255, 255, 235, 28, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 255, 255, 235},
+    {0x105, 5, 225, 225, 205, 36, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 225, 225, 205, 0, 0 PS2FX_POP_COUNTS(51, 10)},
+    {0x105, 5, 255, 255, 235, 28, 5000.0f, 2100.0f / 1283.056f, 5090.199f, 3000.0f, 500.0f, 255, 255, 235, 0, 0 PS2FX_POP_COUNTS(51, 10)},
     // r107: GC sst 00/0 (global) -> PS2 09/2; GC sst 08/0 (area 3) -> PS2 08/0.
-    {0x107, 4, 235, 235, 210, 30, 5000.0f, (2000.0f * 2.0f) / (1283.056f * 4.0f), 5090.199f, 3000.0f, 500.0f, 225, 225, 190},
-    {0x107, 5, 255, 255, 225, 30, 5000.0f, 2100.0f / 1374.622f, 5853.189f, 3000.0f, 500.0f, 255, 255, 225},
+    {0x107, 4, 235, 235, 210, 30, 5000.0f, (2000.0f * 2.0f) / (1283.056f * 4.0f), 5090.199f, 3000.0f, 500.0f, 225, 225, 190, 0, 0 PS2FX_POP_COUNTS(40, 11)},
+    {0x107, 5, 255, 255, 225, 30, 5000.0f, 2100.0f / 1374.622f, 5853.189f, 3000.0f, 500.0f, 255, 255, 225, 0, 0 PS2FX_POP_COUNTS(71, 9)},
     // Remaining qualified room-SST haze. r10f texture replacement and structural additions are separate.
     // r109: GC sst 01/0 (28 emissions) -> PS2 sst 01/0 (10); source steady-size ratio.
-    {0x109, 1, 247, 249, 255, 30, 5000.000f, 0.724137864f, 6484.946f, 3000.0f, 500.0f, 245, 247, 255, 0},
+    {0x109, 1, 247, 249, 255, 30, 5000.000f, 0.724137864f, 6484.946f, 3000.0f, 500.0f, 245, 247, 255, 0, 0 PS2FX_POP_COUNTS(28, 10)},
     // r10c: GC sst 01/0 (46 emissions) -> PS2 sst 01/1 (7); source steady-size ratio.
-    {0x10c, 6, 165, 175, 175, 68, 5000.000f, 1.714656711f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    {0x10c, 6, 165, 175, 175, 68, 5000.000f, 1.714656711f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0, 0 PS2FX_POP_COUNTS(46, 7)},
     // r10e: GC sst 06/0 (66 emissions) -> PS2 sst 06/1 (12); source steady-size ratio.
-    {0x10e, 3, 185, 195, 195, 75, 4000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    {0x10e, 3, 185, 195, 195, 75, 4000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0, 0 PS2FX_POP_COUNTS(66, 12)},
     // r111: GC sst 01/0 (53 emissions) -> PS2 sst 01/1 (10); source steady-size ratio.
-    {0x111, 2, 255, 255, 255, 57, 4800.000f, 0.974392037f, 6860.199f, 3000.0f, 500.0f, 215, 215, 215, 0},
+    {0x111, 2, 255, 255, 255, 57, 4800.000f, 0.974392037f, 6860.199f, 3000.0f, 500.0f, 215, 215, 215, 0, 0 PS2FX_POP_COUNTS(53, 10)},
     // r113: GC sst 00/0 (51 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
-    {0x113, 1, 235, 255, 255, 33, 5000.000f, 1.480839886f, 7954.390f, 3000.0f, 500.0f, 235, 255, 255, 0},
+    {0x113, 1, 235, 255, 255, 33, 5000.000f, 1.480839886f, 7954.390f, 3000.0f, 500.0f, 235, 255, 255, 0, 0 PS2FX_POP_COUNTS(51, 10)},
     // r119: GC sst 01/0 (20 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
-    {0x119, 1, 255, 255, 255, 37, 5000.000f, 0.777777705f, 6484.946f, 3000.0f, 500.0f, 255, 255, 255, 0},
+    {0x119, 1, 255, 255, 255, 37, 5000.000f, 0.777777705f, 6484.946f, 3000.0f, 500.0f, 255, 255, 255, 0, 0 PS2FX_POP_COUNTS(20, 10)},
     // r11a: GC sst 04/0 (66 emissions) -> PS2 sst 04/1 (10); source steady-size ratio.
-    {0x11a, 6, 175, 185, 185, 65, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0},
+    {0x11a, 6, 175, 185, 185, 65, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 165, 175, 175, 0, 0 PS2FX_POP_COUNTS(66, 10)},
     // r11c: GC sst 01/0 (21 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
-    {0x11c, 1, 250, 250, 255, 28, 5000.000f, 1.282029573f, 6484.946f, 3000.0f, 500.0f, 250, 250, 255, 0},
+    {0x11c, 1, 250, 250, 255, 28, 5000.000f, 1.282029573f, 6484.946f, 3000.0f, 500.0f, 250, 250, 255, 0, 0 PS2FX_POP_COUNTS(21, 10)},
     // r11d: GC sst 01/0 (26 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
-    {0x11d, 1, 255, 255, 245, 35, 5000.000f, 0.714285648f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 31},
+    {0x11d, 1, 255, 255, 245, 35, 5000.000f, 0.714285648f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 31, 0 PS2FX_POP_COUNTS(26, 10)},
     // r11d: GC sst 09/0 (26 emissions) -> PS2 sst 09/0 (10); source steady-size ratio.
-    {0x11d, 1, 255, 255, 245, 45, 5000.000f, 0.749999930f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 1},
+    {0x11d, 1, 255, 255, 245, 45, 5000.000f, 0.749999930f, 6484.946f, 3000.0f, 500.0f, 255, 255, 245, 1, 0 PS2FX_POP_COUNTS(26, 10)},
     // r11e: GC sst 00/0 (66 emissions) -> PS2 sst 00/1 (10); source steady-size ratio.
-    {0x11e, 6, 175, 175, 155, 50, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 175, 175, 155, 0},
+    {0x11e, 6, 175, 175, 155, 50, 5000.000f, 1.558778828f, 5090.199f, 3000.0f, 500.0f, 175, 175, 155, 0, 0 PS2FX_POP_COUNTS(66, 10)},
     // r11f: GC sst 01/0 (59 emissions) -> PS2 sst 00/1 (11); source steady-size ratio.
-    {0x11f, 1, 255, 255, 255, 40, 4000.000f, 1.461588282f, 6860.199f, 3000.0f, 500.0f, 255, 255, 245, 0},
+    {0x11f, 1, 255, 255, 255, 40, 4000.000f, 1.461588282f, 6860.199f, 3000.0f, 500.0f, 255, 255, 245, 0, 0 PS2FX_POP_COUNTS(59, 11)},
     // r200: room EST 02/0, GC 53 -> PS2 12; R200Init spawns owner 1 with no source overrides.
-    {0x200, 3, 255, 255, 255, 60, 6000.000f, 1.230810994f, 6860.199f, 3500.0f, 500.0f, 205, 215, 215, 0, 1},
+    {0x200, 3, 255, 255, 255, 60, 6000.000f, 1.230810994f, 6860.199f, 3500.0f, 500.0f, 205, 215, 215, 0, 1 PS2FX_POP_COUNTS(53, 12)},
+#if RE4DC_PS2_FX_POPULATION
+    // r11b needs the population remap: clipping the GC box alone admits only about 2.47 of the 10 targets.
+    {0x11b, 1, 178, 185, 185, 30, 5000.0f, (2000.0f * 2.0f) / (1731.402588f * 3.0f),
+     12093.557f, 3000.0f, 500.0f, 178, 185, 185, 0, 0 PS2FX_POP_COUNTS(35, 10)},
+#endif
 #endif
 };
+#undef PS2FX_POP_COUNTS
 #if RE4DC_PS2_FX_ROOMS
 // esp15.cpp's work (cEsp15::m_Free), read for the generator's box (PS2_FX_ROOMS) and the indoor fade counter.
 struct Ps2fxEsp15Work {
@@ -319,6 +342,83 @@ static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
     }
     return NULL;
 }
+#if RE4DC_PS2_FX_POPULATION
+static ps2fx::Population s_fx_population;
+static u32 s_fx_population_frame, s_fx_population_slots;
+static u16 s_fx_population_room;
+static const u8* s_fx_population_pool;
+static unsigned s_fx_population_mask;
+static int s_fx_population_valid;
+struct Ps2fxPopulationReader {
+    bool operator()(unsigned slot, ps2fx::PopulationKey& key) const
+    {
+        cEsp* esp = (cEsp*)(g_pEspSys->pEspBuf + slot * 0x150);
+        if (!(esp->m_Be_flg & 1) || esp->m_Id != 0x15) return false;
+        const Ps2fxHaze* h = Ps2fxHazeFor(esp);
+        if (!h || !h->gc_count) return false;
+        key.recipe = (unsigned short)(h - kPs2Haze);
+        key.owner = esp->info.owner;
+        key.kind = esp->info.Core_kind;
+        key.flags = esp->info.Core_flg;
+        key.call = esp->info.Call_no;
+        key.core = esp->info.Core_pEm;
+        key.source_count = h->gc_count;
+        key.target_count = h->ps2_count;
+        // An unexpected instance of the signature is explicit fallback, never accepted as the source emitter.
+        if (esp->m_Life_max || esp->m_Parts_no != 0xFE || esp->m_Tool_flg ||
+            esp->m_Type || esp->parent != pEffParentWorld) key.source_count = 0;
+        return true;
+    }
+};
+static void Ps2fxPopulationBuild()
+{
+    s_fx_population_valid = 1;
+    s_fx_population_frame = pG->Frame_cnt;
+    s_fx_population_room = G_ROOM_ID;
+    s_fx_population_pool = g_pEspSys ? g_pEspSys->pEspBuf : NULL;
+    s_fx_population_slots = g_pEspSys ? g_pEspSys->nEsp : 0;
+    s_fx_population_mask = re4dc_ps2fx;
+    int enabled = 0;
+    if (re4dc_ps2fx & PS2FX_HAZE) {
+        for (unsigned i = 0; i < PS2FX_HAZE_ROOMS; ++i) {
+            if (kPs2Haze[i].room == G_ROOM_ID && kPs2Haze[i].gc_count) { enabled = 1; break; }
+        }
+    }
+    if (!enabled || !s_fx_population_pool) {
+        s_fx_population.clear(0);
+        return;
+    }
+    s_fx_population.build(s_fx_population_slots, Ps2fxPopulationReader());
+    static ps2fx::Population::Stats last;
+    static u16 last_room;
+    static int reported;
+    const ps2fx::Population::Stats& st = s_fx_population.stats;
+    if (!reported || last_room != G_ROOM_ID || !(last == st)) {
+        re4dc_log("PS2FXPOP f=%u r=%03x slots=%u candidates=%u groups=%u selected=%u fallback=%u issues=%u\n",
+            (unsigned)pG->Frame_cnt, (unsigned)G_ROOM_ID, st.slots, st.candidates, st.groups,
+            st.selected, st.fallback, st.issues);
+        last = st;
+        last_room = G_ROOM_ID;
+        reported = 1;
+    }
+}
+static int Ps2fxPopulationState(cEsp* esp, const Ps2fxHaze* h)
+{
+    if (!h || !h->gc_count) return -1;
+    if (!s_fx_population_valid || s_fx_population_frame != pG->Frame_cnt ||
+        s_fx_population_room != G_ROOM_ID || !g_pEspSys ||
+        s_fx_population_pool != g_pEspSys->pEspBuf || s_fx_population_slots != g_pEspSys->nEsp ||
+        s_fx_population_mask != re4dc_ps2fx) Ps2fxPopulationBuild();
+    if (!s_fx_population_pool) return -1;
+    const u32 offset = (u32)((u8*)esp - s_fx_population_pool);
+    if (offset % 0x150 || offset / 0x150 >= s_fx_population_slots) return -1;
+    return s_fx_population.state(offset / 0x150);
+}
+static int Ps2fxPopulationSelected(cEsp* esp)
+{
+    return Ps2fxPopulationState(esp, Ps2fxHazeFor(esp)) == 1;
+}
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && RE4DC_EFFECT_HAZE_LEAN
 // EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): about 30 % of the PS2 subset (pool slot % every2 instead of % every) at alpha
 // x1.5; the fog table carries the rest of the veil (native_static.cpp re4dc_fog_frame, from re4dc_haze_key()).
@@ -553,6 +653,10 @@ static int Ps2fxClass(cEsp* esp)
         if (!h) {
             return 0;
         }
+#if RE4DC_PS2_FX_POPULATION
+        const int population = Ps2fxPopulationState(esp, h);
+        if (population >= 0) return population ? 0 : 1;
+#endif
         const u32 slot = (u32) ((u8*) esp - (u8*) g_pEspSys->pEspBuf) / 0x150;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
         const u8 every2 = RE4DC_HZ(2) ? Ps2fxEvery2(h->room) : 0;
@@ -655,13 +759,37 @@ static void EspSpriteEmit(cEsp* esp)
     const int ortho = P[0] != 0.0f;
     const f32 near_d = ortho ? 0.0f : P[6] / (P[5] - 1.0f), far_d = ortho ? 0.0f : P[6] / P[5];
     const Mtx& m = esp->m_Mat;
+#if RE4DC_PS2_FX_POPULATION
+    const Ps2fxHaze* population_haze = ortho ? NULL : Ps2fxHazeFor(esp);
+    const int population_selected = Ps2fxPopulationState(esp, population_haze) == 1;
+    f32 shift_x = 0.0f, shift_y = 0.0f, shift_z = 0.0f;
+    if (population_selected) {
+        // Remap only the camera-relative centre. Quad dimensions and every source particle field stay intact.
+        const f32 change = population_haze->range / population_haze->gc_range - 1.0f;
+        shift_x = (m[0][0] * 0.5f + m[0][1] * 0.5f + m[0][2] + m[0][3]) * change;
+        shift_y = (m[1][0] * 0.5f + m[1][1] * 0.5f + m[1][2] + m[1][3]) * change;
+        shift_z = (m[2][0] * 0.5f + m[2][1] * 0.5f + m[2][2] + m[2][3]) * change;
+    }
+#endif
 #if RE4DC_WATER45_NATIVE
     f32 corner[4][3];
 #endif
     for (int i = 0; i < 4; ++i) {
-        const f32 x = m[0][0] * cx[i] + m[0][1] * cy[i] + m[0][2] + m[0][3];
-        const f32 y = m[1][0] * cx[i] + m[1][1] * cy[i] + m[1][2] + m[1][3];
-        const f32 z = m[2][0] * cx[i] + m[2][1] * cy[i] + m[2][2] + m[2][3];
+        const f32 x = m[0][0] * cx[i] + m[0][1] * cy[i] + m[0][2] + m[0][3]
+#if RE4DC_PS2_FX_POPULATION
+            + shift_x
+#endif
+            ;
+        const f32 y = m[1][0] * cx[i] + m[1][1] * cy[i] + m[1][2] + m[1][3]
+#if RE4DC_PS2_FX_POPULATION
+            + shift_y
+#endif
+            ;
+        const f32 z = m[2][0] * cx[i] + m[2][1] * cy[i] + m[2][2] + m[2][3]
+#if RE4DC_PS2_FX_POPULATION
+            + shift_z
+#endif
+            ;
         f32 px, py, inv;
         if (ortho) {
             px = P[1] * x + P[2];
@@ -807,6 +935,9 @@ static f32 s_vis_far;
 extern "C" void re4dc_esp_sprite_pass_begin()
 {
     s_vis_far = re4dc_fog_gate_far ? re4dc_fog_gate_far() : 0.0f;
+#if RE4DC_PS2_FX_POPULATION
+    Ps2fxPopulationBuild();
+#endif
 }
 #endif
 extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
@@ -824,7 +955,12 @@ extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
         }
     }
 #endif
+#if RE4DC_PS2_FX_POPULATION
+    const int population_selected = Ps2fxPopulationSelected(esp);
+    if (!population_selected && !(esp->m_Flg & 1) && esp->m_Col_a < 1.0f) {
+#else
     if (!(esp->m_Flg & 1) && esp->m_Col_a < 1.0f) {
+#endif
         return 0;   // faded out: ChannelSet's alpha is (u8) m_Col_a here (before the final-colour scale), so 0
     }
     if ((u8) (esp->m_Parts_no + 8) <= 5 || (esp->m_Tool_flg & (0x1000 | 0x400000 | 0x400 | 0x800)) ||
@@ -841,6 +977,12 @@ extern "C" int re4dc_esp_coarse_sprite_visible(cEsp* esp)
     const f32 bx = esp->m_Size_base_x, by = esp->m_Size_base_y;
 #if RE4DC_EFFECT_PS2_HAZE
     const Ps2fxHaze* hz = Ps2fxHazeFor(esp);
+#if RE4DC_PS2_FX_POPULATION
+    if (population_selected) {
+        const f32 ratio = hz->range / hz->gc_range;
+        v.x *= ratio; v.y *= ratio; v.z *= ratio;
+    }
+#endif
     const f32 r = 2.0f * (bx > by ? bx : by) * esp->m_Size_mul * (hz ? hz->scale : 1.0f) + 100.0f;
 #else
     const f32 r = 2.0f * (bx > by ? bx : by) * esp->m_Size_mul + 100.0f;
@@ -1107,7 +1249,11 @@ void EspCommonTrans(cEsp* esp)
         }
         s_tex_no = esp->m_Tex_id;
     }
+#if RE4DC_PS2_FX_POPULATION
+    if (!esp->ChannelSet() && !Ps2fxPopulationSelected(esp)) {
+#else
     if (!esp->ChannelSet()) {
+#endif
         return;
     }
     sx = esp->m_Size_base_x * esp->m_Size_mul;

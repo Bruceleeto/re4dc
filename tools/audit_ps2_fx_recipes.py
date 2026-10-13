@@ -38,6 +38,7 @@ REMAINING_HAZE_PAIRS = (
     ('r11f', (0, 'sst', 1, 0), (0, 'sst', 0, 1)),
     ('r200', (0, 'est', 2, 0), (0, 'est', 2, 0)),
 )
+POPULATION_HAZE_PAIRS = (('r11b', (0, 'sst', 0, 0), (0, 'sst', 0, 1)),)
 STREAK_CUTS = (
     ('r102', (0, 'sst', 1, 14), 1),
     ('r104', (0, 'sst', 0, 6), 1),
@@ -132,6 +133,11 @@ def decode_eff(data, endian):
                     'table': kind, 'no': no, 'area': area, 'list_flags': flags,
                     'index': index, 'offset': r, 'record_sha256': sha(data[r:r+RECORD_SIZE]),
                     'be_flags': identity[0], 'id': identity[1], 'tex': identity[2], 'type': identity[3],
+                    'parts': read('B', r+7)[0], 'tool_flags': read('I', r+8)[0],
+                    'random_size': read('f', r+0x90)[0], 'floor': read('f', r+0xD8)[0],
+                    'generator_type': read('B', r+0x10A)[0], 'generator_flags': read('B', r+0x10B)[0],
+                    'generator_wait': read('B', r+0x10C)[0], 'generator_wait_random': read('B', r+0x10F)[0],
+                    'generator_life': read('h', r+0x110)[0],
                     'range': read('f', r+0x20)[0], 'size_x': read('f', r+0x88)[0],
                     'size_y': read('f', r+0x8C)[0], 'size_plus': read('f', r+0x94)[0],
                     'd_size_plus': read('f', r+0x98)[0], 'rgba': list(read('4B', r+0x9C)),
@@ -185,6 +191,29 @@ def haze_recipe(gc, ps2):
     }
 
 
+def population_recipe(gc, ps2):
+    """Qualify one immutable emitter identity; count exactness is a draw-selection property."""
+    haze_recipe(gc, ps2)
+    expected = {'generator_type':0, 'generator_flags':0, 'generator_wait':0,
+                'generator_wait_random':0, 'generator_life':1, 'life_max':0,
+                'parts':0xFE, 'tool_flags':0, 'type':0}
+    for record in (gc, ps2):
+        for name, value in expected.items():
+            if record[name] != value:
+                raise ValueError('unsupported population lifecycle: '+name)
+    if gc['area'] != ps2['area'] or gc['table'] != ps2['table']:
+        raise ValueError('population mapping requires separate area or trigger qualification')
+    source, target = gc['count_per_emission'], ps2['count_per_emission']
+    if not 0 < target <= source <= 255:
+        raise ValueError('population counts exceed the supported source subset')
+    return {'gc_count':source, 'ps2_count':target, 'position_ratio':ps2['range']/gc['range'],
+            'selected_count':'min(live source group, PS2 count); exact only for unambiguous groups',
+            'source_floor_retained':gc['floor'], 'ps2_floor':ps2['floor'],
+            'source_random_size_retained':gc['random_size'], 'ps2_random_size':ps2['random_size'],
+            'source_indoor_frames_retained':gc['work8'][3], 'ps2_indoor_frames':ps2['work8'][3],
+            'scope':'Selected source-particle count and render-local box remap only; GC motion, random sizes and indoor fade duration remain source-owned.'}
+
+
 def haze_indoor_selector(records, gc):
     """Resolve haze within its owner table using immutable fields, never live alpha."""
     same = [r for r in records if r['table'] == gc['table'] and r['id'] == 0x15 and
@@ -203,8 +232,8 @@ def streak_signature(record):
     return (record['tex'], record['blend'], record['del_far'], record['del_near'])
 
 
-def audit(cache, remaining=False):
-    haze_pairs = HAZE_PAIRS + (REMAINING_HAZE_PAIRS if remaining else ())
+def audit(cache, remaining=False, population=False):
+    haze_pairs = HAZE_PAIRS + (REMAINING_HAZE_PAIRS if remaining else ()) + (POPULATION_HAZE_PAIRS if population else ())
     streak_cuts = STREAK_CUTS + (REMAINING_STREAK_CUTS if remaining else ())
     sheet_cuts = SHEET_CUTS + (REMAINING_SHEET_CUTS if remaining else ())
     rooms = sorted({row[0] for row in haze_pairs + streak_cuts + sheet_cuts} | ({'r10d'} if remaining else set()))
@@ -236,6 +265,8 @@ def audit(cache, remaining=False):
         recipe = haze_recipe(gc, ps2)
         recipe['gc_indoor_frames_plus_one'] = haze_indoor_selector(records[room, 'gc'], gc)
         recipe['owner'] = 0xD0 if gc['table']=='sst' else 1
+        if population:
+            recipe['population'] = population_recipe(gc, ps2)
         haze.append({'room': room, 'gc': gc, 'ps2': ps2, 'recipe': recipe})
     streaks = []
     for room, ref, expected_count in streak_cuts:
@@ -355,11 +386,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'inventory'), default='first-group')
+    parser.add_argument('--scope', choices=('first-group', 'stage1-recipes', 'population', 'inventory'), default='first-group')
     args = parser.parse_args()
     if args.output.exists():
         parser.error('refusing to overwrite evidence')
-    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope == 'stage1-recipes')
+    result = inventory(args.cache) if args.scope == 'inventory' else audit(args.cache, args.scope in ('stage1-recipes', 'population'), args.scope == 'population')
     args.output.write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps({'schema':result['schema'], 'output':str(args.output)}))
 

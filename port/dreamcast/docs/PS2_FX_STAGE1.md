@@ -191,3 +191,55 @@ particular, r11c's new PS2 EST 6 haze is a gate-opening effect with its own
 lifecycle, and remains unimplemented rather than being made globally active.
 The room scripts, source effect controllers, call counters and particles are
 unchanged. Runtime/visual/heap/cost gates remain required.
+
+## Guarded population selection
+
+`PS2_FX_POPULATION=1` is a separate default-off render knob requiring
+`PS2_FX_STAGE1=1`. It applies to the nineteen newly adopted haze sources plus
+r11b; earlier r100/r101/r103/r106/r10a/r10b recipes retain their prior path.
+The source audit proves generator 00 runs once (life 1, wait/random wait 0),
+with permanent free-world particles. It rejects changed lifecycle, area,
+texture or attachment assumptions.
+
+The renderer scans the pool once per sprite pass, or lazily on the first haze
+draw of a frame. It groups particles by recipe and immutable owner/core/call
+identity, then evenly selects exactly the PS2 count from each complete,
+unambiguous source group. Undersupplied groups select at most their live
+count and report `PartialSource`; an overfull group reports `AmbiguousSource`
+and keeps the prior draw path. Bounds are 2048 pool slots, 32 groups and 256
+candidates. Overflow or unsupported runtime fields report a fallback. The
+portable helper uses 2328 bytes of fixed state and performs no allocation,
+RNG call, pool write or simulation update.
+
+Selected centres scale locally by `PS2 range / GC range` about the camera;
+the renderer leaves each source position, matrix, colour and effect work
+unchanged. This fills larger PS2 boxes and avoids r11b's former 2.47-particle
+clipped-volume limit. Source alpha rejection is deferred for selected haze
+until the existing PS2 near/far/indoor/final-colour fades run at the remapped
+depth. Frustum, projection and alpha can still reduce visible quads: the
+selection count is a camera-box population, not an on-screen sprite promise.
+
+`PS2FXPOP` logs initial/changed room counts and issue flags:
+1 slot overflow, 2 group overflow, 4 candidate overflow, 8 unsupported counts
+or runtime instance, 16 ambiguous overfull source group, 32 incomplete source
+group. A nonzero issue is not a qualified full-population result.
+
+Count selection does not claim complete PS2 trajectory or size-distribution
+parity. Source motion and random-size samples remain GC, including r109's
+random-size range 40 versus PS2 30. r10e/r113 retain the GC floor behavior
+(-15200/900 versus PS2 zero); source indoor fade durations also remain GC
+(r11b has zero versus PS2 30). These are explicit look residuals for stills
+and any later narrowly scoped render work. r112's relocated area, newly
+added r118/r11c EST haze and r10f's texture replacement remain separate.
+
+```sh
+python3 tools/audit_ps2_fx_recipes.py --cache /path/to/private/worldfx-cache --scope population --output /path/to/new-population-recipes.json
+g++ -std=c++11 -O2 -Wall -Wextra -Werror tools/test_ps2_fx_population.cpp -o /tmp/test_ps2_fx_population
+/tmp/test_ps2_fx_population
+```
+
+Host validation covers exhaustive source/target counts through 256, sparse
+and interleaved pools, independent immutable identities, partial/ambiguous
+groups, every bound, repeated builds and byte-identical source inputs.
+Thirteen source-audit tests also reject lifecycle/trigger changes. No game
+build, replay, still, heap or device-cost gate is established by those tests.

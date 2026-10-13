@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from audit_ps2_fx_recipes import decode_eff, haze_indoor_selector, haze_recipe, inventory, steady_size
+from audit_ps2_fx_recipes import decode_eff, haze_indoor_selector, haze_recipe, inventory, population_recipe, steady_size
 
 
 def sample_eff(endian='<'):
@@ -22,6 +22,8 @@ def sample_eff(endian='<'):
     struct.pack_into('4B', data, r+0xC8, 30, 5, 30, 30)
     struct.pack_into('BB', data, r+0x108, 1, 0)
     data[r+0x10D] = 9
+    data[r+7] = 0xFE
+    struct.pack_into(endian+'h', data, r+0x110, 1)
     return data
 
 
@@ -140,6 +142,31 @@ class EffectRecipeAuditTests(unittest.TestCase):
         self.assertEqual(0, haze_indoor_selector([global_haze], global_haze))
         # EST sharing the signature cannot collide with the room-SST owner gate.
         self.assertEqual(0, haze_indoor_selector([global_haze, dict(global_haze, table='est')], global_haze))
+
+    def test_population_lifecycle_and_trigger_changes_are_rejected(self):
+        gc, ps2 = self.record(), self.record()
+        gc['count_per_emission'] = 59
+        result = population_recipe(gc, ps2)
+        self.assertEqual(59, result['gc_count'])
+        self.assertEqual(10, result['ps2_count'])
+        for name, value in (('generator_life', 0), ('life_max', 1), ('generator_wait', 1),
+                            ('generator_wait_random', 1), ('generator_type', 1), ('generator_flags', 1),
+                            ('parts', 0), ('tool_flags', 1), ('type', 1)):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'lifecycle'):
+                population_recipe(gc, dict(ps2, **{name:value}))
+        with self.assertRaisesRegex(ValueError, 'area or trigger'):
+            population_recipe(gc, dict(ps2, area=7))
+        with self.assertRaisesRegex(ValueError, 'supported source subset'):
+            population_recipe(gc, dict(ps2, count_per_emission=60))
+        # Explicit residuals prevent count qualification from claiming full motion/fade/size parity.
+        result = population_recipe(dict(gc, floor=900, random_size=40, work8=[30,5,30,0]),
+                                   dict(ps2, floor=0, random_size=30, work8=[30,5,30,30]))
+        self.assertEqual(900, result['source_floor_retained'])
+        self.assertEqual(0, result['ps2_floor'])
+        self.assertEqual(40, result['source_random_size_retained'])
+        self.assertEqual(30, result['ps2_random_size'])
+        self.assertEqual(0, result['source_indoor_frames_retained'])
+        self.assertEqual(30, result['ps2_indoor_frames'])
 
     def test_ambiguous_or_unrepresentable_indoor_selector_is_rejected(self):
         a = self.record()
