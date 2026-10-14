@@ -1044,6 +1044,14 @@ extern "C" int re4dc_movie_cabin_abort(unsigned generation){
     return cabin_movie_finish(RE4DC_MOVIE_ERROR);
 }
 extern "C" int re4dc_movie_cabin_status(unsigned generation){
+#if RE4DC_CABIN_HANDOFF_DIAG
+    static unsigned queries=0;
+    if(++queries<=3 || queries%120==0)
+        re4dc_log("CABIN_MOVIE_STATUS n=%u gen=%u want=%u terminal=%d decoded=%u/%u k=%u video=%u audio=%u pcm=%u pending=%u retired=%u final_upload=%u shown=%u\n",
+            queries,cabin_movie.generation,generation,cabin_movie.terminal,m.frames,m.expected_frames,m.k,
+            m.video_left,m.audio_left,m.pcm_used,unsigned(m.pending!=nullptr),unsigned(cabin_movie.transport_retired),
+            cabin_movie.final_upload,re4dc_ui_movie_cabin_shown());
+#endif
     return generation && generation==cabin_movie.generation?cabin_movie.terminal:RE4DC_MOVIE_CANCEL;
 }
 extern "C" int re4dc_movie_cabin_close(unsigned generation){

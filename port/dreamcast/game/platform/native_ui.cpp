@@ -6721,6 +6721,26 @@ static int movie_cabin_ui_try_close_body(){
 extern "C" int re4dc_ui_movie_try_close(){
 #endif
     // This path runs before source heap destruction: all checks are nonblocking.
+#if RE4DC_CABIN_HANDOFF_DIAG
+    unsigned blocked=(direct_open?1u:0u)|(stream_scene?2u:0u)|(pvr_state.ta_busy?4u:0u)|(pvr_state.render_busy?8u:0u);
+#if RE4DC_D349_RENDERER_STACK
+    if(draining_parts)blocked|=16u;
+#endif
+#if RE4DC_PVR_PIPELINE==2
+    if(pvr_present_pending())blocked|=32u;
+#elif RE4DC_PVR_PIPELINE
+    if(present_submitted!=present_resolved)blocked|=32u;
+#endif
+#if RE4DC_PVR_PIPELINE
+    if(present_failures)blocked|=64u;
+#endif
+    static unsigned calls=0,last=~0u;
+    ++calls;
+    if(calls<=3 || blocked!=last || calls%120==0)
+        re4dc_log("CABIN_UI_CLOSE n=%u frame=%u blocked=%u tex=%08x picture=%u bg=%u upload=%u shown=%u\n",
+            calls,frame,blocked,unsigned(reinterpret_cast<uintptr_t>(movie_texture)),unsigned(movie_picture),unsigned(movie_background),movie_upload_serial,movie_shown_serial);
+    last=blocked;
+#endif
     if(direct_open || stream_scene || pvr_state.ta_busy || pvr_state.render_busy)return 0;
 #if RE4DC_D349_RENDERER_STACK
     if(draining_parts)return 0;

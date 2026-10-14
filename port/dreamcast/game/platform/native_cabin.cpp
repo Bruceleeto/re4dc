@@ -153,6 +153,12 @@ extern "C" int re4dc_cabin_aftermath(unsigned id){
     if(cabin.id!=id || !cabin.source_done){cabin_failure("cabin aftermath before source terminal");return 0;}
     if(cabin.failed){cabin_failure("cabin aftermath has failed media");return 0;}
     const int status=re4dc_movie_cabin_status(cabin.movie);
+#if RE4DC_CABIN_HANDOFF_DIAG
+    static unsigned waits=0;
+    if(++waits<=3 || waits%120==0)
+        re4dc_log("CABIN_HANDOFF n=%u id=%05x movie=%u status=%d readers=%u fault=%u retiring=%u\n",
+            waits,id,cabin.movie,status,cabin_event_readers,unsigned(cabin_event_reader_fault),unsigned(cabin.retiring));
+#endif
     if(status==RE4DC_MOVIE_RUNNING)return 0;
     if(status!=RE4DC_MOVIE_EOF && status!=RE4DC_MOVIE_SKIP){cabin_failure("cabin aftermath unqualified media");return 0;}
     if(cabin_event_readers || cabin_event_reader_fault || cabin.retiring)return 0;
