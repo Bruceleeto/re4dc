@@ -147,6 +147,22 @@ extern "C" int re4dc_water45_hides(const f32 (*corner)[3]);   // espgen45.cpp
 #endif
 extern "C" void GXGetViewportv(f32*);
 static GXColor s_effect_col; // ChannelSet's final material colour (GXSetChanMatColor)
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+// EFFECT_TORCH (effects30.mk): esp0e.cpp sets these around Esp0e_Trans's one-frame screen copy (the glow).
+extern "C" {
+int re4dc_esp0e_glow;
+f32 re4dc_esp0e_depth;
+u32 re4dc_esp0e_drawn;
+void re4dc_log(const char* fmt, ...);
+}
+// The torch / lamp objects that own Esp0e glows (et0b 0x5f, et0c 0x60, et10 0x64, et14 0x68 (r11b's cEmTorch),
+// et19 0x6d, et1c 0x70, et38 0x8c); et0a's 0x5e is eligible for every class already.
+static int EspTorchGlowOwner(u32 owner)
+{
+    return owner == 0x5F || owner == 0x60 || owner == 0x64 || owner == 0x68 || owner == 0x6D || owner == 0x70 ||
+           owner == 0x8C;
+}
+#endif
 static int EspSpriteEligible(cEsp* esp)
 {
     // Et0a hanging lamps use 0x5e for their source flame/smoke sprites, including
@@ -162,10 +178,16 @@ static int EspSpriteEligible(cEsp* esp)
     } else if (owner == 0xD0) {
         room = RE4DC_EFFECT_ROOM & ((esp->m_Id == 0x15 || esp->m_Id == 0x48) ? 4 : 2);
     }
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+    if (!(re4dc_esp0e_glow && EspTorchGlowOwner(owner)))   // EFFECT_TORCH: an Esp0e glow copy of a torch owner
+#endif
     if (!room && !(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F) || owner == 0x5E)) {
         return 0;
     }
 #else
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+    if (!(re4dc_esp0e_glow && EspTorchGlowOwner(owner)))   // EFFECT_TORCH: an Esp0e glow copy of a torch owner
+#endif
     if (!(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F) || owner == 0x5E)) {
         return 0; // muzzle flash (WEPxx), the shot's core effects, blood (EM10)
     }
@@ -689,6 +711,174 @@ static int Ps2fxExtCut(cEsp* esp)
     return kind != 0;
 }
 #endif
+#if defined(RE4DC_PS2_FX_GEN) && RE4DC_PS2_FX_GEN
+#if !RE4DC_PS2_FX_ROOMS
+#error PS2_FX_GEN needs PS2_FX_ROOMS=1
+#endif
+// PS2_FX_GEN (effects30.mk; test 11 lane fx): the GameCube room effects the PS2 release deleted, for every stage-1
+// room in one generated table (tools/ps2_fx_parity.py over the GC / PS2 rNNN EFF records: ps2_fx_gen.inc; the
+// per-room parity report is docs/PS2_FX_PARITY.md). A matching sprite is not drawn; the hand-qualified rows above
+// (haze recipes, streak / sheet cuts, statics) stay as overrides. Draw-time only: generators, Rnd(), pool, motion.
+struct Ps2fxGenCutRow {
+    u16 room;
+    u8 kind, owner, id, tex, blend;   // kind 0 sprite, 1 Esp0a copy, 2 Esp48 sheet, 3 camera haze; blend 0xff: any
+    u16 del_far, del_near;            // 0xffff: not tested (copies: x10)
+    u8 r, g, b, rgb;                  // rgb: 1 = the start colour is tested
+    u16 life;                         // 0xffff: not tested
+};
+#include "ps2_fx_gen.inc"
+static int Ps2fxGenCut(cEsp* esp)
+{
+    static u16 s_room = 0xffff;
+    static u16 s_begin, s_end;
+    static u32 s_tex[8], s_seen[(PS2FX_GEN_CUTS + 31) / 32];
+    const u16 room = G_ROOM_ID;
+    if (room != s_room) {
+        s_room = room;
+        s_begin = s_end = 0;
+        for (int i = 0; i < 8; ++i) s_tex[i] = 0;
+        for (unsigned i = 0; i < sizeof(s_seen) / sizeof(s_seen[0]); ++i) s_seen[i] = 0;
+        unsigned i = 0;
+        while (i < PS2FX_GEN_CUTS && kPs2GenCut[i].room != room) ++i;
+        s_begin = (u16) i;
+        while (i < PS2FX_GEN_CUTS && kPs2GenCut[i].room == room) {
+            s_tex[kPs2GenCut[i].tex >> 5] |= 1U << (kPs2GenCut[i].tex & 31);
+            ++i;
+        }
+        s_end = (u16) i;
+    }
+    const u32 t = esp->m_Tex_id;
+    if (s_begin == s_end || !(re4dc_ps2fx & PS2FX_HAZE) || !(s_tex[(t >> 5) & 7] & (1U << (t & 31)))) {
+        return 0;
+    }
+    for (unsigned i = s_begin; i < s_end; ++i) {
+        const Ps2fxGenCutRow& c = kPs2GenCut[i];
+        if (c.tex != t || c.owner != esp->info.owner) continue;
+        if (c.kind == 2) {
+            if (esp->m_Id != 0x48) continue;
+        } else if (c.kind == 1) {
+            if (esp->m_Id != 0 || esp->m_Del_far != c.del_far || esp->m_Del_near != c.del_near ||
+                esp->m_Life_max != c.life) continue;
+        } else {
+            if (esp->m_Id != c.id) continue;
+            if (c.blend != 0xff && esp->m_Blend_type != c.blend) continue;
+            if (c.del_far != 0xffff && (esp->m_Del_far != c.del_far || esp->m_Del_near != c.del_near)) continue;
+            if (c.life != 0xffff && esp->m_Life_max != c.life) continue;
+            if (c.rgb && (esp->m_Col_start_r != c.r || esp->m_Col_start_g != c.g || esp->m_Col_start_b != c.b)) continue;
+        }
+        if (!(s_seen[i >> 5] & (1U << (i & 31)))) {
+            s_seen[i >> 5] |= 1U << (i & 31);
+            re4dc_log("ps2fx gen: r%03x row %u kind %u id %02x tex %02x owner %02x not drawn\n", (unsigned) room, i,
+                      (unsigned) c.kind, (unsigned) esp->m_Id, (unsigned) t, (unsigned) esp->info.owner);
+        }
+        return 1;
+    }
+    return 0;
+}
+#endif
+#if defined(RE4DC_FX_LEVEL)
+// FX_LEVEL (effects30.mk; test 11 lane fx): one effects-quality dial over every PS2-derived room effect recipe: the
+// room SST / EST table effects (owners 0xd0 / 0x01) with the PS2 look on, the PS2-added haze (PS2_FX_ADDITIONS) and
+// r11b's PS2 rain (RAIN_PS2). Draw time only: a thinned particle still spawns, moves and makes its Rnd() draws; spawn
+// counts and generator records are never touched. Weapon, enemy and object effects (blood, muzzle flash, torch glows)
+// have other owners and are never scaled. re4dc_fx_level is the runtime value (build default FX_LEVEL) that a menu or
+// tester toggle can change without a rebuild; the hwfog lane's fog-replaced layers read the same accessors.
+struct FxLevel {
+    u8 keep_of_8;   // particles drawn per 8: a fixed hash of the pool slot, so the same particles stay (no flicker)
+    f32 size;       // quad scale about its centre (translucent fill ~ size^2)
+    f32 alpha;      // alpha scale (above 1 keeps a thinned cloud's density)
+    f32 far;        // view-depth cap, mm (0: none; camera haze is exempt, it has its own range)
+    u16 budget;     // room-effect sprites per frame (0: none)
+    u8 rain;        // r11b PS2 rain lines per 100
+};
+static const FxLevel kFxLevel[3] = {
+    {8, 1.0f, 1.0f, 0.0f, 0, 100},           // 0: PS2 as-is
+    {6, 0.9f, 1.15f, 40000.0f, 48, 70},      // 1: reduced
+    {4, 0.8f, 1.3f, 25000.0f, 32, 50},       // 2: low
+};
+enum { FXL_THIN = 1, FXL_SIZE = 2, FXL_ALPHA = 4, FXL_FAR = 8, FXL_BUDGET = 16, FXL_ALL = 31 };
+// Per-recipe overrides: the dial parts a matching sprite keeps out of (room 0, id / tex 0xff: any).
+struct FxLevelOverride { u16 room; u8 id, tex, skip; };
+static const FxLevelOverride kFxLevelOverride[] = {
+    {0x000, 0x48, 0xff, FXL_THIN | FXL_BUDGET},                      // a mist sheet is the whole layer
+    {0x104, 0x00, 0x08, FXL_ALL}, {0x104, 0x00, 0x1f, FXL_ALL}, {0x104, 0x00, 0xe9, FXL_ALL},   // r104 PS2 statics
+};
+extern "C" {
+u8 re4dc_fx_level = RE4DC_FX_LEVEL;
+int re4dc_fx_level_get(void) { return re4dc_fx_level; }
+void re4dc_fx_level_set(int level) { re4dc_fx_level = (u8) (level < 0 ? 0 : level > 2 ? 2 : level); }
+void re4dc_fx_level_cycle(void) { re4dc_fx_level_set(re4dc_fx_level >= 2 ? 0 : re4dc_fx_level + 1); }
+float re4dc_fx_level_size(void) { return kFxLevel[re4dc_fx_level].size; }
+float re4dc_fx_level_alpha(void) { return kFxLevel[re4dc_fx_level].alpha; }
+unsigned re4dc_fx_level_rain(unsigned n) { return n * kFxLevel[re4dc_fx_level].rain / 100; }
+}
+static unsigned FxLevelParts(const cEsp* esp)
+{
+    if (!re4dc_fx_level || !(re4dc_ps2fx & PS2FX_HAZE) || (esp->info.owner != 0xD0 && esp->info.owner != 0x01)) {
+        return 0;
+    }
+    unsigned parts = FXL_ALL;
+    if (esp->m_Id == 0x15) parts &= ~FXL_FAR;
+    if (esp->m_Id == 0 && esp->m_Life_max <= 1) parts &= ~FXL_THIN;   // a permanent static: thinned, it is a hole
+    const u16 room = G_ROOM_ID;
+    for (unsigned i = 0; i < sizeof(kFxLevelOverride) / sizeof(kFxLevelOverride[0]); ++i) {
+        const FxLevelOverride& o = kFxLevelOverride[i];
+        if ((!o.room || o.room == room) && (o.id == 0xff || o.id == esp->m_Id) &&
+            (o.tex == 0xff || o.tex == esp->m_Tex_id)) {
+            parts &= ~o.skip;
+        }
+    }
+    return parts;
+}
+static int FxLevelKeep(u32 key)
+{
+    return ((key * 2654435761U) >> 29) < kFxLevel[re4dc_fx_level].keep_of_8;
+}
+// Ps2fxClass: 1 = thinned out at this level.
+static int FxLevelThin(cEsp* esp)
+{
+    return (FxLevelParts(esp) & FXL_THIN) && !FxLevelKeep((u32) ((u8*) esp - (u8*) g_pEspSys->pEspBuf) / 0x150);
+}
+static void FxLevelScale(Re4dcEffectSprite* s, f32 size, f32 alpha)
+{
+    if (size != 1.0f) {
+        const f32 mx = (s->x[0] + s->x[1] + s->x[2] + s->x[3]) * 0.25f, my = (s->y[0] + s->y[1] + s->y[2] + s->y[3]) * 0.25f;
+        for (int i = 0; i < 4; ++i) {
+            s->x[i] = mx + (s->x[i] - mx) * size;
+            s->y[i] = my + (s->y[i] - my) * size;
+        }
+    }
+    if (alpha != 1.0f) {
+        const f32 a = (f32) (s->color >> 24) * alpha;
+        s->color = (s->color & 0xffffffU) | ((a >= 255.0f ? 255U : (u32) a) << 24);
+    }
+}
+// EspSpriteEmit: depth cap, per-frame budget, size and alpha (0: not drawn).
+static int FxLevelSprite(const cEsp* esp, Re4dcEffectSprite* s)
+{
+    const unsigned parts = s->screen ? 0 : FxLevelParts(esp);
+    if (!parts) {
+        return 1;
+    }
+    const FxLevel& L = kFxLevel[re4dc_fx_level];
+    if ((parts & FXL_FAR) && L.far > 0.0f && s->z[0] > 0.0f && 1.0f / s->z[0] > L.far) {
+        return 0;
+    }
+    if ((parts & FXL_BUDGET) && L.budget) {
+        static u32 s_frame, s_used;
+        if (s_frame != pG->Frame_cnt) {
+            s_frame = pG->Frame_cnt;
+            s_used = 0;
+        }
+        if (s_used >= L.budget) {
+            return 0;
+        }
+        ++s_used;
+    }
+    FxLevelScale(s, (parts & FXL_SIZE) ? L.size : 1.0f, (parts & FXL_ALPHA) ? L.alpha : 1.0f);
+    return 1;
+}
+#endif
 // 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
 // anchor (=2: draws the PS2 shafts in its place).
 #if RE4DC_PS2_FX_ADDITIONS
@@ -699,6 +889,11 @@ static int Ps2fxCommonHazeSuppress(cEsp* esp);
 #endif
 static int Ps2fxClass(cEsp* esp)
 {
+#if defined(RE4DC_FX_LEVEL)
+    if (FxLevelThin(esp)) {
+        return 1;
+    }
+#endif
 #if RE4DC_PS2_FX_COMMON_HAZE
     if(Ps2fxCommonHazeSuppress(esp))return 1;
 #endif
@@ -743,6 +938,11 @@ static int Ps2fxClass(cEsp* esp)
 #endif
 #if defined(RE4DC_PS2_FX_ROOMS_EXT) && RE4DC_PS2_FX_ROOMS_EXT
     if (Ps2fxExtCut(esp)) {
+        return 1;
+    }
+#endif
+#if defined(RE4DC_PS2_FX_GEN) && RE4DC_PS2_FX_GEN
+    if (Ps2fxGenCut(esp)) {
         return 1;
     }
 #endif
@@ -1073,6 +1273,11 @@ static void EspSpriteEmit(cEsp* esp)
 #if RE4DC_TA_BIN_DIAG
         s.pad |= 2;   // TA_BIN_DIAG fill: a PS2 haze sprite
 #endif
+#if defined(RE4DC_FX_LEVEL)
+        if (!FxLevelSprite(esp, &s)) {
+            return;
+        }
+#endif
         re4dc_effect_sprite(&s);
         return;
     }
@@ -1098,11 +1303,37 @@ static void EspSpriteEmit(cEsp* esp)
     s.dst = esp->xA6 & 7;
     s.screen = ortho;
     s.pad = 0;
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+    // EFFECT_TORCH: an Esp0e glow's screen copy is drawn at its source's view depth (Esp0e_HideCheck's
+    // 150 mm in front) with the depth test on, in place of the GameCube's Z-buffer peek (GXPeekZ has no
+    // PVR equivalent): scenery in front hides it per pixel.
+    if (re4dc_esp0e_glow && ortho) {
+        const f32 d = re4dc_esp0e_depth > 10.0f ? re4dc_esp0e_depth : 10.0f;
+        for (int i = 0; i < 4; ++i) {
+            s.z[i] = 1.0f / d;
+        }
+        s.screen = 0;
+        ++re4dc_esp0e_drawn;
+        static u32 s_glow_window = ~0U;
+        if (pG->Frame_cnt / 120 != s_glow_window) {   // the running total, once per 120 frames with a glow
+            s_glow_window = pG->Frame_cnt / 120;
+            re4dc_log("torch glow: frame=%u room=%03x owner=%02x tex=%02x total=%u argb=%08x x=%d..%d y=%d..%d d=%d\n",
+                      (unsigned) pG->Frame_cnt, (unsigned) G_ROOM_ID, (unsigned) esp->info.owner,
+                      (unsigned) esp->m_Tex_id, (unsigned) re4dc_esp0e_drawn, (unsigned) s.color, (int) s.x[0],
+                      (int) s.x[2], (int) s.y[0], (int) s.y[2], (int) d);
+        }
+    }
+#endif
 #if RE4DC_TA_BIN_DIAG
     if (esp->info.owner == 0xD0 && esp->m_Id == 0x48 &&   // TA_BIN_DIAG fill: a GameCube mist sheet (EFFECT_HAZE_LEAN M1's)
         (esp->m_Tex_id == 0xf6 || esp->m_Tex_id == 0xcb || esp->m_Tex_id == 0xd0 || esp->m_Tex_id == 0xf3 ||
          esp->m_Tex_id == 0x33)) {
         s.pad |= 4;
+    }
+#endif
+#if defined(RE4DC_FX_LEVEL)
+    if (!FxLevelSprite(esp, &s)) {
+        return;
     }
 #endif
     re4dc_effect_sprite(&s);
@@ -1257,6 +1488,12 @@ static void Ps2fxAdditionsDraw()
                 sprite.color=(a<<24)|(r<<16)|(g<<8)|b; sprite.src=4; sprite.dst=5; sprite.screen=0; sprite.pad=0;
 #if RE4DC_TA_BIN_DIAG
                 sprite.pad|=2;
+#endif
+#if defined(RE4DC_FX_LEVEL)
+                if(re4dc_fx_level) {   // FX_LEVEL: the same dial as the room effects (no budget: 10 particles)
+                    if(!FxLevelKeep(n)) continue;
+                    FxLevelScale(&sprite,kFxLevel[re4dc_fx_level].size,kFxLevel[re4dc_fx_level].alpha);
+                }
 #endif
                 s_stage1_sprites[count++]=sprite;
             }

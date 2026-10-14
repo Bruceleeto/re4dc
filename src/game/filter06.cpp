@@ -61,6 +61,86 @@ void Filter06Render();
 Filter06Work flt06;
 static Vec cam_vec_LR;
 
+#if defined(RE4DC_RAIN_PS2) && RE4DC_RAIN_PS2
+// RAIN_PS2 (effects30.mk; render only): the Filter06 rain the GameCube draws as GX lines (stubbed on the port)
+// drawn natively in the PS2 release's amount. Source (SLUS-211.34 / GC r11b EFF, effect controller 0x44): the GC
+// starts 1600 lines in colour (170, 170, 170, 60); the PS2 100 lines at alpha 80, same speed. The simulation and
+// its Rnd() draws (Filter06SetParam) are unchanged; the first 100 particles are moved and drawn, at alpha x 80 / 60.
+#include "native_ui.h"
+extern "C" void GXGetViewportv(f32*);
+extern "C" void re4dc_log(const char* fmt, ...);
+static const u32 kRainPs2Lines = 100;
+extern "C" unsigned re4dc_fx_level_rain(unsigned n) __attribute__((weak));
+static int Filter06Ps2Rain()
+{
+    return pG->room_id == 0x11B && flt06.num == 1600 && flt06.col[0] == 170 && flt06.col[1] == 170 &&
+           flt06.col[2] == 170 && flt06.col[3] == 60;
+}
+static int s_rain_pending;       // Filter06Render ran in this image: draw at the source-draw barrier
+static Mtx s_rain_view;
+static Mtx44 s_rain_proj;
+static f32 s_rain_viewport[6];
+static u32 s_rain_drawn, s_rain_frames;
+// gx_stub.cpp GXSetDrawSync(0xADEB): after native_ui drained the deferred translucent queue, so each line goes
+// straight to the open TR list (re4dc_effect_line: no frame storage). Depth tested, blended as GXSetBlendMode(1, 4, 5).
+extern "C" void re4dc_rain_flush()
+{
+    if (!s_rain_pending) {
+        return;
+    }
+    s_rain_pending = 0;
+    const f32* V = s_rain_viewport;
+    if (V[2] <= 0.0f || V[3] <= 0.0f || !flt06.p) {
+        return;
+    }
+    const f32 near_d = s_rain_proj[2][3] / (s_rain_proj[2][2] - 1.0f), far_d = s_rain_proj[2][3] / s_rain_proj[2][2];
+    const f32 scale = flt06.scale;
+    u32 drawn = 0;
+    // FX_LEVEL (esp_sub.cpp): the effects-quality dial draws fewer of the moved lines (weak: absent without FX_LEVEL)
+    const u32 lines = re4dc_fx_level_rain ? re4dc_fx_level_rain(kRainPs2Lines) : kRainPs2Lines;
+    for (u32 i = 0; i < lines && i < flt06.num; ++i) {
+        const cParticle06* p = &flt06.p[i];
+        const u32 a1 = (u32) p->m_Alpha * 80U / 60U > 255U ? 255U : (u32) p->m_Alpha * 80U / 60U;
+        if (a1 == 0) {
+            continue;
+        }
+        Vec w[2] = {p->m_Pos, {p->m_Spd.x * scale + p->m_Pos.x, p->m_Spd.y * scale + p->m_Pos.y, p->m_Spd.z * scale + p->m_Pos.z}};
+        Re4dcEffectLine l;
+        int ok = 1;
+        for (int e = 0; e < 2 && ok; ++e) {
+            Vec c;
+            PSMTXMultVec(s_rain_view, &w[e], &c);
+            const f32 d = -c.z;
+            if (d < near_d || d > far_d) {
+                ok = 0;
+                break;
+            }
+            const f32 px = (s_rain_proj[0][0] * c.x + s_rain_proj[0][2] * c.z) / d;
+            const f32 py = (s_rain_proj[1][1] * c.y + s_rain_proj[1][2] * c.z) / d;
+            l.x[e] = (V[2] * 0.5f * px + V[0] + V[2] * 0.5f) * 640.0f / V[2];
+            l.y[e] = (-V[3] * 0.5f * py + V[1] + V[3] * 0.5f) * 480.0f / V[3];
+            l.z[e] = 1.0f / d;
+        }
+        if (!ok) {
+            continue;
+        }
+        const u32 r = flt06.cur[0], g = flt06.cur[1], b = flt06.cur[2];
+        l.color[0] = ((a1 >> 2) << 24) | ((r >> 2) << 16) | ((g >> 2) << 8) | (b >> 2);
+        l.color[1] = (a1 << 24) | (r << 16) | (g << 8) | b;
+        l.src = 4;
+        l.dst = 5;
+        l.depth_test = 1;
+        l.blend_mode = 1;
+        drawn += re4dc_effect_line(&l) ? 1 : 0;
+    }
+    s_rain_drawn += drawn;
+    if (++s_rain_frames % 120 == 1) {
+        re4dc_log("rain ps2: frame=%u lines=%u drawn=%u total=%u alpha=%u\n", (unsigned) pG->Frame_cnt,
+                  (unsigned) kRainPs2Lines, (unsigned) drawn, (unsigned) s_rain_drawn, (unsigned) flt06.cur[3]);
+    }
+}
+#endif
+
 // Places particle `no` randomly around the camera within `spread` * 10 units (plus a per-particle offset).
 void cParticle06::init(u32 no)
 {
@@ -203,9 +283,17 @@ void Filter06Trans()
 #line 246
     VECNormalize(&cam_vec_LR, &cam_vec_LR);
     if (!(pG->Stop_flg & 0x08000000)) {
+#if defined(RE4DC_RAIN_PS2) && RE4DC_RAIN_PS2
+        // RAIN_PS2: in a room with the PS2 recipe only the drawn subset moves (no other reader of the positions).
+        const u32 moved = Filter06Ps2Rain() ? kRainPs2Lines : flt06.num;
+        for (i = 0; i < moved; i++) {
+            flt06.p[i].move();
+        }
+#else
         for (i = 0; i < flt06.num; i++) {
             flt06.p[i].move();
         }
+#endif
         flt06.colF[0] = (f32) flt06.col[0];
         flt06.colF[1] = (f32) flt06.col[1];
         flt06.colF[2] = (f32) flt06.col[2];
@@ -270,6 +358,18 @@ void Filter06Render()
     cParticle06* p;
     f32 scale;
 
+#if defined(RE4DC_RAIN_PS2) && RE4DC_RAIN_PS2
+    if (Filter06Ps2Rain()) {
+        PSMTXCopy(pG->Cam.v_mat, s_rain_view);
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                s_rain_proj[r][c] = pG->Cam.ProjMat[r][c];
+            }
+        }
+        GXGetViewportv(s_rain_viewport);
+        s_rain_pending = 1;
+    }
+#endif
     GXSetBlendMode(1, 4, 5, 0);
     CameraCurrentProjection();
     GXLoadPosMtxImm(pG->Cam.v_mat, 0);

@@ -192,6 +192,60 @@ ifneq ($(PS2_FX_ROOMS_EXT)$(PS2_FX_ROOMS),11)
 $(error PS2_FX_ROOMS_EXT must be 0 or 1 and needs PS2_FX_ROOMS=1)
 endif
 endif
+# PS2_FX_GEN=1 (test 11 lane fx 2026-10-14; needs PS2_FX_ROOMS=1; render only, default 0): PS2 effect parity for every
+#                    stage-1 room in one pass. tools/ps2_fx_parity.py diffs each room's GC and PS2 rNNN EFF records
+#                    (r100-r11f: matched / changed / cut / added) and emits src/game/ps2_fx_gen.inc, one draw-time
+#                    selector per GameCube record the PS2 deleted that a drawn cEsp can be told apart by (owner, id,
+#                    texture, blend, Del, start colour, Life_max; unique against the room's kept records). Those
+#                    sprites are not drawn; the hand rows (PS2_FX_ROOMS / STAGE1 / POPULATION / ADDITIONS / ROOMS_EXT)
+#                    stay as overrides and run first. Report: docs/PS2_FX_PARITY.md. As EFFECT_PS2_HAZE: generators,
+#                    Rnd() draws, the pool and every effect's motion run as before. Log: "ps2fx gen:" once per row/room.
+PS2_FX_GEN ?= 0
+ifneq ($(PS2_FX_GEN),0)
+ifneq ($(PS2_FX_GEN)$(PS2_FX_ROOMS),11)
+$(error PS2_FX_GEN must be 0 or 1 and needs PS2_FX_ROOMS=1)
+endif
+endif
+# FX_LEVEL=0|1|2 (test 11 lane fx 2026-10-14; needs PS2_FX_ROOMS=1; render only; unset by default = no code): one
+#                    effects-quality dial over every PS2-derived room effect recipe (room SST / EST effects with the PS2
+#                    look on, the PS2-added haze, r11b's PS2 rain). 0 = PS2 as-is, 1 = reduced, 2 = low; each level
+#                    scales the drawn fraction (a fixed pool-slot hash: spawn counts and Rnd() untouched), sprite
+#                    size, alpha, a view-depth cap and a per-frame room-sprite budget (esp_sub.cpp kFxLevel, with
+#                    per-recipe overrides kFxLevelOverride). The value is the build default of the runtime variable
+#                    re4dc_fx_level (re4dc_fx_level_set / _cycle for a menu or tester toggle).
+FX_LEVEL ?=
+ifneq ($(FX_LEVEL),)
+ifneq ($(filter $(FX_LEVEL),0 1 2)$(PS2_FX_ROOMS),$(FX_LEVEL)1)
+$(error FX_LEVEL must be 0, 1 or 2 and needs PS2_FX_ROOMS=1)
+endif
+endif
+# EFFECT_TORCH=1 (issue #30, test 11 lane fx 2026-10-14; needs EFFECT_SPRITES=1 ESP_SPRITE_FAST=1; render only, default 0):
+#                    the Esp0e glows (torch / lamp flames) of the torch objects et0b / et0c / et10 / et14 / et19 / et1c / et38
+#                    (owners 0x5f 0x60 0x64 0x68 0x6d 0x70 0x8c; r11b's nine cEmTorch are et14) are drawn as native
+#                    sprites: Esp0e_Trans's one-frame screen copy becomes eligible, and every Esp0e glow copy is drawn
+#                    at its source's view depth (Esp0e_HideCheck's 150 mm) with the depth test on, as the stand-in for
+#                    the GameCube's Z-buffer peek (GXPeekZ is a stub). No effect state or Rnd() draw changes.
+EFFECT_TORCH ?= 0
+ifneq ($(EFFECT_TORCH),0)
+ifneq ($(EFFECT_TORCH)$(EFFECT_SPRITES)$(ESP_SPRITE_FAST),111)
+$(error EFFECT_TORCH must be 0 or 1 and needs EFFECT_SPRITES=1 ESP_SPRITE_FAST=1)
+endif
+$(OBJDIR)/src/game/esp0e.o: GAME_CPPFLAGS += -DRE4DC_EFFECT_TORCH=1
+endif
+# RAIN_PS2=1 (issue #30, test 11 lane fx 2026-10-14; needs NATIVE_LASER=1 (its native line) and the D349 renderer; render
+#                    only, default 0): r11b's Filter06 rain (GameCube: GX lines, stubbed here) drawn as native lines in the
+#                    PS2 amount: 100 of the source's 1600 particles at alpha x 80 / 60 (PS2 r11b: level 100, alpha 80,
+#                    same speed). Only that subset moves; Filter06SetParam and its Rnd() draws are unchanged. Drawn
+#                    after the translucent drain (gx_stub.cpp draw sync), straight into the TR list (no frame storage).
+#                    Log: "rain ps2:" every 120 drawn images. The PS2's full-screen Esp08 sheet is not drawn.
+RAIN_PS2 ?= 0
+ifneq ($(RAIN_PS2),0)
+ifneq ($(RAIN_PS2)$(NATIVE_LASER),11)
+$(error RAIN_PS2 must be 0 or 1 and needs NATIVE_LASER=1)
+endif
+$(OBJDIR)/src/game/filter06.o: GAME_CPPFLAGS += -DRE4DC_RAIN_PS2=1
+$(OBJDIR)/platform/gx_stub.o: PLATFORM_CPPFLAGS += -DRE4DC_RAIN_PS2=1
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -292,6 +346,15 @@ ifneq ($(PS2_FX_COMMON_HAZE),0)
 endif
 ifneq ($(PS2_FX_ROOMS_EXT),0)
 	@printf '#define RE4DC_PS2_FX_ROOMS_EXT %s\n' '$(PS2_FX_ROOMS_EXT)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_GEN),0)
+	@printf '#define RE4DC_PS2_FX_GEN %s\n' '$(PS2_FX_GEN)' >> $@.tmp
+endif
+ifneq ($(FX_LEVEL),)
+	@printf '#define RE4DC_FX_LEVEL %s\n' '$(FX_LEVEL)' >> $@.tmp
+endif
+ifneq ($(EFFECT_TORCH),0)
+	@printf '#define RE4DC_EFFECT_TORCH %s\n' '$(EFFECT_TORCH)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp

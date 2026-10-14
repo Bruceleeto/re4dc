@@ -13,6 +13,9 @@
 #include "re4dc_platform.h"
 #include "native_ui.h"
 extern "C" void re4dc_model_finish_source_draws();
+#if defined(RE4DC_RAIN_PS2) && RE4DC_RAIN_PS2
+extern "C" void re4dc_rain_flush();
+#endif
 // D367 frontend30 COPY_LEAN (obj/frontend30.h; default off = previous image):
 // the GX state getters/light objects copy aligned words instead of calling
 // memcpy (a libcall at these sizes on SH-4; D367 LD ~0.9 ms/frame).
@@ -116,6 +119,9 @@ void GXSetDrawSync(u16 token) {
     // Render() emits this before returning to SetPrimBuffPtr / next Trans().
     // Consume every borrowed pose now, never at the later Render_swap.
     if(token==0xADEB)re4dc_model_finish_source_draws();
+#if defined(RE4DC_RAIN_PS2) && RE4DC_RAIN_PS2
+    if(token==0xADEB)re4dc_rain_flush();   // filter06.cpp RAIN_PS2: the rain lines, straight into the open TR list
+#endif
 #endif
     (void)token;
 }

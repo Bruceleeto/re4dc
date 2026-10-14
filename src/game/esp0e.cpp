@@ -161,6 +161,12 @@ void cEsp0e::move()
 
 // EspTransTbl[0x0E]: when alpha > 0.01 draws a one-frame screen-sprite copy (Parts_no 0xF8) at
 // scr + random R_pos jitter with the colour alpha and size scaled by `alpha`, via EspCommonTrans.
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+// EFFECT_TORCH (effects30.mk; render only): esp_sub.cpp draws this copy as a native sprite (torch owners are
+// eligible while re4dc_esp0e_glow is set) at the glow's view depth. No effect state or Rnd() draw changes.
+extern "C" int re4dc_esp0e_glow;
+extern "C" f32 re4dc_esp0e_depth;
+#endif
 extern "C" void Esp0e_Trans(cEsp0e* esp)
 {
     Esp0eWork* w = &esp->m_Free;
@@ -189,7 +195,14 @@ extern "C" void Esp0e_Trans(cEsp0e* esp)
             p->m_Size_base_x *= s;
             p->m_Size_base_y *= s;
         }
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+        re4dc_esp0e_glow = 1;
+        re4dc_esp0e_depth = -w->scr.z - 150.0f;
+#endif
         EspCommonTrans(p);
+#if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
+        re4dc_esp0e_glow = 0;
+#endif
     }
 }
 
