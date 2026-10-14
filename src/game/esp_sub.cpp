@@ -1136,7 +1136,7 @@ static void EspSpriteEmit(cEsp* esp)
     if (tw->Owner == 0xD2 || !tw->pTpl || esp->m_Ptn_no >= tw->pTpl->numDescriptors) {
         return;
     }
-    const TEXDescriptor* td = TEXGet(tw->pTpl, esp->m_Ptn_no);
+    const TEXDescriptor* td = TEXGet(tw->pTpl, RE4DC_FX_FLIP_PTN(esp->m_Ptn_no, tw->pTpl->numDescriptors));   // effects30.mk
     const TEXHeader* th = td->textureHeader;
     Re4dcEffectSprite s;
     s.image.pixels = th->data;

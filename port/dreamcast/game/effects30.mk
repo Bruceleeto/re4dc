@@ -242,6 +242,16 @@ PLATFORM_CPPFLAGS += -DRE4DC_FX_LEVEL_TOGGLE=1
 else ifneq ($(FX_LEVEL_TOGGLE),0)
 $(error FX_LEVEL_TOGGLE is 0 or 1)
 endif
+# FX_FLIPBOOK=N (test 12 fx lane, render only, default 0): an effect flipbook (a TPL of >= FX_FLIPBOOK_MIN pictures: the
+#                    r101 pyre fire, smoke) draws every Nth picture only (picture p - p % N), so N times fewer distinct
+#                    textures and the animation's working set can fit VRAM (benchmark-r101: the fire's ~90 pictures
+#                    thrash the cache and the EFFECT_ROOM guard declines ~93% of the effect sprites). m_Ptn_no, timers
+#                    and Rnd() are untouched; only the TPL picture fetched for the native sprite changes.
+FX_FLIPBOOK ?= 0
+FX_FLIPBOOK_MIN ?= 8
+ifneq ($(filter-out 0 2 3 4,$(FX_FLIPBOOK)),)
+$(error FX_FLIPBOOK is 0, 2, 3 or 4)
+endif
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
@@ -390,6 +400,11 @@ ifneq ($(FX_LEVEL),)
 endif
 ifneq ($(EFFECT_TORCH),0)
 	@printf '#define RE4DC_EFFECT_TORCH %s\n' '$(EFFECT_TORCH)' >> $@.tmp
+endif
+ifneq ($(FX_FLIPBOOK),0)
+	@printf '#define RE4DC_FX_FLIP_PTN(p, n) ((n) >= %s ? (p) - (p) %% %s : (p))\n' '$(FX_FLIPBOOK_MIN)' '$(FX_FLIPBOOK)' >> $@.tmp
+else
+	@printf '#define RE4DC_FX_FLIP_PTN(p, n) (p)\n' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
