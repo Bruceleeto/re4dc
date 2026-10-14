@@ -124,15 +124,31 @@ def tev_multiplier(env):
     return float(1 << env['tev_scale'][0])
 
 
+def bin_light_flag(src, room, b):
+    """The PS2 scenario BIN header word at 0x24 (little-endian): 0xa0000000 = a BIN the GameCube lights at run time
+    (no colour stream on the GC), 0xe0000000 = a vertex-colour BIN, 0xb0000000 = a NORMAL BIN (CH1 audit 10-14)."""
+    p = Path(src) / f'{room}_004_BIN' / ('%04d.BIN' % int(b))
+    with open(p, 'rb') as fh:
+        head = fh.read(0x28)
+    return struct.unpack_from('<I', head, 0x24)[0]
+
+
+A0_FLAG = 0xa0000000
+
+
 def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0, gc_cut=0,
-               gc_lit_path=None, tev_scale=None, vc_clamp=1.0):
+               gc_lit_path=None, tev_scale=None, vc_clamp=1.0, a0_ambient=False, stats=None):
     """color_light: 'authored' = COLOR groups keep the PS2 vertex colours (GS modulate; the landed packages);
     'gc' = the GameCube self-lit channel on PS2 geometry: material * clamp01(vertex colour + sum of the GC LIT
     cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals);
     'ps2' = the PS2 pattern, fully prelit: min(vertex colour, vc_clamp) * SMX colour * the room's TEV colour scale
     (the LIT cut's tev_scale[0] -> gxCsScale[0]: x1 / x2 / x4, light.cpp setEnv; the GC scales every scenery
     pixel by it, and the PS2 colours are authored before it: r106 x4 median 0.05, r101/r103 x1 0.40/0.60). No
-    lights are added: the PS2 colours already carry the room's light."""
+    lights are added: the PS2 colours already carry the room's light.
+    a0_ambient (--a0-ambient, test 11 item D, default off): COLOR groups whose BIN light flag is 0xa0000000 (the BINs
+    the GameCube lights at run time; every black face of chapters 1 and 2-1 is in one) also get the room's LIT screen
+    ambient (env ambient_scr / 255), as the GX channel does: 'ps2' min(vertex colour + ambient, vc_clamp) * SMX colour *
+    TEV scale; 'authored' vertex colour + ambient * SMX colour * TEV scale. Other groups are unchanged."""
     obj = ps.read_obj(src / f'{room}_004.scenario.obj')
     mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
     mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
@@ -145,11 +161,15 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
     for name, m in mats.items():
         assert int(m['diffuse_map']) == mtl[name]['tex'], name
     gl = None
-    if color_light in ('gc', 'ps2'):
+    if a0_ambient and color_light not in ('ps2', 'authored'):
+        raise SystemExit('--a0-ambient needs --color-light ps2 or authored')
+    if color_light in ('gc', 'ps2') or a0_ambient:
         gc_lit_file = Path(gc_lit_path) if gc_lit_path else src / f'gc-lit-cut{gc_cut}.json'
         gc_lit = json.loads(gc_lit_file.read_text())
-    if color_light == 'ps2':
+    if color_light == 'ps2' or a0_ambient:
         tev = float(tev_scale) if tev_scale else tev_multiplier(gc_lit['env'])
+    if a0_ambient:
+        amb0 = np.asarray(gc_lit['env']['ambient_scr'], float) / 255
     if any(g['kind'] == 'NORMAL' for g in obj['groups']):
         lit = json.loads((src / 'gc-lit-cut0.json').read_text())
         chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
@@ -186,9 +206,21 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
             sem = smx.get(g['smx'])
             mc = sem.get('smx_colour_rgb') if sem else None
             mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
-            rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale, vc_clamp) * mcol * tev
+            if a0_ambient and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale + amb0, vc_clamp) * mcol * tev
+                if stats is not None:
+                    stats['a0_faces'] += len(faces)
+            else:
+                rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale, vc_clamp) * mcol * tev
         else:
             rgb = VC[ix[:, :, 0], :3] * vc_scale      # --vc-scale: a look-review lift, 1.0 = as authored
+            if a0_ambient and g['kind'] != 'NORMAL' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                sem = smx.get(g['smx'])
+                mc = sem.get('smx_colour_rgb') if sem else None
+                mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
+                rgb = rgb + amb0 * mcol * tev
+                if stats is not None:
+                    stats['a0_faces'] += len(faces)
         sem = smx.get(g['smx'])
         cull = int(sem['face_culling'][2:4], 16) if sem else 0
         assert cull in (0, 1, 2)
@@ -519,6 +551,10 @@ def main():
                          "translucent pass with ARGB4444 corner colours and mark their parts (R4PW part byte 15 bit "
                          "0) for game PS2_VERTEX_ALPHA=1 (issue 20); 'tr' the translucent pass only (test variant: "
                          "the PS2 world path forces alpha 1, so it draws as 'off')")
+    ap.add_argument('--a0-ambient', action='store_true',
+                    help="COLOR groups of BINs with light flag 0xa0000000 (run-time lit on the GameCube: the black faces) "
+                         "also get the room's LIT screen ambient x SMX colour x TEV scale (GX channel rule); default off "
+                         "(the historical packages, byte-identical)")
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     global CUTOUT_MAX_ALPHA
@@ -527,8 +563,9 @@ def main():
         import mesh_lod  # noqa: E402 (MESH_TOOLS is on sys.path)
         mesh_lod.UV_GUARD = a.lod_uv_guard
     a.out.mkdir(parents=True, exist_ok=True)
+    a0_stats = collections.Counter()
     groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
-                        a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp)
+                        a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp, a.a0_ambient, a0_stats)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share,
@@ -558,10 +595,11 @@ def main():
     for g in groups:
         for p in g['pass']:
             tri[int(p)] += 1
-    report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items()}, groups=len(groups), meshes=len(meshes),
+    report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items() if k != 'a0_ambient' or v},
+                  groups=len(groups), meshes=len(meshes),
                   placements=len(placements), source_triangles=sum(len(g['tex']) for g in groups),
                   triangles_by_pass={['OP', 'PT', 'TR'][k]: v for k, v in sorted(tri.items())},
-                  stats=dict(stats),
+                  stats=dict(stats, **dict(a0_stats)),
                   gc_light_sets={','.join(map(str, k)): v for k, v in collections.Counter(
                       tuple(g['gc_lights']) for g in groups if g['gc_lights'] is not None).items()},
                   level0_triangles=summary['level0_triangles'], re4mesh_bytes=len(blob),
