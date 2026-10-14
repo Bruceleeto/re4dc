@@ -4,7 +4,7 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 14, 2026. The current public build is console test `a93e8be0` (r22j test 10: test 9.1 plus Leon's PS2 model after the boat, a sharper Leon face and safer disc read retries).
+Last updated: October 13, 2026. The current public build is console test `40fb4deb` (r22j test 9.1, which is test 9 plus a memory leak fix).
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -12,11 +12,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 0 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
-| 🟢 Fixed in test 9 / 9.1 / 10 | Fixed and checked in our tests; the problem was not console-only | 5 |
-| 🛠️ In progress | Being fixed now | 0 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 7 |
+| 🟢 Fixed in test 9 / 9.1 | Fixed and checked in our tests; the problem was not console-only | 5 |
+| 🛠️ In progress | Being fixed now | 1 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 12 |
+| ⏸️ Open | Known, not yet worked on | 8 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -32,8 +32,6 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The intro stops on `MISSING motion key read` (one disc read came back incomplete) | test 7 | 🟢 Fixed, needs console check: since test 8 the read is retried up to 3 times | [#25](https://github.com/lamb2k/re4dc/issues/25) |
 | Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
 | Black screen when started from DreamShell with an IDE mod | test 9 | ⏸️ Open: not tested yet; we test GDEMU and Flycast only | [#28](https://github.com/lamb2k/re4dc/issues/28) |
-| A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
-| A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 
 ## Picture
 
@@ -43,15 +41,13 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Blank screen on door transitions | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The item name disappears when its menu opens in the inventory | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The on-screen speed display is cut off by the border on a real console | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Leon switches back to the GameCube model after the boat | test 8, test 9, test 9.1 | 🟢 Fixed, needs console check (test 10) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
+| Leon switches back to the GameCube model after the boat | test 8, test 9 | 🛠️ In progress (fix in testing, after test 9) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Lake ripples are not visible | test 8 | 🔍 Investigating: they draw in emulators; faint by design in fog | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Curtains in the first house have no texture | test 8 | 🟢 Fixed, needs console check (likely the same memory corruption) | |
 | Some textures are missing or corrupted (same memory corruption as the crashes) | test 7, test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon and most villagers are not lit by the scene's lights | test 8 | ⏸️ Open | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
-| At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
-| The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 
 ## Sound
 
@@ -68,9 +64,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 
-## Console checklist for test 10
+## Console checklist for test 9
 
-Test 10: https://github.com/lamb2k/re4dc/releases/tag/test-a93e8be0-20261014 (the checklist is the same as test 9, plus: does Leon stay the PS2 model after the boat, and how does his face look?)
+Test 9.1: https://github.com/lamb2k/re4dc/releases/tag/test-40fb4deb-20261013 (test 9 plus a memory leak fix; the checklist is the same)
 
 These fixes can only be confirmed on a real Dreamcast, because emulators draw the old and new versions the same.
 If you play test 9 on a console, please report on any of these in the test 9 feedback issue:
