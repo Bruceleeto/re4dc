@@ -12,11 +12,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 0 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 5 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 6 |
 | 🟢 Fixed in test 9 / 9.1 | Fixed and checked in our tests; the problem was not console-only | 5 |
 | 🛠️ In progress | Being fixed now | 1 |
-| 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 9 |
+| 🔍 Investigating | Being reproduced or traced | 2 |
+| ⏸️ Open | Known, not yet worked on | 10 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -27,9 +27,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Changing the Rendering level sometimes crashes a few seconds later | test 8 | 🟢 Fixed in test 9: the Rendering option is removed; the game always uses the full picture | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Loading a save and then starting a New Game shows an error | test 7, test 8 | 🟢 Fixed in test 9 | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Opening the attaché case and pressing B twice stops the game | test 8 | ❔ Not reproduced in 8 tries | |
-| Freeze in the cabin | | 🔍 Investigating |
-| After loading a save and resetting, the first room starts with less free memory (no crash seen) | test 9 | ⏸️ Open, being traced | [#24](https://github.com/lamb2k/re4dc/issues/24) |
-| GDEMU disc problem | | 🔍 Investigating | [#25](https://github.com/lamb2k/re4dc/issues/25) |
+| Freeze in the cabin (an old build, r22i) | r22i | 🔍 Investigating: likely the same memory corruption as the random crashes | [#24](https://github.com/lamb2k/re4dc/issues/24) |
+| After loading a save and resetting, the first room starts with less free memory (no crash seen) | test 9 | ⏸️ Open, being traced | [#26](https://github.com/lamb2k/re4dc/issues/26) |
+| The intro stops on `MISSING motion key read` (one disc read came back incomplete) | test 7 | 🟢 Fixed, needs console check: since test 8 the read is retried up to 3 times | [#25](https://github.com/lamb2k/re4dc/issues/25) |
+| Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
+| Black screen when started from DreamShell with an IDE mod | test 9 | ⏸️ Open: not tested yet; we test GDEMU and Flycast only | [#28](https://github.com/lamb2k/re4dc/issues/28) |
 
 ## Picture
 
@@ -37,7 +39,6 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- | --- |
 | Leaves, fences and tree branch tips draw as solid shapes on a real console (fine in emulators) | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Blank screen on door transitions | test 7, test 8 | 🟢 Fixed in test 9 | |
-| Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
 | The item name disappears when its menu opens in the inventory | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The on-screen speed display is cut off by the border on a real console | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon switches back to the GameCube model after the boat | test 8, test 9 | 🛠️ In progress (fix in testing, after test 9) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
