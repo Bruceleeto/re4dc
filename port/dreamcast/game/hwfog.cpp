@@ -23,6 +23,9 @@
 
 extern "C" void re4dc_log(const char* fmt, ...);
 extern "C" unsigned re4dc_ui_frame();
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+extern "C" unsigned re4dc_vi_retrace_count(void);
+#endif
 
 namespace {
 struct HwFogRow {
@@ -48,7 +51,25 @@ const HwFogRow kRows[] = {
 constexpr unsigned kRowCount = sizeof(kRows) / sizeof(kRows[0]);
 constexpr unsigned kHold = 60;   // native frames the last note stays valid (the haze pass need not run every frame)
 unsigned note_key, note_frame, kept, replaced, log_frame = ~0U, last_key = ~0U;
+unsigned hwfog_off, hwfog_osd_until;   // HW_FOG_HAZE_TOGGLE: 1 = every haze sprite drawn, no veil (as knob off)
 }
+
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+// HW_FOG_HAZE_TOGGLE (hwfog.mk, test discs): X + D-pad up + START (pad.cpp) switches the fog replacement off / on
+// live, for console A/B with the fps meter; the label shows for 3 s (native_static.cpp re4dc_look_osd_text).
+// Off draws every haze sprite and folds no veil (the fog table is rewritten on the next frame: key 0).
+extern "C" void re4dc_hwfog_toggle(void)
+{
+    hwfog_off ^= 1U;
+    hwfog_osd_until = re4dc_vi_retrace_count() + 180U;
+    re4dc_log("hwfog: toggle %s frame=%u\n", hwfog_off ? "off" : "on", re4dc_ui_frame());
+}
+extern "C" const char* re4dc_hwfog_osd_text(void)
+{
+    if (int(hwfog_osd_until - re4dc_vi_retrace_count()) <= 0) return nullptr;
+    return hwfog_off ? "HW fog OFF: all haze sprites" : "HW fog ON: far haze as fog";
+}
+#endif
 
 // FX_LEVEL (effects30.mk, the effects-quality dial; weak: absent without FX_LEVEL): a lower level moves more of the
 // haze to the fog. The keep depth comes 0.5 m nearer per level (3.0 / 2.5 / 2.0 m for 0 / 1 / 2); the veil keeps the
@@ -86,6 +107,7 @@ static float hwfog_integral(const HwFogRow& r, float from, float to)
 // key: row (bits 0..7, index + 1), indoor step 0..8 (bits 8..11), FX_LEVEL (bits 12..13)
 extern "C" int re4dc_hwfog_haze(unsigned room, float depth, float indoor)
 {
+    if (hwfog_off) return 0;
     for (unsigned i = 0; i < kRowCount; ++i) {
         if (kRows[i].room != room) continue;
         const float s = indoor < 0.0f ? 0.0f : indoor > 1.0f ? 1.0f : indoor;
@@ -102,7 +124,7 @@ extern "C" int re4dc_hwfog_haze(unsigned room, float depth, float indoor)
 extern "C" unsigned re4dc_hwfog_key(void)
 {
     const unsigned frame = re4dc_ui_frame();
-    const unsigned key = (note_key && frame - note_frame <= kHold) ? note_key : 0U;
+    const unsigned key = (!hwfog_off && note_key && frame - note_frame <= kHold) ? note_key : 0U;
     if (key != last_key || (frame % 600U == 0 && frame != log_frame)) {
         log_frame = frame;
         const unsigned row = key & 255U, level = (key >> 12) & 3U;

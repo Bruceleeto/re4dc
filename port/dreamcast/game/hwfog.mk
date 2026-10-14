@@ -11,6 +11,20 @@ HW_FOG_HAZE ?= 0
 #   HW_FOG_VEIL_PCT=n (test builds, veil calibration; default 100): every row's veil scaled to n % (0 = the distant
 #   haze sprites are skipped with no veil in their place).
 HW_FOG_VEIL_PCT ?= 100
+#   HW_FOG_HAZE_TOGGLE=1 (test discs, console A/B; needs HW_FOG_HAZE=1, LOOK_TOGGLE=1, EFFECT_HAZE_LEAN_TOGGLE=0): X + D-pad up
+#   + START switches the replacement off / on live (off = every haze sprite drawn, no veil); a 3 s label shows the state.
+HW_FOG_HAZE_TOGGLE ?= 0
+ifneq ($(filter-out 0 1,$(HW_FOG_HAZE_TOGGLE)),)
+$(error HW_FOG_HAZE_TOGGLE is 0 or 1)
+endif
+ifeq ($(HW_FOG_HAZE_TOGGLE),1)
+ifneq ($(HW_FOG_HAZE)$(LOOK_TOGGLE)$(EFFECT_HAZE_LEAN_TOGGLE),110)
+$(error HW_FOG_HAZE_TOGGLE=1 needs HW_FOG_HAZE=1, LOOK_TOGGLE=1 (the X + START chord, the label) and EFFECT_HAZE_LEAN_TOGGLE=0 (same chord))
+endif
+$(OBJDIR)/platform/pad.o: PLATFORM_CPPFLAGS += -DRE4DC_HW_FOG_HAZE_TOGGLE=1
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_HW_FOG_HAZE_TOGGLE=1
+HWFOG_TOGGLE_DEF := -DRE4DC_HW_FOG_HAZE_TOGGLE=1
+endif
 ifneq ($(filter-out 0 1,$(HW_FOG_HAZE)),)
 $(error HW_FOG_HAZE is 0 or 1)
 endif
@@ -31,7 +45,7 @@ PLATFORM_OBJS += $(OBJDIR)/hwfog.o
 $(TARGET): $(OBJDIR)/hwfog.o
 $(OBJDIR)/hwfog.o: hwfog.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -DRE4DC_HW_FOG_VEIL_PCT=$(HW_FOG_VEIL_PCT) -MMD -MP -c $< -o $@
+	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -Iplatform/include -DRE4DC_HW_FOG_VEIL_PCT=$(HW_FOG_VEIL_PCT) $(HWFOG_TOGGLE_DEF) -MMD -MP -c $< -o $@
 -include $(OBJDIR)/hwfog.d
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_HW_FOG_HAZE=1
 $(OBJDIR)/src/game/esp_sub.o: GAME_CPPFLAGS += -DRE4DC_HW_FOG_HAZE=1

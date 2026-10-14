@@ -281,6 +281,9 @@ extern "C" void re4dc_look_osd_toggle(void){
 #if RE4DC_RES_MODES
 extern "C" const char* re4dc_res_osd_text(void); // res_mode.cpp: the render mode's name, 3 s after a change
 #endif
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+extern "C" const char* re4dc_hwfog_osd_text(void); // hwfog.cpp: HW fog on / off, 3 s after a change
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
 extern "C" const char* re4dc_haze_lean_osd_text(void); // esp_sub.cpp: the haze mode's name, 3 s after a change
 #endif
@@ -299,6 +302,9 @@ extern "C" const char* re4dc_look_osd_text(void){
 #endif
 #if RE4DC_RES_MODES
     if(const char* res=re4dc_res_osd_text())return res;
+#endif
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+    if(const char* hf=re4dc_hwfog_osd_text())return hf;
 #endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
     if(const char* hz=re4dc_haze_lean_osd_text())return hz;
