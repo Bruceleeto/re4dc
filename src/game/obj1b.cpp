@@ -576,19 +576,48 @@ void obj1b_R1_Throw(cObjSpear* obj)
 // (power 10) and sticks the spear into the hit parts (local position 50 units back along the
 // hit, scale 1.5; a non-pierceable parts sticks at the parts origin), blood effects (special
 // speed-following variant for em2f 0x2F), sound; estTimer 600, falls off after 1800 frames.
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD == 2
+// WEP_TARGET_GUARD=2 diagnostic: a GetWepTargetList2 call whose count exceeded the caller's original one-entry buffer
+// (caller 1 emMineHitCk mine/arrow, 2 obj1bHitCk spear). Each line names the hit enemies (id, part flags); the first
+// 32 events are logged, then every 64th, with the running total.
+extern "C" void re4dc_wep_target_overflow(int caller, int type, unsigned count, const WepTarget* list)
+{
+    static unsigned total;
+    ++total;
+    if (total > 32 && (total & 63)) return;
+    re4dc_log("WEPTGT caller=%d type=%x count=%u total=%u room=%x frame=%u em0=%x/%x em1=%x/%x em2=%x/%x\n", caller, type,
+              count, total, (unsigned) pG->room_id, (unsigned) pG->Frame_cnt,
+              list[0].em ? list[0].em->id : 0xFFu, list[0].part ? (unsigned) list[0].part->flags : 0u,
+              list[1].em ? list[1].em->id : 0xFFu, list[1].part ? (unsigned) list[1].part->flags : 0u,
+              count > 2 && list[2].em ? list[2].em->id : 0xFFu, count > 2 && list[2].part ? (unsigned) list[2].part->flags : 0u);
+}
+#endif
 int obj1bHitCk(cObjSpear* obj)
 {
     SpearWork* w = &obj->spear;
     Vec hit;
     Vec nrm;
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD
+    WepTarget wepTargets[20];  // WEP_TARGET_GUARD (game30.mk): GetWepTargetList2 can write up to 20 entries
+    WepTarget& target = wepTargets[0];
+#else
     WepTarget target;
+#endif
     u32 attr;
     cEm* em;
     YARARE_INFO* part;
     int no;
     f32 len;
 
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD
+    const int wepTargetCount = GetWepTargetList2(&obj->pos_old, &obj->pos, &target, 1, &hit, &nrm, &attr, 0x15, 0);
+#if RE4DC_WEP_TARGET_GUARD == 2
+    if (wepTargetCount > 1) re4dc_wep_target_overflow(2, 0x15, unsigned(wepTargetCount), wepTargets);
+#endif
+    if (wepTargetCount) {
+#else
     if (GetWepTargetList2(&obj->pos_old, &obj->pos, &target, 1, &hit, &nrm, &attr, 0x15, 0)) {
+#endif
         part = target.part;
         em = target.em;
         em->dmg.set(0, 10, 0x15, &em->pos_old, part->rad, part);

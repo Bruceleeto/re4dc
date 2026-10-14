@@ -1253,6 +1253,9 @@ void cEmMine::setFall()
 // (aimed 50 units back along the hit direction; objects use the flight direction), doubles its
 // scale, plays the stick SE (0x50 on objects, 0x54 for arrows on flesh) and parents it. 1 when
 // something was hit.
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD == 2
+extern "C" void re4dc_wep_target_overflow(int caller, int type, unsigned count, const WepTarget* list);  // obj1b.cpp
+#endif
 int emMineHitCk(cEmMine* em)
 {
     Vec hit;
@@ -1261,7 +1264,12 @@ int emMineHitCk(cEmMine* em)
     Vec dir;
     Vec a;
     Vec b;
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD
+    WepTarget wepTargets[20];  // WEP_TARGET_GUARD (game30.mk): GetWepTargetList2 can write up to 20 entries
+    WepTarget& list = wepTargets[0];
+#else
     WepTarget list;
+#endif
     u32 attr;
     cEm* hitEm;
     YARARE_INFO* part;
@@ -1273,7 +1281,15 @@ int emMineHitCk(cEmMine* em)
     if (em->type == 2) {
         type = 0x1C;
     }
+#if defined(RE4DC_WEP_TARGET_GUARD) && RE4DC_WEP_TARGET_GUARD
+    const u32 wepTargetCount = GetWepTargetList2(&em->pos_old, &em->pos, &list, 1, &hit, &nrm, &attr, type, 0);
+#if RE4DC_WEP_TARGET_GUARD == 2
+    if (wepTargetCount > 1) re4dc_wep_target_overflow(1, type, wepTargetCount, wepTargets);
+#endif
+    if (wepTargetCount != 0) {
+#else
     if (GetWepTargetList2(&em->pos_old, &em->pos, &list, 1, &hit, &nrm, &attr, type, 0) != 0) {
+#endif
         hitEm = list.em;
         part = list.part;
         hitEm->dmg.set(0, 2, type, &em->pos_old, part->rad, part);

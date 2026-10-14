@@ -2798,6 +2798,22 @@ RESET_MEM_FIX ?= 0
 ifeq ($(RESET_MEM_FIX),1)
 GAME_CPPFLAGS += -DRE4DC_RESET_MEM_FIX=1
 endif
+# WEP_TARGET_GUARD (cx-integrate 2026-10-14, CODEX-INTEGRATION-PLAN-20261014 item 1): GetWepTargetList2 (em_sub.cpp)
+#   raises its max by one for every hit part flagged 0x20 (up to 20), and appends a 0x41/0x4E hit-only target after
+#   the sort, so it can write list[1..19]. emMineHitCk (emmine.cpp: mine 0xE / arrow 0x1C) and obj1bHitCk (obj1b.cpp:
+#   thrown spear) pass ONE WepTarget on the stack with max 1 (Codex saw the same expansion overwrite a saved return
+#   address through Luis's list[2] in the r11c siege, 402dd372; Leon's pl_wep.cpp callers already use [20]).
+#   =1: those two callers get WepTarget[20]; they still read only entry 0 and the count, so a call that did not
+#       overflow is unchanged and one that did no longer corrupts the caller's frame.
+#   =2: =1 plus a WEPTGT log line (obj1b.cpp re4dc_wep_target_overflow) whenever the count exceeds 1.
+#   Default 0: the original one-entry buffers (play image unchanged).
+WEP_TARGET_GUARD ?= 0
+ifneq ($(WEP_TARGET_GUARD),0)
+ifeq ($(filter $(WEP_TARGET_GUARD),1 2),)
+$(error WEP_TARGET_GUARD must be 0, 1 or 2)
+endif
+$(OBJDIR)/src/game/emmine.o $(OBJDIR)/src/game/obj1b.o: GAME_CPPFLAGS += -DRE4DC_WEP_TARGET_GUARD=$(WEP_TARGET_GUARD)
+endif
 ifeq ($(OSFREE_CHECK),1)
 SDK_CFLAGS += -DRE4DC_OSFREE_CHECK=1
 GAME_CPPFLAGS += -DRE4DC_OSFREE_CHECK=1
