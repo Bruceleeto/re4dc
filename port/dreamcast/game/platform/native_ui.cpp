@@ -1399,6 +1399,20 @@ void header(unsigned list,const std::uint32_t* q){
     }
 }
 void report(unsigned frame,bool present){
+    // Read the snapshot already taken at this render's begin. Native frame
+    // numbers can skip source ticks under PACE_FAST, so they cannot align views.
+    const auto& v=render_source_begin;
+    unsigned camera[8],player[6],motion;
+    static_assert(sizeof(unsigned)==sizeof(float), "source bit readback");
+    std::memcpy(camera,v.camera,sizeof(camera));
+    std::memcpy(player,v.player,sizeof(player));
+    std::memcpy(&motion,&v.motion_frame,sizeof(motion));
+    re4dc_log("taview: v=1 f=%u scene=%u p=%u tick=%u room=%03x system=%08x stop=%08x rf=%08x/%08x/%08x/%08x sf=%08x/%08x/%08x/%08x cam=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x pl=%08x/%08x/%08x/%08x/%08x/%08x motion=%08x/%08x\n",
+        frame,scene,present?1u:0u,v.tick,v.room,v.system,v.stop,
+        v.room_flags[0],v.room_flags[1],v.room_flags[2],v.room_flags[3],
+        v.status[0],v.status[1],v.status[2],v.status[3],
+        camera[0],camera[1],camera[2],camera[3],camera[4],camera[5],camera[6],camera[7],
+        player[0],player[1],player[2],player[3],player[4],player[5],motion,v.motion_state);
     unsigned areas[5]{};const bool valid_area=census.integer_fill(areas);if(!valid_area)++census.invalid;
     for(unsigned i=0;i<census.count;++i){const auto& r=census.rows[i];if(!r.tris)continue;
         re4dc_log("tamat: f=%u scene=%u p=%u l=%u source=%u key=%08x-%08x tcw=%08x tsp=%08x tris=%u fill=%u resolved=%u textured=%u\n",
