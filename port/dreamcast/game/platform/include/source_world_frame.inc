@@ -45,7 +45,10 @@ bool sourceWorldIdentity(unsigned native,unsigned generation) {
 }
 bool sourceWorldWalk(bool publish) {
     auto& f=sourceWorldFrame;unsigned count=0;
-    const unsigned tables[2]={OT_TYPE_SCROLL,OT_TYPE_MODEL};
+    // ModelTrans registers the current source callbacks into raw tables
+    // 0x0b (direct), 0x0d (model depth), 0x11 (world depth). The descriptive
+    // OT_TYPE_SCROLL/MODEL aliases name different tables in trans_ot.h.
+    const unsigned tables[3]={0x0b,0x0d,0x11};
     for(unsigned table:tables){
         const auto& ot=g_OtWork[table];if(!ot.list || !ot.max)continue;
         unsigned visited=0;

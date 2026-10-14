@@ -2464,19 +2464,11 @@ void Render()
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN_FAR);
     SetDrawTmpBufType(0);
-#if RE4DC_PS2_WORLD_SOURCE_OWNER
-    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_SCROLL); }
-#else
     ExecOt(OT_TYPE_SCROLL);
-#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN);
     SetDrawTmpBufType(0);
-#if RE4DC_PS2_WORLD_SOURCE_OWNER
-    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_MODEL); }
-#else
     ExecOt(OT_TYPE_MODEL);
-#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SHADOW_DRAW);
     SetDrawTmpBufType(0);
@@ -2507,13 +2499,28 @@ void Render()
     ClearZbuf();
     ExecOt(OT_TYPE_EFFECT);
     ExecOt(OT_TYPE_WORLD);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    // Actual source model registration table 0x0b; preserve every callback.
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_EFFECT_VU1); }
+#else
     ExecOt(OT_TYPE_EFFECT_VU1);
+#endif
     ExecOt(OT_TYPE_SCREEN);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    // Actual source model registration table 0x0d; preserve every callback.
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_COCKPIT); }
+#else
     ExecOt(OT_TYPE_COCKPIT);
+#endif
     ExecOt(OT_TYPE_ID_MODEL);
     ExecOt(OT_TYPE_MESSAGE);
     ExecOt(OT_TYPE_AFTER_RENDER);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    // Actual source model registration table 0x11; preserve every callback.
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_DEBUG); }
+#else
     ExecOt(OT_TYPE_DEBUG);
+#endif
     ExecOt(OT_TYPE_MAX);
     pG->Status_flg[3] &= ~0x10000000;
     SetScissorState();

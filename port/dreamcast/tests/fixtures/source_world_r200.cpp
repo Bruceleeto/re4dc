@@ -51,7 +51,9 @@ extern "C" int re4dc_ps2_world_source_draw(){++draw_calls;return 1;}
 void ModelRender(cModel*){}
 struct Node {void* data=nullptr;void(*func)(void*)=nullptr;Node* next=nullptr;};
 struct Ot {Node* list=nullptr;unsigned max=0;};
-constexpr unsigned OT_TYPE_SCROLL=3,OT_TYPE_MODEL=5;Ot g_OtWork[8]{};Node nodes[100]{};
+// Real enum values are extracted from include/trans_ot.h by the host runner.
+#include "source_world_actual_ot.inc"
+Ot g_OtWork[OT_MAX]{};Node nodes[100]{};
 #include "source_world_frame.inc"
 struct Key {unsigned crc=0,fnv=0;bool operator==(const Key& b)const{return crc==b.crc&&fnv==b.fnv;}};
 struct Tex {unsigned width=256,height=256;};struct TexHeader {unsigned texture_count=1;};
@@ -83,7 +85,7 @@ void reset(unsigned n=3){
  }
  for(auto& ot:g_OtWork)ot={};for(auto& node:nodes)node={};
  for(unsigned i=0;i<n;++i){nodes[i]={&objects[i%90],reinterpret_cast<void(*)(void*)>(ModelRender),i?&nodes[i-1]:nullptr};}
- if(n)g_OtWork[OT_TYPE_SCROLL]={nodes,n};world_parts[13]={0xfa6fe38cU,0x1a02365fU,256,256,2,0,17,0};
+ if(n)g_OtWork[0x0b]={nodes,n};world_parts[13]={0xfa6fe38cU,0x1a02365fU,256,256,2,0,17,0};
 }
 int main(){
  reset();unsigned work=999,gen=0;check(re4dc_scroll_source_member(&objects[0],100,&work)&&work==0);
@@ -103,6 +105,14 @@ int main(){
  case 4:re4dc_pace_skipping=1;break;case 5:global.System_flg|=0x100000;break;
  case 6:global.Status_flg[1]=0x100;break;case 7:global.Status_flg[2]=0x04000000;break;}
  sourceWorldTexturePrepare();check(loads==0&&!sourceWorldFrame.ready);}
+ // Each real ModelTrans target is accepted, descriptive aliases are not.
+ for(unsigned table:{0x0bU,0x0dU,0x11U}){reset();g_OtWork[0x0b]={};g_OtWork[table]={nodes,3};
+ sourceWorldTexturePrepare();check(sourceWorldFrame.count==3&&sourceWorldFrame.ready);
+ {SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[2])==1);}check(draw_calls==1&&aborts==0);}
+ for(unsigned table:{unsigned(OT_TYPE_SCROLL),unsigned(OT_TYPE_MODEL)}){reset();g_OtWork[0x0b]={};g_OtWork[table]={nodes,3};
+ sourceWorldTexturePrepare();check(!sourceWorldFrame.active&&loads==0);}
+ // A member published twice across real tables is not silently drawn twice.
+ reset();g_OtWork[0x0d]={nodes,3};sourceWorldTexturePrepare();check(!sourceWorldFrame.active&&loads==0);
  // Publication serial, current source owner and room generation fail before a stale info dereference.
  reset();objects[0].serial++;objects[0].pModelInfo=reinterpret_cast<cModelInfo*>(mmap(nullptr,4096,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));check(!re4dc_scroll_source_member(&objects[0],101,&work));munmap(objects[0].pModelInfo,4096);
  reset();archive_live=false;check(!re4dc_scroll_source_member(&objects[0],100,&work));reset();room_generation++;check(!re4dc_scroll_source_member(&objects[0],100,&work));
