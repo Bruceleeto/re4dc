@@ -61,6 +61,35 @@ source-model, material, and texture bounds checks. Default-off code remains the
 original literal branches, including comparisons and calls. Existing packages
 keep the same reference words and identities.
 
+## Fully masked hair role
+
+PS2 BIN 06 material 0 is exactly `0403ff04ff000000000000ff30010000`:
+flag 4, colour image 3, opacity image 4 from TPL 05. All 1273 triangles
+in that source section use this material. An opaque run with any of those
+triangles would therefore be fabricated, and a zero-triangle geometry is
+correctly rejected by the existing package validator.
+
+Use a CH22-qualified mask-only reference for Luis role 3: reference word 12
+keeps its existing pair texture indices and masked geometry byte; a zero low
+byte means there is no opaque run. Accept it only for id 4, 90 bones, six
+source infos, role 3, and a pinned coverage manifest proving that every hair
+triangle uses the masked source material. `mask_geometry[0]` remains `~0u` and
+`mask_geometry[1]` names the complete hair run. Both ordinary two-run masks and
+ordinary opaque references retain their old encodings and literal off path.
+
+The owner planner must allocate only the pair material for this role, emit one
+nonempty masked run with all 1273 triangles, and retain the primary immutable
+input for the all-info proof. No empty run, extra plain material or skipped
+material certificate is allowed. The matching helper must recognize the one
+masked run and prove its geometry, UV, texture keys and blend/depth state. This
+requires changes only in the already listed pack validator, registry owner and
+offline generator; the transaction sees complete role-3 triangle coverage.
+
+Preserve both source decoded RGBA images and the raw TPL/CLUT. PS2 diffuse and
+opacity alpha differ slightly. Resolve the actual opacity sampling channel and
+GS alpha normalization from source renderer evidence before calling any
+ARGB4444 pair exact. Do not silently replace this with a nearest GC mask bake.
+
 ## Runtime files and exact protected scope
 
 - `coarse_actor_registry_pack_check.inc`: guard the special role-2 marker;
