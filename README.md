@@ -7,7 +7,7 @@
 The recovered GameCube code runs the gameplay, collision and enemy AI. A native PowerVR renderer,
 lighter PS2 room assets, streamed movies and VMU saves adapt it to Dreamcast hardware.
 
-**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-40fb4deb-20261013)** ·
+**[Download the latest GDEMU test build](https://github.com/lamb2k/re4dc/releases/tag/test-a93e8be0-20261014)** ·
 [Known issues](port/dreamcast/docs/KNOWN_ISSUES.md) · [Roadmap](port/dreamcast/docs/D367_THIRTY_FPS_ROUTE.md) ·
 [Port notes](port/dreamcast/README.md) · [Build the port](port/dreamcast/CONTRIBUTING-PORT.md) · [Decompilation](docs/DECOMPILATION.md)
 
@@ -19,14 +19,14 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test `40fb4deb` (r22j test 9.1: test 9 plus a memory leak fix). Desktop packages will return with a later test build;
+The latest build is console test `a93e8be0` (r22j test 10: test 9.1 plus Leon's PS2 model after the boat, a sharper Leon face and safer disc read retries). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
 | --- | --- | --- |
-| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-40fb4deb-20261013/RE4DC-Console-Test-40fb4deb-20261013-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
+| Dreamcast / GDEMU | [Console test ZIP](https://github.com/lamb2k/re4dc/releases/download/test-a93e8be0-20261014/RE4DC-Console-Test-a93e8be0-20261014-GDEMU.zip) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-40fb4deb-20261013/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-40fb4deb-20261013)
+[Test build checksums](https://github.com/lamb2k/re4dc/releases/download/test-a93e8be0-20261014/SHA256SUMS.txt) · [Test notes](https://github.com/lamb2k/re4dc/releases/tag/test-a93e8be0-20261014)
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -49,7 +49,7 @@ In Off and Screen the VMU shows Leon, Ashley, Hunnigan and Luis pages.
 
 ## Status and limitations
 
-**Console test `40fb4deb` (r22j test 9.1), October 13, 2026:** the game plays to the end of chapter two, part one
+**Console test `a93e8be0` (r22j test 10), October 14, 2026:** the game plays to the end of chapter two, part one
 (the lake and the boat ride, the wolves, the El Gigante fight, finding Ashley and the chapter results),
 up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
