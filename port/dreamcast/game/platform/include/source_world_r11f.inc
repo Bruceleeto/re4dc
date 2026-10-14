@@ -121,6 +121,9 @@ int r11fExactEntry(cModel* model) {
     }
     return -1;
 }
+bool sourceWorldR11fModelAborted(const cModel* model) {
+    return r11fFrame.failed && r11fKnownPointer(model);
+}
 bool sourceWorldR11fModelBlocked(cModel* model) {
     auto& f=r11fFrame;
     if(!f.planned && !f.withheld && !f.failed)return false;

@@ -40,9 +40,13 @@ def inputs(out,encv):
         wrap=trans[trans.index('#define ENCV_RENDER_WRAP'):trans.index('extern "C" {',trans.index('#define ENCV_RENDER_WRAP'))]
         entries='\n'.join(x for x in trans.splitlines() if x.startswith('ENCV_RENDER_WRAP(re4dc_'))
         body+='\n'+wrap+'\nextern "C" {\n'+entries+'\n}\n'+scoped(trans,'void ModelRender(cModel* m)\n{')+'\n'
-    hook=next(x for x in trans.splitlines() if 'if(!flag && sourceWorldR11fDraw(m)!=0)' in x)
     generated=maximums+'\n'+function(trans,'void SetPrimBuffPtr()')+'\n'+function(trans,'void* GetPrimBuff(int size)')+'\n'+ot_bodies+'\n'+light+'\n'+function(trans,'void ModelTrans(cModel* m)')+'\n'
-    generated+='void commonModelTrans(cModel* m,cModelInfo* info,Mtx,int flag){\n'+hook+'\n if(info)++source_geometry; ++callback_postludes; if(after_model)after_model(m); }\n'
+    common_body=scoped(trans,'void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)')
+    # Retain the complete production body, including real foot-shadow/model
+    # postludes. A final observer counts only completed bodies; no source code
+    # branch or field read is replaced by a synthetic postlude.
+    common_body=common_body[:-1]+'    ++callback_postludes; if(after_model)after_model(m);\n}'
+    generated+=common_body+'\n'
     generated+='static const GXColor col64={0x40,0x40,0x40,0x40};\n'+body+'\n'+function(sub,'void SetNoScissor()')+'\n'+function(sub,'void SetScissorState()')+'\n'+function(trans,'void Render()')+'\n'
     (out/'source_world_actual_registration.inc').write_text(generated)
     sg=(ROOT/'src/game/scroll.cpp').read_text();(out/'source_world_actual_smx.inc').write_text(function(sg,'void SmxSetFlag(')+'\n'+function(sg,'static void NativeStoreSourceColor(')+'\n'+function(sg,'void smxInit(cObj* obj, SmxWork* w)'))
@@ -59,7 +63,7 @@ def inputs(out,encv):
     (out/'source_world_actual_movie.inc').write_text(lifecycle)
     return [ROOT/'src/game/trans.cpp',ROOT/'src/game/trans_ot.cpp',ROOT/'src/game/scroll.cpp',ROOT/'src/game/main_sub.cpp',ROOT/'include/model.h',ROOT/'include/scroll.h',ROOT/'include/trans.h',ROOT/'port/dreamcast/game/platform/native_static.cpp',ROOT/'port/dreamcast/game/platform/native_ps2_world.cpp',ROOT/'port/dreamcast/game/platform/native_ui.cpp',ROOT/'port/dreamcast/room/instanced_mesh.hpp',*INC.glob('*source_world*')]
 if __name__=='__main__':
-    ap=argparse.ArgumentParser();ap.add_argument('--source-archive',required=True);ap.add_argument('--native-dir',required=True);ap.add_argument('--encv',type=int,choices=[0,1],default=0);ap.add_argument('--header-cache',type=int,choices=[0,1,2],default=2);ap.add_argument('--ui-handles',type=int,choices=[0,1],default=0);ap.add_argument('--mesh-textures',type=int,choices=[0,1],default=0);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--source-archive',required=True);ap.add_argument('--native-dir',required=True);ap.add_argument('--encv',type=int,choices=[0,1],default=0);ap.add_argument('--header-cache',type=int,choices=[0,1,2],default=2);ap.add_argument('--ui-handles',type=int,choices=[0,1],default=0);ap.add_argument('--mesh-textures',type=int,choices=[0,1],default=0);ap.add_argument('--crowd-invis-skip',type=int,choices=[0,2],default=0);args=ap.parse_args()
     required=[(Path(args.source_archive),'ec398ab13d70c828dd807490b9a3e81ae62c0471f623798892b08e8bc9baae6d'),(Path(args.native_dir)/'ps2-world.re4mesh','ef5e84ae75aab525e0b7919118212d1d4f52192ef982ba832b5204dbad5c2fab'),(Path(args.native_dir)/'ps2-world.r4pw','a2cd504ea130027f9ba76539d2fec3368a15542fbc346dda0fab4b5e65fa7e85'),(Path(args.native_dir)/'ps2-world.ids','dfd12bfbceb090b94fcf963eceb5f66d988d4bf81fb0d5113a1733d66dfd14e8')]
     for p,h in required:
         assert hashlib.sha256(p.read_bytes()).hexdigest()==h,str(p)
@@ -67,7 +71,7 @@ if __name__=='__main__':
     if saved:Path(saved).mkdir(parents=True,exist_ok=False)
     with contextlib.nullcontext(saved) if saved else tempfile.TemporaryDirectory(prefix='re4-r11f-') as path:
         out=Path(path);pins=inputs(out,args.encv);exe=out/'test';fixture=Path(__file__).with_name('fixtures')/'source_world_r11f.cpp'
-        argv=[os.environ.get('CXX','g++'),'-std=c++17',*FLAGS,'-Wall','-Wextra','-fpermissive','-Wno-misleading-indentation','-DRE4DC_ENCV='+str(args.encv),'-DRE4DC_PS2_WORLD_HDR_CACHE='+str(args.header_cache),'-DRE4DC_UI_HANDLES='+str(args.ui_handles),'-DRE4DC_MESH_TEXTURES='+str(args.mesh_textures),'-I',str(INC),'-I',str(ROOT/'port/dreamcast'),'-I',str(out),str(fixture),*link_flags(out),'-o',str(exe)]
+        argv=[os.environ.get('CXX','g++'),'-std=c++17',*FLAGS,'-Wall','-Wextra','-fpermissive','-Wno-misleading-indentation','-DRE4DC_ENCV='+str(args.encv),'-DRE4DC_CROWD_INVIS_SKIP='+str(args.crowd_invis_skip),'-DRE4DC_PS2_WORLD_HDR_CACHE='+str(args.header_cache),'-DRE4DC_UI_HANDLES='+str(args.ui_handles),'-DRE4DC_MESH_TEXTURES='+str(args.mesh_textures),'-I',str(INC),'-I',str(ROOT/'port/dreamcast'),'-I',str(out),str(fixture),*link_flags(out),'-o',str(exe)]
         (out/'compiler-command.json').write_text(json.dumps(argv,indent=2))
         compile=subprocess.run(argv,capture_output=True,text=True);(out/'compiler-output.txt').write_text(compile.stdout+compile.stderr)
         if compile.returncode:print(compile.stdout+compile.stderr)

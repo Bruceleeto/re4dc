@@ -16,36 +16,37 @@
 #include "re4dc_platform.h"
 #define RE4DC_PS2_WORLD_R11F_OWNER 1
 #define RE4DC_PRIMITIVE_BUFFERS 2
-using u32=std::uint32_t;using u8=unsigned char;using u16=unsigned short;using f32=float;
+using s32=std::int32_t;using u32=std::uint32_t;using u8=unsigned char;using u16=unsigned short;using f32=float;
 using Mtx=float[3][4];
 template<class T> struct cManager;
 struct Vec { float x=0,y=0,z=0; };
 struct Camera {struct {Vec pos{};} param;Mtx v_mat{};};
 struct Scissor {u32 x=0,y=0,width=640,height=448;bool operator==(const Scissor& b)const{return x==b.x&&y==b.y&&width==b.width&&height==b.height;}}scissor;
-struct cLightInfo {Vec Size{1,1,1},Offset{};unsigned PartsNo=1,SelectMask=~0U;};
+struct cLightInfo {Vec Size{1,1,1},Offset{};unsigned PartsNo=1,SelectMask=~0U;unsigned getLightNum(){return 0;}};
 #include "source_world_actual_data.inc"
 #include "tpl.h"
 struct cModelInfo {
  unsigned be_flag=9;float invisible_factor=1;cModelInfo* pList=nullptr;ModelData* pData=nullptr;
  void* tpl_addr=nullptr;void* pShape=nullptr;TEXPalette* pAddTpl=nullptr;unsigned nAddTex=0;
- Mtx mat{};unsigned char color[4]{255,255,255,255},color2[4]{};unsigned char blend_mode=0;
+ Mtx mat{};float x5C[12]{};void* pPosBuf[2]{};void* pNrmBuf[2]{};unsigned char color[4]{255,255,255,255},color2[4]{};unsigned char blend_mode=0;
  alignas(8) u16 flagsDC=0;u16 blendRatio=0;u8 anm_no=0,blendType=0,pad_E2[2]{};
  void* texBlendTbl=nullptr;float uvU=0,uvV=0,uvScrollU=0,uvScrollV=0;u8* pTexAnim=nullptr;
 };
+struct GXTexObj {};struct cTexChg {void move(GXTexObj*){}};
 class cModel;
 struct cParts { unsigned be_flag=1;cParts* pList=nullptr;cModel* pParent=nullptr;Vec pos{},ang{},scale{1,1,1};Mtx mat{},l_mat{},lt_inv_mat{};Vec addRot{};struct {unsigned flags=0;}motParts; };
 class cModel { public:
  unsigned serial=1,kindid=2,be_flag=7,nParts=1,ot_type=3,z_mode=0;
  u8 id=0,type=0,CullMode=0,alpha_omit=255,TevScaleGroup=0,Shader_type=0,AddAmb_r=0,AddAmb_g=0,AddAmb_b=0;
  float invisible_factor=1,invisible_factor2=1;Vec pos{},ang{},scale{1,1,1},world{};Mtx mat{},l_mat{};
- cModel* pParent=nullptr;void* pMotion=nullptr;void* pTexChg=nullptr;cLightInfo LightInfo;
- void* pParts=nullptr;cModelInfo* pModelInfo=nullptr;cParts* pList=nullptr;
+ cModel* pParent=nullptr;void* pMotion=nullptr;cTexChg* pTexChg=nullptr;void* pFootShadowTbl=nullptr;cLightInfo LightInfo;
+ cParts* pParts=nullptr;cModelInfo* pModelInfo=nullptr;cParts* pList=nullptr;
  static cManager<cModelInfo>* mm;static cManager<cParts>* pm;
- cModel* getPartsPtr(int){return this;}void drawAllBoundingBox(cModelInfo*){}
+ cModel* getPartsPtr(int){return this;}void drawAllBoundingBox(cModelInfo*);
 };
 class cObj:public cModel { public:int blk=-1;u8 x3D0=0,work[0x78]{}; };
 class cEm:public cModel {};
-struct Global { unsigned Rno0=3,stage_no=1,room_no=0x1f,System_flg=0x400,Status_flg[4]{},Debug_flg[4]{},Stop_flg=0,Frame_cnt=300;unsigned long prim_cnt=0;unsigned nPrim=65536,vtx_buf_no=0;Camera Cam{}; } global,*pG=&global;
+struct Global { unsigned Rno0=3,stage_no=1,room_no=0x1f,System_flg=0x400,Status_flg[4]{},Debug_flg[4]{},Stop_flg=0,Frame_cnt=300,Disp_flg=0;unsigned long prim_cnt=0;unsigned nPrim=65536,vtx_buf_no=0;Camera Cam{}; } global,*pG=&global;
 #define G_ROOM_ID ((pG->stage_no<<8)|pG->room_no)
 cSmd* pSmd=nullptr;cSmx* pSmx=nullptr;cObj** scrTbl=nullptr;int nScrWork=251;
 unsigned room_generation=10,frame=200,re4dc_alive_gen[4]{1,2,3,4};bool room_live=true,movie=false,subscreen=false;
@@ -70,11 +71,12 @@ cManager<cObj> ObjMgr;cManager<cEm> EmMgr;cManager<cModelInfo> ModInfoMgr;cManag
 cManager<cModelInfo>* cModel::mm=&ModInfoMgr;cManager<cParts>* cModel::pm=&PartsMgr;
 #include "source_world_pools.inc"
 template<class T> T* make_pool(cManager<T>& manager,unsigned count) {
+ const unsigned prefix=32;count+=prefix;
  auto* p=new(host_alloc(sizeof(Pool<T>)+count*sizeof(T*)))Pool<T>{};
  auto* c=new(host_alloc(sizeof(Chunk<T>)+count*sizeof(T)))Chunk<T>{};
  p->capacity=count;p->heap=4;p->handle=Heap[4].handle;p->chunks=c;c->count=count;c->bytes=sizeof(Chunk<T>)+count*sizeof(T);
  manager={reinterpret_cast<T*>(p),count,sizeof(T),0,false};
- for(unsigned i=0;i<count;++i){new(c->parts()+i)T{};p->slots()[i]=c->parts()+i;}return c->parts();
+ for(unsigned i=0;i<count;++i){new(c->parts()+i)T{};p->slots()[i]=c->parts()+i;}return c->parts()+prefix;
 }
 cObj* objects;cModelInfo* infos;cParts* source_parts;
 alignas(32) unsigned char archive[3*1024*1024]{};bool archive_live=true;
@@ -86,7 +88,7 @@ extern "C" int re4dc_model_owned_source(const void* p,unsigned bytes){const auto
 void ModelRender(cModel*);
 #include "source_world_actual_ot.inc"
 OtWork g_OtWork[OT_MAX]{};
-struct Gx {unsigned char* prim=nullptr;} gx;
+struct Gx {unsigned char* prim=nullptr;GXTexObj texObj[0xF8]{};} gx;
 using GxWork=Gx;
 #define GXWORK() (&::gx)
 #include "source_world_r11f.inc"
@@ -118,7 +120,8 @@ void GXSetAlphaCompare(int,int,int,int,int){}void GXSetZMode(int,int,int){}void 
 void GXSetNumChans(int){}void GXSetChanCtrl(int,int,int,int,int,int,int){}
 struct GXColor {u8 r,g,b,a;};
 void GXSetChanAmbColor(int,GXColor){}void GXSetChanMatColor(int,GXColor){}void LightSetModel(cModel*){}
-void GXSetAlphaUpdate(int){}void GXSetDstAlpha(int,int){}void shaderReset(){++shader_resets;}
+unsigned alpha_off=0,dstalpha_off=0,bbox_calls=0,footshadow_calls=0;
+void GXSetAlphaUpdate(int on){if(!on)++alpha_off;}void GXSetDstAlpha(int on,int){if(!on)++dstalpha_off;}void shaderReset(){++shader_resets;}
 void* g_prev_tpl_addr=nullptr;void* g_prev_add_tpl_addr=nullptr;void GXSetCurrentGXThread(){}
 struct {void setFog(){}} LightMgr;
 void SetDrawTmpBufType(int){}void bio4_AddBgColor(){}void drawGround(int){}void ClearZbuf(){}
@@ -133,10 +136,53 @@ void ClearOt();void clearOtWork(OtWork*);void CrearOtMirrorWork(){}
 volatile unsigned g_encvLast;unsigned encv_picks=0,encv_notes=0;
 extern "C" unsigned re4dc_encv_render_pick(cModel* model){assert(sourceWorldModelDepth==1);++encv_picks;return model->serial%10;}
 extern "C" void re4dc_encv_render_done(){}
-extern "C" unsigned re4dc_model_output_count(){return source_geometry;}
-extern "C" unsigned re4dc_model_input_count(){return callback_postludes;}
-extern "C" void re4dc_encv_render_note(cModel*,unsigned,unsigned){assert(sourceWorldModelDepth==1);++encv_notes;}
 #endif
+#if RE4DC_ENCV || RE4DC_CROWD_INVIS_SKIP == 2
+extern "C" unsigned re4dc_model_output_count(){return source_geometry;}
+#endif
+#if RE4DC_ENCV
+extern "C" unsigned re4dc_model_input_count(){return callback_postludes;}
+extern "C" void re4dc_encv_render_note(cModel* m,unsigned,unsigned){assert(sourceWorldModelDepth==1);volatile auto witness=m->serial;(void)witness;++encv_notes;}
+#endif
+#if RE4DC_CROWD_INVIS_SKIP == 2
+bool g_invisArmed=false;
+bool invisSkip(cModel*,int,int){return false;}
+int re4dc_invis_marked(cModel*){return 0;}
+int invisCrowdCheck(cModel*){return 0;}
+void re4dc_invis_check(cModel* m,unsigned,int){volatile auto witness=m->serial;(void)witness;}
+#endif
+// Services surrounding the complete production commonModelTrans body. The
+// source control flow and all model/info/part/postlude reads remain original.
+#define FRONT_TEX_FLUSH() ((void)0)
+#define PSet(a,b) ((a)=(b))
+#define MODEL_EXT(m) (m)
+#undef HALT
+#define HALT() assert(false)
+struct ShadowLightWork {unsigned texId=0;};
+struct HostShadowLight {void* work=nullptr;};
+struct HostShadowManager {HostShadowLight* pLight=nullptr;};
+HostShadowManager* g_pShdMng=nullptr;
+HostShadowManager* GetCastShadowMngPtr(cModel*){return nullptr;}
+int RoomGetTplAddr(unsigned,TEXPalette**){return 0;}
+int re4dc_actor_transaction_draw(cModel*){return 0;}
+void re4dc_model_material(int,int,int,int){}
+void re4dc_draw_model_part(cModel*,cModelInfo*,ModelPart*,Mtx,int){}
+void GetEfbTex(cModel*){}
+void PSMTXConcat(const float a[3][4],const float b[3][4],float out[3][4]){std::memcpy(out,a,sizeof(Mtx));(void)b;}
+void PSMTXInverse(Mtx a,Mtx out){std::memcpy(out,a,sizeof(Mtx));}
+void PSMTXTranspose(Mtx a,Mtx out){std::memcpy(out,a,sizeof(Mtx));}
+void PSMTXScale(Mtx out,float x,float y,float z){std::memset(out,0,sizeof(Mtx));out[0][0]=x;out[1][1]=y;out[2][2]=z;}
+void GXLoadPosMtxImm(Mtx,int){}void GXLoadNrmMtxImm(Mtx,int){}void GXSetCurrentMtx(int){}
+void GXClearVtxDesc(){}void GXSetVtxDesc(int,int){}void GXSetVtxAttrFmt(int,int,int,int,int){}void GXSetArray(int,void*,int){}void GXSetCullMode(int){}
+TEXDescriptor* TEXGet(TEXPalette* p,unsigned i){return &p->descriptorArray[i];}
+unsigned aniso=0,min_lod=0,max_lod=0;float lod_bias=0;Mtx specular_mat{};
+void GXInitTexObj(GXTexObj*,void*,unsigned,unsigned,unsigned,unsigned,unsigned,unsigned){}
+void GXInitTexObjLOD(GXTexObj*,unsigned,unsigned,float,float,float,unsigned,unsigned,unsigned){}
+void updateMatrices(Mtx,Mtx,cModel*){}void shaderSetup(cModel*,cModelInfo*,ModelPart*,Mtx){}
+void GXSetBlendMode(int,int,int,int){}void GXCallDisplayList(void*,unsigned){++source_geometry;}
+unsigned IND_STAGE_ID(){return 0;}void GXSetNumIndStages(int){}void GXSetTevDirect(int){}
+void DrawFootShadow(cEm* m){++footshadow_calls;volatile auto witness=m->serial;(void)witness;}
+void cModel::drawAllBoundingBox(cModelInfo* info){++bbox_calls;volatile auto witness=info->be_flag;(void)witness;}
 #include "source_world_actual_registration.inc"
 #include "source_world_actual_smx.inc"
 // The real native package reader and pass loop; graphics service records UVs.
@@ -319,7 +365,7 @@ void reset(bool register_all=true){
 #if RE4DC_ENCV
  encv_picks=encv_notes=0;
 #endif
- aborts=camera_calls=draw_calls=shown=discarded=0;screen_prepares=light_prepares=callback_postludes=source_geometry=shader_resets=draw_syncs=mixed_callbacks=0;after_model=nullptr;deferred_first=nullptr;
+ aborts=camera_calls=draw_calls=shown=discarded=0;screen_prepares=light_prepares=callback_postludes=source_geometry=shader_resets=draw_syncs=mixed_callbacks=0;after_model=nullptr;deferred_first=nullptr;alpha_off=dstalpha_off=bbox_calls=footshadow_calls=0;g_prev_tpl_addr=g_prev_add_tpl_addr=nullptr;
  std::memcpy(archive,source_file.data(),source_file.size());scratch=2200000;
  pSmd=reinterpret_cast<cSmd*>(archive+123808);pSmx=reinterpret_cast<cSmx*>(archive+1368800);nScrWork=251;
  sourceWorldR11fQualify();check(r11fRawQualified);
@@ -365,8 +411,45 @@ void protect_retired_primitive(cModel*) {
  assert(mprotect(protected_page,4096,PROT_NONE)==0);
 }
 void unprotect_retired(){assert(protected_page);assert(mprotect(protected_page,4096,PROT_READ|PROT_WRITE)==0);protected_page=nullptr;}
+unsigned protected_source_mask=1,cleanup_alpha_at_yield=0,cleanup_dst_at_yield=0,cleanup_shader_at_yield=0,bbox_at_yield=0,footshadow_at_yield=0,completed_at_yield=0;
+#if RE4DC_ENCV
+unsigned encv_notes_at_yield=0;
+#endif
+std::vector<void*> protected_source_pages;
+void yield_retire_current_source() {
+ Re4dcSourceWorldCallback call{};assert(re4dc_source_world_callback_current(&call));
+ auto* current=static_cast<cModel*>(call.data);assert(current==objects);
+ const void* selected[3]={current,current->pModelInfo,current->pList};
+ void* chunks[3]={pool(&ObjMgr)->chunks,pool(&ModInfoMgr)->chunks,pool(&PartsMgr)->chunks};
+ unsigned bytes[3]={pool(&ObjMgr)->chunks->bytes,pool(&ModInfoMgr)->chunks->bytes,pool(&PartsMgr)->chunks->bytes};
+ cleanup_alpha_at_yield=alpha_off;cleanup_dst_at_yield=dstalpha_off;cleanup_shader_at_yield=shader_resets;bbox_at_yield=bbox_calls;
+ footshadow_at_yield=footshadow_calls;completed_at_yield=callback_postludes;
+#if RE4DC_ENCV
+ encv_notes_at_yield=encv_notes;
+#endif
+ for(unsigned i=0;i<3;++i)if(protected_source_mask&(1U<<i)){
+  auto address=reinterpret_cast<std::uintptr_t>(selected[i]);auto page=address&~std::uintptr_t(4095);
+  auto first=reinterpret_cast<std::uintptr_t>(chunks[i]);assert(page>=first+4096&&page+4096<=first+bytes[i]);
+  Mem_free_h(chunks[i],4);assert(mprotect(reinterpret_cast<void*>(page),4096,PROT_NONE)==0);protected_source_pages.push_back(reinterpret_cast<void*>(page));
+ }
+}
+void unprotect_current_source(){for(auto* page:protected_source_pages)assert(mprotect(page,4096,PROT_READ|PROT_WRITE)==0);protected_source_pages.clear();}
+void protected_postlude_tests(){
+ for(bool packet:{false,true})for(unsigned mask:{1U,2U,4U,7U}){
+  reset();global.Debug_flg[1]=0x40000000U;re4dc_r11f_prepare(frame);force_packet=packet;protected_source_mask=mask;binding_yield=yield_retire_current_source;
+  Render();unprotect_current_source();finish_and_present();
+  check(r11fFrame.failed&&aborts==1&&shown==0&&discarded==1&&geometry_emits==0&&source_geometry==0&&!direct_open);
+  check(alpha_off==cleanup_alpha_at_yield+1&&dstalpha_off==cleanup_dst_at_yield+1&&shader_resets==cleanup_shader_at_yield+1&&bbox_calls==bbox_at_yield);
+  check(footshadow_calls==footshadow_at_yield&&callback_postludes==completed_at_yield&&sourceWorldModelDepth==0&&sourceWorldCallbackDepth==0);
+#if RE4DC_ENCV
+  check(encv_notes==encv_notes_at_yield);
+#endif
+ }
+ std::printf("r11f postlude retirement: 8 direct/packet x model/info/parts/all cases PASS\n");
+}
 int main(int argc,char** argv){
  assert(argc==5);source_file=read_file(argv[1]);mesh_file=read_file(argv[2]);side_file=read_file(argv[3]);ids_file=read_file(argv[4]);
+ protected_postlude_tests();
  reset();re4dc_r11f_prepare(frame);check(r11fFrame.planned&&r11fFrame.count==251&&r11fFrame.anchor>0);
  const float phase=infos[0].uvU;Render();check(r11fFrame.withheld&&r11fFrame.anchor_seen&&r11fFrame.started&&r11fFrame.render_done);
  check(source_geometry==0&&callback_postludes==251&&shader_resets==251&&aborts==0&&dyn::query_calls==0);finish_and_present();

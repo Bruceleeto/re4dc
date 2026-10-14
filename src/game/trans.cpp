@@ -94,6 +94,7 @@ bool sourceWorldModelPostludeBlocked(const cModel* model) {
 namespace { bool sourceWorldR11fModelBlocked(cModel* model); }
 #endif
 
+
 #include "em.h"
 #include "obj.h"
 #include "camera.h"
@@ -2868,7 +2869,11 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
 #endif
 #if RE4DC_PS2_WORLD_R11F_OWNER
-    if(!flag && sourceWorldR11fDraw(m)!=0)info=nullptr;
+    if(!flag) {
+        const int owned=sourceWorldR11fDraw(m);
+        if(owned<0)return; // ModelRender restores alpha/shader state without reading m.
+        if(owned>0)info=nullptr; // Successful ownership retains source postludes.
+    }
 #endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
