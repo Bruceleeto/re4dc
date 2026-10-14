@@ -353,6 +353,12 @@ void frag_release(const char* why){
 // for one (=2) and the uploads that then fitted; the frame of the last drop (one per kFragRetryFrames).
 unsigned frag_win_ok,frag_win_none,frag_win_bytes,frag_drops,frag_drop_ok,frag_drop_frame=~0U-1000U;
 bool frag_discard; // =2: the open scene closes unrendered (stream_close), the previous picture stays one more frame
+// The window may hold only uploads idle for this many frames (movie_window_release reads it while it is set): a
+// window of recently drawn uploads reloaded the next frame and failed again (r101 bell fight: 96x96 / 64x64 effect
+// textures, ~12,000 window releases and ~13,000 loads in 10,000 frames, vr-bell-v4). The frame discard (=2) runs after
+// the LRU retry failed, for uploads of at least kFragDropBytes (the 256 KiB results picture, Leon's 512 KiB body).
+constexpr unsigned kFragMinAge=30,kFragDropBytes=128U*1024U;
+unsigned frag_min_age;
 unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_bytes); // MOVIE_WINDOW, below
 #endif
 #endif
@@ -2704,34 +2710,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #if RE4DC_UI_FRAG_WINDOW
         // UI_FRAG_WINDOW (Makefile): one hole of the size, not LRU evictions until one appears.
         if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
-            unsigned wb=0;const unsigned wr=movie_window_release(need,false,wb);
+            unsigned wb=0;frag_min_age=kFragMinAge;const unsigned wr=movie_window_release(need,false,wb);frag_min_age=0;
             if(wr){ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();frag_win_bytes+=wb;}
             if(ok)++frag_win_ok;else ++frag_win_none;
             re4dc_log("native UI: frag window %s: %ux%u need=%u released=%u entries/%u B free=%u frame=%u\n",ok?"ok":wr?"short":"none",
                       image.width,image.height,need,wr,wb,(unsigned)pvr_mem_available(),frame);
-#if RE4DC_UI_FRAG_WINDOW>=2
-            // No window of free + unpinned blocks: the hole is blocked by uploads this frame already took (its draws, or
-            // the room preload's picks at the frame start). Release the cheapest window including them and close this
-            // frame's scene unrendered at its present (frag_discard: the previous picture stays one more frame). The rest
-            // of the frame draws as usual (a released texture reloads on first sight; no part is refused, so no actor
-            // falls back to its source model), but none of it is shown. close_entry() waits for the render in flight
-            // (re4dc_pvr_vram_fence), as every eviction does. Never inside a direct model write.
-#if RE4DC_TA_DIRECT
-            const bool direct=direct_open;
-#else
-            const bool direct=false;
-#endif
-            if(!ok && !stream_aborted && !direct && frame-frag_drop_frame>kFragRetryFrames){
-                const bool scene=stream_scene;
-                if(scene)frag_discard=true;
-                frag_drop_frame=frame;++frag_drops;
-                unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
-                if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
-                if(ok)++frag_drop_ok;
-                re4dc_log("native UI: frag drop frame=%u scene=%d pin=%d %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,
-                          scene?1:0,pin?1:0,ok?"ok":"FAILED",image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
-            }
-#endif
         }
 #endif
         // A fragmented pool can refuse a block that the totals admit. Free one
@@ -2747,6 +2730,30 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
             ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
         }
+#if RE4DC_UI_FRAG_WINDOW>=2
+        // The LRU retry found no hole either: it is blocked by uploads this frame already took (its draws, or the
+        // room preload's picks at the frame start). Release the cheapest window including them and close this
+        // frame's scene unrendered at its present (frag_discard: the previous picture stays one more frame). The rest
+        // of the frame draws as usual (a released texture reloads on first sight; no part is refused, so no actor
+        // falls back to its source model), but none of it is shown. close_entry() waits for the render in flight
+        // (re4dc_pvr_vram_fence), as every eviction does. Never inside a direct model write.
+#if RE4DC_TA_DIRECT
+        const bool direct=direct_open;
+#else
+        const bool direct=false;
+#endif
+        if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed") &&
+           need>=kFragDropBytes && !stream_aborted && !direct && frame-frag_drop_frame>kFragRetryFrames){
+            const bool scene=stream_scene;
+            if(scene)frag_discard=true;
+            frag_drop_frame=frame;++frag_drops;
+            unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
+            if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
+            if(ok)++frag_drop_ok;
+            re4dc_log("native UI: frag drop frame=%u scene=%d pin=%d %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,
+                      scene?1:0,pin?1:0,ok?"ok":"FAILED",image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
+        }
+#endif
 #if RE4DC_UI_FRAG_LATCH && RE4DC_TEX_RESIDENT
         if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
             frag_key=key;frag_frame=frame;
@@ -3431,6 +3438,9 @@ unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_b
     for(unsigned ei=0;ei<kTextureCount;++ei){
         const Entry& e=entries[ei];
         if(!e.valid || !e.package.vram_bytes() || (!pinned_ok && RE4DC_ENTRY_PINNED(e)))continue;
+#if RE4DC_UI_FRAG_WINDOW
+        if(!pinned_ok && frag_min_age && frame-e.frame<frag_min_age)continue; // UI_FRAG_WINDOW: recently drawn
+#endif
         const unsigned count=e.package.header().texture_count;
         for(unsigned t=0;t<count;++t){
             const pvr_ptr_t p=e.package.pvr_texture(t);if(!p)continue;

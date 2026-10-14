@@ -1337,18 +1337,21 @@ endif
 endif
 UI_OVERLAY_SLAB_KB ?= 0
 # UI_FRAG_WINDOW=1|2 (t11 lane vr, render only, default 0; needs UI_VRAM=1 UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1):
-# a texture upload refused for fragmentation first releases the cheapest page-aligned window of unpinned uploads
-# (movie_window_release: one hole of the size) instead of evicting least recently used uploads one by one until a
-# hole appears (r105 results 495x150: 7 retries evicted everything evictable, 1.36 MB free and no 256 KiB hole;
-# r119: 410 retries, ~2,000 reloads). =2 also: when no window of free + unpinned blocks exists (the hole is blocked
-# by uploads this frame already took: its draws, or the room preload's picks), the cheapest window including this
-# frame's uploads is released (close_entry waits for the render in flight, as every eviction does), the texture
+# a texture upload refused for fragmentation first releases the cheapest page-aligned window of uploads idle for 30
+# frames or more (movie_window_release: one hole of the size) instead of evicting least recently used uploads one by
+# one until a hole appears (r105 results 495x150: 7 retries evicted everything evictable, 1.36 MB free and no 256 KiB
+# hole; r119: 410 retries, ~2,000 reloads). With no such window, the old LRU retry runs. (A window of recently drawn
+# uploads was reloaded the next frame and failed again: r101 bell fight effect textures, 2.4x the knob-off loads,
+# vr-bell-v4.) =2 also: when the LRU retry finds no hole either and the upload is at least 128 KiB (the hole is
+# blocked by uploads this frame already took: its draws, or the room preload's picks), the cheapest window including
+# this frame's uploads is released (close_entry waits for the render in flight, as every eviction does), the texture
 # uploads now, and this frame's scene is closed unrendered at its present: the previous picture stays on screen one
 # more frame. The rest of the frame draws as usual (released uploads reload on first sight; no model part is refused,
 # so no actor falls back to its source model in that frame; an earlier version aborted the stream and Leon fell back
-# in the unshown frame, LEONGC FAIL vr-ch12-v2). At most once per 120 frames; otherwise the old LRU retry and latch.
+# in the unshown frame, LEONGC FAIL vr-ch12-v2). At most once per 120 frames; otherwise the latch.
 # Was: the texture was refused for that frame (texchk FAIL, "no contiguous block ... latched") and UI_FRAG_RESERVE
-# handed it a block one frame later.
+# handed it a block one frame later (r105 results picture; Leon's 512x512 body at the r105 / r10b preloads, where
+# LEON-GC showed the source model for that frame).
 UI_FRAG_WINDOW ?= 0
 # TEX_REF_SELFKEY=1 (t11 lane vr, render only, default 0): a texture descriptor whose pixels are an R4NREF record (the
 # native package reference a .drs/.dat keeps in place of the texels: magic, crc, fnv, width, height, format) that no
