@@ -2291,6 +2291,22 @@ $(error PS2_R100_SMX=1 needs PS2_PT_CUTOUT=1 (the package is built on the cutout
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_R100_SMX=1
 endif
+# PS2_R100_TR4=1 (test 11, render only, default 0: no effect; needs PS2_R100_SMX=1 and PS2_VERTEX_ALPHA=1): the r100 PS2
+# world package rebuilt with the PS2_R100_SMX args plus ps2_room_r4im.py --vertex-alpha tr4 (chapter 1 audit 2026-10-14:
+# r100 was the one route room staged without the tr4 overlays, so its 155 vertex-alpha overlay faces drew opaque; the
+# other rooms' packages already carry them). Package: re4-assets-private\t11-20261014\r100-smx-tr4 (ps2-world.* +
+# interior.cell + tex), file crc32 4257dff0. Geometry and placements are the same; only the overlay faces move from the
+# opaque to the translucent pass, so the same interior cell with this package's mesh CRC / sidecar CRC / mesh bytes.
+PS2_R100_TR4 ?= 0
+ifneq ($(filter-out 0 1,$(PS2_R100_TR4)),)
+$(error PS2_R100_TR4 must be 0 or 1)
+endif
+ifeq ($(PS2_R100_TR4),1)
+ifneq ($(PS2_R100_SMX)$(PS2_VERTEX_ALPHA),11)
+$(error PS2_R100_TR4=1 needs PS2_R100_SMX=1 and PS2_VERTEX_ALPHA=1 (the package is the SMX package plus tr4 overlays))
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_R100_TR4=1
+endif
 # Explicit r100 candidate package identity. The offline conversion preserves mesh,
 # placements and PCL cell/portal bytes, but changes the real R4PW body CRC. Zero
 # retains the original selection. Only reviewed candidate CRCs may be selected.
