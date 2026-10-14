@@ -116,6 +116,45 @@ def gc_select(lights, sel, lo, hi):
     return out[:8]
 
 
+def gx_light_scenery(l, p):
+    """trans_lit.cpp LightSetModel for scenery (obj_flag 0: brightness = Intensity, no radius fade) -> (GX light,
+    local ambient): every LIT type the GC draws scenery with, for --a0-light gc. gx_light (ow_extract.py) covers 2
+    quadratic, 3 spot, 5 parallel; added here: 0 constant (GXInitLightAttn(I, 0, 0, 1, 0, 0)), 1 linear (brightness
+    I x (R - d) / R, d = placement to light), 6 spot-quad (lightSetSpotQuad: GXInitLightSpot(A0, COS2) +
+    GXInitLightAttnK(1 / I, 0, (I - 0.1) / 0.1 / R^2 / I)), 7 local ambient (lightSetLocalAmb: the channel ambient
+    becomes max(ambient, light colour)). 4 custom needs A2 / K0..K2, which the LIT json does not carry: (None, None)."""
+    x = l['xD']
+    if x in (2, 3, 5):
+        return gx_light(l, p), None
+    if x == 7:
+        return None, np.asarray(l['col'][:3], float) / 255
+    col = [min(255, int(c * l['col'][3] * 0.0078125)) for c in l['col'][:3]]
+    I, R = l['intensity'], l['R']
+    if x == 0:
+        return dict(i=l['i'], kind='constant', col=col, pos=list(l['pos']), dir=[0.0, 0.0, 1.0],
+                    a=[I, 0.0, 0.0], k=[1.0, 0.0, 0.0]), None
+    if x == 1:
+        d = math.dist(p['pos'], l['pos'])
+        br = I * (R - d) / R if R else I
+        return dict(i=l['i'], kind='linear', col=col, pos=list(l['pos']), dir=[0.0, 0.0, 1.0],
+                    a=[br, 0.0, 0.0], k=[1.0, 0.0, 0.0]), None
+    if x == 6:
+        cut = l['A0']
+        if cut <= 0.0 or cut > 90.0:
+            a = [1.0, 0.0, 0.0]
+        else:
+            cr = math.cos(math.radians(cut))
+            a = [0.0, -cr / (1.0 - cr), 1.0 / (1.0 - cr)]
+        if I <= 0.0:
+            return None, None
+        k2 = (I - 0.1) / 0.1 / (R * R) / I if R else 0.0
+        n = l['n']
+        ln = math.sqrt(sum(v * v for v in n)) or 1.0
+        return dict(i=l['i'], kind='spotquad', col=col, pos=list(l['pos']), dir=[-v / ln for v in n], a=a,
+                    k=[1.0 / I, 0.0, k2]), None
+    return None, None
+
+
 # ------------------------------------------------------------------------------------------------ scene
 def tev_multiplier(env):
     """cLightEnv tev_scale[0] (gxCsScale[0], scenery's TEV group): GX_CS_SCALE_1 / _2 / _4 = 0 / 1 / 2."""
@@ -137,7 +176,8 @@ A0_FLAG = 0xa0000000
 
 
 def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', normal_sign=1.0, gc_cut=0,
-               gc_lit_path=None, tev_scale=None, vc_clamp=1.0, a0_ambient=False, stats=None):
+               gc_lit_path=None, tev_scale=None, vc_clamp=1.0, a0_ambient=False, stats=None, a0_light=None,
+               a0_json=None, a0_own=False, a0_ps2_w=False):
     """color_light: 'authored' = COLOR groups keep the PS2 vertex colours (GS modulate; the landed packages);
     'gc' = the GameCube self-lit channel on PS2 geometry: material * clamp01(vertex colour + sum of the GC LIT
     cut-0 lights the model selects), with normals from the PS2 triangles (COLOR BINs carry no normals);
@@ -148,7 +188,18 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
     a0_ambient (--a0-ambient, test 11 item D, default off): COLOR groups whose BIN light flag is 0xa0000000 (the BINs
     the GameCube lights at run time; every black face of chapters 1 and 2-1 is in one) also get the room's LIT screen
     ambient (env ambient_scr / 255), as the GX channel does: 'ps2' min(vertex colour + ambient, vc_clamp) * SMX colour *
-    TEV scale; 'authored' vertex colour + ambient * SMX colour * TEV scale. Other groups are unchanged."""
+    TEV scale; 'authored' vertex colour + ambient * SMX colour * TEV scale. Other groups are unchanged.
+    a0_light (--a0-light, default None = off): the light source of those 0xa0000000 groups. 'ambient' = a0_ambient
+    above; 'gc' = the GameCube's own static result for a BIN without a colour stream (ow_extract.py lit(): GX channel,
+    material register = SMX colour, ambient register = LIT ambient_scr): clamp01(ambient + sum over the static LIT
+    lights the model selects (gc_select: scenery enable 0x10, SMX LightSwitch mask, light box, at most 8) of colour x
+    distance / angle attenuation (gx_light: parallel, quadratic, spot COS2 + DistAttn MEDIUM) x max(0, N.L)) x SMX colour
+    x TEV scale; the PS2 vertex colour is not used (the GC has none for these BINs). Normals from the PS2 triangles
+    (geometry_normals, --normal-sign). a0_json (--a0-light-json): a measured / alternative light set merged over the
+    LIT json before use - {"env": {...ambient_scr, tev_scale...}, "lights_cut": [...LIT-json lights...],
+    "ambient_gain": k, "light_gain": k} - so PS2-measured values can replace the GC ones. a0_own (--a0-light-own):
+    light every copy of an instanced BIN where it stands (exact, but the copies no longer share a mesh); default = the
+    copies' mean."""
     obj = ps.read_obj(src / f'{room}_004.scenario.obj')
     mats = ps.read_idxmaterial(src / f'{room}_004.scenario.idxmaterial')
     mtl = ps.read_mtl(src / f'{room}_004.scenario.mtl')
@@ -161,15 +212,122 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
     for name, m in mats.items():
         assert int(m['diffuse_map']) == mtl[name]['tex'], name
     gl = None
-    if a0_ambient and color_light not in ('ps2', 'authored'):
-        raise SystemExit('--a0-ambient needs --color-light ps2 or authored')
-    if color_light in ('gc', 'ps2') or a0_ambient:
+    if a0_light is None and a0_ambient:
+        a0_light = 'ambient'
+    if a0_light not in (None, 'ambient', 'gc', 'ps2'):
+        raise SystemExit('--a0-light: ambient, gc or ps2')
+    if a0_light == 'ps2':
+        # the PS2's own run-time result, measured in PCSX2 (CH1-AUDIT ps2-light.md: GS = 128 x W x smx x (VC +
+        # (amb_scr + 1) / 256), no clamp but the GS 8-bit one, no lights): a0_json = ps2-light.json (a list of
+        # {room, amb_scr, W}) or one {amb_scr, W} record
+        pj = json.loads(Path(a0_json).read_text()) if a0_json else None
+        if isinstance(pj, list):
+            pj = next((x for x in pj if x.get('room') == room), None)
+        if not pj or 'amb_scr' not in pj:
+            raise SystemExit("--a0-light ps2 needs --a0-light-json with the room's PS2 amb_scr record (ps2-light.json)")
+        amb_ps2 = (np.asarray(pj['amb_scr'], float) + 1) / 256
+    a0_ambient = a0_light == 'ambient'
+    if a0_light and color_light not in ('ps2', 'authored'):
+        raise SystemExit('--a0-ambient / --a0-light need --color-light ps2 or authored')
+    if color_light in ('gc', 'ps2') or a0_light:
         gc_lit_file = Path(gc_lit_path) if gc_lit_path else src / f'gc-lit-cut{gc_cut}.json'
         gc_lit = json.loads(gc_lit_file.read_text())
-    if color_light == 'ps2' or a0_ambient:
+    a0_gain = (1.0, 1.0)
+    cut_sets = None
+    if a0_light == 'gc' and 'cut_sets' in gc_lit:
+        # every LIT cut the player can switch to: cut 0 (room start, game.cpp LightMgr.update(0)) and the cut of each
+        # camera area that can hit (attr 4 = never, cam_ctrl.cpp areaHit) and updates the light (attr 0x80 = no
+        # update); an area_no outside the cuts is cut 0 (cLit::getSafeCutNo)
+        reach = {0}
+        for ar in gc_lit.get('cam_areas', []):
+            if not ar['attr'] & 0x84 and ar['area_no'] >= 0:
+                reach.add(ar['area_no'] if ar['area_no'] < gc_lit['cuts'] else 0)
+        cut_sets = {c['cut']: c for c in gc_lit['cut_sets'] if c['cut'] in reach}
+        # areaHitCheck order: the attr 0x20 areas first, then every area, each in file order (first hit wins)
+        cam_polys = [(ar['area_no'] if 0 <= ar['area_no'] < gc_lit['cuts'] else 0, np.asarray(ar['points'], float))
+                     for pri in (True, False) for ar in gc_lit.get('cam_areas', [])
+                     if (not pri or ar['attr'] & 0x20) and not ar['attr'] & 0x84 and ar['area_no'] >= 0
+                     and len(ar['points']) >= 3]
+    if a0_light in ('ambient', 'gc') and a0_json:
+        ov = json.loads(Path(a0_json).read_text())
+        gc_lit = dict(gc_lit, env=dict(gc_lit['env'], **ov.get('env', {})),
+                      lights_cut=ov.get('lights_cut', gc_lit['lights_cut']))
+        a0_gain = (float(ov.get('ambient_gain', 1.0)), float(ov.get('light_gain', 1.0)))
+        if cut_sets is not None:
+            if 'lights_cut' in ov:
+                cut_sets = None                        # a measured light set replaces the GC cuts
+            else:
+                cut_sets = {k: dict(c, env=dict(c['env'], **ov.get('env', {}))) for k, c in cut_sets.items()}
+    if color_light == 'ps2' or a0_light:
         tev = float(tev_scale) if tev_scale else tev_multiplier(gc_lit['env'])
-    if a0_ambient:
-        amb0 = np.asarray(gc_lit['env']['ambient_scr'], float) / 255
+    if a0_light:
+        amb0 = np.asarray(gc_lit['env']['ambient_scr'], float) / 255 * a0_gain[0]
+
+    def inside(P, poly):
+        """even-odd point-in-polygon on x/z (cam_ctrl.cpp area_hit_pN), P (N, 2)."""
+        x, z = P[:, 0], P[:, 1]
+        hit = np.zeros(len(P), bool)
+        for k in range(len(poly)):
+            (x1, z1), (x2, z2) = poly[k], poly[(k + 1) % len(poly)]
+            if z1 == z2:
+                continue
+            cross = ((z1 > z) != (z2 > z)) & (x < x1 + (z - z1) * (x2 - x1) / (z2 - z1))
+            hit ^= cross
+        return hit
+
+    def a0_cut(g, pos, sel, lo, hi):
+        """The LIT cut that lights this group on the GC: the camera area the most of its corners stand in (the game
+        switches the room light cut by camera area; a corner takes the area areaHitCheck would pick there), else the reachable cut that selects the most lights for it
+        (its lights were placed for this part of the room), ties to the lowest cut (cut 0 first)."""
+        P = pos.reshape(-1, 3)[:, [0, 2]]
+        votes = collections.Counter()
+        left = np.ones(len(P), bool)
+        for c, poly in cam_polys:
+            h = inside(P, poly) & left
+            votes[c] += int(h.sum())
+            left &= ~h
+        if votes and max(votes.values()) > 0:
+            return max(sorted(votes), key=lambda c: votes[c])
+        n = {c: len(gc_select([l for l in cs['lights_cut'] if not l.get('parent_type', 0)], sel, lo, hi))
+             for c, cs in cut_sets.items()}
+        return max(sorted(n), key=lambda c: n[c])
+
+    def a0_gc(g, pos, ix):
+        """GC static channel of a 0xa0000000 group: (clamp01(ambient + sum of lights) x SMX colour, light ids)."""
+        sem = smx.get(g['smx'])
+        sel = int(sem['light_switch'], 16) if sem else 0xFFFFFFFF
+        lo, hi = pos.reshape(-1, 3).min(0), pos.reshape(-1, 3).max(0)
+        if cut_sets:
+            c = a0_cut(g, pos, sel, lo, hi)
+            if stats is not None:
+                stats['a0_faces_cut%d' % c] += len(ix)
+            lights_c = cut_sets[c]['lights_cut']
+            amb = np.asarray(cut_sets[c]['env']['ambient_scr'], float) / 255 * a0_gain[0]
+        else:
+            lights_c, amb = gc_lit['lights_cut'], amb0.copy()
+        # lights with a parent (1 enemy / player, 3 room etc model: lanterns and torches, 4 object) sit relative to a
+        # moving or flickering model: not part of a static bake (their LIT position is parent-local)
+        if stats is not None:
+            stats['a0_parented_lights_left_out'] += sum(1 for l in lights_c if l.get('parent_type', 0))
+        lights_c = [l for l in lights_c if not l.get('parent_type', 0)]
+        chosen_gc = gc_select(lights_c, sel, lo, hi)
+        lts = []
+        for l in chosen_gc:
+            gl_, la = gx_light_scenery(l, smd[g['smd']])
+            if la is not None:
+                amb = np.maximum(amb, la * a0_gain[0])
+            elif gl_ is not None:
+                lts.append(dict(gl_, col=[c * a0_gain[1] for c in gl_['col']]))
+            elif stats is not None:
+                stats['a0_unsupported_light_xD%d' % l['xD']] += 1
+        nrm = geometry_normals(pos, ix[:, :, 0], normal_sign)
+        ch = light_world(pos, nrm, lts, amb)
+        mc = sem.get('smx_colour_rgb') if sem else None
+        mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
+        if stats is not None:
+            stats['a0_faces'] += len(ix)
+            stats['a0_lit_faces'] += len(ix) if lts else 0
+        return ch * mcol, [l['i'] for l in chosen_gc]
     if any(g['kind'] == 'NORMAL' for g in obj['groups']):
         lit = json.loads((src / 'gc-lit-cut0.json').read_text())
         chosen = [l for l in lit['lights_cut'] if l['i'] in light_ids]
@@ -183,6 +341,7 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
         mat = [m for _, m in g['faces']]
         pos = V[ix[:, :, 0]]
         gc_ids = None
+        a0gc = False
         if g['kind'] == 'NORMAL':
             assert (ix[:, :, 2] >= 0).all(), g['name']
             lights = [gx_light(l, smd[g['smd']]) for l in chosen]
@@ -206,7 +365,15 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
             sem = smx.get(g['smx'])
             mc = sem.get('smx_colour_rgb') if sem else None
             mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
-            if a0_ambient and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+            if a0_light == 'ps2' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                rgb = (VC[ix[:, :, 0], :3] * vc_scale + amb_ps2) * mcol * (float(pj['W']) if a0_ps2_w else tev)
+                if stats is not None:
+                    stats['a0_faces'] += len(faces)
+            elif a0_light == 'gc' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                ch, gc_ids = a0_gc(g, pos, ix)
+                rgb = ch * tev
+                a0gc = True
+            elif a0_ambient and bin_light_flag(src, room, g['bin']) == A0_FLAG:
                 rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale + amb0, vc_clamp) * mcol * tev
                 if stats is not None:
                     stats['a0_faces'] += len(faces)
@@ -214,7 +381,18 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
                 rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale, vc_clamp) * mcol * tev
         else:
             rgb = VC[ix[:, :, 0], :3] * vc_scale      # --vc-scale: a look-review lift, 1.0 = as authored
-            if a0_ambient and g['kind'] != 'NORMAL' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+            if a0_light == 'ps2' and g['kind'] != 'NORMAL' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                sem = smx.get(g['smx'])
+                mc = sem.get('smx_colour_rgb') if sem else None
+                mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
+                rgb = (rgb + amb_ps2) * mcol * (float(pj['W']) if a0_ps2_w else 1.0)
+                if stats is not None:
+                    stats['a0_faces'] += len(faces)
+            elif a0_light == 'gc' and g['kind'] != 'NORMAL' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
+                ch, gc_ids = a0_gc(g, pos, ix)
+                rgb = ch * tev
+                a0gc = True
+            elif a0_ambient and g['kind'] != 'NORMAL' and bin_light_flag(src, room, g['bin']) == A0_FLAG:
                 sem = smx.get(g['smx'])
                 mc = sem.get('smx_colour_rgb') if sem else None
                 mcol = np.asarray(mc, float) / 255 if mc and any(mc) else np.ones(3)
@@ -228,7 +406,22 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
                            pos=pos, uv=VT[ix[:, :, 1]], rgb=rgb, alpha=VC[ix[:, :, 0], 3],
                            tex=np.array([int(mats[m]['diffuse_map']) for m in mat]),
                            blend=np.array([bool(int(mats[m]['material_flag'], 16) & 4) for m in mat]), cull=cull,
-                           gc_lights=gc_ids))
+                           gc_lights=gc_ids, a0gc=a0gc))
+    if a0_light == 'gc' and not a0_own:
+        # instanced BINs (the same BIN placed more than once): one light result for every copy, the mean of the
+        # copies' own results corner by corner, so build() still shares one mesh between them (the GC lights each
+        # copy where it stands; lighting each copy apart breaks the instancing: r106 +438 KB of heap-4 mesh)
+        by = collections.defaultdict(list)
+        for g in groups:
+            if g['a0gc']:
+                by[(g['bin'], g['rgb'].shape, g['tex'].tobytes())].append(g)
+        for k, gs in by.items():
+            if len(gs) > 1:
+                m = np.mean([g['rgb'] for g in gs], axis=0)
+                for g in gs:
+                    g['rgb'] = m
+                if stats is not None:
+                    stats['a0_instanced_groups'] += len(gs)
     return groups
 
 
@@ -555,6 +748,19 @@ def main():
                     help="COLOR groups of BINs with light flag 0xa0000000 (run-time lit on the GameCube: the black faces) "
                          "also get the room's LIT screen ambient x SMX colour x TEV scale (GX channel rule); default off "
                          "(the historical packages, byte-identical)")
+    ap.add_argument('--a0-light', choices=('ambient', 'gc', 'ps2'),
+                    help="the light of the 0xa0000000 BINs (test 11 item D): 'ambient' = --a0-ambient; 'gc' = bake "
+                         "the GameCube's own static result: clamp01(LIT ambient + the static LIT lights the model "
+                         "selects, N.L with GX attenuation) x SMX colour x TEV scale (no PS2 vertex colour); default "
+                         "off (the historical packages, byte-identical)")
+    ap.add_argument('--a0-light-json', type=Path,
+                    help="--a0-light: a light set merged over the LIT json ({env: {ambient_scr, tev_scale}, lights_cut: "
+                         "[...], ambient_gain, light_gain}), e.g. PS2-measured values")
+    ap.add_argument('--a0-ps2-w', action='store_true',
+                    help="--a0-light ps2: scale by the PS2 room W (ps2-light.json) instead of the recipe's GC TEV scale")
+    ap.add_argument('--a0-light-own', action='store_true',
+                    help="--a0-light gc: light each copy of an instanced BIN at its own place (no mesh sharing for them; "
+                         "default: the copies' mean, so they still share one mesh)")
     a = ap.parse_args()
     crb.MAX_MESHLET_VERTICES = a.meshlet_vertices
     global CUTOUT_MAX_ALPHA
@@ -565,7 +771,8 @@ def main():
     a.out.mkdir(parents=True, exist_ok=True)
     a0_stats = collections.Counter()
     groups = read_scene(a.room, a.src, tuple(int(x) for x in a.lights.split(',')), a.vc_scale, a.color_light,
-                        a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp, a.a0_ambient, a0_stats)
+                        a.normal_sign, a.gc_cut, a.gc_lit, a.tev_scale, a.vc_clamp, a.a0_ambient, a0_stats,
+                        a.a0_light, a.a0_light_json, a.a0_light_own, a.a0_ps2_w)
     used, gains = final_gains(a.room, a.src, a.out, groups)
     textures = build_textures(a.room, a.src, a.out, used, gains)
     meshes, placements, sources, parts_meta, stats = build(groups, gains, textures, share=not a.no_share,
@@ -595,7 +802,8 @@ def main():
     for g in groups:
         for p in g['pass']:
             tri[int(p)] += 1
-    report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items() if k != 'a0_ambient' or v},
+    report = dict(room=a.room, args={k: str(v) for k, v in vars(a).items()
+                                                  if k not in ('a0_ambient', 'a0_light', 'a0_light_json', 'a0_light_own', 'a0_ps2_w') or v},
                   groups=len(groups), meshes=len(meshes),
                   placements=len(placements), source_triangles=sum(len(g['tex']) for g in groups),
                   triangles_by_pass={['OP', 'PT', 'TR'][k]: v for k, v in sorted(tri.items())},

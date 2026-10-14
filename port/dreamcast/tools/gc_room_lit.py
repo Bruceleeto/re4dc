@@ -4,7 +4,12 @@ layout as world-agent ps2-rooms-20260929/tools/gc_lit_dump.py (which reads orig/
 present only for a few rooms): ambient_scr, fog, contrast, lights_cut. ps2_room_r4im.py reads the output as
 <inputs>/<room>/gc-lit-cut0.json for NORMAL groups and for --color-light gc.
 
-usage: gc_room_lit.py <room> <out.json> [--cut 0] [--iso PATH]   (WSL)
+usage: gc_room_lit.py <room> <out.json> [--cut 0] [--iso PATH] [--all]   (WSL)
+--all (test 11 item D, ps2_room_r4im.py --a0-light gc): also every LIT cut ('cut_sets': env + lights of each cut; the
+game switches cuts by camera area, cam_ctrl.cpp switchCamera -> cLightMgr::update(area_no), an area_no outside the
+cut range = cut 0, getSafeCutNo) and the room camera areas from the CAM entry ('cam_areas': B40x CameraAreaInfo
+area_no, camera_no, attr, base_y, height, polygon x/z; include/cam_ctrl.h). The top-level env / lights_cut stay the
+--cut cut, so the file still reads as a plain cut json.
 """
 import argparse, json, struct, sys
 from pathlib import Path
@@ -17,7 +22,7 @@ from assetpipe.rooms import GcIso  # noqa: E402
 DEFAULT_ISO = "/root/work/re4-dreamcast/orig/G4BE08/re4_debug_disc1.iso"
 
 
-def dump(LIT, room, cut):
+def dump(LIT, room, cut, parents=False):
     be32 = lambda o: struct.unpack_from(">I", LIT, o)[0]
     fB = lambda o: struct.unpack_from(">f", LIT, o)[0]
     cutnum = struct.unpack_from(">H", LIT, 0)[0]
@@ -36,7 +41,26 @@ def dump(LIT, room, cut):
         lights.append(dict(i=j, be=be, xD=xD, type=ty, xF=xF, pos=list(struct.unpack_from(">3f", LIT, w + 4)),
                            R=fB(w + 0x10), col=list(LIT[w + 0x14:w + 0x18]), intensity=fB(w + 0x18),
                            n=list(struct.unpack_from(">3f", LIT, w + 0x2C)), A0=fB(w + 0x38), A1=fB(w + 0x3C)))
+        if parents:     # cLightWork 0x1C ParentType (0 none, 1 enemy, 2 scroll group, 3 room etc model, 4 object), 0x20 no
+            lights[-1].update(parent_type=LIT[w + 0x1C], parent_no=struct.unpack_from(">I", LIT, w + 0x20)[0])
     return dict(room=room, cut=cut, cuts=cutnum, env=env, lights_cut=lights)
+
+
+def cam_areas(CAM):
+    """B40x camera data (big-endian): header (numCut 4, numArea 5), CameraAreaRec[numArea] (0x10: area offset at 8),
+    CameraAreaInfo (0x30: area_no s8 1, camera_no s8 2, attr 3, height f32 0x20, base_y 0x24, num 0x28, points 0x2C)."""
+    out = []
+    if CAM[:3] != b'B40':
+        return out
+    for i in range(CAM[5]):
+        ao = struct.unpack_from(">I", CAM, 0x10 + 0x10 * i + 8)[0]
+        A = CAM[ao:ao + 0x30]
+        h, by = struct.unpack_from(">ff", A, 0x20)
+        num, po = struct.unpack_from(">iI", A, 0x28)
+        pts = [struct.unpack_from(">fff", CAM, po + 12 * k) for k in range(num)]
+        out.append(dict(i=i, area_no=struct.unpack("b", A[1:2])[0], camera_no=struct.unpack("b", A[2:3])[0], attr=A[3],
+                        base_y=by, height=h, points=[[p[0], p[2]] for p in pts]))
+    return out
 
 
 def main():
@@ -45,6 +69,7 @@ def main():
     ap.add_argument('out', type=Path)
     ap.add_argument('--cut', type=int, default=0)
     ap.add_argument('--iso', default=DEFAULT_ISO)
+    ap.add_argument('--all', action='store_true', help='also every cut (cut_sets) and the camera areas (cam_areas)')
     a = ap.parse_args()
     iso = GcIso(a.iso)
     rel = dict(iso.rooms()).get(a.room)
@@ -54,6 +79,11 @@ def main():
     e = room_smd.archive_endian(data)
     LIT = [data[s:t] for tag, s, t in room_smd.tagged_entries(data, e) if tag == b"LIT\0"][0]
     d = dump(LIT, a.room, a.cut)
+    if a.all:
+        d['cut_sets'] = [dict(cut=c, env=x['env'], lights_cut=x['lights_cut'])
+                         for c in range(d['cuts']) for x in [dump(LIT, a.room, c, True)]]
+        CAM = [data[s:t] for tag, s, t in room_smd.tagged_entries(data, e) if tag == b"CAM\0"]
+        d['cam_areas'] = cam_areas(CAM[0]) if CAM else []
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(d, indent=1))
     print(json.dumps(d['env']))
