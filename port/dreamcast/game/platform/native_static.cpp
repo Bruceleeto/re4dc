@@ -290,10 +290,16 @@ extern "C" const char* re4dc_haze_lean_osd_text(void); // esp_sub.cpp: the haze 
 #if defined(RE4DC_SHADOW_BLOB_TOGGLE)
 extern "C" const char* re4dc_blob_osd_text(void); // blob_shadow.cpp: the blob strength's name, 3 s after a change
 #endif
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+extern "C" const char* re4dc_fx_level_osd_text(void); // esp_sub.cpp: the FX level, 3 s after a change
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
 extern "C" const char* re4dc_leon_light_osd_text(void); // native_actor_fast.cpp: the Leon lighting mode, 3 s after a change
 #endif
 extern "C" const char* re4dc_look_osd_text(void){
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+    if(const char* fl=re4dc_fx_level_osd_text())return fl;
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
     if(const char* ll=re4dc_leon_light_osd_text())return ll;
 #endif

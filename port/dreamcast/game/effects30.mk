@@ -227,6 +227,21 @@ endif
 #                    FX_LEVEL the admitted owners get a per-frame budget (kFxLevel owners; never thinned or resized).
 #                    Test 12: needs FX_LEVEL (never unbudgeted: the budget is 48 / 32 / 16 at level 0 / 1 / 2, so the
 #                    admitted owners cannot take the whole 64-sprite cap); Leon's PL00 effects are opted out of it.
+# FX_LEVEL_TOGGLE=1 (test builds, default 0): Y + START steps the runtime FX level 0 -> 1 -> 2 (3 s label, LOOK_TOGGLE's
+#                    on-screen text). Needs FX_LEVEL (the boot level) and LOOK_TOGGLE=1.
+FX_LEVEL_TOGGLE ?= 0
+ifeq ($(FX_LEVEL_TOGGLE),1)
+ifeq ($(FX_LEVEL),)
+$(error FX_LEVEL_TOGGLE=1 needs FX_LEVEL)
+endif
+ifneq ($(LOOK_TOGGLE),1)
+$(error FX_LEVEL_TOGGLE=1 needs LOOK_TOGGLE=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_FX_LEVEL_TOGGLE=1
+PLATFORM_CPPFLAGS += -DRE4DC_FX_LEVEL_TOGGLE=1
+else ifneq ($(FX_LEVEL_TOGGLE),0)
+$(error FX_LEVEL_TOGGLE is 0 or 1)
+endif
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)

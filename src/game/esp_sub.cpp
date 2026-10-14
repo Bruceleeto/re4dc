@@ -3948,3 +3948,22 @@ asm(".section .sdata; .balign 8");
 #include <cstring>
 #include "fx_core_source_prep.inc"
 #endif
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE && defined(RE4DC_FX_LEVEL)
+// FX_LEVEL_TOGGLE (effects30.mk, test builds): pad.cpp Y + START steps re4dc_fx_level 0 -> 1 -> 2 -> 0; native_static.cpp
+// shows the level for 3 s through re4dc_look_osd_text. Render only, as the dial itself.
+extern "C" unsigned re4dc_vi_retrace_count(void);
+extern "C" void re4dc_log(const char* fmt, ...);
+static u32 s_fx_level_osd_until;
+static const char* const kFxLevelText[3] = {"FX level 0: PS2 effects as-is", "FX level 1: medium effects",
+                                            "FX level 2: low effects"};
+extern "C" void re4dc_fx_level_toggle(void)
+{
+    re4dc_fx_level_cycle();
+    s_fx_level_osd_until = re4dc_vi_retrace_count() + 180U;
+    re4dc_log("fx level: %u frame=%u\n", (unsigned) re4dc_fx_level, pG ? (unsigned) pG->Frame_cnt : 0u);
+}
+extern "C" const char* re4dc_fx_level_osd_text(void)
+{
+    return (int) (s_fx_level_osd_until - re4dc_vi_retrace_count()) > 0 ? kFxLevelText[re4dc_fx_level % 3] : 0;
+}
+#endif
