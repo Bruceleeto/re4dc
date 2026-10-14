@@ -864,6 +864,30 @@ MOVIE_DISC_QUIET ?= 0
 ifneq ($(MOVIE_DISC_QUIET),0)
 $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_DISC_QUIET=1
 endif
+# D39: original cabin source events with independently qualified movie output.
+# Default zero preserves prior objects/assets; exact carrier staging is a separate reviewed gate.
+CABIN_SOURCE ?= 0
+ifneq ($(filter-out 0 1,$(CABIN_SOURCE)),)
+$(error CABIN_SOURCE must be 0 or 1)
+endif
+ifeq ($(CABIN_SOURCE),1)
+ifneq ($(ROUTE_CH22):$(ROUTE_MOVIES):$(AICA_AUDIO):$(AICA_STREAMS):$(NATIVE_STATIC),1:1:1:1:1)
+$(error CABIN_SOURCE needs ROUTE_CH22=1 ROUTE_MOVIES=1 AICA_AUDIO=1 AICA_STREAMS=1 NATIVE_STATIC=1)
+endif
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_cabin.o,$(PLATFORM_OBJS))
+endif
+.PHONY: cabin-source-force
+$(OBJDIR)/cabin-source.h: cabin-source-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_CABIN_SOURCE %s\n' '$(CABIN_SOURCE)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+CABIN_SOURCE_PLATFORM = $(OBJDIR)/platform/native_cabin.o $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/audio_aica.o
+CABIN_SOURCE_GAME = $(OBJDIR)/src/game/event.o $(OBJDIR)/src/game/snd_str0.o $(OBJDIR)/src/game/sce_sys.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o
+$(CABIN_SOURCE_PLATFORM) $(CABIN_SOURCE_GAME) $(OBJDIR)/platform/native_movie_stream.o: $(OBJDIR)/cabin-source.h
+$(CABIN_SOURCE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/cabin-source.h
+$(CABIN_SOURCE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/cabin-source.h
 # D38: exact full blocking r11f10/11f11 movies borrow the retained world cell.
 # No resolution/audio changes, source-heap expansion or allocator fallback.
 MOVIE_WORLD_ARENA ?= 0
@@ -904,7 +928,7 @@ endif
 # Isolated recompile of the pinned KOS stream (spike A5): no writes under KOS_BASE.
 $(OBJDIR)/platform/native_movie_stream.o: platform/native_movie_stream.c $(OBJDIR)/route-movies.h $(KOS_BASE)/kernel/arch/dreamcast/sound/snd_stream.c
 	@mkdir -p $(dir $@)
-	kos-cc $(KOS_CFLAGS) -Os -include $(OBJDIR)/route-movies.h -include $(OBJDIR)/movie-world-arena.h -I$(KOS_BASE)/kernel/arch/dreamcast/sound -I$(KOS_BASE)/kernel/arch/dreamcast/include/dc/sound -MMD -MP -c $< -o $@
+	kos-cc $(KOS_CFLAGS) -Os -include $(OBJDIR)/route-movies.h -include $(OBJDIR)/movie-world-arena.h -include $(OBJDIR)/cabin-source.h -I$(KOS_BASE)/kernel/arch/dreamcast/sound -I$(KOS_BASE)/kernel/arch/dreamcast/include/dc/sound -MMD -MP -c $< -o $@
 $(OBJDIR)/route_movie_bridge.o: route_movie_bridge.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
