@@ -400,6 +400,9 @@ extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp: the preset l
 #if defined(RE4DC_SHADOW_BLOB_TOGGLE)
 extern "C" void re4dc_blob_cycle(void);  // blob_shadow.cpp (game30.mk SHADOW_BLOB_TOGGLE)
 #endif
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+extern "C" void re4dc_leon_light_cycle(void);  // native_actor_fast.cpp (crowd.mk LEON_LIGHT_TOGGLE)
+#endif
 #if RE4DC_RES_MODES
 extern "C" void re4dc_res_cycle(void);  // res_mode.cpp (game30.mk RES_MODES)
 #endif
@@ -571,6 +574,11 @@ u32 PADRead(PADStatus* status)
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_LEFT)) {
                     lookChord = 1;
                     re4dc_blob_cycle();  // X + D-pad left + START: the next blob shadow strength (blob_shadow.cpp)
+#endif
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+                } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_RIGHT)) {
+                    lookChord = 1;
+                    re4dc_leon_light_cycle();  // X + D-pad right + START: the next Leon lighting mode (LEON_LIGHT_TOGGLE)
 #endif
 #if RE4DC_RES_MODES
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_DOWN)) {

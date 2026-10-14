@@ -445,6 +445,38 @@ GAME_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_PROBE_API=1
 PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_PROBE_API=1
 endif
 
+# LEON_LIGHT_HEADROOM=1 (lane lp2; render only; default 0: nothing changes): Leon's lighting gets 2x headroom. The disc
+#              must carry Leon's textures at 2x (tools/d367/charbake/cb_headroom.py: every Leon atlas / hair key at
+#              double the stored levels, same keys and sizes, 0 VRAM); Leon's constant colour becomes 128 and his lit
+#              colour matrix x0.5 (native_actor_fast.cpp), so flat looks as before and lit vertices reach 2.0x like the
+#              GameCube TEV x2/x4 and the PS2 GS. A headroom binary needs the 2x pak, and the 2x pak needs a headroom
+#              binary (else Leon draws at half / double brightness). Needs ACTOR_TRANSACTION=1.
+# LEON_LIGHT_TOGGLE=1 (debug only, never in a release recipe): the Leon lighting mode cycles live (hold X, hold D-pad
+#              right, press START; warp `leonlight <n>`): FLAT (test 10), PROBE, PROBE + HEADROOM, FLAT WARM (room
+#              lights). Needs LEON_LIGHT_HEADROOM=1, ACTOR_PROBE_LIGHT=1/2, LOOK_TOGGLE=1, DBG_WARP=1.
+LEON_LIGHT_HEADROOM ?= 0
+LEON_LIGHT_TOGGLE ?= 0
+ifneq ($(filter-out 0 1,$(LEON_LIGHT_HEADROOM))$(filter-out 0 1,$(LEON_LIGHT_TOGGLE)),)
+$(error LEON_LIGHT_HEADROOM / LEON_LIGHT_TOGGLE are 0 or 1)
+endif
+ifeq ($(LEON_LIGHT_HEADROOM),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error LEON_LIGHT_HEADROOM=1 needs ACTOR_TRANSACTION=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_LIGHT_HEADROOM=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_HEADROOM=1
+endif
+ifeq ($(LEON_LIGHT_TOGGLE),1)
+ifneq ($(LEON_LIGHT_HEADROOM)$(LOOK_TOGGLE)$(DBG_WARP),111)
+$(error LEON_LIGHT_TOGGLE=1 needs LEON_LIGHT_HEADROOM=1 LOOK_TOGGLE=1 DBG_WARP=1 (debug builds only))
+endif
+ifeq ($(ACTOR_PROBE_LIGHT),0)
+$(error LEON_LIGHT_TOGGLE=1 needs ACTOR_PROBE_LIGHT=1 or 2)
+endif
+GAME_CPPFLAGS += -DRE4DC_LEON_LIGHT_TOGGLE=1
+PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_TOGGLE=1
+endif
+
 # Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.
 # Default off keeps the original registry and adds no compiler flags. The pool
 # is fixed at the existing workspace owner limit times the maximum plan roles.

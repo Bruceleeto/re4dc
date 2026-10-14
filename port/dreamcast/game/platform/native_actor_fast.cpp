@@ -147,6 +147,9 @@ void re4dc_log(const char* fmt, ...);
 #if defined(RE4DC_GIGANTE_LIGHTS) && RE4DC_GIGANTE_LIGHTS
 extern "C" int re4dc_actor_model_id(const void* model);  // model_bridge.cpp (GIGANTE_LIGHTS)
 #endif
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+extern "C" unsigned re4dc_leon_light_mode;  // LEON_LIGHT_TOGGLE (defined below, next to the probe API)
+#endif
 
 namespace {
 using u8 = std::uint8_t;
@@ -1589,7 +1592,36 @@ struct Lights {
     bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
 #endif
 };
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+// LEON_LIGHT_HEADROOM: Leon's lit record (LEON_SOURCE_LIGHT marks it in normal_matrix[3]) and its colour gain.
+inline bool leon_record(const SourceLighting& S) { return S.normal_matrix[3] == 1.0e30f; }
+inline float leon_gain(const SourceLighting& S) {
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+    if (re4dc_leon_light_mode == 1) return 1.0f;  // PROBE: full scale here, halved per vertex after the pass
+#endif
+    return leon_record(S) ? 0.5f : 1.0f;
+}
+#endif
 
+#ifndef RE4DC_LEON_LIGHT_HEADROOM
+#define RE4DC_LEON_LIGHT_HEADROOM 0
+#endif
+#ifndef RE4DC_LEON_LIGHT_TOGGLE
+#define RE4DC_LEON_LIGHT_TOGGLE 0
+#endif
+#if RE4DC_LEON_LIGHT_HEADROOM
+// LEON_LIGHT_HEADROOM=1 (crowd.mk; lane lp2; render only; default 0): Leon's textures are stored at 2x on the disc
+// (tools/d367/charbake/cb_headroom.py) and every Leon vertex colour is halved, so the PVR's 1.0x modulate cap becomes
+// 2.0x of the original texel (the GameCube TEV x2/x4 and the PS2 GS 0x80 = 1.0 have the same headroom). The flat
+// record is 128 (coarse_actor_transaction.inc); here the lit records (LEON_SOURCE_LIGHT's marker) take x0.5 after
+// the fast fold's caps check, so the folds and kernels are unchanged and only the colour matrix differs.
+// LEON_LIGHT_TOGGLE=1 (debug builds, DBG_WARP + LOOK_TOGGLE): the mode cycles live (hold X, D-pad right, START):
+//   0 FLAT (test 10)   one colour, 128 (= test 10's 255 on the 2x textures)
+//   1 PROBE            the probe at full scale, then halved per vertex: test 10's 1.0x cap (35-45% darker than flat)
+//   2 PROBE+HEADROOM   the probe at x0.5: lit vertices reach 2.0x
+//   3 FLAT WARM        one colour per part: the hue of the room's GameCube light set (ambient + the lights
+//                      LightSetModel picked for Leon, per room and frame), brightest channel 128
+#endif
 #ifndef RE4DC_GIGANTE_LIGHTS
 #define RE4DC_GIGANTE_LIGHTS 0
 #endif
@@ -1657,6 +1689,9 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
         return true;
     }
     if (S.diffuse != 2 || !caps255) return false;
+#if RE4DC_LEON_LIGHT_HEADROOM
+    { const float g = leon_gain(S); for (unsigned c = 0; c < 3; ++c) scale[c] *= g; }
+#endif
     const float* m = p.modelview;
     const float px = m[0] * center[0] + m[1] * center[1] + m[2] * center[2] + m[3];
     const float py = m[4] * center[0] + m[5] * center[1] + m[6] * center[2] + m[7];
@@ -1854,6 +1889,9 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
         scale[c] = S.material[c] * S.tev_scale;
         if (!(scale[c] >= 255.0f)) { ++probe_stats.declined; return false; }  // build_lights' caps255 condition
     }
+#if RE4DC_LEON_LIGHT_HEADROOM
+    { const float g = leon_gain(S); for (unsigned c = 0; c < 3; ++c) scale[c] *= g; }
+#endif
     const float* N = S.normal_matrix;
     float Np[12];
     const bool leon = N[3] == 1.0e30f;
@@ -1892,6 +1930,27 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
     return true;
 }
 }  // namespace
+#if RE4DC_LEON_LIGHT_TOGGLE
+// LEON_LIGHT_TOGGLE: the live Leon lighting mode (pad.cpp X + D-pad right + START; warp `leonlight <n>`), its on-screen
+// name for 3 s (native_static.cpp re4dc_look_osd_text) and a log line per change.
+extern "C" unsigned re4dc_vi_retrace_count(void);
+extern "C" void re4dc_log(const char* fmt, ...);
+extern "C" {
+unsigned re4dc_leon_light_mode = 2;  // boot: PROBE + HEADROOM (the candidate)
+}
+static unsigned leon_light_osd_until;
+static const char* const kLeonLightNames[4] = {"Leon light: FLAT (test 10)", "Leon light: PROBE",
+                                               "Leon light: PROBE + HEADROOM", "Leon light: FLAT WARM (room lights)"};
+extern "C" void re4dc_leon_light_set(unsigned mode) {
+    re4dc_leon_light_mode = mode % 4U;
+    leon_light_osd_until = re4dc_vi_retrace_count() + 180U;
+    re4dc_log("LEON_LIGHT_MODE %u %s\n", re4dc_leon_light_mode, kLeonLightNames[re4dc_leon_light_mode]);
+}
+extern "C" void re4dc_leon_light_cycle(void) { re4dc_leon_light_set(re4dc_leon_light_mode + 1U); }
+extern "C" const char* re4dc_leon_light_osd_text(void) {
+    return int(leon_light_osd_until - re4dc_vi_retrace_count()) > 0 ? kLeonLightNames[re4dc_leon_light_mode % 4U] : nullptr;
+}
+#endif
 // actor_light_probe.h: the newest probe of a model (this frame's, else the previous frame's).
 extern "C" int re4dc_actor_light_probe(const void* model, Re4dcLightProbe* out) {
     const ProbeEntry* best = nullptr;
@@ -1910,6 +1969,26 @@ extern "C" int re4dc_actor_light_probe(const void* model, Re4dcLightProbe* out) 
 namespace {
 // The part's light fold: the actor's probe when it applies, else build_lights.
 bool part_lights(const Re4dcModelPart& p, const Frame& f, const float center[3], Lights& L) {
+#if RE4DC_LEON_LIGHT_TOGGLE
+    if ((re4dc_leon_light_mode == 0 || re4dc_leon_light_mode == 3) && leon_record(*p.lighting)) {
+        const SourceLighting& S = *p.lighting;
+        L = Lights{};
+        L.source = &S;
+        L.constant = true;
+        L.constant_rgb = 0x808080U;  // FLAT: 128 on the 2x textures = test 10's white
+        if (re4dc_leon_light_mode == 3) {  // FLAT WARM: the hue of the room's light set, brightest channel 128
+            float h[3];
+            for (unsigned c = 0; c < 3; ++c) {
+                h[c] = S.ambient[c];
+                for (unsigned i = 0; i < 8; ++i) if (S.mask & (1U << i)) h[c] += S.lights[i].color[c];
+            }
+            const float mx = std::max(h[0], std::max(h[1], h[2]));
+            if (mx > 0.0f) L.constant_rgb = (channel(128.0f * h[0] / mx) << 16) | (channel(128.0f * h[1] / mx) << 8) |
+                                            channel(128.0f * h[2] / mx);
+        }
+        return true;
+    }
+#endif
     if (probe_lights(p, f, L)) return true;
     return build_lights(p, f, center, L);
 }
@@ -3491,8 +3570,13 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
             // No invertible normal basis: keep native ownership and the prototype's constant-colour fallback.
             // Do not use the previous role's GX normal matrix or send NaNs to the TA.
             const SourceLighting& S = *L.source;
+#if RE4DC_LEON_LIGHT_HEADROOM
+            const float ts = S.tev_scale * leon_gain(S);
+            const u32 rgb = channel(S.material[0] * ts) << 16 | channel(S.material[1] * ts) << 8 | channel(S.material[2] * ts);
+#else
             const u32 rgb = channel(S.material[0] * S.tev_scale) << 16 |
                             channel(S.material[1] * S.tev_scale) << 8 | channel(S.material[2] * S.tev_scale);
+#endif
             for (unsigned i = 0; i < n; ++i) {
                 const u32 a = e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha;
                 e.cache.v[i].argb = a | rgb;
@@ -3557,9 +3641,16 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
             const float f = attenuation * diffuse;
             out0 += l.r * f; out1 += l.g * f; out2 += l.b * f;
         }
+#if RE4DC_LEON_LIGHT_HEADROOM
+        const float ts = S.tev_scale * leon_gain(S);
+        const float rgb0 = material[0] / 255.f * std::min(std::max(out0, 0.f), 1.f) * ts;
+        const float rgb1 = material[1] / 255.f * std::min(std::max(out1, 0.f), 1.f) * ts;
+        const float rgb2 = material[2] / 255.f * std::min(std::max(out2, 0.f), 1.f) * ts;
+#else
         const float rgb0 = material[0] / 255.f * std::min(std::max(out0, 0.f), 1.f) * S.tev_scale;
         const float rgb1 = material[1] / 255.f * std::min(std::max(out1, 0.f), 1.f) * S.tev_scale;
         const float rgb2 = material[2] / 255.f * std::min(std::max(out2, 0.f), 1.f) * S.tev_scale;
+#endif
         const u32 a = e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha;
         e.cache.v[i].argb = a | (channel(rgb0 * 255.0f) << 16) | (channel(rgb1 * 255.0f) << 8) | channel(rgb2 * 255.0f);
     }
@@ -4695,6 +4786,14 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
         } else {
             pass_lights_exact(e, lights, r, nv);
         }
+#if RE4DC_LEON_LIGHT_TOGGLE
+        // LEON_LIGHT_TOGGLE mode 1 (PROBE): test 10's 1.0x cap on the 2x textures (the pass ran at full scale)
+        if (re4dc_leon_light_mode == 1 && !lights.constant && leon_record(*p.lighting))
+            for (unsigned i = 0; i < nv; ++i) {
+                const u32 c = e.cache.v[i].argb;
+                e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);
+            }
+#endif
         if (bake == kBakeNone) stats.normals_lit += nv;
         if (any & kOcNear) ++stats.meshlets_clipped;
         if (!(any & (kOcCull | kOcNear)) && e.fits(ni)) { ++stats.meshlets_whole; ok = e.whole(index, ni, nt); }
@@ -5241,6 +5340,14 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
         } else {
             pass_lights_exact(e, lights, r, nv);
         }
+#if RE4DC_LEON_LIGHT_TOGGLE
+        // LEON_LIGHT_TOGGLE mode 1 (PROBE): test 10's 1.0x cap on the 2x textures (the pass ran at full scale)
+        if (re4dc_leon_light_mode == 1 && !lights.constant && leon_record(*p.lighting))
+            for (unsigned i = 0; i < nv; ++i) {
+                const u32 c = e.cache.v[i].argb;
+                e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);
+            }
+#endif
         if (bake == kBakeNone) stats.normals_lit += nv;
         if (any & kOcNear) ++stats.meshlets_clipped;
         if (!(any & (kOcCull | kOcNear)) && e.fits(ni)) { ++stats.meshlets_whole; ok = e.whole(index, ni, nt); }

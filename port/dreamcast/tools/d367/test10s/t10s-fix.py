@@ -2,12 +2,14 @@
 """t10s-fix.py SRC.json OLD_LABEL NEW_LABEL OUT.json [--pak 9.1|gc] [--hands 0|1] [--warp FILE] [--pad FILE] [--qtxt FILE]
 Test 10 (small) fixtures: a copy of a 9.1-era fixture with the program label swapped, the test 10 data:
   --pak gc   dc/tex.pak = tex-gcatlas.pak (Leon's two atlases rebuilt from the GC textures; else identical to tex-t9.pak)
+  --pak gchr tex-gcatlas.pak with Leon's textures at 2x (charbake/cb_headroom.py): ONLY for LEON_LIGHT_HEADROOM=1 builds
   --hands 1  dc/native/pl00/leon_hands_pl00.re4hp (LEON_HAND_PACK package, sha d752aac5)
 and optional warp / padscript / quality files for test runs."""
 import json, sys, hashlib
 PAK = {'9.1': '/root/probe/lanes-20261012/test9/rel9/fix/tex-t9.pak',
-       'gc': '/root/probe/lanes-20261014/oldvis-work/tex-gcatlas.pak'}
-PAKSHA = {'9.1': '533b8204dda457cb', 'gc': '7137e9e58bd43a01'}
+       'gc': '/root/probe/lanes-20261014/oldvis-work/tex-gcatlas.pak',
+       'gchr': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
+PAKSHA = {'9.1': '533b8204dda457cb', 'gc': '7137e9e58bd43a01', 'gchr': '1eb18ec47148f994'}
 HANDS = '/root/probe/lanes-20261013/hands2-work/pkg/leon_hands_pl00.re4hp'
 HSHA = 'd752aac59ae99256'
 a = sys.argv[1:]

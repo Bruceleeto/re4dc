@@ -18,7 +18,15 @@ FIXTURE = r'''
 static int model_id = 0x12;
 extern "C" int re4dc_actor_model_id(const void*) { return model_id; }
 extern "C" void re4dc_log(const char*, ...) {}
+#if RE4DC_LEON_LIGHT_TOGGLE
+extern "C" unsigned re4dc_vi_retrace_count(void) { return 0; }
+#endif
 static bool near(float a, float b, float tol) { return std::fabs(a - b) <= tol; }
+#if RE4DC_LEON_LIGHT_HEADROOM
+constexpr float kLeonGain = 0.5f;  // LEON_LIGHT_HEADROOM: Leon's lit colours at x0.5 (his textures are 2x)
+#else
+constexpr float kLeonGain = 1.0f;
+#endif
 static SourceLighting base(unsigned lamps) {
     SourceLighting s{}; s.enable = 1; s.diffuse = 2; s.attenuation = 0; s.mask = (1u << lamps) - 1;
     s.ambient[0] = 20; s.ambient[1] = 30; s.ambient[2] = 40;
@@ -58,6 +66,10 @@ int main() {
             assert(near(a.color[12 + c], b.color[12 + c], 1e-3f));
         }
         assert(near(a.view_dot[0], b.view_dot[0], 1e-5f));
+#if RE4DC_LEON_LIGHT_HEADROOM
+        // LEON_LIGHT_HEADROOM: Leon's lit colour matrix at x0.5 (2x textures); others unchanged. Ambient 20 x 255/255.
+        assert(near(b.color[12], (leon ? 0.5f : 1.0f) * 20.0f, 1e-3f) && near(a.color[12], b.color[12], 1e-3f));
+#endif
         assert(!std::memcmp(&s, &original, sizeof(s)));
     }
     // 2. two lights on one side fold into one direction; opposite equal lights give ambient only.
@@ -74,15 +86,15 @@ int main() {
         const float coherence = r;  // |V| / W for two equal orthogonal lights
         const float total = 2 * 120 / 255.0f;
         for (unsigned c = 0; c < 3; ++c) {
-            assert(near(a.color[c], 0.5f * coherence * total * 255, 1e-2f));
-            assert(near(a.color[12 + c], (s.ambient[c] / 255.0f + .25f * (1 - coherence) * total) * 255, 1e-2f));
+            assert(near(a.color[c], 0.5f * coherence * total * 255 * kLeonGain, 1e-2f));
+            assert(near(a.color[12 + c], (s.ambient[c] / 255.0f + .25f * (1 - coherence) * total) * 255 * kLeonGain, 1e-2f));
         }
         s.lights[1].position[0] = -900; s.lights[1].position[1] = -50;  // now opposite (-x)
         ++frame_serial;
         Lights o{}; assert(probe_lights(p, f, o));
         for (unsigned c = 0; c < 3; ++c) {
             assert(near(o.dir[0][c], 0, 1e-6f) && near(o.color[c], 0, 1e-3f));
-            assert(near(o.color[12 + c], (s.ambient[c] / 255.0f + .25f * total) * 255, 1e-2f));
+            assert(near(o.color[12 + c], (s.ambient[c] / 255.0f + .25f * total) * 255 * kLeonGain, 1e-2f));
         }
     }
     // 3. one probe per (model, record, frame): reused by later parts, rebuilt next frame or for another model.
@@ -140,6 +152,24 @@ int main() {
         for (unsigned i = 0; i < 3; ++i) assert(ready_a[i] == 1 && ready_b[i] == 1);
         for (unsigned k = 0; k < 36; ++k) assert(near(all[k], each[k], 1e-7f));
     }
+#if RE4DC_LEON_LIGHT_TOGGLE
+    {   // LEON_LIGHT_TOGGLE: the four live modes on a Leon record
+        SourceLighting s = base(1); s.normal_matrix[3] = 1.0e30f;
+        s.lights[0].position[0] = 1100; s.lights[0].color[0] = 200; s.lights[0].color[1] = 150; s.lights[0].color[2] = 90;
+        Re4dcModelPart p = part(s, &model_a, I);
+        Lights L{};
+        re4dc_leon_light_set(0); ++frame_serial;
+        assert(part_lights(p, f, centre, L) && L.constant && L.constant_rgb == 0x808080U);          // FLAT
+        re4dc_leon_light_set(3);                                                                     // FLAT WARM
+        assert(part_lights(p, f, centre, L) && L.constant && L.constant_rgb == ((128U << 16) | (104U << 8) | 75U));
+        re4dc_leon_light_set(2); ++frame_serial;                                                     // PROBE + HEADROOM
+        assert(part_lights(p, f, centre, L) && !L.constant && L.probe && near(L.color[12], 10.0f, 1e-3f));
+        re4dc_leon_light_set(1); ++frame_serial;                                                     // PROBE (full scale)
+        assert(part_lights(p, f, centre, L) && !L.constant && near(L.color[12], 20.0f, 1e-3f));
+        re4dc_leon_light_set(6); assert(re4dc_leon_light_mode == 2);
+        std::printf("PASS LEON_LIGHT_TOGGLE: flat 128, warm hue, headroom x0.5, probe full scale\n");
+    }
+#endif
     std::printf("PASS ACTOR_PROBE_LIGHT=%d: one-light parity with build_lights, folds, per-frame cache, Leon part basis, declines, palette directions, shared probe record, source immutable\n", RE4DC_ACTOR_PROBE_LIGHT);
 }
 '''
@@ -151,10 +181,12 @@ class ActorProbeLight(unittest.TestCase):
             t = Path(temporary); (t / 'dc').mkdir()
             (t / 'dc/pvr.h').write_text('#pragma once\n#include <cstddef>\n#include <cstdint>\nstruct pvr_vertex_t{std::uint32_t flags;float x,y,z,u,v;std::uint32_t argb,oargb;};\nstruct pvr_poly_hdr_t{std::uint32_t words[8];};\n#define PVR_CMD_VERTEX 0xe0000000U\n#define PVR_CMD_VERTEX_EOL 0xf0000000U\nint pvr_prim(const void*,std::size_t);\n')
             (t / 'fixture.cpp').write_text(FIXTURE.replace('ACTOR_IMPLEMENTATION', str(ROOT / 'port/dreamcast/game/platform/native_actor_fast.cpp')))
-            for level in (1, 2):
-                exe = t / f'probe-{level}'
+            # (level, extra defines): the probe alone, and with LEON_LIGHT_HEADROOM / LEON_LIGHT_TOGGLE
+            for level, extra in ((1, []), (2, []), (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1']),
+                                 (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_TOGGLE=1'])):
+                exe = t / f'probe-{level}-{len(extra)}'
                 cmd = ['g++', '-std=c++20', '-O2', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
-                       '-DRE4DC_LEON_SOURCE_LIGHT=1', f'-DRE4DC_ACTOR_PROBE_LIGHT={level}', '-I' + str(t),
+                       '-DRE4DC_LEON_SOURCE_LIGHT=1', f'-DRE4DC_ACTOR_PROBE_LIGHT={level}', *extra, '-I' + str(t),
                        '-I' + str(ROOT / 'port/dreamcast/game/platform/include'), str(t / 'fixture.cpp'),
                        str(ROOT / 'port/dreamcast/room/source_lighting.cpp'), '-o', str(exe)]
                 c = subprocess.run(cmd, capture_output=True, text=True)
@@ -176,6 +208,13 @@ class ActorProbeLightKnobs(unittest.TestCase):
                 ({'ACTOR_PROBE_LIGHT': '1'}, 'ACTOR_PROBE_LIGHT needs LEON_SOURCE_LIGHT=1'),
                 ({'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, None),
                 ({'ACTOR_PROBE_LIGHT': '2', 'LEON_SOURCE_LIGHT': '1'}, 'ACTOR_PROBE_LIGHT=2 needs PS2_GANADO_LIT=1 CROWD_LOD=1'),
+                ({'LEON_LIGHT_HEADROOM': '1'}, None),
+                ({'LEON_LIGHT_HEADROOM': '2'}, 'LEON_LIGHT_HEADROOM / LEON_LIGHT_TOGGLE are 0 or 1'),
+                ({'LEON_LIGHT_TOGGLE': '1', 'LEON_LIGHT_HEADROOM': '1'}, 'needs LEON_LIGHT_HEADROOM=1 LOOK_TOGGLE=1 DBG_WARP=1'),
+                ({'LEON_LIGHT_TOGGLE': '1', 'LEON_LIGHT_HEADROOM': '1', 'LOOK_TOGGLE': '1', 'DBG_WARP': '1'},
+                 'LEON_LIGHT_TOGGLE=1 needs ACTOR_PROBE_LIGHT=1 or 2'),
+                ({'LEON_LIGHT_TOGGLE': '1', 'LEON_LIGHT_HEADROOM': '1', 'LOOK_TOGGLE': '1', 'DBG_WARP': '1',
+                  'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, None),
             ]
             for knobs, err in cases:
                 args = ['make', '-f', str(mk), '--dry-run', '--no-print-directory', 'all', 'ACTOR_TRANSACTION=1', 'LEON_NATIVE_PIPE=0']

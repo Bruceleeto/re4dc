@@ -385,6 +385,9 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     b.shift=registry_position_shift(p.appearance);
 #endif
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+    if(RE4DC_LEON_LIKE(p.appearance))b.lighting=RE4DC_LEON_FLAT_LIGHT;  // LEON_LIGHT_HEADROOM: 128 on the 2x textures
+#endif
 #if RE4DC_ACTOR_GANADO_DEATH_FADE
     if(captured) {
         b.alpha_state=captured->alpha;b.source_key[2]=captured->fog;r->lit=captured->lit;b.lighting=&r->lit;

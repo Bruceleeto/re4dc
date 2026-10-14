@@ -82,6 +82,9 @@ u32 re4dc_vi_retrace_count(void);
 
 int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
 void re4dc_fixture_state(const char* name, int a, int b);  // pad.cpp fixture anchors (overlay)
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+extern "C" void re4dc_leon_light_set(unsigned mode);  // native_actor_fast.cpp (crowd.mk LEON_LIGHT_TOGGLE)
+#endif
 #if defined(RE4DC_LOOK_TOGGLE)
 extern "C" void re4dc_look_set(unsigned mode);  // native_static.cpp (post30.mk LOOK_TOGGLE)
 extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp (post30.mk LOOK_TOGGLE)
@@ -348,6 +351,10 @@ void load()
 #if defined(RE4DC_LOOK_TOGGLE)
         } else if (!strcmp(k, "look") && n >= 2) {
             re4dc_look_set(num(tok[1]));   // post30.mk LOOK_TOGGLE: the look preset at load (gallery columns)
+#if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
+        } else if (!strcmp(k, "leonlight") && n >= 2) {
+            re4dc_leon_light_set(num(tok[1]));   // LEON_LIGHT_TOGGLE: the Leon lighting mode at load (0..3)
+#endif
         } else if (!strcmp(k, "lookosd")) {
             re4dc_look_osd_toggle();       // LOOK_TOGGLE: the on-screen preset label always shown (label checks)
         } else if (!strcmp(k, "lookstep") && n >= 2 && wp.n_lookstep < 16) {

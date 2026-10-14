@@ -86,6 +86,13 @@ cParts* owner_parts;
 Mtx local_skin[119];
 alignas(32) float palette[256][12]; // one synchronous opaque info at a time
 re4dc::render::SourceLighting light; // constant texture colour for this proof
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+// LEON_LIGHT_HEADROOM (crowd.mk): Leon's textures are 2x on the disc (cb_headroom.py), so his constant colour is 128.
+const re4dc::render::SourceLighting leon_flat_light=[]{re4dc::render::SourceLighting s;s.material[0]=s.material[1]=s.material[2]=128;return s;}();
+#define RE4DC_LEON_FLAT_LIGHT (&leon_flat_light)
+#else
+#define RE4DC_LEON_FLAT_LIGHT (&light)
+#endif
 unsigned attempts, drawn, fallback, rejected, missing_texture;
 #if RE4DC_COARSE_SKIN_FTRV
 // FTRV palettes: entries built once from the generated weights; T only for the bones they use.
@@ -285,7 +292,7 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
     unsigned triangles=0,mask=0;
     Re4dcModelPart p{};
     p.model=m;p.position_stride=6;p.normal_stride=6;p.normal_shift=14;p.shift=4;
-    p.lighting=&light;p.image=image;p.source_key[2]=1;
+    p.lighting=RE4DC_LEON_FLAT_LIGHT;p.image=image;p.source_key[2]=1;
     p.depth_mode=m->z_mode;p.cull=0;p.alpha_state=255;
     GXGetProjectionv(p.projection);GXGetViewportv(p.viewport);
     Re4dcActorChunk group[8];unsigned member[8],n=0,used=0;
@@ -363,7 +370,7 @@ extern "C" int re4dc_coarse_leon(cModel* m) {
         p.model=m;p.info=&c;p.part=&c;p.position_count=c.position_count;p.normal_count=c.normal_count;
         p.position_stride=6;p.normal_stride=6;p.normal_shift=14;p.shift=4;
         p.stream=c.stream;p.stream_bytes=c.stream_bytes;p.uv=c.uv;
-        p.lighting=&light;p.image=image;p.source_key[2]=1;
+        p.lighting=RE4DC_LEON_FLAT_LIGHT;p.image=image;p.source_key[2]=1;
         p.depth_mode=m->z_mode;p.cull=0;p.alpha_state=255;
         std::memcpy(p.modelview,mv,sizeof(mv));GXGetProjectionv(p.projection);GXGetViewportv(p.viewport);
         if(!re4dc_actor_submit(&p)){++rejected;continue;}
