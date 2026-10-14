@@ -29,6 +29,70 @@ bool r11fContext() {
         !(pG->Status_flg[1]&0x100) && !re4dc_coarse_image && !re4dc_pace_skipping &&
         !re4dc_ui_movie_texture() && !re4dc_ss_ui_order();
 }
+// D56 observes only scalar context. The owner predicate and all admission
+// checks remain authoritative and unchanged. No models or OTs are inspected.
+#ifndef RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG
+#define RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG 0
+#endif
+#if RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG
+struct R11fContextSnapshot {
+    unsigned present,source,room,rno,system,status1,status2;
+    unsigned coarse,pace,movie,ss,prior,same,withheld,failed;
+};
+R11fContextSnapshot r11fContextSnapshot(unsigned native) {
+    R11fContextSnapshot s{};
+    s.present=pG!=nullptr;s.room=~0U;s.rno=~0U;
+    if(pG) {
+        s.source=unsigned(pG->Frame_cnt);s.room=unsigned(G_ROOM_ID);
+        s.rno=unsigned(pG->Rno0);s.system=unsigned(pG->System_flg);
+        s.status1=unsigned(pG->Status_flg[1]);s.status2=unsigned(pG->Status_flg[2]);
+    }
+    s.coarse=re4dc_coarse_image!=0;s.pace=re4dc_pace_skipping!=0;
+    s.movie=re4dc_ui_movie_texture()!=0;s.ss=re4dc_ss_ui_order()!=0;
+    s.prior=r11fFrame.native;s.same=r11fFrame.native==native;
+    s.withheld=r11fFrame.withheld;s.failed=r11fFrame.failed;
+    return s;
+}
+// Bit 0 no global, 1 not play, 2 other room, 3 held-picture bit clear,
+// 4 paused system, 5 status2 gate, 6 shadow/depth, 7 coarse image,
+// 8 skipped presentation, 9 movie texture, 10 swapped subscreen.
+unsigned r11fContextRefusal(const R11fContextSnapshot& s) {
+    unsigned mask=s.present?0u:1u;
+    if(s.present) {
+        if(s.rno!=3)mask|=1u<<1;
+        if(s.room!=r11fp::room)mask|=1u<<2;
+        if(!(s.system&0x400))mask|=1u<<3;
+        if(s.system&0x100000)mask|=1u<<4;
+        if(s.status2&0x04000000)mask|=1u<<5;
+        if(s.status1&0x100)mask|=1u<<6;
+    }
+    if(s.coarse)mask|=1u<<7;
+    if(s.pace)mask|=1u<<8;
+    if(s.movie)mask|=1u<<9;
+    if(s.ss)mask|=1u<<10;
+    return mask;
+}
+struct R11fContextDiagnosticState {
+    unsigned lines=0,last_native=0,last_emitted=0,last_mask=0,last_hold=0;
+    bool sampled=false;
+} r11fContextDiagnosticState;
+void r11fContextDiagnostic(unsigned native) {
+    auto& d=r11fContextDiagnosticState;
+    if(d.lines>=96 || (d.sampled && d.last_native==native))return;
+    d.sampled=true;d.last_native=native;
+    const auto s=r11fContextSnapshot(native);
+    const unsigned mask=r11fContextRefusal(s);
+    const unsigned hold=s.same|(s.withheld<<1)|(s.failed<<2);
+    if(d.lines>=4 && (s.room!=r11fp::room ||
+       (mask==d.last_mask && hold==d.last_hold && native-d.last_emitted<120u)))return;
+    ++d.lines;d.last_emitted=native;d.last_mask=mask;d.last_hold=hold;
+    re4dc_log("R11FOWNER_CONTEXT n=%u f=%u t=%u present=%u room=%04x rno=%u system=%08x "
+        "status1=%08x status2=%08x coarse=%u pace=%u movie=%u ss=%u mask=%03x "
+        "prior=%u same=%u withheld=%u failed=%u\n",
+        d.lines,native,s.source,s.present,s.room,s.rno,s.system,s.status1,s.status2,
+        s.coarse,s.pace,s.movie,s.ss,mask,s.prior,s.same,s.withheld,s.failed);
+}
+#endif
 bool r11fKnownPointer(const cModel* model) {
     for(auto* captured:r11fFrame.group)if(captured==model)return true;
     return false;
@@ -190,6 +254,9 @@ int sourceWorldR11fDraw(cModel* model) {
 }
 }
 extern "C" void re4dc_r11f_prepare(unsigned native) {
+#if RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG
+    r11fContextDiagnostic(native);
+#endif
     auto& f=r11fFrame;
     if(f.native==native && (f.withheld || f.failed))return;
     if(f.native!=native)re4dc_r11f_native_frame(native);
