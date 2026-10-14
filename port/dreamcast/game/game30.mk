@@ -2445,6 +2445,7 @@ ifneq ($(COARSE)$(GAME_ATCHK_LIST),11)
 $(error PS2_WORLD_SOURCE_OWNER needs COARSE=1 GAME_ATCHK_LIST=1)
 endif
 $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/scroll.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1 -DRE4DC_PS2_WORLD_SOURCE_TEX_PREP=$(PS2_WORLD_SOURCE_TEX_PREP)
+$(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1
 $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1 -DRE4DC_PS2_WORLD_SOURCE_TEX_PREP=$(PS2_WORLD_SOURCE_TEX_PREP)
 endif
 # ITEM_UI_ORDER=1: item pickup uses the same source-ordered UI/model stream

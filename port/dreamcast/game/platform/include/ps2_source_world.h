@@ -10,6 +10,9 @@ int re4dc_ps2_source_draw(unsigned generation);
 int re4dc_ps2_source_passes_complete();
 void re4dc_source_world_flush_result(unsigned native_frame,int complete);
 int re4dc_scroll_source_member(cModel*,unsigned serial,unsigned* work);
+// Exact currently published source pool slots, before any candidate field read.
+int re4dc_source_world_pool(const void*,unsigned type);
+int re4dc_scroll_source_probe(cModel*,unsigned* serial,unsigned* work);
 int re4dc_source_world_prepare(unsigned native_frame,unsigned* generation);
 int re4dc_source_world_current(unsigned native_frame,unsigned generation);
 void re4dc_source_world_prepared(unsigned native_frame,unsigned generation,int ready);

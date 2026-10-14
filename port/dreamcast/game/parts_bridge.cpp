@@ -322,6 +322,10 @@ template<> bool cManager<cEm>::prepareWork(u32 i,u32 n){
 }
 template<> cEm* cManager<cEm>::getPrevWork(cEm* p){return previous_work(this,p);}
 
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "source_world_pools.inc"
+#endif
+
 #if RE4DC_SUBSCREEN
 // sscrn_bridge.cpp: before the window [lo, hi) is cleared for the sub screen / after it is back.
 extern "C" unsigned re4dc_parts_freeze(u32 lo, u32 hi) {

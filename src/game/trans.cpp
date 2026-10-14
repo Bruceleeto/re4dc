@@ -4694,6 +4694,9 @@ static void primWaterFrame()
 #endif
 void SetPrimBuffPtr()
 {
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    ++sourceWorldPrimGeneration; // invalidates even same-frame/address reuse
+#endif
 #if RE4DC_COARSE_SOURCE_ACTORS
     sourceActorRetire(); // before even the no-buffer return or any storage reuse
 #endif

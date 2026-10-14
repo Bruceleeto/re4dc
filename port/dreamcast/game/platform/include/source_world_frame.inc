@@ -4,16 +4,20 @@ extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigne
 extern "C" int re4dc_ui_movie_texture();
 extern "C" int re4dc_ss_ui_order();
 extern "C" unsigned re4dc_ui_frame();
+#include "re4dc_platform.h"
+#include "source_world_memory.inc"
 namespace {
 constexpr unsigned kSourceWorldCallbacks=90;
 struct SourceWorldEntry { cModel* model;unsigned serial,work; };
 struct SourceWorldFrame {
     unsigned native=0,source=0,room_generation=0,package_generation=0,objects=0,pools=0;
-    unsigned prim=0,bytes=0,buffer=0,count=0;
+    unsigned long prim=0,begin=0,end=0;
+    unsigned bytes=0,buffer=0,prim_generation=0,count=0;
     bool active=false,ready=false,started=false,failed=false;
     SourceWorldEntry entries[kSourceWorldCallbacks]{};
 } sourceWorldFrame;
 bool sourceWorldRenderActive;
+unsigned sourceWorldPrimGeneration;
 unsigned sourceWorldReports,sourceWorldFailures;
 bool sourceWorldContext() {
     return pG && pG->Rno0==3 && G_ROOM_ID==0x200 && (pG->System_flg&0x400) &&
@@ -37,8 +41,11 @@ void sourceWorldAbort(unsigned reason) {
 bool sourceWorldIdentity(unsigned native,unsigned generation) {
     const auto& f=sourceWorldFrame;unsigned rg=0,c,b,s,r,pg=0;
     return f.active && sourceWorldContext() && native==f.native && generation==f.package_generation &&
-        unsigned(pG->Frame_cnt)==f.source && unsigned(pG->prim_cnt)==f.prim &&
+        unsigned(pG->Frame_cnt)==f.source && static_cast<unsigned long>(pG->prim_cnt)==f.prim &&
         unsigned(pG->nPrim)==f.bytes && unsigned(pG->vtx_buf_no)==f.buffer &&
+        sourceWorldPrimGeneration==f.prim_generation &&
+        reinterpret_cast<unsigned long>(GXWORK()->prim)>=f.end &&
+        reinterpret_cast<unsigned long>(GXWORK()->prim)-f.begin<=f.bytes &&
         re4dc_alive_gen[2]==f.objects && re4dc_alive_gen[0]==f.pools &&
         re4dc_room4_state(&rg,&c,&b,&s,&r) && rg==f.room_generation &&
         re4dc_ps2_source_package(&pg) && pg==f.package_generation;
@@ -50,17 +57,29 @@ bool sourceWorldWalk(bool publish) {
     // OT_TYPE_SCROLL/MODEL aliases name different tables in trans_ot.h.
     const unsigned tables[3]={0x0b,0x0d,0x11};
     for(unsigned table:tables){
-        const auto& ot=g_OtWork[table];if(!ot.list || !ot.max)continue;
+        const auto& ot=g_OtWork[table];if(!ot.list && !ot.max)continue;
+        const auto buckets=reinterpret_cast<unsigned long>(ot.list);
+        if(!ot.list || !ot.max || ot.max>4096 || buckets%alignof(OtData) ||
+           !sourceWorldAllocated(ot.list,unsigned(ot.max)*sizeof(OtData),true)) {
+            sourceWorldFail(12);return false;
+        }
         unsigned visited=0;
         for(auto* node=&ot.list[ot.max-1];node;node=node->next){
-            if(++visited>4096){sourceWorldFail(2);return false;}
+            const auto address=reinterpret_cast<unsigned long>(node);
+            const bool bucket=address>=buckets && address-buckets<unsigned(ot.max)*sizeof(OtData) &&
+                (address-buckets)%sizeof(OtData)==0;
+            const bool primitive=address>=f.begin && address<=f.end &&
+                !(address&31UL) && sizeof(OtPrim)<=f.end-address;
+            // next is read only after this iteration proved the complete node.
+            if(++visited>4096 || (!bucket && !primitive)){sourceWorldFail(12);return false;}
             if(!node->data || node->func!=(void (*)(void*))ModelRender)continue;
             auto* model=static_cast<cModel*>(node->data);
-            if(model->kindid!=2 || model->invisible_factor*model->invisible_factor2==0.f)continue;
+            unsigned serial=0,work=~0U;
+            const int accepted=re4dc_scroll_source_probe(model,&serial,&work);
+            if(accepted<0){sourceWorldFail(4);return false;}
+            if(!accepted)continue;
             if(count>=kSourceWorldCallbacks){sourceWorldFail(2);return false;}
             for(unsigned i=0;i<count;++i)if(f.entries[i].model==model){sourceWorldFail(3);return false;}
-            const unsigned serial=model->serial;unsigned work=~0U;
-            if(!re4dc_scroll_source_member(model,serial,&work)){sourceWorldFail(4);return false;}
             if(publish)f.entries[count]={model,serial,work};
             else if(count>=f.count || f.entries[count].model!=model || f.entries[count].serial!=serial ||
                     f.entries[count].work!=work){sourceWorldFail(9);return false;}
@@ -84,9 +103,19 @@ bool sourceWorldCandidate(cModel* model) {
     const auto& f=sourceWorldFrame;
     if(!sourceWorldRenderActive || f.native!=re4dc_ui_frame())return false;
     if(f.started && !f.failed && !sourceWorldIdentity(f.native,f.package_generation))sourceWorldAbort(11);
-    if(f.failed)return model->kindid==2;
+    if(f.failed) {
+        // Once this image was suppressed, captured pointer values suffice to
+        // keep refusing it. A retired pointer must never be read to do that.
+        for(unsigned i=0;i<f.count;++i)if(f.entries[i].model==model)return true;
+        return false;
+    }
     if(!f.ready || !sourceWorldIdentity(f.native,f.package_generation))return false;
-    for(unsigned i=0;i<f.count;++i)if(f.entries[i].model==model && f.entries[i].serial==model->serial)return true;
+    for(unsigned i=0;i<f.count;++i)if(f.entries[i].model==model) {
+        unsigned work=~0U;
+        if(re4dc_scroll_source_member(model,f.entries[i].serial,&work) && work==f.entries[i].work)return true;
+        if(f.started){sourceWorldAbort(5);return true;}
+        sourceWorldFail(5);return false;
+    }
     return false;
 }
 int sourceWorldDraw(cModel* model) {
@@ -97,7 +126,9 @@ int sourceWorldDraw(cModel* model) {
     // sibling is a whole-frame refusal, never a silent per-object omission.
     if(!f.started && !sourceWorldWalk(false))return 0;
     unsigned work=~0U;
-    if(!re4dc_scroll_source_member(model,model->serial,&work)) {
+    unsigned serial=0;
+    for(unsigned i=0;i<f.count;++i)if(f.entries[i].model==model){serial=f.entries[i].serial;break;}
+    if(!re4dc_scroll_source_member(model,serial,&work)) {
         const bool started=f.started;sourceWorldFail(5);
         if(started){sourceWorldAbort(5);return -1;}return 0;
     }
@@ -114,6 +145,15 @@ extern "C" int re4dc_source_world_prepare(unsigned native,unsigned* generation) 
     f.native=native;f.source=pG->Frame_cnt;f.room_generation=rg;f.package_generation=pg;
     f.objects=re4dc_alive_gen[2];f.pools=re4dc_alive_gen[0];
     f.prim=pG->prim_cnt;f.bytes=pG->nPrim;f.buffer=pG->vtx_buf_no;
+    f.prim_generation=sourceWorldPrimGeneration;
+    if(!f.bytes || f.buffer>=RE4DC_PRIMITIVE_BUFFERS ||
+       f.bytes>~0U/RE4DC_PRIMITIVE_BUFFERS ||
+       !sourceWorldAllocated(reinterpret_cast<const void*>(f.prim),f.bytes*RE4DC_PRIMITIVE_BUFFERS,true)) {
+        sourceWorldFail(12);return 0;
+    }
+    f.begin=f.prim+static_cast<unsigned long>(f.bytes)*f.buffer;
+    f.end=reinterpret_cast<unsigned long>(GXWORK()->prim);
+    if(f.end<f.begin || f.end-f.begin>f.bytes){sourceWorldFail(12);return 0;}
     if(!sourceWorldWalk(true))return 0;
     f.active=f.count!=0;
     if(!sourceWorldIdentity(native,pg)){f.active=false;return 0;}
