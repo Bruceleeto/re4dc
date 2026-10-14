@@ -197,6 +197,11 @@ extern "C" void re4dc_lake_cell(const float pos[4][3], const float lake[4][2], c
             used += 3 * re4dc::render::clip_projected_triangle(tri, o + 1 + used, 0, clip, nullptr, a3);
         }
         if (!used) continue;
+#ifdef RE4DC_LAKE_ZBIAS
+        // LAKE_ZBIAS (Makefile): the layer sits in the multiply's plane (a depth tie between two translucent draws);
+        // scale its 1/w so the sorter keeps one order (> 1: in front of the multiply).
+        for (unsigned k = 1; k <= used; ++k) o[k].z *= RE4DC_LAKE_ZBIAS;
+#endif
         // the clipper writes rgb from light_*, alpha from a3; the offset colour per input vertex
         const unsigned n = (used + 1) * sizeof(pvr_vertex_t);
         std::memcpy(out + bytes, o, n);

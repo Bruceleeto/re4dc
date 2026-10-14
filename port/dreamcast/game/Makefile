@@ -115,6 +115,22 @@ endif
 $(OBJDIR)/src/game/espgen45.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o: GAME_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES)
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_lake.o $(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_RIPPLES=$(LAKE_RIPPLES) -DRE4DC_LAKE_TILE=$(LAKE_TILE) -DRE4DC_LAKE_ALPHA=$(LAKE_ALPHA)
 endif
+# LAKE_ZBIAS=s (test 11 item B, default 0: no effect; render only; needs LAKE_RIPPLES): the ripple layers' PVR depth
+# (1/w of every clipped vertex, native_lake.cpp) times s. The layers lie in the WATER45_NATIVE multiply's plane, so the
+# two translucent draws tie in depth and their order is the sorter's choice (audit 10-14: espgen45.cpp re4dc_water45_quad
+# then re4dc_lake_cell; on the console PVR the order can flip). s > 1 (1.001) puts the ripples just in front of the
+# multiply (the order Flycast shows today); s < 1 (0.999, check value) just behind it (the ripples darken away).
+# A decimal between 0.9 and 1.1.
+LAKE_ZBIAS ?= 0
+ifneq ($(LAKE_ZBIAS),0)
+ifeq ($(filter 1 2,$(LAKE_RIPPLES)),)
+$(error LAKE_ZBIAS needs LAKE_RIPPLES=1 or 2)
+endif
+ifeq ($(shell echo '$(LAKE_ZBIAS)' | grep -Eq '^(0\.9[0-9]*|1\.0[0-9]*|1\.1)$$' && echo ok),)
+$(error LAKE_ZBIAS must be 0 or a decimal between 0.9 and 1.1 (e.g. 1.001))
+endif
+$(OBJDIR)/platform/native_lake.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_ZBIAS=$(LAKE_ZBIAS)f
+endif
 # PS2_ENEMY_RULES=1 (test 9 lane PS2EN, default 0; changes gameplay by design): the PS2 USA enemy rules of the
 # chapter 1 rooms. Enemy list emleon00 gets the PS2 start-alive bits / flags (stage.cpp, at list read); r101 sends
 # its reset waves when fewer than 5 Ganados are alive (GameCube: after 5 / 10 kills) and holds two villagers back
