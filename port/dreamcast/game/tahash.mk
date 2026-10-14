@@ -18,6 +18,11 @@ ifeq ($(TA_MATERIAL_DIAG),1)
 ifneq ($(TA_BIN_DIAG),1)
 $(error TA_MATERIAL_DIAG=1 needs TA_BIN_DIAG=1)
 endif
+# Each material/source record is one bounded log call. Use the existing atomic
+# RAM-ring append so AICA and vblank writers cannot split diagnostic rows.
+ifneq ($(LOGIC_TRACE),1)
+$(OBJDIR)/platform/mem.o: PLATFORM_CPPFLAGS += -DRE4DC_LOG_ATOMIC=1
+endif
 endif
 ifeq ($(TA_BIN_DIAG),1)
 ifneq ($(TA_HASH),1)

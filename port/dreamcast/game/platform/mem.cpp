@@ -168,7 +168,7 @@ char re4dc_logbuf[RE4DC_LOG_SIZE] __attribute__((aligned(32)));
 int re4dc_log_console = 1;
 unsigned char re4dc_dvd_buff[0x20000] __attribute__((aligned(32)));
 
-// RE4DC_LOG_ATOMIC (LOGIC_TRACE=1 builds, game30.mk): each call appends with interrupts off, so a
+// RE4DC_LOG_ATOMIC (LOGIC_TRACE=1 or TA_MATERIAL_DIAG=1): each call appends with interrupts off, so a
 // preemptive thread (the aica sequencer's "aica: t=... note" lines) cannot splice its text into the
 // middle of a trace line (LT/LU/LX/LP are one re4dc_log call each). Release builds keep the plain loop.
 void re4dc_log_raw(const char* data, unsigned long len)
