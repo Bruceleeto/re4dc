@@ -49,12 +49,16 @@ for _s in ('blackps2', 'blackgc'):
     DATA[_s] = {'dc/native/%s/ps2-world.%s' % (r, x): PRIV + '/t11-20261014/%s/%s/ps2-world.%s' % (_s, r, x)
                 for r in BLACK_ROOMS for x in ('re4mesh', 'r4pw', 'ids')}
     DATA[_s]['tex'] = PRIV + '/t11-20261014/%s/newtex' % _s
-CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut'), ('blackgc', 'smx103'), ('blackps2', 'blackgc')]
+# blackgc14 = blackgc without r119: the GC bake grows r119's mesh by 184,832 B (1,058,272 -> 1,243,104; heap 4) and
+# the El Gigante end movies 11930 / 11920 then fail their heap-4 staging (c-g3, 10-14). r119 keeps the test 10 package.
+DATA['blackgc14'] = {k: v for k, v in DATA['blackgc'].items() if not k.startswith('dc/native/r119/')}
+CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut'), ('blackgc', 'smx103'), ('blackps2', 'blackgc'),
+         ('blackgc14', 'blackgc'), ('blackgc14', 'blackps2'), ('blackgc14', 'r10bcut'), ('blackgc14', 'smx103')]
 # Leon light (lane lp2, d44c3059): LEON_LIGHT_HEADROOM=1 needs Leon's 15 atlas / hair / pl08 packages at 2x in tex.pak
 # (cb_headroom.py over the test 10 GC-atlas pak; same keys, sizes, formats; sha256 1eb18ec4...). Without it Leon draws
 # at half brightness; never stage it with a knob-off binary (2x bright).
 DATA['leonhr'] = {'dc/tex.pak': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
-T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc,leonhr'  # the test 11 recipe (user 10-14: GC light bake; Leon probe + headroom with the 2x pak)
+T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14,leonhr'  # the test 11 recipe (user 10-14: GC light bake; Leon probe + headroom with the 2x pak)
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
