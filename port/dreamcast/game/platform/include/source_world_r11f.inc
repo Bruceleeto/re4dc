@@ -1,5 +1,7 @@
 // Bounded r11f original-room presentation transaction. A source callback is a
 // one-shot role, not a pointer-shaped permission to draw the native group.
+extern "C" int re4dc_ui_movie_texture();
+extern "C" unsigned re4dc_ui_frame();
 #include "re4dc_platform.h"
 #include "source_world_memory.inc"
 #include "source_world_r11f_profile.h"
