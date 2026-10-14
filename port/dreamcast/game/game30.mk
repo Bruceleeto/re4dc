@@ -2467,6 +2467,17 @@ endif
 $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/trans_ot.o $(OBJDIR)/src/game/scroll.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_R11F_OWNER=1
 $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_R11F_OWNER=1
 endif
+# Scalar-only observation of the existing r11f owner context; never admits it.
+PS2_WORLD_R11F_CONTEXT_DIAG ?= 0
+ifneq ($(filter-out 0 1,$(PS2_WORLD_R11F_CONTEXT_DIAG)),)
+$(error PS2_WORLD_R11F_CONTEXT_DIAG must be 0 or 1)
+endif
+ifneq ($(PS2_WORLD_R11F_CONTEXT_DIAG),0)
+ifneq ($(PS2_WORLD_R11F_OWNER),1)
+$(error PS2_WORLD_R11F_CONTEXT_DIAG needs PS2_WORLD_R11F_OWNER=1)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_R11F_CONTEXT_DIAG=1
+endif
 # ITEM_UI_ORDER=1: item pickup uses the same source-ordered UI/model stream
 # as inventory examination, without claiming that the subscreen heap is swapped.
 ITEM_UI_ORDER ?= 0
