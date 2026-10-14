@@ -120,6 +120,8 @@ Private evidence root: `/root/probe/codex-ch23-enemies-20261013`.
 Current package roots are `reg-r10f-v2`, `reg-r11d-v1`, `reg-r11f-v3`,
 `reg-r200-v1`, `reg-r10d-v2`, and `reg-r112-v1`. Each contains
 `package/rROOM/registry.re4nmr`, `tex/`, `registry-manifest.json`, and
-`SHA256SUMS`. Stage payloads into `dc/native/rROOM/` and `dc/tex/` only in a
-coordinated candidate fixture. No payload or private source archive belongs
+`SHA256SUMS`. Stage registry payloads into `dc/native/rROOM/`. Texture payloads must use
+`dc/tex/<first-hex-character-of-key>/<key>.re4tex` for TEX_RESIDENT; for example
+`61519868-9ee3f93f.re4tex` belongs in `dc/tex/6/`. A flat `dc/tex/<key>.re4tex`
+file does not satisfy the resident loader. Stage only in a coordinated fixture. No payload or private source archive belongs
 in Git or a public package.
