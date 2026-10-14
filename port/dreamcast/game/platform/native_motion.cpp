@@ -359,11 +359,16 @@ unsigned* load(Binding& b,unsigned i) {
             if(++retries<=16 || (retries&63)==0)
                 re4dc_log("motion key read retry %u (#%u): %s error=%s got=%u size=%u\n",retry,retries,path,
                           result.error?result.error:"short",unsigned(result.size),size);
-            thd_sleep(10);
+            // Back off 10 / 100 / 500 ms: a GD (GDEMU SD) error can last longer than the 30 ms the three retries
+            // used to span. Each retry gets its own 5 s window for a reader held by another thread (a texture or
+            // stream read); measured from the load's start, a slow first error left no window, and a busy reader
+            // ("storage reader re-entry") then used up all three retries without reading the disc once.
+            thd_sleep(retry==1U?10U:retry==2U?100U:500U);
+            const auto retry_started=timer_us_gettime64();
             arena.init(data,bytes);
             result=re4dc::storage::read_file(arena,path);
             while(result.error && !std::strcmp(result.error,"storage reader re-entry") &&
-                  timer_us_gettime64()-started<5000000) {
+                  timer_us_gettime64()-retry_started<5000000) {
                 thd_pass();result=re4dc::storage::read_file(arena,path);
             }
         }
