@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D56 scalar observer: exact production predicate/observer, no owner admission."""
+"""D59 source-window predicate/observer; full owner tests run separately."""
 from pathlib import Path
 import contextlib, hashlib, json, os, subprocess, tempfile
 
@@ -51,7 +51,7 @@ void configure(unsigned bits) {
     global.room_no=(bits&4)?0x1c:0x1f;
     global.System_flg=((bits&8)?0:0x400)|((bits&16)?0x100000:0)|0x80000040u;
     global.Status_flg[2]=(bits&32)?0x04000000:0;
-    global.Status_flg[1]=(bits&64)?0x100:0;
+    global.Status_flg[1]=((bits&64)?0x100:0)|((bits&2048)?2:0);
     re4dc_coarse_image=(bits&128)?-7:0;
     re4dc_pace_skipping=(bits&256)?2:0;
     movie=(bits&512)?-1:0;ss=(bits&1024)?3:0;
@@ -64,11 +64,16 @@ int main() {
     r11fFrame.prim=0x112233;r11fFrame.count=251;r11fFrame.planned=true;
     for(auto& entry:r11fFrame.entries)entry.model=static_cast<cModel*>(poison);
     for(auto& pointer:r11fFrame.group)pointer=static_cast<cModel*>(poison);
-    for(unsigned bits=0;bits<2048;++bits) {
+    for(unsigned bits=0;bits<4096;++bits) {
         configure(bits);
         const Global before=global;Global* const ptr=pG;
         const auto owner=r11fFrame;
-        const unsigned expected=(bits&1)?(bits&(1|0x780)):bits;
+        // The request (input bit5) admits the otherwise absent source window;
+        // scene-hidden (input bit11) is independent and refuses either window.
+        unsigned expected=bits&(1|2|4|16|64|0x780);
+        if((bits&8) && !(bits&32))expected|=8;
+        if(bits&2048)expected|=32;
+        if(bits&1)expected&=1|0x780;
         check(r11fContext()==(expected==0));
 #if RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG
         const auto s=r11fContextSnapshot(123);
@@ -131,13 +136,13 @@ int main() {
     check(lines.empty());
 #endif
     assert(munmap(poison,page)==0);
-    printf("R11F_CONTEXT_TEST diag=%d combinations=2048 cases=%u checks=%u PASS\n",RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG,cases,checks);
+    printf("R11F_CONTEXT_TEST diag=%d combinations=4096 cases=%u checks=%u PASS\n",RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG,cases,checks);
 }
 '''
 
 def run(out):
     source=INC.read_text()
-    diagnostic=source[source.index('// D56 observes only scalar context.'):source.index('bool r11fKnownPointer')]
+    diagnostic=source[source.index('// The diagnostic observes scalar context only.'):source.index('bool r11fKnownPointer')]
     entry='extern "C" void re4dc_r11f_prepare(unsigned native) {\n'
     call='#if RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG\n    r11fContextDiagnostic(native);\n#endif\n'
     assert source.count(call)==1 and source[source.index(entry)+len(entry):].startswith(call+'    auto& f=r11fFrame;')
@@ -146,9 +151,9 @@ def run(out):
     (out/'fixture.cpp').write_text(fixture)
     report={'status':'running','arms':[],'make_policy':[],'limits':['Host scalar predicate/observer only. Existing actual owner regression is run separately. No target identity, timing or runtime acceptance.']}
     try:
-        for enabled in (0,1):
-            arm=out/f'diag-{enabled}';arm.mkdir()
-            argv=[os.environ.get('CXX','g++'),'-std=c++17','-O1','-g','-Wall','-Wextra','-fsanitize=address,undefined','-fno-sanitize-recover=all','-fno-omit-frame-pointer','-fno-pie','-no-pie',f'-DRE4DC_PS2_WORLD_R11F_CONTEXT_DIAG={enabled}',str(out/'fixture.cpp'),'-o',str(arm/'test')]
+        for enabled in (None,0,1):
+            arm=out/('diag-default' if enabled is None else f'diag-{enabled}');arm.mkdir()
+            argv=[os.environ.get('CXX','g++'),'-std=c++17','-O1','-g','-Wall','-Wextra','-fsanitize=address,undefined','-fno-sanitize-recover=all','-fno-omit-frame-pointer','-fno-pie','-no-pie',*([f'-DRE4DC_PS2_WORLD_R11F_CONTEXT_DIAG={enabled}'] if enabled is not None else []),str(out/'fixture.cpp'),'-o',str(arm/'test')]
             (arm/'compiler-command.json').write_text(json.dumps(argv,indent=2)+'\n')
             cp=subprocess.run(argv,capture_output=True,text=True)
             (arm/'compiler-stdout.txt').write_text(cp.stdout);(arm/'compiler-stderr.txt').write_text(cp.stderr)
@@ -157,6 +162,8 @@ def run(out):
             (arm/'run-stdout.txt').write_text(cp.stdout);(arm/'run-stderr.txt').write_text(cp.stderr)
             rec.update(run_rc=cp.returncode,stdout=cp.stdout,stderr=cp.stderr);print(cp.stdout,end='');cp.check_returncode()
         make=(ROOT/'port/dreamcast/game/game30.mk').read_text()
+        assert 'PS2_WORLD_R11F_OWNER ?= 0' in make and 'PS2_WORLD_R11F_CONTEXT_DIAG ?= 0' in make
+        report['owner_and_diagnostic_default_zero']=True
         block=make[make.index('# Scalar-only observation of the existing r11f owner context;'):make.index('# ITEM_UI_ORDER=1:')]
         mk=out/'policy.mk';mk.write_text('OBJDIR := obj\n'+block+'\n$(OBJDIR)/src/game/trans.o $(OBJDIR)/other.o:\n\t@echo target=$@ flags=$(GAME_CPPFLAGS)\n')
         for name,args,okay in [('default',[],True),('off',['PS2_WORLD_R11F_CONTEXT_DIAG=0','PS2_WORLD_R11F_OWNER=0'],True),('on',['PS2_WORLD_R11F_CONTEXT_DIAG=1','PS2_WORLD_R11F_OWNER=1'],True),('invalid',['PS2_WORLD_R11F_CONTEXT_DIAG=2','PS2_WORLD_R11F_OWNER=1'],False),('requires_owner',['PS2_WORLD_R11F_CONTEXT_DIAG=1','PS2_WORLD_R11F_OWNER=0'],False)]:
@@ -173,7 +180,7 @@ def run(out):
         report['status']='passed'
     finally:
         (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
-    print('D56 make policy PASS 5 cases; source/observer PASS')
+    print('D59 make policy PASS 5 cases; default/diag0/diag1 source/observer PASS')
 
 if __name__=='__main__':
     saved=os.environ.get('RE4DC_TEST_ARTIFACT_DIR')

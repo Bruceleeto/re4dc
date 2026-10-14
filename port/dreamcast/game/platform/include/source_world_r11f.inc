@@ -24,13 +24,16 @@ struct R11fFrame {
 } r11fFrame;
 unsigned r11fPlans,r11fDeclines,r11fAborts;
 bool r11fContext() {
-    return pG && pG->Rno0==3 && G_ROOM_ID==r11fp::room && (pG->System_flg&0x400) &&
-        !(pG->System_flg&0x100000) && !(pG->Status_flg[2]&0x04000000) &&
+    // The request precedes scene hiding and the actual subscreen backing swap.
+    // Keep the existing held-picture window and admit only that pre-swap window.
+    return pG && pG->Rno0==3 && G_ROOM_ID==r11fp::room &&
+        ((pG->System_flg&0x400) || (pG->Status_flg[2]&0x04000000)) &&
+        !(pG->System_flg&0x100000) && !(pG->Status_flg[1]&2) &&
         !(pG->Status_flg[1]&0x100) && !re4dc_coarse_image && !re4dc_pace_skipping &&
         !re4dc_ui_movie_texture() && !re4dc_ss_ui_order();
 }
-// D56 observes only scalar context. The owner predicate and all admission
-// checks remain authoritative and unchanged. No models or OTs are inspected.
+// The diagnostic observes scalar context only. The owner predicate and all
+// admission checks remain authoritative. No models or OTs are inspected.
 #ifndef RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG
 #define RE4DC_PS2_WORLD_R11F_CONTEXT_DIAG 0
 #endif
@@ -53,17 +56,17 @@ R11fContextSnapshot r11fContextSnapshot(unsigned native) {
     s.withheld=r11fFrame.withheld;s.failed=r11fFrame.failed;
     return s;
 }
-// Bit 0 no global, 1 not play, 2 other room, 3 held-picture bit clear,
-// 4 paused system, 5 status2 gate, 6 shadow/depth, 7 coarse image,
+// Bit 0 no global, 1 not play, 2 other room, 3 neither source window,
+// 4 paused system, 5 scene hidden, 6 shadow/depth, 7 coarse image,
 // 8 skipped presentation, 9 movie texture, 10 swapped subscreen.
 unsigned r11fContextRefusal(const R11fContextSnapshot& s) {
     unsigned mask=s.present?0u:1u;
     if(s.present) {
         if(s.rno!=3)mask|=1u<<1;
         if(s.room!=r11fp::room)mask|=1u<<2;
-        if(!(s.system&0x400))mask|=1u<<3;
+        if(!(s.system&0x400) && !(s.status2&0x04000000))mask|=1u<<3;
         if(s.system&0x100000)mask|=1u<<4;
-        if(s.status2&0x04000000)mask|=1u<<5;
+        if(s.status1&2)mask|=1u<<5;
         if(s.status1&0x100)mask|=1u<<6;
     }
     if(s.coarse)mask|=1u<<7;
