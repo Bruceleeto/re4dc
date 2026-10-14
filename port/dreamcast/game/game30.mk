@@ -2449,6 +2449,24 @@ $(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1
 $(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1
 $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1 -DRE4DC_PS2_WORLD_SOURCE_TEX_PREP=$(PS2_WORLD_SOURCE_TEX_PREP)
 endif
+# Original r11f authored-group owner. Host qualification precedes runtime use.
+PS2_WORLD_R11F_OWNER ?= 0
+ifneq ($(filter-out 0 1,$(PS2_WORLD_R11F_OWNER)),)
+$(error PS2_WORLD_R11F_OWNER must be 0 or 1)
+endif
+ifneq ($(PS2_WORLD_R11F_OWNER),0)
+ifneq ($(PS2_WORLD_ROOMS)$(PS2_WORLD_DYNAMIC)$(PS2_WORLD_PARTS),211)
+$(error PS2_WORLD_R11F_OWNER needs PS2_WORLD_ROOMS=2 DYNAMIC=1 PARTS=1)
+endif
+ifneq ($(COARSE)$(GAME_ATCHK_LIST)$(PVR_STREAM)$(D349_RENDERER_STACK),1111)
+$(error PS2_WORLD_R11F_OWNER needs COARSE=1 GAME_ATCHK_LIST=1 PVR_STREAM=1 D349_RENDERER_STACK=1)
+endif
+ifneq ($(MOVIE_WORLD_ARENA),1)
+$(error PS2_WORLD_R11F_OWNER needs MOVIE_WORLD_ARENA=1)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/trans_ot.o $(OBJDIR)/src/game/scroll.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_R11F_OWNER=1
+$(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_R11F_OWNER=1
+endif
 # ITEM_UI_ORDER=1: item pickup uses the same source-ordered UI/model stream
 # as inventory examination, without claiming that the subscreen heap is swapped.
 ITEM_UI_ORDER ?= 0
