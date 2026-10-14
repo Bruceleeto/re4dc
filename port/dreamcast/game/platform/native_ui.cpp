@@ -3,6 +3,9 @@
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 #include "include/ps2_source_world.h"
 #endif
+#ifndef RE4DC_UI_POLY_ORDER
+#define RE4DC_UI_POLY_ORDER 0
+#endif
 #ifndef RE4DC_PT_BLEND_FIX
 #define RE4DC_PT_BLEND_FIX 0
 #endif
@@ -1638,7 +1641,25 @@ void stream_open() {
 #endif
 }
 #if RE4DC_D349_RENDERER_STACK
+#if RE4DC_UI_POLY_ORDER
+// UI models interleave with source quads. All polygons share the presorted TR
+// list in that frame; modifier volumes retain their separate list ownership.
+static pvr_list_t ui_order_polygon_list(pvr_list_t list){
+    if(ui_order && (list==PVR_LIST_OP_POLY || list==PVR_LIST_PT_POLY || list==PVR_LIST_TR_POLY))
+        return PVR_LIST_TR_POLY;
+    return list;
+}
+static void ui_order_polygon_header(pvr_poly_hdr_t& header){
+    // Change only the local command's list bits. In particular, keep KOS's
+    // source-list alpha default, depth, blend and texture-alpha unchanged.
+    const auto list=static_cast<pvr_list_t>((header.cmd>>24)&7U);
+    header.cmd=(header.cmd&~(7U<<24))|(unsigned(ui_order_polygon_list(list))<<24);
+}
+#endif
 void stream_select(pvr_list_t list){
+#if RE4DC_UI_POLY_ORDER
+    list=ui_order_polygon_list(list);
+#endif
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     const bool avd_note=list!=stream_list || !stream_scene;
 #endif
@@ -5139,6 +5160,10 @@ extern "C" std::uint32_t* re4dc_coarse_begin(int fog){
     ++dbg;
 #endif
     if(!frame_ready || stream_aborted || direct_open)return nullptr;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return nullptr;
+#endif
     static pvr_poly_hdr_t header[2];static bool built[2];
     const unsigned f=fog?1:0;
     if(!built[f]){
@@ -5151,7 +5176,12 @@ extern "C" std::uint32_t* re4dc_coarse_begin(int fog){
     }
     stream_select(PVR_LIST_OP_POLY);
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
+#if RE4DC_UI_POLY_ORDER
+    pvr_poly_hdr_t local_header=header[f];ui_order_polygon_header(local_header);
+    const auto* h=reinterpret_cast<const std::uint32_t*>(&local_header);
+#else
     const auto* h=reinterpret_cast<const std::uint32_t*>(&header[f]);
+#endif
     for(unsigned i=0;i<8;++i)sq[i]=h[i];
 #if RE4DC_TA_HASH
     re4dc_ta_hash(h,32);
@@ -5170,6 +5200,10 @@ extern "C" std::uint32_t* re4dc_coarse_begin(int fog){
 // the package cannot be loaded.
 extern "C" std::uint32_t* re4dc_coarse_begin_mode(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned mode){
     if(!frame_ready || stream_aborted || direct_open)return nullptr;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return nullptr;
+#endif
     const Key key{crc,fnv};
     const Re4dcUiImage image{&key,nullptr,width,height,5,0,0}; // size checks only: pixels are never read
     Entry* handle=load(image,false,&key);if(!handle){++model_texture_rejects;return nullptr;}
@@ -5191,6 +5225,9 @@ extern "C" std::uint32_t* re4dc_coarse_begin_mode(unsigned crc,unsigned fnv,unsi
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
     stream_select(PVR_LIST_OP_POLY);
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
+#endif
     const auto* h=reinterpret_cast<const std::uint32_t*>(&header);
     for(unsigned i=0;i<8;++i)sq[i]=h[i];
 #if RE4DC_TA_HASH
@@ -5224,6 +5261,10 @@ extern "C" void re4dc_coarse_end(unsigned vertices){
 extern "C" void re4dc_static_flush_impostors();
 extern "C" int re4dc_model_pt_begin(unsigned crc,unsigned fnv,unsigned width,unsigned height,int fog,Re4dcModelPacket* out){
     if(!frame_ready || stream_aborted || !ensure_model_storage() || model_used+8>kModelPacketBytes/32)return 0;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return 0;
+#endif
     const Key key{crc,fnv};
     const Re4dcUiImage image{&key,nullptr,width,height,5,0,0}; // size checks only: pixels are never read
     Entry* handle=load(image,false,&key);if(!handle){++model_texture_rejects;return 0;}
@@ -5241,6 +5282,10 @@ extern "C" int re4dc_model_pt_begin(unsigned crc,unsigned fnv,unsigned width,uns
     (void)fog;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
+#endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
     out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
@@ -6087,6 +6132,10 @@ extern "C" unsigned re4dc_ps2_world_fog(); // native_ps2_world.cpp: latched at t
 extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,Re4dcModelPacket* out){
     if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return 0;
+#endif
     const Key key{crc,fnv};
     const Re4dcUiImage image{&key,nullptr,width,height,5,0,0};
     Entry* handle=load(image,false,&key);
@@ -6114,6 +6163,10 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
+#endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
     out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
@@ -6124,6 +6177,10 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
 extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,unsigned cull,Re4dcModelPacket* out){
     if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return 0;
+#endif
     const Key key{crc,fnv};
     const Re4dcUiImage image{&key,nullptr,width,height,5,0,0};
     Entry* handle=load(image,false,&key);
@@ -6152,6 +6209,10 @@ extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned wi
     c.gen.fog_type=PVR_FOG_TABLE;
 #endif
     pvr_poly_hdr_t header;pvr_poly_compile(&header,&c);++model_header_builds;
+
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
+#endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
     out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
@@ -6222,6 +6283,10 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(direct_open){re4dc_missing("native direct part nested");return 0;}
     if(!k || !out || k[4]>2 || k[5]>2 || !frame_ready || stream_aborted ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+#if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
+    if(ui_order && quads_flushed<nquad)ui_order_flush();
+    if(stream_aborted)return 0;
+#endif
     const Key key{k[0],k[1]};
 #if RE4DC_PS2_WORLD_HDR_CACHE
     const bool hdr_on=RE4DC_PS2_HDR_ON;
@@ -6299,9 +6364,17 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         if(re4dc_ps2_sky_header)ps2_sky_header(header);
 #endif
 #if RE4DC_MV_SHADOWS
-        if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+        if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY
+#if RE4DC_UI_POLY_ORDER
+            && !ui_order
 #endif
-        std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+        ){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+#endif
+
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
+#endif
+    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
         model_pending=model_used+count;model_handle=handle;
         if(!stream_scene)stream_open();
         auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
@@ -6369,7 +6442,15 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(re4dc_ps2_sky_header)ps2_sky_header(header);
 #endif
 #if RE4DC_MV_SHADOWS
-    if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+    if(re4dc_mv_receiver && list==PVR_LIST_OP_POLY
+#if RE4DC_UI_POLY_ORDER
+            && !ui_order
+#endif
+        ){reinterpret_cast<std::uint32_t*>(&header)[0]|=PVR_TA_CMD_MODIFIER;++mv_receivers;}
+#endif
+
+#if RE4DC_UI_POLY_ORDER
+    ui_order_polygon_header(header);
 #endif
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
