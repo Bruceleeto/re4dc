@@ -27,7 +27,7 @@ template<class T> bool sourceWorldPoolSlot(cManager<T>* manager,const void* valu
     if(slot==published->capacity)return false;
     unsigned visited=0;
     for(auto* chunk=published->chunks;chunk;) {
-        if(++visited>published->capacity ||
+        if(++visited>published->capacity || reinterpret_cast<unsigned long>(chunk)%alignof(Chunk<T>) ||
            !sourceWorldAllocated(chunk,sizeof(Chunk<T>),false,published->heap))return false;
         if(!chunk->count || chunk->first>=published->capacity ||
            chunk->count>published->capacity-chunk->first || chunk->count>~0U/sizeof(T) ||

@@ -233,6 +233,13 @@ int main(){
   switch(mutation){case 0:m.blk=0;break;case 1:m.kindid=1;break;case 2:m.be_flag=0;break;case 3:m.invisible_factor=.5f;break;case 4:m.ang.x=.1f;break;case 5:m.pos.y=1;break;case 6:m.scale.z=2;break;case 7:w.flags=16;break;case 8:w.motNo=0;break;case 9:info.pList=&infos[1];break;case 10:info.pData=infos[1].pData;break;case 11:info.be_flag=11;break;case 12:info.invisible_factor=.5f;break;case 13:info.color[3]=128;break;case 14:d->nParts=2;break;case 15:d->shapeOfs=4;break;case 16:p.pParent=&objects[1];break;case 17:p.ang.x=.87266463f;break;case 18:p.pos.x=1;break;case 19:p.scale.y=2;break;case 20:p.pList=&source_parts[1];break;case 21:p.be_flag=0;break;}
   check(!re4dc_scroll_source_member(&m,100,&work));check(bool(re4dc_source_world_prepare(frame,&gen))==(mutation==1));
  }
+ // Being inside the current allocation does not make a chunk header aligned.
+ for(unsigned type=0;type<3;++type){reset();
+  if(type==0)pool(&ObjMgr)->chunks=reinterpret_cast<Chunk<cObj>*>(reinterpret_cast<unsigned char*>(pool(&ObjMgr)->chunks)+1);
+  else if(type==1)pool(&ModInfoMgr)->chunks=reinterpret_cast<Chunk<cModelInfo>*>(reinterpret_cast<unsigned char*>(pool(&ModInfoMgr)->chunks)+1);
+  else pool(&PartsMgr)->chunks=reinterpret_cast<Chunk<cParts>*>(reinterpret_cast<unsigned char*>(pool(&PartsMgr)->chunks)+1);
+  check(!re4dc_source_world_prepare(frame,&gen));check(!draw_calls&&!aborts);
+ }
  // Context exclusions and exact source/package/primitive epochs.
  for(unsigned mutation=0;mutation<10;++mutation){reset();switch(mutation){case 0:movie=true;break;case 1:subscreen=true;break;case 2:global.System_flg=0;break;case 3:global.room_no=1;break;case 4:global.Rno0=2;break;case 5:re4dc_pace_skipping=1;break;case 6:re4dc_coarse_image=1;break;case 7:global.System_flg|=0x100000;break;case 8:global.Status_flg[2]=0x04000000;break;case 9:global.Status_flg[1]=0x100;break;}check(!re4dc_source_world_prepare(frame,&gen));check(loads==0);}
  for(unsigned mutation=0;mutation<9;++mutation){reset();sourceWorldTexturePrepare();switch(mutation){case 0:++room_generation;break;case 1:++sourceWorldPackageGeneration;break;case 2:++re4dc_alive_gen[2];break;case 3:++re4dc_alive_gen[0];break;case 4:++global.Frame_cnt;break;case 5:++global.prim_cnt;break;case 6:++global.nPrim;break;case 7:++global.vtx_buf_no;break;case 8:++sourceWorldPrimGeneration;break;}check(!re4dc_source_world_current(frame,2));}
