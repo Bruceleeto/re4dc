@@ -18,8 +18,18 @@ Audited contracts:
 | --- | --- | --- |
 | em18 | 6, 8, 0xF | `em18.cpp` modelInit / ModInfoMgr.create, including robe, hands and weapon |
 | em3b | 5, 0xC | `em3b.cpp` two modelInit variants |
+| pl14 | 5, 7, 15 | `pl14.cpp` modelSet and equipWeapon; pinned historical CH22 fixture |
 | em35 | 5, 0x9C | `em35.cpp` body/limbs and weak-point SetObj00 |
 | em14 | Explicit top-level TPL list in the tool | Existing shared Ganado em10.cpp/em10_tmpl.cpp consumers; em14_set.cpp chooses model families |
+
+The pl14 contract accepts one explicitly pinned CH22 fixture and source SHA.
+That historical fixture used endian-only conversion for the unused 32-byte
+ARC0xC motion header, whose key block is only 0xCD padding, and an already
+stripped 64-byte static REL descriptor. The current stricter motion parser
+rejects that dummy key block. The tool reconstructs those exact historical
+baseline differences and requires whole-body equality; it keeps the staged
+motion header and REL byte for byte. It does not requalify the invalid key block
+or introduce a new motion conversion. A different source or baseline is refused.
 
 The archive count grows by one NTR slot, original ordinal numbers remain stable,
 and the embedded REL moves behind the index without modification. Every
@@ -47,7 +57,9 @@ are never written.
 
 2026-10-13 offline checks: em18 and em3b had 8 and 7 prepared model images,
 respectively, with no retained model image. em35 had 10 images and retained all
-83 FCV ordinals. Identity-table CRCs, all TPL-to-pixel offsets, native-record keys,
+83 FCV ordinals; em14 had 56 images and retained all 167. pl14 had 12 images and
+retained all 53 FCV ordinals; all 12 emitted textures matched its existing
+CH22 texture files byte for byte. Identity-table CRCs, all TPL-to-pixel offsets, native-record keys,
 and emitted native package hashes were independently read back. Unknown actors,
 wrong staged filenames, a changed FCV byte, a reused destination, and an already
 prepared body were rejected. Fixture generation alone does not establish runtime
