@@ -45,6 +45,9 @@
 #                    VMU: R + START cycles Off -> Screen -> Off (two boxes in the note), a stored VMU or Both setting
 #                    shows on screen, and the VMU keeps showing what it shows when the display is off (VMU_CONTEXT:
 #                    the context pages). The one-second window, its log lines and the on-screen counter are unchanged.
+#                    SPEED_VMU_OFF=2 (user 2026-10-14, "off unless toggled on"): as 1, but a stored VMU setting reads
+#                    as Off (only a stored Screen or Both shows on screen); the stored record is not rewritten. A fresh
+#                    boot (no RE4DCCFG) is Off with 0, 1 and 2.
 #   PACE_VMU_GPU=1  (default 0; test builds, needs PACE_VMU=1) a fourth line "GPU <mean>/<max>" on the speed page
 #                    (FPS / SPD / CPU / GPU / MODE: the 4x6 font fits five lines): the graphics chip's render time
 #                    per scene in ms (rounded), mean and max over the renders that completed in the same window

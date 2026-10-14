@@ -306,8 +306,14 @@ void vmu_try()
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
 unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;  // the last one-second window (on-screen counter)
 #if RE4DC_SPEED_VMU_OFF
+#if RE4DC_SPEED_VMU_OFF >= 2
+// SPEED_VMU_OFF=2 (pace.mk, user 2026-10-14: off unless toggled on): Off or Screen only; a stored Screen or Both
+// setting shows on screen, a stored VMU setting reads as Off. The stored record is not rewritten.
+int speed_setting() { return (re4dc_quality_speed() & RE4DC_SPEED_SCREEN) ? RE4DC_SPEED_SCREEN : RE4DC_SPEED_OFF; }
+#else
 // SPEED_VMU_OFF (pace.mk, issue #29): Off or Screen only; a stored VMU or Both setting shows on screen.
 int speed_setting() { return re4dc_quality_speed() != RE4DC_SPEED_OFF ? RE4DC_SPEED_SCREEN : RE4DC_SPEED_OFF; }
+#endif
 #else
 int speed_setting() { return re4dc_quality_speed(); }
 #endif
