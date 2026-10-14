@@ -371,6 +371,22 @@ Lane light-p3 (branch `lane/light-p3`, for test 12). Both changes are render onl
 - **Checks.** Host test: fill=45 with headroom, fill=30 at probe=2 (direction, colour, Ganado unchanged, shared record
   unchanged, palette directions equal to `skin_light_dirs`), and make-rule cases. Knob-off identity lfoffP vs p3baseP
   and vs p3off2P: IDENTITY PASS. `LEON_LIGHT_FILL=0` with probe + headroom (lf0W) vs p3hr2W: IDENTITY PASS.
+- **Runtime check of the x0.5 draws (2026-10-14).** Arms are on the test 11 recipe and data, with Leon's textures at 2x.
+  - The radio-call hair in the test 11 lead's frames measures test 10 40/70 and test 11 81/139 (Y mean/p90). Test 11
+    is exactly 2x, so the bleaching is the doubled hair texture `ac381b1a`/`7a9de1fd` (64x128). The inventory Leon
+    (`ssPlModel`, `src/Sscrn/ss_model.cpp`) and the call portrait (`tel00ModelInit`) are generic player-archive
+    cModels. Only their hair uses a doubled key; the body and face use GameCube keys that are not doubled.
+  - `LEON_HR source part 64x128 x0.5` is logged in the door103 call run and in the source-fallback run (warp
+    `late 0x10`, 12 hits). It is not logged in the owner runs (house, r101F).
+- **Gates on light-p3** (evidence `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\gates\t12*`). The arms are l12baseptT,
+  lane/t11 `c4f7c78e` padded to `_end` 8c415edc, against l12f45tT, light-p3 with `LEON_LIGHT_FILL=45`.
+  - H2: STRICT, decisions MUST-IDENTICAL, drift 0. This is PARTIAL: the C: capacity guard stopped the control at tick
+    4412 of 4700, so the compare covers 4413 ticks.
+  - s30: 340/340 in both arms.
+  - LEON-GC PASS 3/3 and TEXCHK PASS 3/3. The h2 and boat logs were also stopped by the capacity guard.
+  - Reruns of the control and the h2 / boat MCHECK runs are pending.
+- **Look:** sheet `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\t12\leon-fill-sheet.png` (tmp/lp3/sheet12.py). Partial so
+  far. The fill 30/45/60 stills and the modelled ms of the call screen are pending.
 
 ## Recommendation
 
