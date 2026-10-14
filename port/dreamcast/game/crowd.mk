@@ -368,3 +368,17 @@ endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_PS2_GANADO_LIT=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIGHT_FOLD=1
 endif
+# LEON_SOURCE_LIGHT=1 (light lane; render only; default 0: nothing changes): Leon's owner draw takes the source GX
+#              light set (actor_source_lighting) instead of the constant colour; a record the kernel cannot take
+#              keeps the constant colour (no decline, so no GameCube fallback). Logs LEON_LIGHT lines.
+LEON_SOURCE_LIGHT ?= 0
+ifneq ($(LEON_SOURCE_LIGHT),0)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error LEON_SOURCE_LIGHT=1 needs ACTOR_TRANSACTION=1)
+endif
+ifeq ($(LEON_NATIVE_PIPE),1)
+$(error LEON_SOURCE_LIGHT=1 needs LEON_NATIVE_PIPE=0; the lean acquisition path does not capture source lighting)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
+endif
