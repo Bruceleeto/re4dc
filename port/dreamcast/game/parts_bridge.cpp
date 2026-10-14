@@ -322,7 +322,7 @@ template<> bool cManager<cEm>::prepareWork(u32 i,u32 n){
 }
 template<> cEm* cManager<cEm>::getPrevWork(cEm* p){return previous_work(this,p);}
 
-#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#if RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER
 #include "source_world_pools.inc"
 #endif
 

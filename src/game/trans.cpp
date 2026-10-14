@@ -90,6 +90,10 @@ bool sourceWorldModelPostludeBlocked(const cModel* model) {
 #else
 #define SOURCE_WORLD_MODEL_POSTLUDE_GUARD(model) ((void)0)
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+namespace { bool sourceWorldR11fModelBlocked(cModel* model); }
+#endif
+
 #include "em.h"
 #include "obj.h"
 #include "camera.h"
@@ -1408,6 +1412,9 @@ void ModelRender(cModel* m)
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(sourceWorldModelBlocked(m))return;
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(sourceWorldR11fModelBlocked(m))return;
+#endif
     const unsigned s = re4dc_encv_render_pick(m);
     switch (s) {
     case 0: re4dc_iv_r_new(m); break;
@@ -2481,6 +2488,9 @@ extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping);
 #include "ps2_source_world.h"
 #include "source_world_frame.inc"
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+#include "source_world_r11f.inc"
+#endif
 
 // Per frame, the draw pass: runs the ordering tables in order (render textures, shadow setup,
 // far sub screen, scroll, sub screen, models, shadow draw, near sub screen, effects, world, VU1
@@ -2488,6 +2498,9 @@ extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping);
 // filter 09 post-process and the draw-sync callback. Skipped output while System_flg 0x800.
 void Render()
 {
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    R11fRenderScope r11fScope;
+#endif
     Camera save;
     GXColor fogCol;
     GXColor c;
@@ -2638,6 +2651,14 @@ static void ModelRenderBody(cModel* m)
 void ModelRender(cModel* m)
 #endif
 {
+#if !(defined(RE4DC_ENCV) && RE4DC_ENCV)
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+    SourceWorldModelScope sourceWorldModelScope;
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(sourceWorldR11fModelBlocked(m))return;
+#endif
+#endif
     static int modeltransalphaupdate = 1;
 #if !(defined(RE4DC_ENCV) && RE4DC_ENCV)
 #if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -2680,6 +2701,9 @@ void ModelRender(cModel* m)
     int frontNative = frontNativeOk(m);
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     if(sourceWorldCandidate(m))frontNative=0;
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(sourceWorldR11fCandidate(m))frontNative=0;
 #endif
 #if RE4DC_ACTOR_TRANSACTION
     if(re4dc_actor_transaction_candidate(m))frontNative=0;
@@ -2842,6 +2866,9 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     }
 #elif RE4DC_PS2_WORLD_SOURCE_OWNER
     if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!flag && sourceWorldR11fDraw(m)!=0)info=nullptr;
 #endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
@@ -4807,7 +4834,7 @@ static void primWaterFrame()
 #endif
 void SetPrimBuffPtr()
 {
-#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#if RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER
     ++sourceWorldPrimGeneration; // invalidates even same-frame/address reuse
 #endif
 #if RE4DC_COARSE_SOURCE_ACTORS

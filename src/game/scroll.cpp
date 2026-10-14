@@ -59,6 +59,10 @@ static const u8 ScrObjIdNum = 16;
 #include "ps2_source_world.h"
 #include "source_world_scroll.inc"
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+#include "ps2_source_world.h"
+#include "source_world_r11f_scroll.inc"
+#endif
 
 // Never called in this build; keeps ScrIdRefTbl alive (GCC 2.95 emits statics an inline body
 // mentions).
@@ -98,6 +102,9 @@ int SmdInit(cSmd* smd, cSmx* smx, cSmd* comn)
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     sourceWorldR200Qualify();
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    sourceWorldR11fQualify();
+#endif
     return nScrWork;
 }
 
@@ -109,6 +116,9 @@ void SmdClear(int mode)
 
     switch (mode) {
     case 0:
+#if RE4DC_PS2_WORLD_R11F_OWNER
+        sourceWorldR11fScrollClear();
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
         sourceWorldScrollClear();
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -197,6 +207,9 @@ int setObj(int blk)
         sourceWorldR200ScrollBind(unsigned(i),obj);
 #endif
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+        sourceWorldR11fScrollBind(unsigned(i),obj);
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_NATIVE_STATIC
         re4dc_static_bind(obj, ((unsigned) pG->stage_no << 8) | pG->room_no, blk, i, w->binNo,
                           (w->flags & 0x10) != 0, obj->serial, &obj->mat[0][0]);
@@ -219,6 +232,9 @@ int setObj(int blk)
     }
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(blk==-1)sourceWorldR200ScrollPublish();
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    sourceWorldR11fScrollPublish();
 #endif
     return 0;
 }

@@ -341,6 +341,11 @@ int ExecOt(int type)
         w->prev_kind=0;GXSetAlphaCompare(7,0,1,7,0);g_NowExecOtType=OT_MAX;return 0;
     }
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_callback_continue()) {
+        w->prev_kind=0;GXSetAlphaCompare(7,0,1,7,0);g_NowExecOtType=OT_MAX;return 0;
+    }
+#endif
 #if defined(RE4DC_OT_MASK) && RE4DC_OT_MASK
     if (!(g_OtUsed & (1u << type))) {
         // No entry since the clear: the walk below would call nothing.
@@ -369,7 +374,7 @@ int ExecOt(int type)
             if (p->data) {
                 count++;
 #if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
-                re4dc_source_world_callback_begin(type,p,p->func,p->data,p->kind);
+                re4dc_source_world_callback_begin(unsigned(type),p,p->func,p->data,p->kind);
 #endif
                 p->func(p->data);
 #if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -377,6 +382,9 @@ int ExecOt(int type)
 #endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
                 if(!re4dc_source_world_callback_continue())break;
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+                if(!re4dc_r11f_callback_continue())break;
 #endif
                 w->prev_kind = p->kind;
             }

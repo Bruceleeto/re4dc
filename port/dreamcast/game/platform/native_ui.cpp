@@ -10,6 +10,9 @@
 #error UI_POLY_ORDER requires SS_UI_ORDER, D349_RENDERER_STACK and PVR_STREAM
 #endif
 #include "include/native_cabin.h"
+#if RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER
+#include "include/ps2_source_world.h"
+#endif
 #ifndef RE4DC_PT_BLEND_FIX
 #define RE4DC_PT_BLEND_FIX 0
 #endif
@@ -1792,9 +1795,15 @@ void safe_audit_scene(bool present);
 #endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(present && !re4dc_r11f_present(frame,source_draws_finished,stream_aborted))present=false;
+#endif
     if(!stream_scene)stream_open();
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();present=false;}
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(present && !re4dc_r11f_present(frame,source_draws_finished,stream_aborted))present=false;
 #endif
 #if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
     if(present && !stream_aborted && !direct_open && world_autosort)re4dc_blob_emit(frame);
@@ -1835,6 +1844,10 @@ void stream_close(bool present) {
     }
 #else
     if(pvr_list_finish()<0 || pvr_scene_finish()<0)re4dc_missing("native stream finish failed");
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    // pvr_scene_finish can wait. Revalidate immediately before presentation.
+    if(present && !re4dc_r11f_present(frame,source_draws_finished,stream_aborted))present=false;
 #endif
     stream_scene=false;
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -4136,6 +4149,9 @@ extern "C" void re4dc_ui_begin(){
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     sourceWorldTexturePrepare();
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    re4dc_r11f_prepare(frame);
+#endif
     re4dc::profile::begin();
 #if defined(__sh__)
     re4dc_profile_source(&render_source_begin);
@@ -4803,6 +4819,9 @@ if(!handle){
 #if RE4DC_MESH_TEXTURES
     }
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
     const auto& t=handle->package.textures()[0];
     // Repeating a padded image would repeat its border. Reject, never change wrap.
 #if RE4DC_MESH_TEXTURES
@@ -4824,6 +4843,9 @@ if(!handle){
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
 #endif
     pvr_poly_hdr_t header;std::uint32_t count;
 #if RE4DC_D349_RENDERER_STACK
@@ -4993,6 +5015,9 @@ extern "C" int re4dc_model_direct_begin(const Re4dcModelPart* p,Re4dcModelDirect
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
     const auto* header=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
     for(unsigned i=0;i<8;++i)sq[i]=header[i];
@@ -6178,6 +6203,9 @@ extern "C" void re4dc_coarse_world_flush();
 extern "C" int re4dc_ps2_world_before_owned_tr(const Re4dcModelPart* part){
     if(!part || !frame_ready || stream_aborted || direct_open || model_used)return 0;
     if(select_model_pass(part)!=PVR_LIST_TR_POLY)return 1;
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_barrier(frame))return 0;
+#endif
     if(!re4dc_ps2_world_pending()){
 #if RE4DC_COARSE_SCENERY_FALLBACK && RE4DC_TREE_IMPOSTOR
         // A room drawing its own scenery (trans.cpp COARSE_SCENERY_FALLBACK) queues tree impostors (PT):
@@ -6384,6 +6412,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(ui_order && quads_flushed<nquad)ui_order_flush();
     if(stream_aborted)return 0;
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
     const Key key{k[0],k[1]};
 #if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
     sourceWorldDiagBind(key); // before a cache hit or a load, and before SQ lock
@@ -6422,6 +6453,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+        if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
 #if RE4DC_WORLD_AUTOSORT
         world_sort_begin();
 #endif
@@ -6439,6 +6473,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+            if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
             bool bad=ref_handle!=handle;
             if(!bad){
                 const auto& t=ref_handle->package.textures()[0];
@@ -6489,6 +6526,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+        if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
         auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
         const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
         for(unsigned i=0;i<8;++i)sq[i]=words[i];
@@ -6513,6 +6553,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
     if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
     const auto& t=handle->package.textures()[0];
     if(t.width!=k[2] || t.height!=k[3])return 0; // repeated UVs cannot use padding
@@ -6523,6 +6566,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
 #if RE4DC_WORLD_AUTOSORT
     world_sort_begin();
 #endif
@@ -6579,6 +6625,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
+#endif
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
     const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
     for(unsigned i=0;i<8;++i)sq[i]=words[i];
@@ -6606,9 +6655,25 @@ extern "C" int re4dc_source_world_op_window(){
         (!stream_scene || (!(stream_closed_lists&(1U<<PVR_LIST_OP_POLY)) && stream_list==PVR_LIST_OP_POLY));
 }
 #endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+extern "C" int re4dc_r11f_op_window() {
+    return frame_ready && !stream_aborted && !direct_open && !model_used && !source_draws_finished &&
+        (!stream_scene || (!(stream_closed_lists&(1U<<PVR_LIST_OP_POLY)) && stream_list==PVR_LIST_OP_POLY));
+}
+extern "C" unsigned re4dc_r11f_packet_bytes(){return stream_model_bytes;}
+namespace {
+struct R11fSourceFinishScope {
+    ~R11fSourceFinishScope(){re4dc_r11f_source_finished(frame,source_draws_finished,stream_aborted);}
+};
+}
+#endif
 extern "C" void re4dc_model_finish_source_draws(){
     AVD_EVENT(FinishBegin,nullptr,nullptr,0);
     RE4DC_PROFILE_SCOPE(TranslucentDrain);
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    R11fSourceFinishScope r11fFinishScope;
+    if(!re4dc_r11f_barrier(frame))return;
+#endif
 #if RE4DC_TREE_IMPOSTOR
     re4dc_static_flush_impostors(); // PT list, between the OP pass and the TR drain
 #if RE4DC_COARSE_WORLD & 8

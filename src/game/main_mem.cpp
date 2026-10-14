@@ -91,7 +91,7 @@ static u8 CurrentDbgHeap;
 void* pMemTile;
 static u32 _epy;
 
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
 #include "ps2_source_world.h"
 #include "source_world_retained.inc"
 #endif
@@ -175,7 +175,7 @@ void SystemMemInit()
     arenaLo = (arenaLo + 0x1F) & ~0x1F;
     arenaHi &= ~0x1F;
     HeapHead = (OSHeapDescriptor*) arenaLo;
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedReset();
 #endif
     arenaLo = (u32) OSInitAlloc((void*) arenaLo, (void*) arenaHi, MEM_HEAP_NUM);
@@ -198,7 +198,7 @@ void SystemMemInit()
 // Clears the 13 heap slots and the suspend backups.
 void memInitHeapTbl()
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedReset();
 #endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
@@ -219,7 +219,7 @@ void memInitHeapTbl()
 // Suspends heap no: saves its OSAlloc descriptor and empties the live one (allocations from it fail).
 void MemSuspendHeap(int no)
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedSuspend(no);
 #endif
     int h = Heap[no].handle;
@@ -250,7 +250,7 @@ void MemSignalHeap(int no)
     int h = Heap[no].handle;
 
     if (memGetHeapSattus(no) == 1 && h >= 0) {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
         sourceWorldRetainedRestore(no);
 #endif
         OSHeapDescriptor* hh = HeapHead;
@@ -359,7 +359,7 @@ u32 MemCheckHeapEnd(int no)
 // Creates (or recreates) heap no over [start, end).
 int MemCreateHeap(int no, u32 start, u32 end)
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedCreate(no,start,end);
 #endif
     if (!memCheckHeapActive(no)) {
@@ -387,7 +387,7 @@ int MemCreateHeap(int no, u32 start, u32 end)
 // Destroys heap no (resuming it first if suspended).
 int MemDestroyHeap(int no)
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedDestroy(no);
 #endif
     if (!memCheckHeapActive(no)) {
@@ -467,7 +467,7 @@ int MemReplaceHeap(int from, int to)
         re4dc_missing("cabin revalidation before source heap replacement");return 0;
     }
 #endif
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     SourceWorldRetainedTransfer retained;
     if(!sourceWorldRetainedCapture(from,to,&retained))return 0;
 #endif
@@ -513,7 +513,7 @@ int MemReplaceHeap(int from, int to)
         return 0;
     }
 #endif
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     const int result=MemCreateHeap(to,start,end);
     sourceWorldRetainedPublish(retained,result);
     return result;
@@ -525,7 +525,7 @@ int MemReplaceHeap(int from, int to)
 // Destroys every heap (soft reset).
 void MemClearAllHeap()
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedReset();
 #endif
     u32 i;
@@ -742,7 +742,7 @@ void Mem_free_h(void* p, int heap)
 #if RE4DC_CABIN_SOURCE
     if(!re4dc_cabin_carrier_before_free(p)){re4dc_missing("cabin carrier reader before individual free");return;}
 #endif
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedFree(p);
 #endif
 #if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
@@ -829,7 +829,7 @@ void Debug_free(void* p)
 // Frees a debug block after wiping it (poison for stale pointers).
 void Debug_free_h(void* p, int heap)
 {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#if defined(RE4DC_GAME) && !defined(__PPC__) && (RE4DC_PS2_WORLD_SOURCE_OWNER || RE4DC_PS2_WORLD_R11F_OWNER)
     sourceWorldRetainedFree(p);
 #endif
     if (heap == MEM_HEAP_CURRENT) {
