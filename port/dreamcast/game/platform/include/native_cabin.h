@@ -22,6 +22,12 @@ unsigned re4dc_ui_movie_cabin_generation();
 unsigned re4dc_ui_movie_cabin_upload();
 unsigned re4dc_ui_movie_cabin_shown();
 int re4dc_ui_movie_cabin_try_close(unsigned generation);
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+int re4dc_cabin_complete_current(unsigned generation,unsigned id);
+int re4dc_movie_cabin_complete_current(unsigned generation);
+int re4dc_ui_movie_cabin_complete(unsigned generation,const void* texture,unsigned final_upload,unsigned movie_generation);
+int re4dc_movie_cabin_complete(unsigned generation);
+#endif
 unsigned re4dc_movie_cabin_open(unsigned id);
 int re4dc_movie_cabin_skip(unsigned generation);
 int re4dc_movie_cabin_step(unsigned generation);

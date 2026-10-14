@@ -570,6 +570,11 @@ unsigned movie_upload_serial,movie_shown_serial,movie_presentations;
 // CABIN_UI_STATE_BEGIN
 unsigned movie_cabin_ui_epoch;
 bool movie_cabin_ui_busy;
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+// A fatal scene-close diagnostic must not become a successful close if it
+// returns. Epochs never repeat; the fault belongs only to this texture owner.
+unsigned movie_cabin_ui_close_fault;
+#endif
 // Reserve the owner across the existing allocation/free/claim paths, which can
 // yield. Interrupts are masked only for this flag, never for a fence or free.
 struct MovieCabinUiScope {
@@ -1823,7 +1828,14 @@ void stream_close(bool present) {
     safe_audit_scene(present);
 #endif
     sq_lock((void*)PVR_TA_INPUT);
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(pvr_list_finish()<0 || pvr_scene_finish()<0){
+        if(movie_cabin_ui_busy && movie_texture)movie_cabin_ui_close_fault=movie_cabin_ui_epoch;
+        re4dc_missing("native stream finish failed");
+    }
+#else
     if(pvr_list_finish()<0 || pvr_scene_finish()<0)re4dc_missing("native stream finish failed");
+#endif
     stream_scene=false;
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     // Last decision, after source/UI/shadow drains, after the final yielding scene finish.
@@ -6772,6 +6784,44 @@ extern "C" int re4dc_ui_movie_cabin_try_close(unsigned generation){
     if(!owner.held || !movie_texture || !generation || generation!=movie_cabin_ui_epoch)return 0;
     return movie_cabin_ui_try_close_body();
 }
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+extern "C" int re4dc_ui_movie_cabin_complete(unsigned generation,const void* texture,unsigned final_upload,unsigned movie_generation){
+    MovieCabinUiScope owner;
+    const auto current=[&](){return generation && generation==movie_cabin_ui_epoch &&
+        texture && texture==movie_texture && final_upload &&
+        final_upload==movie_upload_serial && final_upload==movie_shown_serial &&
+        movie_cabin_ui_close_fault!=generation && re4dc_movie_cabin_complete_current(movie_generation);};
+    if(!owner.held || !ready || !current() || direct_open)return 0;
+#if RE4DC_D349_RENDERER_STACK
+    if(draining_parts)return 0;
+    reset_deferred();source_draws_finished=true;
+#endif
+    re4dc_ps2_world_movie_discard();stream_aborted=true;
+#if RE4DC_PVR_STREAM
+    if(stream_scene)stream_close(false);
+    if(!current())return 0;
+#endif
+#if RE4DC_PVR_PIPELINE
+    present_fence();
+    if(!current())return 0;
+#if RE4DC_PVR_PIPELINE==2
+    if(pvr_present_pending())return 0;
+#else
+    if(present_submitted!=present_resolved)return 0;
+#endif
+    if(present_failures)return 0;
+#endif
+#if RE4DC_PVR_RECOVER
+    if(!pvr_ready::wait_clear(pvr_state.ta_busy,"cabin complete TA",'K',pvr_ready::ta_timeouts) ||
+       !current() ||
+       !pvr_ready::wait_clear(pvr_state.render_busy,"cabin complete render",'Q',pvr_ready::render_timeouts))return 0;
+#else
+    if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready)return 0;
+#endif
+    if(!current())return 0;
+    return movie_cabin_ui_try_close_body();
+}
+#endif
 extern "C" unsigned re4dc_ui_movie_cabin_generation(){return movie_texture?movie_cabin_ui_epoch:0;}
 extern "C" unsigned re4dc_ui_movie_cabin_upload(){return movie_upload_serial;}
 extern "C" unsigned re4dc_ui_movie_cabin_shown(){return movie_shown_serial;}

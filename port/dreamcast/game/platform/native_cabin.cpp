@@ -72,6 +72,9 @@ void service(){
 }
 }
 extern "C" int re4dc_cabin_preflight(unsigned costume){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return 0;
+#endif
     if(cabin.id){cabin_failure("cabin preflight with active owner");return 0;}
     cabin_preflight_ready=false;
     // The qualified packet/movie set is the ordinary costume source. Never use
@@ -86,6 +89,9 @@ extern "C" int re4dc_cabin_preflight(unsigned costume){
     cabin=CabinSource{};cabin_preflight_ready=true;return 1;
 }
 extern "C" int re4dc_cabin_begin(unsigned id,const void* heap,unsigned heap_bytes,const void* room,unsigned room_bytes){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return 0;
+#endif
     const uintptr_t lo=(uintptr_t)heap,rl=(uintptr_t)room;
     if(!cabin_preflight_ready || cabin_event_reader_fault || cabin.id || !cabin_key(id) || !heap_bytes || !room_bytes ||
        lo+heap_bytes<lo || rl+room_bytes<rl){cabin_failure("cabin entry ownership");return 0;}
@@ -98,6 +104,9 @@ extern "C" int re4dc_cabin_begin(unsigned id,const void* heap,unsigned heap_byte
     return 1;
 }
 extern "C" void re4dc_cabin_event_bound(const void* event,const char* key){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return;
+#endif
     if(!cabin.id || !key || std::strcmp(key,cabin_key(cabin.id)))return;
     if(cabin.bound || cabin.source_done || cabin.retiring || !event){cabin_failure("cabin event reentry");return;}
     cabin.event=event;cabin.bound=true;
@@ -105,6 +114,9 @@ extern "C" void re4dc_cabin_event_bound(const void* event,const char* key){
     if(!cabin.audio)cabin_failure("cabin sound owner admission");
 }
 extern "C" void re4dc_cabin_cancel_accepted(const void* event){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return;
+#endif
     if(!cabin.id || cabin.event!=event || !event || cabin.death || cabin.source_done || cabin.failed)return;
     if(!cabin.accepted_skip){
         cabin.accepted_skip=true;
@@ -116,9 +128,15 @@ extern "C" void re4dc_cabin_cancel_accepted(const void* event){
     }
 }
 extern "C" void re4dc_cabin_death_committed(const void* event){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return;
+#endif
     if(cabin.id==0x11c20 && cabin.event==event && event)cabin.death=true;
 }
 extern "C" void re4dc_cabin_event_deleted(const void* event){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return;
+#endif
     if(cabin.id && cabin.event==event && event){cabin.event=nullptr;close_audio();}
 }
 extern "C" void re4dc_cabin_before_events(){
@@ -140,6 +158,9 @@ extern "C" void re4dc_cabin_after_events(){
     service();
 }
 extern "C" void re4dc_cabin_source_done(unsigned id,int keep){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return;
+#endif
     if(cabin.id!=id || !cabin.bound || cabin.source_done || (keep && !cabin.death)){
         cabin_failure("cabin source terminal ownership");return;
     }
@@ -149,7 +170,17 @@ extern "C" void re4dc_cabin_source_done(unsigned id,int keep){
     re4dc_log("cabin source terminal: id=%05x movie=%u keep=%d death=%d skip=%d\n",
         id,cabin.movie,keep,cabin.death,cabin.accepted_skip);
 }
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+extern "C" int re4dc_cabin_complete_current(unsigned generation,unsigned id){
+    return generation && generation==cabin.movie && id && id==cabin.id && cabin.retiring &&
+        cabin.source_done && cabin.bound && !cabin.beginning && !cabin.failed && !cabin.halted &&
+        !cabin_event_readers && !cabin_event_reader_fault;
+}
+#endif
 extern "C" int re4dc_cabin_aftermath(unsigned id){
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    if(cabin.retiring)return 0;
+#endif
     if(cabin.id!=id || !cabin.source_done){cabin_failure("cabin aftermath before source terminal");return 0;}
     if(cabin.failed){cabin_failure("cabin aftermath has failed media");return 0;}
     const int status=re4dc_movie_cabin_status(cabin.movie);
@@ -163,7 +194,11 @@ extern "C" int re4dc_cabin_aftermath(unsigned id){
     if(status!=RE4DC_MOVIE_EOF && status!=RE4DC_MOVIE_SKIP){cabin_failure("cabin aftermath unqualified media");return 0;}
     if(cabin_event_readers || cabin_event_reader_fault || cabin.retiring)return 0;
     cabin.retiring=true;
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+    const int closed=re4dc_movie_cabin_complete(cabin.movie);
+#else
     const int closed=re4dc_movie_cabin_close(cabin.movie);
+#endif
     cabin.retiring=false;
     if(!closed)return 0;
     cabin=CabinSource{};return 1;

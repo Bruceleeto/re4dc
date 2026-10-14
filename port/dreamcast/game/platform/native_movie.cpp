@@ -1073,6 +1073,35 @@ extern "C" int re4dc_movie_cabin_close(unsigned generation){
     m=Movie{};cabin_movie=CabinMovie{};
     return 1;
 }
+#if RE4DC_CABIN_COMPLETE_HANDOFF
+static int cabin_movie_complete_qualified(unsigned generation){
+    if(!generation || generation!=cabin_movie.generation || cabin_movie.readers ||
+       cabin_movie.finishing || !cabin_movie.transport_retired ||
+       (cabin_movie.terminal!=RE4DC_MOVIE_EOF && cabin_movie.terminal!=RE4DC_MOVIE_SKIP) ||
+       !cabin_movie.checked || !cabin_movie.final_upload || !cabin_movie_identity() ||
+       re4dc_ui_movie_cabin_upload()!=cabin_movie.final_upload ||
+       re4dc_ui_movie_cabin_shown()!=cabin_movie.final_upload ||
+       !re4dc_cabin_complete_current(generation,m.id))return 0;
+    return 1;
+}
+extern "C" int re4dc_movie_cabin_complete_current(unsigned generation){
+    return cabin_movie.retiring && cabin_movie_complete_qualified(generation);
+}
+extern "C" int re4dc_movie_cabin_complete(unsigned generation){
+    // Normal source completion may fence the frame opened before TaskScheduler.
+    // Heap-change/cancel retirement continues to use the nonblocking close API.
+    if(cabin_movie.retiring || !cabin_movie_complete_qualified(generation))return 0;
+    cabin_movie.retiring=true;
+    if(!re4dc_ui_movie_cabin_complete(cabin_movie.ui_generation,m.tex,cabin_movie.final_upload,generation)){
+        cabin_movie.retiring=false;return 0;
+    }
+    // Transport was already retired by qualified EOF/SKIP. No further decoder,
+    // source heap or audio work may yield after the protected UI release.
+    re4dc_log("cabin movie completed: generation=%u id=%05x terminal=%d final_upload=%u\n",
+        generation,m.id,cabin_movie.terminal,cabin_movie.final_upload);
+    m=Movie{};cabin_movie=CabinMovie{};return 1;
+}
+#endif
 // CABIN_MOVIE_API_END
 #endif
 // Movie-owned presentation: the caller's game frame is not run while the
