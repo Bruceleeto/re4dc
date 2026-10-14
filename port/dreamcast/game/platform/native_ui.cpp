@@ -3986,6 +3986,9 @@ extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=
 // load_indicator.cpp (LOAD_INDICATOR with DOOR_FREEZE): the banner's quads start here.
 extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;door_banner_frame=frame;}
 #endif
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+#include "include/native_ui_fx_core_prep.inc"
+#endif
 #if RE4DC_ACTOR_TEX_PREP
 #include "include/native_ui_actor_tex_prep.inc"
 #endif
@@ -4085,6 +4088,9 @@ extern "C" void re4dc_ui_begin(){
     if(preload_pending && frame_ready && !vram_claims)preload_identities();
 #endif
     re4dc_prepare_model_assets(); // registration/update work precedes frame submission
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+    fxCoreTexturePrepare(); // accepted potential FX demand before world/current-frame pins
+#endif
 #if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
     stage1_prepare_image(); // existing guarded preload/load path; no effect submission
 #endif
@@ -4432,6 +4438,9 @@ extern "C" void re4dc_ui_present(){
 }
 
 extern "C" void re4dc_ui_end_frame(int present){
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+    fxCoreFinish();
+#endif
     const auto render_end=timer_us_gettime64();
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
     if(door_held){
@@ -5560,11 +5569,15 @@ extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE b
 // frame: without texture, over the per-frame cap or without queue room the sprite is dropped.
 extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     if(!frame_ready || stream_aborted || draining_parts)return 0;
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+    fxCoreBeginFxFrame();
+#else
     if(fx_frame!=frame){fx_frame=frame;fx_count=0;
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
         fx_new_loads=0;
 #endif
     }
+#endif
     if((s->color>>24)==0){++fx_culled;return 0;}
 #if RE4DC_RES_MODES
     Re4dcEffectSprite scaled;      // esp_sub.cpp projects to 640x480: the current render size (no copy at 640x480)
@@ -5611,6 +5624,9 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 #endif
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     fx_resident_only=false;fx_new_loads+=load_opens-opens;
+#endif
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+    fxCoreTextureAcquired(s->image,e);
 #endif
     if(!e){++fx_missing;return 0;}
 #if RE4DC_TA_BIN_DIAG

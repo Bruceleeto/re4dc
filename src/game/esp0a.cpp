@@ -30,6 +30,16 @@ public:
     virtual int SetFreeWork(EspGenWork* gen, u32* seed);
 };
 
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+// FX_CORE_SOURCE_READER_BEGIN: caller proved the complete live 0x150-byte slot.
+extern "C" int re4dc_fx_core_0a(const void* source)
+{
+    static_assert(sizeof(cEsp0a) <= 0x150, "effect pool slot");
+    return static_cast<const cEsp0a*>(source)->m_Free.Type == 1;
+}
+// FX_CORE_SOURCE_READER_END
+#endif
+
 extern "C" {
 void Esp0a_Trans(cEsp0a* esp);
 void Esp0a_Trans2(cEsp* esp);

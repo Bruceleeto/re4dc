@@ -10,6 +10,27 @@ struct Re4dcUiQuad {
     float xy[8], uv[8];
     unsigned color, blend, masked;
 };
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+#include <cstdint>
+// Stack-local proof of one accepted potential draw. No source pointer survives
+// the synchronous prepare/recheck; 0x0a descendants and 0x0e copies may still cull.
+struct Re4dcFxCoreDemand {
+    Re4dcUiImage image;
+    const void* game; const void* system; const void* pool; const void* dummy;
+    const void* node; const void* buckets; const void* tpl; const void* animation;
+    const void* descriptors; const void* header;
+    std::uintptr_t prim, cursor;
+    unsigned native_frame, source_frame, room_generation, pool_generation;
+    unsigned pool_count, prim_bytes, prim_buffer, table, table_max;
+    unsigned slot, callback, owner, call_no, accepted;
+    unsigned char source[0x150];
+};
+extern "C" {
+// 1: current accepted potential draw; 0: no demand/context; negative: proof refusal.
+int re4dc_fx_core_source(unsigned native_frame, Re4dcFxCoreDemand*);
+int re4dc_fx_core_current(unsigned native_frame, const Re4dcFxCoreDemand*);
+}
+#endif
 // Source subscreen tile, copied at its existing ordering-table callback.
 // Positions are view-space in GX triangle-strip order; colour is source RGBA.
 struct Re4dcSubscreenQuad {

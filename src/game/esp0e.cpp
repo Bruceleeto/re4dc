@@ -43,6 +43,16 @@ public:
     virtual int SetFreeWork(EspGenWork* gen, u32* seed);
 };
 
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+// FX_CORE_SOURCE_READER_BEGIN: potential copied glow, without drawing or RNG.
+extern "C" int re4dc_fx_core_0e(const void* source)
+{
+    static_assert(sizeof(cEsp0e) <= 0x150, "effect pool slot");
+    return static_cast<const cEsp0e*>(source)->m_Free.alpha > 0.01f;
+}
+// FX_CORE_SOURCE_READER_END
+#endif
+
 extern "C" {
 static f32 GetDistAlpha(cEsp0e* esp);
 static f32 GetDirAlpha(cEsp0e* esp, Vec* dir);

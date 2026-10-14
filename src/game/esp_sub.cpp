@@ -3613,3 +3613,9 @@ void Esp1b_SpTrans(cEsp* esp)
 
 // The split object's .sdata is padded to 8 bytes.
 asm(".section .sdata; .balign 8");
+
+#if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
+#include <cstdint>
+#include <cstring>
+#include "fx_core_source_prep.inc"
+#endif
