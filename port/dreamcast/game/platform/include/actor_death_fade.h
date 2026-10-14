@@ -43,7 +43,7 @@ inline unsigned alpha(float model,float second,float info,unsigned material) {
 // The same actual source-field reader is compiled by the owner and host tests.
 // cEm's hp is read only after the caller proves the source enemy type/owner.
 template<class Model> bool state_allows(const Model& m,unsigned appearance,int hp) {
-    return m.kindid==1 && m.id==0x13 && (appearance==0 || appearance==3) && !m.ot_type && hp==0 &&
+    return m.kindid==0 && m.id==0x13 && (appearance==0 || appearance==3) && !m.ot_type && hp==0 &&
         m.r_no_0==3 && m.r_no_1==3 && m.r_no_2==1 && m.r_no_3==0 &&
         m.invisible_factor>0.0f && m.invisible_factor<1.0f && m.invisible_factor2==1.0f && m.alpha_omit==255;
 }

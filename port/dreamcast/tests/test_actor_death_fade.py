@@ -3,7 +3,7 @@
 Host evidence for lifecycle/context/predicate contracts; target layout and runtime rendering are separate gates.
 """
 from pathlib import Path
-import subprocess,tempfile
+import subprocess,tempfile,re
 ROOT=Path(__file__).resolve().parents[1]
 GAME=ROOT/'game'
 HEADER=GAME/'platform/include'
@@ -36,12 +36,13 @@ class cModelInfo {public:
 };
 class cModel {public:
     cParts* pParts=nullptr;cModelInfo* pModelInfo=nullptr;
-    unsigned kindid=1,id=0x13,serial=22,ot_type=0,alpha_omit=255,z_mode=0,CullMode=0,Shader_type=0;
+    unsigned kindid=255,id=0x13,serial=22,ot_type=0,alpha_omit=255,z_mode=0,CullMode=0,Shader_type=0;
     unsigned AddAmb_r=0,AddAmb_g=0,AddAmb_b=0,be_flag=0,TevScaleGroup=0;
     unsigned r_no_0=3,r_no_1=3,r_no_2=1,r_no_3=0;
     float invisible_factor=.7999999523162842f,invisible_factor2=1;
 };
-class cEm: public cModel {public:short hp=0;};
+class cEm: public cModel {public:short hp=0;int initWork();};
+@@SOURCE_EM_INIT@@
 #include "coarse_actor_transaction.h"
 #include "actor_death_fade.h"
 struct Global {unsigned Frame_cnt=77,Status_flg[3]{},Disp_flg=0;struct {Mtx v_mat{};}Cam;} global;
@@ -164,7 +165,7 @@ void reset_case(){
     log_text.clear();release_order.clear();emitted_order.clear();emitted_infos.clear();consumed_palette.clear();choices[0]=choices[1]=0;
     gxlight={};gxlight.mask=3;gxlight.enable=1;gxlight.ambient[0]=35;gxlight.lights[0].position[0]=42;gxlight.lights[1].color[1]=71;
     for(unsigned i=0;i<7;++i)gxprojection[i]=float(i+1);for(unsigned i=0;i<6;++i)gxviewport[i]=float(i+10);fog=1;
-    for(unsigned j=0;j<2;++j){model[j]={};model[j].serial=22+j;identity(parts[j].mat);parts[j].mat[0][3]=10.0f+j;
+    for(unsigned j=0;j<2;++j){model[j]={};assert(model[j].initWork()==1);model[j].be_flag=0x02012077;model[j].serial=22+j;identity(parts[j].mat);parts[j].mat[0][3]=10.0f+j;
         for(unsigned i=0;i<4;++i){infos[j][i]={};identity(infos[j][i].mat);}
         infos[j][2].pList=&infos[j][0];infos[j][0].pList=&infos[j][3];infos[j][3].pList=&infos[j][1];
         model[j].pParts=&parts[j];model[j].pModelInfo=&infos[j][2];}
@@ -180,13 +181,15 @@ void predicate_and_alpha(){
     reset_case();const auto p=make_plan(&model[0]);auto before=model[0];
     assert(actor_fade_eligible(&model[0],p) && actor_semantics(&model[0],p));
     assert(!std::memcmp(&model[0],&before,sizeof(before)));
-    for(unsigned i=0;i<14;++i){model[0]=before;auto q=p;
-        switch(i){case 0:model[0].hp=1;break;case 1:model[0].kindid=0;break;case 2:model[0].id=0x17;break;
+    for(unsigned appearance:{0u,3u}){auto q=p;q.appearance=appearance;assert(actor_fade_eligible(&model[0],q));passed();}
+    for(unsigned i=0;i<16;++i){model[0]=before;auto q=p;
+        switch(i){case 0:model[0].hp=1;break;case 1:model[0].kindid=1;break;case 2:model[0].id=0x17;break;
         case 3:q.appearance=1;break;case 4:model[0].ot_type=7;break;case 5:model[0].r_no_0=2;break;
         case 6:model[0].r_no_1=2;break;case 7:model[0].r_no_2=0;break;case 8:model[0].r_no_3=1;break;
         case 9:model[0].invisible_factor2=.9f;break;case 10:model[0].alpha_omit=254;break;
         case 11:model[0].invisible_factor=std::numeric_limits<float>::quiet_NaN();break;
-        case 12:model[0].invisible_factor=std::numeric_limits<float>::infinity();break;case 13:model[0].invisible_factor=-.1f;break;}
+        case 12:model[0].invisible_factor=std::numeric_limits<float>::infinity();break;case 13:model[0].invisible_factor=-.1f;break;
+        case 14:model[0].kindid=2;break;case 15:model[0].kindid=3;break;}
         assert(!actor_fade_eligible(&model[0],q));passed();}
     model[0]=before;model[0].invisible_factor=0;assert(!actor_fade_eligible(&model[0],p));
     model[0].invisible_factor=1;assert(!actor_fade_eligible(&model[0],p));model[0]=before;
@@ -293,7 +296,10 @@ def main():
     source=(GAME/'platform/native_ui.cpp').read_text()
     start=source.index('constexpr unsigned kViewWords=')
     end=source.index('Re4dcModelPart* deferred_basis=',start)
-    cpp=CPP.replace('@@DEFERRED_LAYOUT@@',source[start:end])
+    em_source=(ROOT.parents[1]/'src/game/em.cpp').read_text()
+    init=re.search(r'int cEm::initWork\(\)\s*\{[^}]+\}',em_source)
+    assert init, 'Source cEm::initWork body must be available'
+    cpp=CPP.replace('@@SOURCE_EM_INIT@@',init.group(0)).replace('@@DEFERRED_LAYOUT@@',source[start:end])
     context=(GAME/'coarse_actor_death_fade_context.inc').read_text()
     first=context.index('#if RE4DC_ACTOR_TRANSACTION_DIAG')+len('#if RE4DC_ACTOR_TRANSACTION_DIAG')
     last=context.index('#endif',first)

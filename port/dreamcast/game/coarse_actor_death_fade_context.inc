@@ -23,7 +23,7 @@ unsigned actor_fade_sequence,actor_fade_pending;
 
 bool actor_fade_eligible(cModel* m,const Re4dcActorPlan& p) {
     // hp belongs to the actual recovered cEm. Do not read it for other types.
-    if(!m || m->kindid!=1 || m->id!=0x13)return false;
+    if(!m || m->kindid!=0 || m->id!=0x13)return false;
     return re4dc_fade::state_allows(*m,p.appearance,static_cast<cEm*>(m)->hp);
 }
 unsigned actor_fade_hash(const ActorFadeContext& c) {
