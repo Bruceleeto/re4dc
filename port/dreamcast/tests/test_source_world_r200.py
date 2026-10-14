@@ -8,6 +8,7 @@ import hashlib
 import contextlib
 import subprocess
 import tempfile
+from test_source_world_retained import generate,link_flags
 ROOT=Path(__file__).resolve().parents[3]
 INC=ROOT/'port/dreamcast/game/platform/include'
 if __name__=='__main__':
@@ -15,6 +16,7 @@ if __name__=='__main__':
     if saved:Path(saved).mkdir(parents=True,exist_ok=False)
     with contextlib.nullcontext(saved) if saved else tempfile.TemporaryDirectory(prefix='re4-source-world-') as out:
         exe=Path(out)/'test'
+        generate(out)
         # This regression previously used invented3/5 table aliases, masking
         # a real integration bug. Compile the actual enum and require source
         # registration/Render scope agreement at the source boundary.
@@ -48,7 +50,7 @@ if __name__=='__main__':
         # ModelRender postludes and Render scopes. Geometry/GX services stay
         # synthetic and are explicitly outside this host acceptance boundary.
         ot_bodies='\n'.join(function(ots,marker) for marker in (
-            'static inline void ISet','static inline OtWork* otWork','void clearOtWork',
+            'static inline void ISet','static inline OtWork* otWork','void InitOt()','void ClearOt()','void clearOtWork',
             'OtData* MakeOtData','int AddOtWorldPosRadius','int AddOtModelPosRadius',
             'extern "C" int AddOtDirect','int ExecOt','void DeleteOtData'))
         maximums=re.search(r'static int Ot_max_tbl\[OT_MAX\] = \{.*?\};',ots,re.S).group(0)
@@ -68,7 +70,7 @@ if __name__=='__main__':
         argv=[os.environ.get('CXX','g++'),'-std=c++17','-O1','-g','-Wall','-Wextra',
             '-fsanitize=address,undefined','-fno-sanitize-recover=all','-fno-omit-frame-pointer','-fno-pie','-no-pie','-fpermissive',
             '-Wno-misleading-indentation','-I',str(INC),'-I',str(out),
-            str(Path(__file__).with_name('fixtures')/'source_world_r200.cpp'),'-o',str(exe)]
+            str(Path(__file__).with_name('fixtures')/'source_world_r200.cpp'),*link_flags(out),'-o',str(exe)]
         (Path(out)/'compiler-command.json').write_text(json.dumps(argv,indent=2)+'\n')
         inputs=[ROOT/'src/game/trans.cpp',ROOT/'src/game/trans_ot.cpp',ROOT/'src/game/main_sub.cpp',
             ROOT/'include/trans_ot.h',ROOT/'port/dreamcast/game/parts_bridge.cpp',Path(__file__),

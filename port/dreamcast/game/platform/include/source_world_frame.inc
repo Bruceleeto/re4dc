@@ -12,7 +12,7 @@ struct SourceWorldEntry { cModel* model;unsigned serial,work; };
 struct SourceWorldFrame {
     unsigned native=0,source=0,room_generation=0,package_generation=0,objects=0,pools=0;
     unsigned long prim=0,begin=0,end=0;
-    unsigned bytes=0,buffer=0,prim_generation=0,count=0;
+    unsigned bytes=0,buffer=0,prim_generation=0,ot_epoch=0,count=0;
     bool active=false,ready=false,started=false,failed=false;
     SourceWorldEntry entries[kSourceWorldCallbacks]{};
 } sourceWorldFrame;
@@ -34,6 +34,16 @@ void sourceWorldFail(unsigned reason) {
         re4dc_log("PS2SOURCE_DECLINE f=%u reason=%u count=%u\n",re4dc_ui_frame(),reason,sourceWorldFailures);
     sourceWorldFrame.active=false;sourceWorldFrame.ready=false;
 }
+// reason12 subcodes: 1 primitive metadata, 2 primitive owner, 3 cursor,
+// 4 OT metadata, 5 OT owner, 6 node bounds, 7 walk limit, 8 OT epoch.
+void sourceWorldMemoryFail(unsigned sub,unsigned table,unsigned long address,unsigned bytes) {
+    if(sourceWorldFailures<16 || !(re4dc_ui_frame()%120)) {
+        Re4dcSourceWorldOtMemory memory{};re4dc_source_world_ot_memory(&memory);
+        re4dc_log("PS2SOURCE_MEMORY f=%u sub=%u table=%x addr=%08lx bytes=%u retained=%u:%08lx-%08lx epoch=%u/%u\n",
+            re4dc_ui_frame(),sub,table,address,bytes,memory.live,memory.begin,memory.end,sourceWorldFrame.ot_epoch,memory.epoch);
+    }
+    sourceWorldFail(12);
+}
 void sourceWorldAbort(unsigned reason) {
     if(sourceWorldFrame.failed)return;
     sourceWorldFrame.failed=true;sourceWorldFail(reason);re4dc_model_packet_abort();
@@ -43,7 +53,7 @@ bool sourceWorldIdentity(unsigned native,unsigned generation) {
     return f.active && sourceWorldContext() && native==f.native && generation==f.package_generation &&
         unsigned(pG->Frame_cnt)==f.source && static_cast<unsigned long>(pG->prim_cnt)==f.prim &&
         unsigned(pG->nPrim)==f.bytes && unsigned(pG->vtx_buf_no)==f.buffer &&
-        sourceWorldPrimGeneration==f.prim_generation &&
+        sourceWorldPrimGeneration==f.prim_generation && re4dc_source_world_ot_epoch()==f.ot_epoch &&
         reinterpret_cast<unsigned long>(GXWORK()->prim)>=f.end &&
         reinterpret_cast<unsigned long>(GXWORK()->prim)-f.begin<=f.bytes &&
         re4dc_alive_gen[2]==f.objects && re4dc_alive_gen[0]==f.pools &&
@@ -52,6 +62,7 @@ bool sourceWorldIdentity(unsigned native,unsigned generation) {
 }
 bool sourceWorldWalk(bool publish) {
     auto& f=sourceWorldFrame;unsigned count=0;
+    if(re4dc_source_world_ot_epoch()!=f.ot_epoch){sourceWorldMemoryFail(8,~0U,0,0);return false;}
     // ModelTrans registers the current source callbacks into raw tables
     // 0x0b (direct), 0x0d (model depth), 0x10 (after render), 0x11 (world depth).
     // Keep this order identical to Render's scopes. The descriptive
@@ -60,9 +71,12 @@ bool sourceWorldWalk(bool publish) {
     for(unsigned table:tables){
         const auto& ot=g_OtWork[table];if(!ot.list && !ot.max)continue;
         const auto buckets=reinterpret_cast<unsigned long>(ot.list);
-        if(!ot.list || !ot.max || ot.max>4096 || buckets%alignof(OtData) ||
-           !sourceWorldAllocated(ot.list,unsigned(ot.max)*sizeof(OtData),true)) {
-            sourceWorldFail(12);return false;
+        if(!ot.list || !ot.max || ot.max>4096 || buckets%alignof(OtData)) {
+            sourceWorldMemoryFail(4,table,buckets,0);return false;
+        }
+        const unsigned bytes=unsigned(ot.max)*sizeof(OtData);
+        if(!sourceWorldAllocated(ot.list,bytes,true) && !re4dc_source_world_ot_retained(ot.list,bytes)) {
+            sourceWorldMemoryFail(5,table,buckets,bytes);return false;
         }
         unsigned visited=0;
         for(auto* node=&ot.list[ot.max-1];node;node=node->next){
@@ -72,7 +86,8 @@ bool sourceWorldWalk(bool publish) {
             const bool primitive=address>=f.begin && address<=f.end &&
                 !(address&31UL) && sizeof(OtPrim)<=f.end-address;
             // next is read only after this iteration proved the complete node.
-            if(++visited>4096 || (!bucket && !primitive)){sourceWorldFail(12);return false;}
+            if(++visited>4096){sourceWorldMemoryFail(7,table,address,sizeof(OtPrim));return false;}
+            if(!bucket && !primitive){sourceWorldMemoryFail(6,table,address,sizeof(OtPrim));return false;}
             if(!node->data || node->func!=(void (*)(void*))ModelRender)continue;
             auto* model=static_cast<cModel*>(node->data);
             unsigned serial=0,work=~0U;
@@ -146,15 +161,16 @@ extern "C" int re4dc_source_world_prepare(unsigned native,unsigned* generation) 
     f.native=native;f.source=pG->Frame_cnt;f.room_generation=rg;f.package_generation=pg;
     f.objects=re4dc_alive_gen[2];f.pools=re4dc_alive_gen[0];
     f.prim=pG->prim_cnt;f.bytes=pG->nPrim;f.buffer=pG->vtx_buf_no;
-    f.prim_generation=sourceWorldPrimGeneration;
-    if(!f.bytes || f.buffer>=RE4DC_PRIMITIVE_BUFFERS ||
-       f.bytes>~0U/RE4DC_PRIMITIVE_BUFFERS ||
-       !sourceWorldAllocated(reinterpret_cast<const void*>(f.prim),f.bytes*RE4DC_PRIMITIVE_BUFFERS,true)) {
-        sourceWorldFail(12);return 0;
+    f.prim_generation=sourceWorldPrimGeneration;f.ot_epoch=re4dc_source_world_ot_epoch();
+    if(!f.bytes || f.buffer>=RE4DC_PRIMITIVE_BUFFERS || f.bytes>~0U/RE4DC_PRIMITIVE_BUFFERS) {
+        sourceWorldMemoryFail(1,~0U,f.prim,f.bytes);return 0;
+    }
+    if(!sourceWorldAllocated(reinterpret_cast<const void*>(f.prim),f.bytes*RE4DC_PRIMITIVE_BUFFERS,true)) {
+        sourceWorldMemoryFail(2,~0U,f.prim,f.bytes*RE4DC_PRIMITIVE_BUFFERS);return 0;
     }
     f.begin=f.prim+static_cast<unsigned long>(f.bytes)*f.buffer;
     f.end=reinterpret_cast<unsigned long>(GXWORK()->prim);
-    if(f.end<f.begin || f.end-f.begin>f.bytes){sourceWorldFail(12);return 0;}
+    if(f.end<f.begin || f.end-f.begin>f.bytes){sourceWorldMemoryFail(3,~0U,f.end,f.bytes);return 0;}
     if(!sourceWorldWalk(true))return 0;
     f.active=f.count!=0;
     if(!sourceWorldIdentity(native,pg)){f.active=false;return 0;}

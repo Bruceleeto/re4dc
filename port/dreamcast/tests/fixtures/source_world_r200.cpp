@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <cstdarg>
 #include <cstdlib>
 #include <new>
 #include <cstring>
@@ -39,26 +40,16 @@ struct Global { unsigned Rno0=3,stage_no=2,room_no=0,System_flg=0x400,Status_flg
 cSmd* pSmd=nullptr;cObj** scrTbl=nullptr;int nScrWork=90;
 unsigned room_generation=10,frame=200,re4dc_alive_gen[4]{1,2,3,4};bool room_live=true,movie=false,subscreen=false;
 int re4dc_coarse_image=0,re4dc_pace_skipping=0;unsigned log_count,aborts,camera_calls,draw_calls;
-extern "C" void re4dc_log(const char*,...){++log_count;}
+unsigned memory_sub=0,memory_table=0,memory_bytes=0;unsigned long memory_address=0;
+extern "C" void re4dc_log(const char* format,...){++log_count;
+ if(std::strstr(format,"PS2SOURCE_MEMORY")){va_list ap;va_start(ap,format);(void)va_arg(ap,unsigned);
+  memory_sub=va_arg(ap,unsigned);memory_table=va_arg(ap,unsigned);memory_address=va_arg(ap,unsigned long);memory_bytes=va_arg(ap,unsigned);va_end(ap);}}
 extern "C" int re4dc_room4_state(unsigned* g,unsigned* c,unsigned* b,unsigned* s,unsigned* r){*g=room_generation;*c=*b=*s=*r=0;return room_live;}
 extern "C" int re4dc_ui_movie_texture(){return movie;}
 extern "C" int re4dc_ss_ui_order(){return subscreen;}
 extern "C" unsigned re4dc_ui_frame(){return frame;}
 extern "C" void re4dc_model_packet_abort(){++aborts;}
-// Synthetic allocator services, exercised by the actual allocator/pool readers.
-struct OSHeapCell { OSHeapCell* prev=nullptr;OSHeapCell* next=nullptr;int size=0;char padding[12]{}; };
-static_assert(sizeof(OSHeapCell)==32);
-struct OSHeapDescriptor {int size=0;OSHeapCell* free=nullptr;OSHeapCell* allocated=nullptr;};
-struct MemHeap {int handle=-1;unsigned long start=0,end=0;unsigned status=0;};
-constexpr int MEM_HEAP_NUM=13;
-MemHeap Heap[MEM_HEAP_NUM];Re4dcMemLayout re4dc_mem{};
-alignas(32) unsigned char heap_memory[512000];unsigned heap_cursor;
-OSHeapDescriptor* heap_descriptors;
-void* host_alloc(unsigned bytes) {
- bytes=(bytes+31)&~31U;assert(heap_cursor+32+bytes<sizeof(heap_memory));
- auto* c=new(heap_memory+heap_cursor)OSHeapCell{};c->size=32+bytes;c->next=heap_descriptors[4].allocated;
- if(c->next)c->next->prev=c;heap_descriptors[4].allocated=c;heap_cursor+=32+bytes;return c+1;
-}
+#include "source_world_allocator.inc"
 template<class T> struct cManager {T* pArray=nullptr;unsigned nArray=0,size=sizeof(T),pArrayPush=0;bool suspended=false;};
 template<class T> constexpr bool demand=true;
 template<class T> struct Frozen {unsigned n=0;T** slots=nullptr;};
@@ -70,7 +61,7 @@ cManager<cModelInfo>* cModel::mm=&ModInfoMgr;cManager<cParts>* cModel::pm=&Parts
 template<class T> T* make_pool(cManager<T>& manager,unsigned count) {
  auto* p=new(host_alloc(sizeof(Pool<T>)+count*sizeof(T*)))Pool<T>{};
  auto* c=new(host_alloc(sizeof(Chunk<T>)+count*sizeof(T)))Chunk<T>{};
- p->capacity=count;p->heap=p->handle=4;p->chunks=c;c->count=count;c->bytes=sizeof(Chunk<T>)+count*sizeof(T);
+ p->capacity=count;p->heap=4;p->handle=Heap[4].handle;p->chunks=c;c->count=count;c->bytes=sizeof(Chunk<T>)+count*sizeof(T);
  manager={reinterpret_cast<T*>(p),count,sizeof(T),0,false};
  for(unsigned i=0;i<count;++i){new(c->parts()+i)T{};p->slots()[i]=c->parts()+i;}return c->parts();
 }
@@ -110,7 +101,6 @@ Entry* load(const Re4dcUiImage& image,bool pin,const Key* key){++loads;loaded_pi
 #include "native_ui_source_world.inc"
 // Instrumented external geometry/GX services around exact production bodies.
 struct GeoSphere {Vec pos;float r;};struct GeoHexahedron{};
-struct Logger {template<class... A>void warn(A...){assert(false);}template<class... A>void err(A...){assert(false);}} logger,*pLog=&logger;
 void* CameraViewFrustumPtr(Camera*){static GeoHexahedron h;return &h;}
 bool collision_sphere_hexahedron(GeoSphere*,GeoHexahedron*){return true;}
 void CameraGetLookVecInverse(Camera*,Vec* out){*out={0,0,1};}
@@ -152,6 +142,7 @@ int Filter09GetbUse(){return 0;}void Filter09Render(int){}
 void GXSetDrawSync(int){++draw_syncs;}void Render_DrawSyncCallback(u16){}void GXSetDrawSyncCallback(void(*)(u16)){}
 struct {float x=0,y=0,width=640,height=448;}Screen;
 void GXSetScissor(u32 x,u32 y,u32 w,u32 h){scissor={x,y,w,h};}
+void ClearOt();void clearOtWork(OtWork*);void CrearOtMirrorWork(){}
 #include "source_world_actual_registration.inc"
 #define objects (*objects_storage)
 #define infos (*infos_storage)
@@ -167,10 +158,11 @@ void reset(unsigned n=3){
  global=Global{};pG=&global;room_generation=10;frame=200;room_live=archive_live=true;movie=subscreen=false;re4dc_coarse_image=re4dc_pace_skipping=0;
  screen_prepares=light_prepares=callback_postludes=source_geometry=shader_resets=draw_syncs=mixed_callbacks=0;
  callback_tables.clear();callback_scissors.clear();callback_cameras.clear();scissor=Scissor{};native_scissor=Scissor{};native_camera=Camera{};
- for(auto& h:Heap)h=MemHeap{};std::memset(heap_memory,0,sizeof(heap_memory));heap_descriptors=reinterpret_cast<OSHeapDescriptor*>(heap_memory);
- heap_cursor=(sizeof(OSHeapDescriptor)*MEM_HEAP_NUM+31)&~31U;
- re4dc_mem.heap=reinterpret_cast<unsigned long>(heap_memory);re4dc_mem.heap_end=re4dc_mem.heap+sizeof(heap_memory);
- Heap[4]={4,re4dc_mem.heap+heap_cursor,re4dc_mem.heap_end,0};heap_descriptors[4].size=sizeof(heap_memory)-heap_cursor;
+ allocator_reset();
+ assert(MemReplaceHeap(0,1)&&MemSetCurrentHeap(1));InitOt();
+ assert(MemReplaceHeap(1,2)&&MemSetCurrentHeap(2));host_alloc(96);
+ assert(MemReplaceHeap(2,3)&&MemSetCurrentHeap(3));host_alloc(96);
+ assert(MemReplaceHeap(3,4)&&MemSetCurrentHeap(4));
  objects_storage=reinterpret_cast<std::array<cObj,90>*>(make_pool(ObjMgr,90));
  infos_storage=reinterpret_cast<std::array<cModelInfo,90>*>(make_pool(ModInfoMgr,90));
  parts_storage=reinterpret_cast<std::array<cParts,90>*>(make_pool(PartsMgr,90));make_pool(EmMgr,4);
@@ -178,6 +170,7 @@ void reset(unsigned n=3){
  scrTbl=static_cast<cObj**>(host_alloc(90*sizeof(cObj*)));std::fill_n(scrTbl,90,nullptr);
  global.prim_cnt=reinterpret_cast<unsigned long>(host_alloc(global.nPrim*RE4DC_PRIMITIVE_BUFFERS));gx.prim=reinterpret_cast<unsigned char*>(global.prim_cnt);sourceWorldPrimGeneration=1;
  re4dc_alive_gen[0]=1;re4dc_alive_gen[2]=3;sourceWorldPackageGeneration=2;sourceWorldSidecarCrc=4040448078U;ps2w=Ps2World{};dyn::ids=archive;dyn::nids=90;
+ sourceWorldFailures=sourceWorldReports=0;memory_sub=memory_table=memory_bytes=0;memory_address=0;
  sourceWorldImageFrame=~0U;sourceWorldImageGeneration=0;sourceWorldImageResult=0;sourceWorldFrame=SourceWorldFrame{};sourceWorldRenderActive=false;
  aborts=camera_calls=draw_calls=loads=load_case=texfails=0;loaded_pin=false;frame_ready=true;stream_scene=stream_retire=stream_aborted=direct_open=false;vram_claims=0;
  sourceWorldPreparedFrame=sourceWorldAcquired=0;cache_entry=Entry{};
@@ -190,7 +183,7 @@ void reset(unsigned n=3){
   objects[i]=cObj{};infos[i]=cModelInfo{};source_parts[i]=cParts{};
   objects[i].serial=100+i;objects[i].pModelInfo=&infos[i];objects[i].pList=&source_parts[i];infos[i].pData=d;source_parts[i].pParent=&objects[i];scrTbl[i]=&objects[i];sourceWorldScrollBind(i,&objects[i]);
  }
- for(auto& ot:g_OtWork)ot={};nodes=static_cast<OtData*>(host_alloc(100*sizeof(OtData)));for(unsigned i=0;i<100;++i)new(nodes+i)OtData{};
+ if(n)for(auto& ot:g_OtWork)ot={};nodes=static_cast<OtData*>(host_alloc(100*sizeof(OtData)));for(unsigned i=0;i<100;++i)new(nodes+i)OtData{};
  for(unsigned i=0;i<n;++i){nodes[i]={&objects[i%90],reinterpret_cast<void(*)(void*)>(ModelRender),i?&nodes[i-1]:nullptr};}
  if(n)g_OtWork[0x0b]={nodes,n};world_parts[13]={0xfa6fe38cU,0x1a02365fU,256,256,2,0,17,0};
 }
@@ -198,7 +191,10 @@ int main(){
  // Real ModelTrans -> AddOt* -> accepted reader -> real Render/ExecOt -> real
  // ModelRender postludes. Raw0x10 has exactly source id06, as in staged r200.
  for(unsigned mixed=0;mixed<2;++mixed){reset(0);unsigned generation=0;
-  for(unsigned table=0;table<OT_MAX;++table){auto& ot=g_OtWork[table];ot.max=Ot_max_tbl[table];ot.list=static_cast<OtData*>(host_alloc(ot.max*sizeof(OtData)));clearOtWork(&ot);}
+  check(Heap[1].handle==-1&&Heap[4].handle!=4);
+  for(unsigned table=0;table<OT_MAX;++table){const auto& ot=g_OtWork[table];
+   check(!sourceWorldAllocated(ot.list,ot.max*sizeof(OtData),true));
+   check(re4dc_source_world_ot_retained(ot.list,ot.max*sizeof(OtData)));}
   global.System_flg=0x0c40;global.Cam.v_mat[0][0]=1;global.Cam.v_mat[1][1]=2;global.Cam.v_mat[2][2]=3;itemCamera.v_mat[0][0]=99;
   for(unsigned i=0;i<21;++i){auto& m=objects[i];m.ot_type=i==6?5:i<7?4:i<14?0:1;m.pos.z=pSmd->work[i].pos.z=100;ModelTrans(&m);}
   GuardPage ignored;AddOtDirect(0x10,ignored.p,reinterpret_cast<void(*)()>(NonModelCallback),0,0,nullptr,0);
@@ -218,6 +214,38 @@ int main(){
   check(native_scissor.y==56&&native_scissor.height==337&&scissor.y==0&&scissor.height==448);
   check(global.Cam.v_mat[0][0]==1&&!(global.Status_flg[3]&0x10000000));
  }
+ // Real source retirement changes the OT epoch even while heap4 objects
+ // and identical bucket bytes remain; pre-draw fallback and post-draw abort.
+ for(unsigned started=0;started<2;++started){reset(0);
+  for(unsigned i=0;i<21;++i){auto& m=objects[i];m.ot_type=i==6?5:i<7?4:i<14?0:1;m.pos.z=pSmd->work[i].pos.z=100;ModelTrans(&m);}
+  sourceWorldTexturePrepare();check(sourceWorldFrame.ready&&sourceWorldFrame.count==21);
+  {SourceWorldRenderScope scope;if(started)check(sourceWorldDraw(&objects[0])==1);
+   check(MemDestroyHeap(1)==0);check(!re4dc_source_world_current(frame,2));
+   check(sourceWorldDraw(&objects[1])==(started?-1:0));}
+  check(draw_calls==started&&aborts==started);
+ }
+ // Rebuild the exact same source addresses: all older synthetic room/model
+ // generations intentionally recur, but the allocator publication epoch must not.
+ for(unsigned started=0;started<2;++started){reset(0);
+  for(unsigned i=0;i<21;++i){auto& m=objects[i];m.ot_type=i==6?5:i<7?4:i<14?0:1;m.pos.z=pSmd->work[i].pos.z=100;ModelTrans(&m);}
+  sourceWorldTexturePrepare();if(started){SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[0])==1);}
+  const auto old_frame=sourceWorldFrame;const auto old_object=&objects[0];const auto old_bucket=g_OtWork[0x0b].list;
+  reset(0);for(unsigned i=0;i<21;++i){auto& m=objects[i];m.ot_type=i==6?5:i<7?4:i<14?0:1;m.pos.z=pSmd->work[i].pos.z=100;ModelTrans(&m);}
+  check(&objects[0]==old_object&&g_OtWork[0x0b].list==old_bucket&&re4dc_source_world_ot_epoch()!=old_frame.ot_epoch);
+  sourceWorldFrame=old_frame;check(!re4dc_source_world_current(frame,2));
+  {SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[1])==(started?-1:0));}
+  check(!draw_calls&&aborts==started);
+ }
+ // Safe diagnostics distinguish each allocator/extent/traversal refusal.
+ {GuardPage guard;for(unsigned sub=1;sub<=7;++sub){reset();unsigned g=0;
+  switch(sub){case 1:global.nPrim=0;break;case 2:global.prim_cnt=reinterpret_cast<unsigned long>(guard.p);break;
+   case 3:gx.prim=reinterpret_cast<unsigned char*>(global.prim_cnt+global.nPrim+1);break;
+   case 4:g_OtWork[0x0b].max=4097;break;case 5:g_OtWork[0x0b].list=static_cast<OtData*>(guard.p);break;
+   case 6:nodes[1].next=static_cast<OtData*>(guard.p);break;case 7:nodes[1].data=nullptr;nodes[1].next=&nodes[1];break;}
+  check(!re4dc_source_world_prepare(frame,&g)&&memory_sub==sub);check(!draw_calls&&!aborts);
+  if(sub>=4)check(memory_table==0x0b);else check(memory_table==~0U);
+ }
+ reset();sourceWorldTexturePrepare();check(MemDestroyHeap(1)==0);check(!sourceWorldWalk(false)&&memory_sub==8);}
  reset();unsigned work=999,gen=0;check(re4dc_scroll_source_member(&objects[0],100,&work)&&work==0);
  reset();sourceWorldTexturePrepare();const auto prim_before=global.prim_cnt;const auto buffer_before=global.vtx_buf_no;
  SetPrimBuffPtr();SetPrimBuffPtr();check(global.prim_cnt==prim_before&&global.vtx_buf_no==buffer_before);
@@ -304,7 +332,7 @@ int main(){
  for(unsigned type=0;type<3;++type){reset();const void* chunk=type==0?static_cast<void*>(pool(&ObjMgr)->chunks):
    type==1?static_cast<void*>(pool(&ModInfoMgr)->chunks):static_cast<void*>(pool(&PartsMgr)->chunks);
   auto* cell=reinterpret_cast<const OSHeapCell*>(chunk)-1;
-  for(auto** link=&heap_descriptors[4].allocated;*link;link=&(*link)->next)if(*link==cell){*link=(*link)->next;break;}
+  for(auto** link=&heap_descriptors[Heap[4].handle].allocated;*link;link=&(*link)->next)if(*link==cell){*link=(*link)->next;break;}
   check(!re4dc_source_world_prepare(frame,&gen));check(!draw_calls&&!aborts);
  }
  // A real OtPrim must be fully below the captured allocation cursor. Allocated

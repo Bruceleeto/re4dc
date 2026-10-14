@@ -91,6 +91,11 @@ static u8 CurrentDbgHeap;
 void* pMemTile;
 static u32 _epy;
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "ps2_source_world.h"
+#include "source_world_retained.inc"
+#endif
+
 // Zeroed allocation from the current heap.
 void* operator new(unsigned int size)
 {
@@ -170,6 +175,9 @@ void SystemMemInit()
     arenaLo = (arenaLo + 0x1F) & ~0x1F;
     arenaHi &= ~0x1F;
     HeapHead = (OSHeapDescriptor*) arenaLo;
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedReset();
+#endif
     arenaLo = (u32) OSInitAlloc((void*) arenaLo, (void*) arenaHi, MEM_HEAP_NUM);
     OSSetArenaLo((void*) arenaLo);
     OSSetArenaHi((void*) arenaHi);
@@ -190,6 +198,9 @@ void SystemMemInit()
 // Clears the 13 heap slots and the suspend backups.
 void memInitHeapTbl()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedReset();
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
     re4dc_actor_forget_all();
 #endif
@@ -208,6 +219,9 @@ void memInitHeapTbl()
 // Suspends heap no: saves its OSAlloc descriptor and empties the live one (allocations from it fail).
 void MemSuspendHeap(int no)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedSuspend(no);
+#endif
     int h = Heap[no].handle;
 
     if (memGetHeapSattus(no) == 0 && h >= 0) {
@@ -224,6 +238,9 @@ void MemSignalHeap(int no)
     int h = Heap[no].handle;
 
     if (memGetHeapSattus(no) == 1 && h >= 0) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+        sourceWorldRetainedRestore(no);
+#endif
         OSHeapDescriptor* hh = HeapHead;
         OSHeapDescriptor* bk = heap_backup;
 
@@ -330,6 +347,9 @@ u32 MemCheckHeapEnd(int no)
 // Creates (or recreates) heap no over [start, end).
 int MemCreateHeap(int no, u32 start, u32 end)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedCreate(no,start,end);
+#endif
     if (!memCheckHeapActive(no)) {
         return 0;
     }
@@ -351,6 +371,9 @@ int MemCreateHeap(int no, u32 start, u32 end)
 // Destroys heap no (resuming it first if suspended).
 int MemDestroyHeap(int no)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedDestroy(no);
+#endif
     if (!memCheckHeapActive(no)) {
         MemSignalHeap(no);
     }
@@ -405,6 +428,10 @@ int MemReplaceHeap(int from, int to)
     if (!memCheckHeapActive(to)) {
         return 0;
     }
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    SourceWorldRetainedTransfer retained;
+    if(!sourceWorldRetainedCapture(from,to,&retained))return 0;
+#endif
     if (Heap[from].handle >= 0) {
         start = MemCheckHeapEnd(from);
         end = Heap[from].end;
@@ -443,12 +470,21 @@ int MemReplaceHeap(int from, int to)
         return 0;
     }
 #endif
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    const int result=MemCreateHeap(to,start,end);
+    sourceWorldRetainedPublish(retained,result);
+    return result;
+#else
     return MemCreateHeap(to, start, end);
+#endif
 }
 
 // Destroys every heap (soft reset).
 void MemClearAllHeap()
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedReset();
+#endif
     u32 i;
 
 #if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA
@@ -648,6 +684,9 @@ void Mem_free(void* p)
 // Frees a block (to the OS current heap) when heap `heap` is active.
 void Mem_free_h(void* p, int heap)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedFree(p);
+#endif
 #if defined(RE4DC_OSFREE_CHECK) && RE4DC_OSFREE_CHECK
     re4dc_osfree_ra[0] = __builtin_return_address(0);
 #endif
@@ -732,6 +771,9 @@ void Debug_free(void* p)
 // Frees a debug block after wiping it (poison for stale pointers).
 void Debug_free_h(void* p, int heap)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldRetainedFree(p);
+#endif
     if (heap == MEM_HEAP_CURRENT) {
         heap = CurrentDbgHeap;
     }
