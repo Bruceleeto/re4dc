@@ -89,6 +89,29 @@ void sourceWorldTextureAcquired(const Key& key) {
     re4dc_log("PS2SOURCE_TEX_ACQUIRE f=%u key=%08x-%08x\n",frame,key.crc,key.fnv);
 }
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_PIN
+void sourceWorldTransitionPin() {
+    if(!frame_ready || stream_scene || stream_retire || stream_aborted || direct_open || vram_claims)return;
+    unsigned generation=0;
+    if(!re4dc_ps2_source_package(&generation) || !re4dc_source_world_transition(frame,generation))return;
+    Re4dcSourceWorldTexture pick{};
+    if(!re4dc_ps2_source_texture(generation,&pick) || pick.generation!=generation)return;
+    const Key key{pick.crc,pick.fnv};Entry* selected=nullptr;
+    // Own cache slots only. Missing, duplicate or incomplete residency never
+    // loads a file, acquires VRAM, releases an upload or keeps a borrowed pointer.
+    for(auto& e:entries)if(e.valid && e.key==key){if(selected)return;selected=&e;}
+    if(!selected || !selected->package.upload_complete() ||
+       selected->package.header().texture_count!=1 || !selected->package.pvr_texture(0) ||
+       selected->package.vram_bytes()!=pick.bytes ||
+       selected->package.textures()[0].width!=pick.width || selected->package.textures()[0].height!=pick.height)return;
+    unsigned current=0;
+    if(!re4dc_ps2_source_package(&current) || current!=generation || !re4dc_source_world_transition(frame,current))return;
+    // Same pin as an ordinary cache hit, expiring at the next native frame.
+    selected->frame=frame;
+    static unsigned reports=0;
+    if(reports++<16 || !(frame%120))re4dc_log("PS2TRANSITION_PIN f=%u gen=%u key=%08x-%08x bytes=%u\n",frame,generation,key.crc,key.fnv,pick.bytes);
+}
+#endif
 void sourceWorldTexturePrepare() {
 #if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
     re4dc_source_world_diag_begin(frame);sourceWorldDiagSnapshot("preflight");
@@ -103,7 +126,12 @@ void sourceWorldTexturePrepare() {
 #if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
     re4dc_source_world_diag_report(frame,"preflight-result");
 #endif
-    if(!admitted)return;
+    if(!admitted){
+#if RE4DC_PS2_WORLD_TRANSITION_PIN
+        sourceWorldTransitionPin();
+#endif
+        return;
+    }
     if(!frame_ready || stream_scene || stream_retire || stream_aborted || direct_open || vram_claims){
 #if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
         if(re4dc_source_world_diag_active(frame))re4dc_log("PS2PF ui-decline f=%u reason=frame-state\n",frame);

@@ -20,5 +20,9 @@ int re4dc_source_world_pool(const void*,unsigned type);
 int re4dc_scroll_source_probe(cModel*,unsigned* serial,unsigned* work);
 int re4dc_source_world_prepare(unsigned native_frame,unsigned* generation);
 int re4dc_source_world_current(unsigned native_frame,unsigned generation);
+#if RE4DC_PS2_WORLD_TRANSITION_PIN
+// Texture cache retention only; never authorizes source geometry consumption.
+int re4dc_source_world_transition(unsigned native_frame,unsigned generation);
+#endif
 void re4dc_source_world_prepared(unsigned native_frame,unsigned generation,int ready);
 }

@@ -54,6 +54,22 @@ void sourceWorldDiagStage(const char* stage) {
 #define RE4DC_SOURCE_DIAG_TEST(test,field) (test)
 #define RE4DC_SOURCE_DIAG_STAGE(stage) ((void)0)
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_PIN
+// gameDoordemo (Rno0 4) still presents the old room while fading. Its source
+// callback set is not a play-frame ticket. Retaining an existing native texture
+// is separately qualified and never admits that callback set.
+bool sourceWorldTransitionContext(unsigned native,unsigned generation) {
+    unsigned rg=0,c=0,b=0,s=0,retired=0,pg=0;
+    return pG && pG->Rno0==4 && G_ROOM_ID==0x200 &&
+        !(pG->System_flg&(0x100000U|0x1000U)) &&
+        !(pG->Status_flg[2]&0x04000000U) && !(pG->Status_flg[1]&0x100U) &&
+        !re4dc_coarse_image && !re4dc_pace_skipping &&
+        !re4dc_ui_movie_texture() && !re4dc_ss_ui_order() &&
+        native==re4dc_ui_frame() && generation &&
+        re4dc_room4_state(&rg,&c,&b,&s,&retired) && rg &&
+        re4dc_ps2_source_package(&pg) && pg==generation;
+}
+#endif
 bool sourceWorldContext() {
     return RE4DC_SOURCE_DIAG_TEST(pG,1) && RE4DC_SOURCE_DIAG_TEST(pG->Rno0==3,2) &&
         RE4DC_SOURCE_DIAG_TEST(G_ROOM_ID==0x200,3) && RE4DC_SOURCE_DIAG_TEST(pG->System_flg&0x400,4) &&
@@ -207,6 +223,11 @@ int sourceWorldDraw(cModel* model) {
     sourceWorldFail(7);return 0;
 }
 }
+#if RE4DC_PS2_WORLD_TRANSITION_PIN
+extern "C" int re4dc_source_world_transition(unsigned native,unsigned generation) {
+    return sourceWorldTransitionContext(native,generation);
+}
+#endif
 extern "C" int re4dc_source_world_prepare(unsigned native,unsigned* generation) {
     auto& f=sourceWorldFrame;f.active=false;f.ready=false;f.started=false;f.failed=false;f.count=0;
     RE4DC_SOURCE_DIAG_STAGE("context");
