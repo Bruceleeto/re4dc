@@ -15,6 +15,7 @@ KW=$(cygpath -m "$HERE" | sed 's#^//wsl.localhost/Ubuntu-24.04##')   # the kit a
 case "$KW" in /root/*) ;; *) echo "run bench-run.sh from the WSL tree (\\\\wsl.localhost\\Ubuntu-24.04\\root\\...)"; exit 1 ;; esac
 T11=$(dirname "$KW")/test11
 W="$KW/benchmark-$SC-warp.txt"
+BW=$(grep -m1 "^# bench-window" "$HERE/benchmark-$SC-warp.txt" | awk '{print "--from "$3" --to "$4}')
 HW="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
 H="/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
 E=${BENCH_EV:-/c/Flycast-Evidence/re4-dreamcast/bench-20261014}
@@ -41,7 +42,7 @@ D=$(MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -u root -- bash "$EW/_tools/stage-$N.
 rm -f "$E/_tools/stage-$N.sh"
 echo "stage $D"
 case "$D" in STAGED_PAYLOAD_IDENTITY_PASS*) ;; *) echo "stage failed"; exit 1 ;; esac
-echo "benchmark-$SC: arm $L, scene $W, $SECS s, window room frames 300..1200 (MODELLED, Flycast runner)" > $S/PURPOSE.txt
+echo "benchmark-$SC: arm $L, scene $W, $SECS s, window ${BW:-room frames 300..1200} (MODELLED, Flycast runner)" > $S/PURPOSE.txt
 C=$S/capture
 for try in $(seq 1 30); do   # the runner refuses at its Flycast ceiling: wait and retry
   python ${RUNNER:-run-emulator-novsync-i26.py} route-bench-$N --seconds $SECS --period ${PERIOD:-30} > $S-run-stdout.txt 2>&1
@@ -54,4 +55,4 @@ rm -f $C/disc.bin $S/disc/disc.bin
 cp "//wsl.localhost/Ubuntu-24.04$FIXD/$N.json" $S/fixture.json 2>/dev/null
 mv $S "$E/$N" && mv $S-run-stdout.txt "$E/$N/run-stdout.txt"
 echo "$N halt=$(grep -ac HALT $E/$N/capture/run-output.txt) fault=$(grep -ac FAULT $E/$N/capture/run-output.txt) last=$(grep -a '^warp: frame' $E/$N/capture/run-output.txt | tail -1 | cut -c1-40)"
-python "$HERE/bench-ms.py" "$E/$N/capture/run-output.txt"
+python "$HERE/bench-ms.py" "$E/$N/capture/run-output.txt" $BW

@@ -7,8 +7,10 @@
 # frames 500:1399 (about room frames 300..1200), 15 traced frames. Then bench-split.py prints the subsystem split.
 # Evidence: C:\Flycast-Evidence\re4-dreamcast\bench-20261014\hwmodel-<name>.
 set -u
-SC=$1; L=$2; N=$3; WIN=${4:-500:1399}; STRIDE=${5:-60}
+SC=$1; L=$2; N=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
+HWW=$(grep -m1 "^# bench-hwwindow" "$HERE/benchmark-$SC-warp.txt" | awk '{print $3}')
+WIN=${4:-${HWW:-500:1399}}; STRIDE=${5:-60}
 T11=$(dirname "$HERE")/test11
 TREE=$(cd "$HERE/../../../../.." && pwd)
 HW="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
