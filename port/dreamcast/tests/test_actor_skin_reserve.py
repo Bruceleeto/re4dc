@@ -34,7 +34,13 @@ def native_prefix():
 #include <climits>
 #include <cstdarg>
 #include "actor_native_owner.h"
-extern "C" void re4dc_log(const char*,...){}
+unsigned acquire_failures[6]{};
+extern "C" void re4dc_log(const char* format,...){
+ if(std::strstr(format,"SKINACQ fail why=")){
+  va_list ap;va_start(ap,format);const unsigned why=va_arg(ap,unsigned);va_end(ap);
+  assert(why>0 && why<6);++acquire_failures[why];
+ }
+}
 """ + fast[begin:end] + r"""
 #include "native_actor_owner_registry.inc"
 #if RE4DC_ACTOR_SKIN_RESERVE
@@ -78,13 +84,14 @@ int main(){
  auto fill=[&](unsigned frame,unsigned first,unsigned n){for(unsigned i=first;i<first+n;++i)check(re4dc_actor_skin_register(frame,&infos[i],nullptr,source_palette,1));};
  Re4dcActorSkinLease lease{};
  // The observed failure: a full lazy/unowned source table has no player key.
- fill(185,16,64);Snapshot full;
+ fill(185,16,kSkins);Snapshot full;
  check(!re4dc_actor_skin_acquire(185,bind,kRe4dcActorRoles,&lease) && full.same() && !lease.serial);
+ check(acquire_failures[4]==unsigned(RE4DC_MCHECK_LEONGC));
  check(!re4dc_actor_skin_reserve(185,player,kRe4dcActorRoles) && full.same());
  // A bad batch cannot even change the frame owner.
  check(!re4dc_actor_skin_reserve(186,nullptr,kRe4dcActorRoles) && full.same());
  check(!re4dc_actor_skin_reserve(186,player,0) && full.same());
- check(!re4dc_actor_skin_reserve(186,player,kSkins+1) && full.same());
+ check(!re4dc_actor_skin_reserve(186,player,kRe4dcActorSkinKeys+1) && full.same());
  const void* bad[kRe4dcActorRoles];std::memcpy(bad,player,sizeof bad);bad[kRe4dcActorRoles-1]=nullptr;
  check(!re4dc_actor_skin_reserve(186,bad,kRe4dcActorRoles) && full.same());bad[kRe4dcActorRoles-1]=bad[0];
  check(!re4dc_actor_skin_reserve(186,bad,kRe4dcActorRoles) && full.same());
@@ -101,7 +108,7 @@ int main(){
  check(!re4dc_actor_skin_acquire(185,bind,kRe4dcActorRoles,&lease) && placeholders.same());
  // Ordinary source order is retained. Unrelated deferrals fill only remaining
  // slots; their first excess uses the existing eager fallback (register==0).
- fill(186,16,64-kRe4dcActorRoles);check(skin_count==64);
+ fill(186,16,kSkins-kRe4dcActorRoles);check(skin_count==kSkins);
  Snapshot filled;check(!re4dc_actor_skin_register(186,&infos[90],nullptr,source_palette,1) && filled.same());
  // Rigid/morphed roles need no source deferral; other player slots are filled
  // by the unmodified same-info source registration, despite the full table.
@@ -115,7 +122,7 @@ int main(){
  check(!re4dc_actor_skin_register(186,player[0],nullptr,source_palette,1) && first_pass.same());
  // Between the player's two passes, unrelated source palettes and another
  // native owner remain readable. No source entry was borrowed or evicted.
- for(unsigned i=16;i<16+64-kRe4dcActorRoles;++i){unsigned entries=0;
+ for(unsigned i=16;i<16+kSkins-kRe4dcActorRoles;++i){unsigned entries=0;
   check(re4dc_actor_skin_palette(&infos[i],nullptr,&entries)==source_palette && entries==1);
  }
  Re4dcActorSkinBinding other{&infos[16],{pos,nrm,2,2,1,0},owner_palette,1};Re4dcActorSkinLease other_lease{};
@@ -135,18 +142,25 @@ int main(){
  check(skin_frame==186 && find_skin(player[3],nullptr) && !find_skin(player[3],nullptr)->palette);
  check(!re4dc_actor_skin_acquire(187,bind,kRe4dcActorRoles,&lease));
  // Partial-capacity refusal leaves every attempted slot and serial untouched.
- fill(187,16,61);Snapshot partial;check(!re4dc_actor_skin_reserve(187,player,kRe4dcActorRoles) && partial.same());
+ fill(187,16,kSkins-3);Snapshot partial;check(!re4dc_actor_skin_reserve(187,player,kRe4dcActorRoles) && partial.same());
  check(re4dc_actor_skin_reserve(188,player,kRe4dcActorRoles));check(re4dc_actor_skin_acquire(188,bind,kRe4dcActorRoles,&lease));
  Re4dcActorSkinLease stale=lease;
  check(re4dc_actor_skin_reserve(189,player,kRe4dcActorRoles));Re4dcActorSkinLease current{};
  check(re4dc_actor_skin_acquire(189,bind,kRe4dcActorRoles,&current));check(!re4dc_actor_skin_validate(&stale));
  check(!re4dc_actor_skin_release(&stale));check(re4dc_actor_skin_validate(&current));check(re4dc_actor_skin_release(&current));
- // Whole-table batches use exactly the existing 64 slots; the 65th key
- // declines before reading it or changing any owner/frame/source entry.
- const void* batch[kSkins];for(unsigned i=0;i<kSkins;++i)batch[i]=&infos[i];
- check(re4dc_actor_skin_reserve(190,batch,kSkins) && skin_count==kSkins);Snapshot all_keys;
- check(!re4dc_actor_skin_reserve(191,batch,kSkins+1) && all_keys.same());
- check(re4dc_actor_skin_reserve(190,batch,kSkins) && all_keys.same());
+ // The source batch stays capped at 64 even with an 80-entry table. The
+ // 65th key declines before it is read or any owner/frame/source change.
+ const void* batch[kRe4dcActorSkinKeys];for(unsigned i=0;i<kRe4dcActorSkinKeys;++i)batch[i]=&infos[i];
+ check(kRe4dcActorSkinKeys==64 && kSkins==(RE4DC_LEON_SKIN_SLOTS?80u:64u));
+ check(re4dc_actor_skin_reserve(190,batch,kRe4dcActorSkinKeys) && skin_count==kRe4dcActorSkinKeys);Snapshot all_keys;
+ check(!re4dc_actor_skin_reserve(191,batch,kRe4dcActorSkinKeys+1) && all_keys.same());
+ check(re4dc_actor_skin_reserve(190,batch,kRe4dcActorSkinKeys) && all_keys.same());
+#if RE4DC_LEON_SKIN_SLOTS
+ // The larger registry admits 16 more ordinary source entries, without
+ // increasing the source-plan batch or the player's 8/9-role lease.
+ fill(190,64,16);check(skin_count==80);Snapshot eighty;
+ check(!re4dc_actor_skin_register(190,&infos[90],nullptr,source_palette,1) && eighty.same());
+#endif
  // Source-register frame advancement alone also retires all old placeholders.
  check(re4dc_actor_skin_register(191,&infos[99],nullptr,source_palette,1));check(skin_count==1 && !find_skin(player[3],nullptr));
  check(re4dc_actor_skin_reserve(191,player,kRe4dcActorRoles));owned_skin_serial=UINT_MAX;Snapshot exhausted;
@@ -157,12 +171,12 @@ int main(){
  check(find_skin(player[0],pos)->palette==source_palette && !find_skin(player[0],nullptr)->palette);
  // Released append slots are reusable holes; reservation never grows the
  // table when an existing empty slot can hold the exact new key.
- fill(193,16,62);Re4dcActorSkinBinding missing{player[0],{pos,nrm,2,2,1,0},owner_palette,1};current={};
- check(re4dc_actor_skin_acquire(193,&missing,1,&current));check(skin_count==63);
- check(re4dc_actor_skin_release(&current) && !skins[62].info);
- check(re4dc_actor_skin_reserve(193,player,1) && skin_count==63 && skins[62].info==player[0]);
+ fill(193,16,kSkins-2);Re4dcActorSkinBinding missing{player[0],{pos,nrm,2,2,1,0},owner_palette,1};current={};
+ check(re4dc_actor_skin_acquire(193,&missing,1,&current));check(skin_count==kSkins-1);
+ check(re4dc_actor_skin_release(&current) && !skins[kSkins-2].info);
+ check(re4dc_actor_skin_reserve(193,player,1) && skin_count==kSkins-1 && skins[kSkins-2].info==player[0]);
  for(unsigned value:infos)check(value==0);for(float value:source_palette)check(value==0);for(float value:owner_palette)check(value==0);
- std::printf("PASS actual reserve/registry roles=%u checks=%u: bounded slots, inert placeholders, eager fallback, atomic rollback and two-pass interleaving\n",kRe4dcActorRoles,checks);
+ std::printf("PASS actual reserve/registry roles=%u slots=%u diagnostics=%u checks=%u: bounded slots, inert placeholders, eager fallback, atomic rollback and two-pass interleaving\n",kRe4dcActorRoles,kSkins,unsigned(RE4DC_MCHECK_LEONGC),checks);
 }
 """
 
@@ -257,16 +271,16 @@ int main(){
  // Synthetic ObjMgr callbacks run first in their original order. The plan
  // has not called source preparation, initialized palettes or granted owners.
  check(!prepared_n && !deferred_count && !eager_count);
- for(unsigned i=64;i<128;++i){cModel object{{nullptr},100+i,0x100+i,&infos[i],1};emTrans(&object);}
- check(sourceActorPrepare());check(prepared_n==69);
- for(unsigned i=0;i<64;++i)check(prepared_order[i]==0x140+i);
- for(unsigned i=0;i<4;++i)check(prepared_order[64+i]==animals[i].id);
- check(prepared_order[68]==0);
+ for(unsigned i=64;i<64+kSkins;++i){cModel object{{nullptr},100+i,0x100+i,&infos[i],1};emTrans(&object);}
+ check(sourceActorPrepare());check(prepared_n==kSkins+5);
+ for(unsigned i=0;i<kSkins;++i)check(prepared_order[i]==0x140+i);
+ for(unsigned i=0;i<4;++i)check(prepared_order[kSkins+i]==animals[i].id);
+ check(prepared_order[kSkins+4]==0);
  check(re4dc_actor_transaction_identity(pPL,&out,&model)==1);
  check(re4dc_actor_transaction_choice(pPL,&choice) && choice==0);
- check(deferred_count==64-2 && eager_count==64+8+kRe4dcActorRoles-deferred_count);
- check(skin_count==64);check(!std::memcmp(original,infos,sizeof infos));
- // All five current native owners coexist across both passes despite the 64
+ check(deferred_count==kSkins-2 && eager_count==kSkins+8+kRe4dcActorRoles-deferred_count);
+ check(skin_count==kSkins);check(!std::memcmp(original,infos,sizeof infos));
+ // All five current native owners coexist across both passes despite the full table of
  // earlier registrations. Each owner retains only its existing bounded lease.
  unsigned char pos[32]{},nrm[32]{};float owner_palette[12]{};
  Re4dcActorSkinLease leases[5]{};Snapshot source_prepared;
@@ -343,7 +357,7 @@ int main(){
  ++globals.Frame_cnt;many[63].pNext=&many[64];many[64].pModelInfo=&many_infos[63];EmMgr.nArray=65;
  check(sourceActorPlan()==1 && skin_count==64);
  sourceActorRetire();Snapshot retired;check(!sourceActorReserveNative(planned,many_player) && retired.same());
- std::printf("PASS actual source plan/hook roles=%u early=%u registry=%u checks=%u: five owner saturation, exact identities, shared keys, atomic batch, original callback order\n",kRe4dcActorRoles,unsigned(RE4DC_ACTOR_EARLY_COARSE),unsigned(RE4DC_NATIVE_MODEL_REGISTRY),checks);
+ std::printf("PASS actual source plan/hook roles=%u early=%u registry=%u slots=%u diagnostics=%u checks=%u: five owner saturation, exact identities, shared keys, atomic batch, original callback order\n",kRe4dcActorRoles,unsigned(RE4DC_ACTOR_EARLY_COARSE),unsigned(RE4DC_NATIVE_MODEL_REGISTRY),kSkins,unsigned(RE4DC_MCHECK_LEONGC),checks);
 }
 """
 
@@ -422,12 +436,18 @@ def main():
         for name, code in (("registry", registry_harness()), ("source", source_harness())):
             source = Path(tmp) / (name + ".cpp")
             source.write_text(code)
-            for pl08, early, registry in ((p, e, r) for p in (0, 1) for e in ((0, 1) if name == "source" else (0,)) for r in ((0, 1) if name == "source" else (0,))):
-                binary = Path(tmp) / f"{name}-{pl08}-{early}-{registry}"
+            for pl08, early, registry, slots, diagnostics in (
+                (p, e, r, s, d) for p in (0, 1)
+                for e in ((0, 1) if name == "source" else (0,))
+                for r in ((0, 1) if name == "source" else (0,))
+                for s in (0, 1) for d in (0, 1)
+            ):
+                binary = Path(tmp) / f"{name}-{pl08}-{early}-{registry}-{slots}-{diagnostics}"
                 command = [os.environ.get("CXX", "g++"), "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                            "-Wno-misleading-indentation", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                            "-DRE4DC_ACTOR_TRANSACTION=1", "-DRE4DC_ACTOR_SKIN_RESERVE=1", "-DRE4DC_NATIVE_ACTOR_FAST=1",
                            "-DRE4DC_NATIVE_ACTOR_SKIN_LAZY=1", "-DRE4DC_SKIN_PALETTE_LAZY=1", f"-DRE4DC_ACTOR_PL08={pl08}", f"-DRE4DC_ACTOR_EARLY_COARSE={early}", f"-DRE4DC_NATIVE_MODEL_REGISTRY={registry}",
+                           f"-DRE4DC_LEON_SKIN_SLOTS={slots}", f"-DRE4DC_MCHECK_LEONGC={diagnostics}",
                            "-I" + str(INCLUDE), str(source), "-o", str(binary)]
                 if name == "source":
                     command.insert(1, "-Wno-unused-parameter")  # existing sourceActorPath signature
@@ -436,14 +456,16 @@ def main():
 
         source = Path(tmp) / "nomination.cpp"
         source.write_text(nomination_harness())
-        for reserve, route, registry, pl08 in ((a, b, c, d) for a in (0, 1) for b in (0, 1) for c in (0, 1) for d in (0, 1)):
-            binary = Path(tmp) / f"nomination-{reserve}-{route}-{registry}-{pl08}"
+        for reserve, route, registry, pl08, slots in ((a, b, c, d, e) for a in (0, 1) for b in (0, 1) for c in (0, 1)
+                                                      for d in (0, 1) for e in (0, 1)):
+            binary = Path(tmp) / f"nomination-{reserve}-{route}-{registry}-{pl08}-{slots}"
             command = [os.environ.get("CXX", "g++"), "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                        "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-misleading-indentation",
                        "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                        "-DRE4DC_ACTOR_TRANSACTION=1", f"-DRE4DC_ACTOR_SKIN_RESERVE={reserve}",
                        f"-DRE4DC_ROUTE_CH22={route}", f"-DRE4DC_NATIVE_MODEL_REGISTRY={registry}",
                        f"-DRE4DC_ACTOR_PL08={pl08}", "-DRE4DC_ACTOR_EARLY_COARSE=0",
+                       f"-DRE4DC_LEON_SKIN_SLOTS={slots}", "-DRE4DC_MCHECK_LEONGC=0",
                        "-DRE4DC_NATIVE_ACTOR_FAST=1", "-DRE4DC_NATIVE_ACTOR_SKIN_LAZY=1", "-DRE4DC_SKIN_PALETTE_LAZY=1",
                        "-I" + str(INCLUDE), str(source), "-o", str(binary)]
             subprocess.run(command, check=True)

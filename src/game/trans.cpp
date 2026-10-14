@@ -745,7 +745,7 @@ static bool sourceActorNativeOwner(cModel* m) {
 }
 // Collect all current source-plan native nominees before ordinary callbacks.
 // Each main-info chain remains bounded by the existing per-owner role limit;
-// shared source infos occupy one key in the existing 64-slot source table.
+// shared source infos occupy one key in the existing 64/80-slot source table.
 static int sourceActorReserveNative(const FrameIdentity& planned,const ModelIdentity& player) {
     FrameIdentity now{};
     if(!sourceActorActive || !pPL || !sourceActorRam(pPL) ||

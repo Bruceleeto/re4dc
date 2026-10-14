@@ -1583,6 +1583,23 @@ unsigned gigante_keep(const Re4dcModelPart& p) {
     return 0U;
 }
 #endif
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+// The marker's normal transform belongs to the current role, including exact lighting.
+// PreparedSourceLights contains lamps only; it does not transform vertex normals.
+// Keep this bounded calculation outside every vertex loop and leave the captured GX record untouched.
+bool leon_part_normal(const float m[12], float N[12]) {
+    const float a00 = m[0], a01 = m[1], a02 = m[2], a10 = m[4], a11 = m[5], a12 = m[6], a20 = m[8], a21 = m[9], a22 = m[10];
+    const float c00 = a11 * a22 - a12 * a21, c01 = a12 * a20 - a10 * a22, c02 = a10 * a21 - a11 * a20;
+    const float det = a00 * c00 + a01 * c01 + a02 * c02;
+    if (det == 0.0f || !re4dc::render::is_finite(det)) return false;
+    const float r = 1.0f / det;
+    N[0] = c00 * r; N[1] = c01 * r; N[2] = c02 * r; N[3] = 0.0f;
+    N[4] = (a02 * a21 - a01 * a22) * r; N[5] = (a00 * a22 - a02 * a20) * r; N[6] = (a01 * a20 - a00 * a21) * r; N[7] = 0.0f;
+    N[8] = (a01 * a12 - a02 * a11) * r; N[9] = (a02 * a10 - a00 * a12) * r; N[10] = (a00 * a11 - a01 * a10) * r; N[11] = 0.0f;
+    for (unsigned i = 0; i < 12; ++i) if (!re4dc::render::is_finite(N[i])) return false;
+    return true;
+}
+#endif
 bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3], Lights& L) {
     const SourceLighting& S = *p.lighting;
 #if RE4DC_GIGANTE_LIGHTS
@@ -1611,6 +1628,15 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
     const float py = m[4] * center[0] + m[5] * center[1] + m[6] * center[2] + m[7];
     const float pz = m[8] * center[0] + m[9] * center[1] + m[10] * center[2] + m[11];
     const float* N = S.normal_matrix;
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+    // LEON_SOURCE_LIGHT (crowd.mk): a record marked per part (normal_matrix[3], an unused translation word) takes this
+    // part's own normal matrix, (modelview 3x3)^-T, since Leon's roles do not share one rotation.
+    float Np[12];
+    if (N[3] == 1.0e30f) {
+        if (!leon_part_normal(m, Np)) return false;
+        N = Np;
+    }
+#endif
     float col[3][3]{};
     const float c2 = px * px + py * py + pz * pz, cr = c2 > 0.0f ? -1.0f / std::sqrt(c2) : 0.0f;
 #if RE4DC_GIGANTE_LIGHTS
@@ -2232,7 +2258,11 @@ inline std::uint32_t* emit_sq(std::uint32_t* sq, const pvr_vertex_t* cache, cons
 
 // World (camera) position and normal-space normal of a record, for the
 // clipper and the exact slow lighting path.
-void world_of(const Frame& f, const Re4dcModelPart& p, const Records& r, unsigned i, float w[3], float n[3]) {
+void world_of(const Frame& f, const Re4dcModelPart& p, const Records& r, unsigned i, float w[3], float n[3]
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+              , const float* part_normal = nullptr
+#endif
+              ) {
     const short* s = reinterpret_cast<const short*>(f.positions + r.vi(i) * f.position_stride);
     float a = s[0] * f.q, b = s[1] * f.q, c = s[2] * f.q;
     float nx, ny, nz;
@@ -2263,6 +2293,9 @@ void world_of(const Frame& f, const Re4dcModelPart& p, const Records& r, unsigne
     w[2] = m[8] * a + m[9] * b + m[10] * c + m[11];
     nx *= f.nq; ny *= f.nq; nz *= f.nq;
     const float* N = p.lighting ? p.lighting->normal_matrix : nullptr;
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+    if (part_normal) N = part_normal;
+#endif
     if (N) {
         n[0] = N[0] * nx + N[1] * ny + N[2] * nz;
         n[1] = N[4] * nx + N[5] * ny + N[6] * nz;
@@ -3233,6 +3266,26 @@ void pass_lights(Part& e, const Lights& L, const Records& r, unsigned n) {
 // Pass 2 (exact, slow): the generic path's per-vertex evaluator.
 void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
     static const u8 white[4] = {255, 255, 255, 255};
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+    float Np[12];
+    const float* part_normal = nullptr;
+    if (L.source->normal_matrix[3] == 1.0e30f) {
+        if (!leon_part_normal(e.p.modelview, Np)) {
+            // No invertible normal basis: keep native ownership and the prototype's constant-colour fallback.
+            // Do not use the previous role's GX normal matrix or send NaNs to the TA.
+            const SourceLighting& S = *L.source;
+            const u32 rgb = channel(S.material[0] * S.tev_scale) << 16 |
+                            channel(S.material[1] * S.tev_scale) << 8 | channel(S.material[2] * S.tev_scale);
+            for (unsigned i = 0; i < n; ++i) {
+                const u32 a = e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha;
+                e.cache.v[i].argb = a | rgb;
+            }
+            stats.slow_light_vertices += n;
+            return;
+        }
+        part_normal = Np;
+    }
+#endif
 #if RE4DC_ACTOR_EXACT_FAST
     // ACTOR_EXACT_FAST=1 (render only): evaluate_prepared_source_lighting's arithmetic (source_lighting.cpp) per
     // vertex, with the per-light constants (colour / 255, a, k, position, direction) taken out of the vertex loop,
@@ -3255,7 +3308,11 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
     const unsigned diffuse_mode = S.diffuse;
     for (unsigned i = 0; i < n; ++i) {
         float w[3], nn[3];
-        world_of(e.f, e.p, r, i, w, nn);
+        world_of(e.f, e.p, r, i, w, nn
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+                 , part_normal
+#endif
+                 );
         const u8* color = vertex_colour ? e.p.colors + r.ci(i) * 4 : white;
         const u8* ambient = S.ambient_vertex ? color : S.ambient;
         const u8* material = S.material_vertex ? color : S.material;
@@ -3294,7 +3351,11 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
 #endif
     for (unsigned i = 0; i < n; ++i) {
         float w[3], nn[3], rgb[3];
-        world_of(e.f, e.p, r, i, w, nn);
+        world_of(e.f, e.p, r, i, w, nn
+#if defined(RE4DC_LEON_SOURCE_LIGHT) && RE4DC_LEON_SOURCE_LIGHT
+                 , part_normal
+#endif
+                 );
         const u8* color = (L.source->ambient_vertex || L.source->material_vertex) && e.p.colors ? e.p.colors + r.ci(i) * 4 : white;
         re4dc::render::evaluate_prepared_source_lighting(w[0], w[1], w[2], nn[0], nn[1], nn[2], *L.source, L.prepared, color, rgb);
         const u32 a = e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha;

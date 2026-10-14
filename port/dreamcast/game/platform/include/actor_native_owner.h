@@ -53,7 +53,7 @@ int re4dc_actor_workspace_validate(const Re4dcActorWorkspaceLease*);
 void re4dc_actor_workspace_release(Re4dcActorWorkspaceLease*);
 #if RE4DC_ACTOR_SKIN_RESERVE
 // Source-plan storage priority only. Up to 64 unique nominee main-info keys
-// get inert slots in the same 64-entry table; no palette, geometry or owner is admitted.
+// get inert slots in the existing 64/80-entry table; no palette, geometry or owner is admitted.
 // A full/invalid current table declines atomically. Source registrations fill
 // their own placeholders; all other deferrals keep the usual eager fallback.
 int re4dc_actor_skin_reserve(unsigned source_frame,const void* const* infos,unsigned count);

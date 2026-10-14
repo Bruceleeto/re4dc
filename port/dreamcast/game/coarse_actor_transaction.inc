@@ -13,7 +13,10 @@
 // parasite dog (0x22, PS2_WOLF, lane ps2cast-4).
 // PS2_GANADO_LIT (game30.mk): the cast Ganados (owner appearances below 0x100, the PS2 bundle with real normals) take
 // the same source lighting record; the kernel keeps the 3 strongest lights + ambient (RE4DC_GANADO_LIGHT_FOLD).
-#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT || RE4DC_NMR_SOURCE_LIGHT || RE4DC_PS2_GANADO_LIT
+#ifndef RE4DC_LEON_SOURCE_LIGHT
+#define RE4DC_LEON_SOURCE_LIGHT 0
+#endif
+#if RE4DC_ACTOR_GANADO_SOURCE_LIGHT || RE4DC_NMR_SOURCE_LIGHT || RE4DC_PS2_GANADO_LIT || RE4DC_LEON_SOURCE_LIGHT
 #define RE4DC_ACTOR_SOURCE_LIT 1
 #else
 #define RE4DC_ACTOR_SOURCE_LIT 0
@@ -371,6 +374,29 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     if(p.appearance<0x100u) {
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
+    }
+#endif
+#if RE4DC_LEON_SOURCE_LIGHT
+    // LEON_SOURCE_LIGHT (crowd.mk; render only): Leon takes the source GX light set LightSetModel loaded for him
+    // (as PS2_GANADO_LIT does for the cast Ganados) instead of the constant record. His roles differ in rotation, so
+    // the record is marked per part (normal_matrix[3]) and the kernel builds each part's normal matrix
+    // (native_actor_fast.cpp build_lights). Never a decline: a record the kernel cannot take keeps the constant
+    // colour, so Leon stays on the PS2 owner path.
+    if(RE4DC_LEON_LIKE(p.appearance)) {
+        auto& L=r->lit;re4dc_gx_model_lighting(&L);
+        const bool ok=L.enable && !L.ambient_vertex && !L.material_vertex && L.diffuse==2 &&
+                      m->TevScaleGroup<=1 && gxCsScale[m->TevScaleGroup]<=2;
+        if(ok) {
+            static const float scales[3]={1,2,4};
+            L.tev_scale=scales[gxCsScale[m->TevScaleGroup]];L.normal_matrix[3]=1.0e30f;b.lighting=&L;
+        }
+        static unsigned leon_lit_n,leon_lit_fail;++leon_lit_n;if(!ok)++leon_lit_fail;
+        if(leon_lit_n<=3 || leon_lit_n%600==0) {
+            unsigned lights=0;for(unsigned i=0;i<8;++i)lights+=(L.mask>>i)&1u;
+            re4dc_log("LEON_LIGHT t=%u n=%u fail=%u enable=%u lights=%u amb=%u,%u,%u mat=%u,%u,%u tev=%u\n",
+                unsigned(pG->Frame_cnt),leon_lit_n,leon_lit_fail,L.enable,lights,L.ambient[0],L.ambient[1],L.ambient[2],
+                L.material[0],L.material[1],L.material[2],unsigned(L.tev_scale));
+        }
     }
 #endif
     GXGetProjectionv(b.projection);GXGetViewportv(b.viewport);

@@ -1,9 +1,9 @@
 // ACTOR_SKIN_RESERVE: included after the source/owner skin registry. No heap,
 // source-data reads, palette handles or extra slots. Empty-palette entries only
 // reserve keys; every palette/materialization reader must reject them.
-static_assert(kSkins==kRe4dcActorSkinKeys,"reservation must match the existing skin table");
+static_assert(kSkins>=kRe4dcActorSkinKeys && kSkins<=256,"reservation indices must fit the existing skin table");
 extern "C" int re4dc_actor_skin_reserve(unsigned source_frame,const void* const* infos,unsigned n) {
-    if(!infos || !n || n>kSkins)return 0;
+    if(!infos || !n || n>kRe4dcActorSkinKeys)return 0;
     for(unsigned k=0;k<n;++k){
         if(!infos[k])return 0;
         for(unsigned j=0;j<k;++j)if(infos[j]==infos[k])return 0;
@@ -11,9 +11,9 @@ extern "C" int re4dc_actor_skin_reserve(unsigned source_frame,const void* const*
     const bool current=source_frame==skin_frame;
     // A source plan cannot retake live owner slots within the same frame.
     if(current)for(unsigned i=0;i<skin_count;++i)if(owned_skins[i].serial)return 0;
-    // All selected indices are below 64; keep the atomic staging map compact
-    // because it nests under the source plan's bounded key/chain scratch.
-    unsigned char index[kSkins];unsigned high=current?skin_count:0;
+    // The source batch remains bounded to 64 keys even with the optional
+    // 80-entry registry. Byte indices cover either table without more scratch.
+    unsigned char index[kRe4dcActorSkinKeys];unsigned high=current?skin_count:0;
     for(unsigned k=0;k<n;++k){
         unsigned at=kSkins;
         if(current)for(unsigned i=0;i<skin_count;++i)
