@@ -34,17 +34,17 @@ rm -f "$OUT"/re4dc-game.elf "$OUT"/*.ovl
 
 # The release's knobs, @ASSETS@ = the Build-Assets zip's re4dc-assets/ directory.
 RECIPE=$(python3 "$PORT/tools/d367/release-knobs.py" args "$RELEASE_KNOBS" "$ASSETS")
-# PRIVATE_OFF: without the PS2 character data of the Build-Assets zip (ASSETS/ps2leon, ASSETS/ps2ganado) these knobs
-# are switched off, and the program differs from the release in what it draws (gameplay is the same):
-#   PS2_LEON=0 LEON_HAND_PACK=0  Leon is the GameCube model (the release draws the PS2 Leon, also in hand poses).
-#   PS2_GANADO=0 PS2_GANADO_F=0 PS2_GANADO_LIT=0 PS2_VERTEX_ALPHA=0
-#                                villagers are the GameCube models, without the PS2 models' lighting and vertex alpha.
-#   PS2_GIGANTE=0 PS2_DELLAGO=0  El Gigante and Del Lago are the GameCube models.
-# The release knobs PS2_LEON_DIR / PS2_GANADO_DIR are dropped then.
+# PRIVATE_OFF: without the PS2 character data of the Build-Assets zip (ASSETS/ps2leon, ASSETS/ps2ganado: meshes compiled
+# into the program) these knobs are switched off, and the program differs from the release in what it draws (gameplay
+# is the same):
+#   PS2_LEON=0 LEON_HAND_PACK=0      Leon is the GameCube model (the release draws the PS2 Leon, also in hand poses).
+#   PS2_GANADO=0 PS2_GANADO_LIT=0    the male villagers are the GameCube models (the release: PS2 models, PS2-lit).
+# The release knobs PS2_LEON_DIR / PS2_GANADO_DIR are dropped then. The other PS2 models (El Gigante, Del Lago, the
+# female villagers, animals) and the PS2 world are disc data, so they stay on and draw as in the release.
 PRIVATE_OFF=
 if [ ! -f "$ASSETS/ps2leon/ps2leon_runtime.h" ] || [ ! -f "$ASSETS/ps2ganado/ganado_cast_runtime.h" ]; then
   RECIPE=$(tr ' ' '\n' <<<"$RECIPE" | grep -vE '^PS2_(LEON|GANADO)_DIR=' | tr '\n' ' ')
-  PRIVATE_OFF="PS2_LEON=0 LEON_HAND_PACK=0 PS2_GANADO=0 PS2_GANADO_F=0 PS2_GANADO_LIT=0 PS2_VERTEX_ALPHA=0 PS2_GIGANTE=0 PS2_DELLAGO=0"
+  PRIVATE_OFF="PS2_LEON=0 LEON_HAND_PACK=0 PS2_GANADO=0 PS2_GANADO_LIT=0"
   echo "build-public: no PS2 character data in $ASSETS: $PRIVATE_OFF (GameCube character models; see CONTRIBUTING-PORT.md)"
 fi
 

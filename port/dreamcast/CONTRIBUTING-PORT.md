@@ -82,9 +82,10 @@ different from the release:
 
 * `PS2_LEON=0 LEON_HAND_PACK=0`: Leon is the GameCube model (the release draws the PS2 Leon, also in
   every hand pose).
-* `PS2_GANADO=0 PS2_GANADO_F=0 PS2_GANADO_LIT=0 PS2_VERTEX_ALPHA=0`: the villagers are the GameCube
-  models, without the PS2 models' lighting and vertex alpha.
-* `PS2_GIGANTE=0 PS2_DELLAGO=0`: El Gigante and Del Lago are the GameCube models.
+* `PS2_GANADO=0 PS2_GANADO_LIT=0`: the male villagers are the GameCube models (the release draws the
+  PS2 models with the PS2 lighting).
+* El Gigante, Del Lago, the female villagers, the animals and the PS2 room worlds come from the disc,
+  so they draw as in the release.
 * Leon and the villagers draw from the original GameCube models on the disc instead of the converted
   meshes. They cost more time to draw, so do not compare speed with the release.
 * The memory card messages show the GameCube wording ("Memory Card in Slot A") instead of the VMU wording.
