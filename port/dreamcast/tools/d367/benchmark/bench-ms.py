@@ -5,8 +5,9 @@ Reads the game log of a benchmark run (benchmark-<scene> warp, W arm: DBG_WARP=1
 reports the measuring window, room frames F..T (default 300..1200 = 30 s of game time after a 10 s settle):
   fps        drawn frames per emulated second (PACE vmu windows whose tick lies in the window)
   frame ms   1000 / fps
-  CPU drawn  ms of work per drawn tick (PACE t= lines inside the window: draw_us, weighted by drawn)
-  CPU skip   ms of work per skipped tick (logic only: skip_us)
+  CPU drawn  ms of work per drawn tick = (mean work per tick from the VMU windows' CPU % - skipped share x CPU skip)
+             / drawn share (the PACE t= draw_us is an EMA at the report moment, so it is not used)
+  CPU skip   ms of work per skipped tick (logic only: skip_us EMA, nearly constant)
   CPU %      the VMU page's CPU % (work per tick / 33.367 ms)
   GPU ms     gpu_avg_us (render-done interrupts). Flycast does not model PVR fill: this column is NOT a GPU model.
   speed %    game speed
@@ -38,7 +39,8 @@ def summarize(path, lo, hi):
         return None
     drawn = sum(int(t[2]) for t in ts)
     skip = sum(int(t[3]) for t in ts)
-    cpu_d = sum(int(t[2]) * int(t[6]) for t in ts) / max(1, drawn) / 1000.0
+    # draw_us / skip_us in the PACE t= lines are EMAs at the report moment, not window means: only skip_us (logic-only
+    # ticks, nearly constant) is used, to split the window's true mean cost per tick into drawn and skipped ticks.
     cpu_s = sum(int(t[3]) * int(t[7]) for t in ts) / max(1, skip) / 1000.0
     vb = sum(int(v[1]) for v in vs)
     vd = sum(int(v[2]) for v in vs)
@@ -46,6 +48,9 @@ def summarize(path, lo, hi):
     gn = sum(int(v[3]) for v in vs)
     gpu = sum(int(v[3]) * int(v[4]) for v in vs) / max(1, gn) / 1000.0
     cpu_pct = sum(int(v[5]) * int(v[1]) for v in vs) / max(1, vb)
+    tick_ms = cpu_pct * 33.367 / 100.0              # mean work per tick (VMU page: iteration start to pace end)
+    fd = drawn / max(1, drawn + skip)
+    cpu_d = (tick_ms - (1.0 - fd) * cpu_s) / fd if fd else 0.0
     speed = sum(float(t[5]) for t in ts) / len(ts)
     alive = [int(m.group(1)) for m in map(ALIVE.match, lines) if m and lo <= int(m.group(2)) <= hi]
     return dict(fps=fps, frame_ms=1000.0 / fps if fps else 0.0, cpu_d=cpu_d, cpu_s=cpu_s, cpu_pct=cpu_pct, gpu=gpu,
