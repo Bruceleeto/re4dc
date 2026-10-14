@@ -97,6 +97,12 @@ int main() {
         assert(probe_stats.built == built + 1 && probe_stats.reused == reused + 4);
         Re4dcModelPart q = part(s, &model_b, I);
         assert(probe_lights(q, f, a) && probe_stats.built == built + 2);
+        // the shared record (actor_light_probe.h): this frame's probe of the model, unit direction toward the light
+        Re4dcLightProbe rec{};
+        assert(re4dc_actor_light_probe(&model_a, &rec) == 1 && rec.serial == frame_serial);
+        assert(near(rec.dir[0], 1, 1e-6f) && near(rec.dir[1], 0, 1e-6f) && near(rec.dir[2], 0, 1e-6f));
+        assert(near(rec.coherence, 1, 1e-6f) && near(rec.color[0], 1, 1e-6f) && rec.extra_n == 0 && rec.flash[0] == 0);
+        int nobody = 0; assert(re4dc_actor_light_probe(&nobody, &rec) == 0);
         ++frame_serial;
         assert(probe_lights(p, f, a) && probe_stats.built == built + 3);
         // Leon's per-part basis: a part rotated 90 degrees about z sees the light along its own -y.
@@ -134,7 +140,7 @@ int main() {
         for (unsigned i = 0; i < 3; ++i) assert(ready_a[i] == 1 && ready_b[i] == 1);
         for (unsigned k = 0; k < 36; ++k) assert(near(all[k], each[k], 1e-7f));
     }
-    std::printf("PASS ACTOR_PROBE_LIGHT=%d: one-light parity with build_lights, folds, per-frame cache, Leon part basis, declines, palette directions, source immutable\n", RE4DC_ACTOR_PROBE_LIGHT);
+    std::printf("PASS ACTOR_PROBE_LIGHT=%d: one-light parity with build_lights, folds, per-frame cache, Leon part basis, declines, palette directions, shared probe record, source immutable\n", RE4DC_ACTOR_PROBE_LIGHT);
 }
 '''
 

@@ -439,6 +439,10 @@ $(error ACTOR_PROBE_LIGHT=2 needs PS2_GANADO_LIT=1 CROWD_LOD=1)
 endif
 endif
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_PROBE_LIGHT=$(ACTOR_PROBE_LIGHT)
+# The shared probe API (platform/include/actor_light_probe.h: re4dc_actor_light_probe) exists only in these builds; a
+# consumer (the shadow lane) guards its call with RE4DC_ACTOR_LIGHT_PROBE_API (unresolved symbols link to silent stubs).
+GAME_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_PROBE_API=1
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_PROBE_API=1
 endif
 
 # Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.

@@ -37,6 +37,9 @@
 #if RE4DC_ACTOR_TRANSACTION
 #include "actor_native_owner.h"
 #endif
+#if defined(RE4DC_ACTOR_PROBE_LIGHT) && RE4DC_ACTOR_PROBE_LIGHT
+#include "actor_light_probe.h"
+#endif
 
 #include "actor_lifetime.h"
 #ifndef RE4DC_ACTOR_LOG
@@ -1772,6 +1775,7 @@ struct ProbeEntry {
     float dcol[3]{};  // directional colour (x 1/255 units, attenuated)
     float amb[3]{};   // ambient + folded residual
     float view_dot = 0.0f;
+    float coherence = 0.0f;  // |V| / sum luma (actor_light_probe.h)
 };
 constexpr unsigned kProbeEntries = 8;
 ProbeEntry probe_cache[kProbeEntries];
@@ -1827,6 +1831,7 @@ const ProbeEntry& probe_of(const Re4dcModelPart& p) {
     if (!re4dc::render::is_finite(length) || !re4dc::render::is_finite(weight)) return e;
     const float a = weight > 0.0f ? std::min(1.0f, length / weight) : 0.0f;
     const float c2 = px * px + py * py + pz * pz, cr = c2 > 0.0f ? -1.0f / std::sqrt(c2) : 0.0f;
+    e.coherence = length > 0.0f ? a : 0.0f;
     if (length > 0.0f) {
         const float r = 1.0f / length;
         e.v[0] = vec[0] * r; e.v[1] = vec[1] * r; e.v[2] = vec[2] * r;
@@ -1886,6 +1891,23 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
 #endif
     return true;
 }
+}  // namespace
+// actor_light_probe.h: the newest probe of a model (this frame's, else the previous frame's).
+extern "C" int re4dc_actor_light_probe(const void* model, Re4dcLightProbe* out) {
+    const ProbeEntry* best = nullptr;
+    for (unsigned i = 0; i < kProbeEntries; ++i) {
+        const ProbeEntry& e = probe_cache[i];
+        if (!e.ok || e.model != model || frame_serial - e.serial > 1U) continue;
+        if (!best || e.serial - best->serial < 0x80000000U) best = &e;
+    }
+    if (!best || !out) return 0;
+    *out = Re4dcLightProbe{};
+    out->serial = best->serial;
+    for (unsigned c = 0; c < 3; ++c) { out->dir[c] = best->v[c]; out->color[c] = best->dcol[c]; out->ambient[c] = best->amb[c]; }
+    out->coherence = best->coherence;
+    return 1;
+}
+namespace {
 // The part's light fold: the actor's probe when it applies, else build_lights.
 bool part_lights(const Re4dcModelPart& p, const Frame& f, const float center[3], Lights& L) {
     if (probe_lights(p, f, L)) return true;
