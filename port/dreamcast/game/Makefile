@@ -860,6 +860,20 @@ MOVIE_DISC_QUIET ?= 0
 ifneq ($(MOVIE_DISC_QUIET),0)
 $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_DISC_QUIET=1
 endif
+# D38: exact full blocking r11f10/11f11 movies borrow the retained world cell.
+# No resolution/audio changes, source-heap expansion or allocator fallback.
+MOVIE_WORLD_ARENA ?= 0
+.PHONY: movie-world-arena-force
+$(OBJDIR)/movie-world-arena.h: movie-world-arena-force
+	@mkdir -p $(dir $@)
+	@printf '#define RE4DC_MOVIE_WORLD_ARENA %s\n' '$(MOVIE_WORLD_ARENA)' > $@.tmp
+	@cmp -s $@.tmp $@ || mv $@.tmp $@
+	@rm -f $@.tmp
+MOVIE_WORLD_ARENA_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o
+MOVIE_WORLD_ARENA_GAME = $(OBJDIR)/ui_bridge.o $(OBJDIR)/route_movie_bridge.o $(OBJDIR)/src/game/main_mem.o
+$(MOVIE_WORLD_ARENA_PLATFORM) $(MOVIE_WORLD_ARENA_GAME) $(OBJDIR)/platform/native_movie_stream.o: $(OBJDIR)/movie-world-arena.h
+$(MOVIE_WORLD_ARENA_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/movie-world-arena.h
+$(MOVIE_WORLD_ARENA_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/movie-world-arena.h
 .PHONY: route-movies-force
 $(OBJDIR)/route-movies.h: route-movies-force
 	@mkdir -p $(dir $@)
@@ -886,7 +900,7 @@ endif
 # Isolated recompile of the pinned KOS stream (spike A5): no writes under KOS_BASE.
 $(OBJDIR)/platform/native_movie_stream.o: platform/native_movie_stream.c $(OBJDIR)/route-movies.h $(KOS_BASE)/kernel/arch/dreamcast/sound/snd_stream.c
 	@mkdir -p $(dir $@)
-	kos-cc $(KOS_CFLAGS) -Os -include $(OBJDIR)/route-movies.h -I$(KOS_BASE)/kernel/arch/dreamcast/sound -I$(KOS_BASE)/kernel/arch/dreamcast/include/dc/sound -MMD -MP -c $< -o $@
+	kos-cc $(KOS_CFLAGS) -Os -include $(OBJDIR)/route-movies.h -include $(OBJDIR)/movie-world-arena.h -I$(KOS_BASE)/kernel/arch/dreamcast/sound -I$(KOS_BASE)/kernel/arch/dreamcast/include/dc/sound -MMD -MP -c $< -o $@
 $(OBJDIR)/route_movie_bridge.o: route_movie_bridge.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
@@ -1558,3 +1572,13 @@ include ps2leon.mk
 include vmu_context.mk
 # Resolved knobs for tools/d367/build-r21.sh (re4dc-knobs; builds nothing).
 include knobs.mk
+
+# Validate after all knob defaults and included recipes are available.
+ifeq ($(MOVIE_WORLD_ARENA),1)
+ifneq ($(ROUTE_MOVIES)$(ROUTE_MOVIE_YUV)$(PS2_WORLD_DRAW)$(PS2_WORLD_MESH)$(IO_ALIGNED)$(MOVIE_HEAP_EVICT)$(D349_RENDERER_STACK)$(PVR_STREAM),11111111)
+$(error MOVIE_WORLD_ARENA=1 needs ROUTE_MOVIES/ROUTE_MOVIE_YUV/PS2_WORLD_DRAW/PS2_WORLD_MESH/IO_ALIGNED/MOVIE_HEAP_EVICT/D349_RENDERER_STACK/PVR_STREAM=1)
+endif
+ifeq ($(filter 2 3,$(PS2_WORLD_ROOMS)),)
+$(error MOVIE_WORLD_ARENA=1 needs PS2_WORLD_ROOMS>=2)
+endif
+endif
