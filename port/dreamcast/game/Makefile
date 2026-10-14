@@ -1341,14 +1341,26 @@ UI_OVERLAY_SLAB_KB ?= 0
 # (movie_window_release: one hole of the size) instead of evicting least recently used uploads one by one until a
 # hole appears (r105 results 495x150: 7 retries evicted everything evictable, 1.36 MB free and no 256 KiB hole;
 # r119: 410 retries, ~2,000 reloads). =2 also: when no window of free + unpinned blocks exists (the hole is blocked
-# by uploads this frame already took: its draws, or the room preload's picks), this frame is dropped unpresented (as the
-# route movie's claim fallback: the open scene is closed unrendered, the previous render fenced, the rest of the
-# frame emits nothing), then the cheapest window including this frame's uploads is released and the texture
-# uploads now; the previous picture stays on screen one more frame, and the next frame draws everything again (the
-# released uploads reload on first sight). At most once per 120 frames; otherwise the old LRU retry and latch.
+# by uploads this frame already took: its draws, or the room preload's picks), the cheapest window including this
+# frame's uploads is released (close_entry waits for the render in flight, as every eviction does), the texture
+# uploads now, and this frame's scene is closed unrendered at its present: the previous picture stays on screen one
+# more frame. The rest of the frame draws as usual (released uploads reload on first sight; no model part is refused,
+# so no actor falls back to its source model in that frame; an earlier version aborted the stream and Leon fell back
+# in the unshown frame, LEONGC FAIL vr-ch12-v2). At most once per 120 frames; otherwise the old LRU retry and latch.
 # Was: the texture was refused for that frame (texchk FAIL, "no contiguous block ... latched") and UI_FRAG_RESERVE
 # handed it a block one frame later.
 UI_FRAG_WINDOW ?= 0
+# TEX_REF_SELFKEY=1 (t11 lane vr, render only, default 0): a texture descriptor whose pixels are an R4NREF record (the
+# native package reference a .drs/.dat keeps in place of the texels: magic, crc, fnv, width, height, format) that no
+# registered identity table covers takes the record's own key instead of a hash of the record bytes. Was: the r101 bell
+# fight after a sub screen (vr-bell-on, frame 7026 on): an em12/em13/em15 128x128 CMPR record at 0x8cd0d760 hashed to a
+# key that changes per build (8e66a119-a8c9b754 here, 926d9ee7-cbd1c81a in test 10), "open failed", ~30 texchk fails a
+# frame until the room ends. Its own key 51f07c2d-e1b0ac5d is in tex.pak. Non-indexed records only; the width, height
+# and format must equal the descriptor's.
+TEX_REF_SELFKEY ?= 0
+ifneq ($(filter-out 0 1,$(TEX_REF_SELFKEY)),)
+$(error TEX_REF_SELFKEY must be 0 or 1)
+endif
 ifneq ($(filter-out 0 1 2,$(UI_FRAG_WINDOW)),)
 $(error UI_FRAG_WINDOW must be 0, 1 or 2)
 endif
@@ -1402,6 +1414,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_UI_FRAG_LATCH %s\n#define RE4DC_UI_OVERLAY_SLAB_KB %s\n' '$(UI_FRAG_LATCH)' '$(UI_OVERLAY_SLAB_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_RESERVE %s\n' '$(UI_FRAG_RESERVE)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_WINDOW %s\n' '$(UI_FRAG_WINDOW)' >> $@.tmp
+	@printf '#define RE4DC_TEX_REF_SELFKEY %s\n' '$(TEX_REF_SELFKEY)' >> $@.tmp
 	@printf '#define RE4DC_PT_BLEND_FIX %s\n' '$(PT_BLEND_FIX)' >> $@.tmp
 	@printf '#define RE4DC_TEX_CHECK %s\n' '$(TEX_CHECK)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp

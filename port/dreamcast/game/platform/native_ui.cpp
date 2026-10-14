@@ -155,6 +155,9 @@ static unsigned ta_vertex_bytes=RE4DC_TA_VERTBUF_KB*1024U;   // TA_HEADROOM: the
 #ifndef RE4DC_UI_FRAG_WINDOW
 #define RE4DC_UI_FRAG_WINDOW 0 // Makefile: window release (1) + frame drop (2) for a fragmented upload
 #endif
+#ifndef RE4DC_TEX_REF_SELFKEY
+#define RE4DC_TEX_REF_SELFKEY 0 // Makefile: an unregistered R4NREF record takes its own key
+#endif
 // UI_HANDLES=1 (default off = previous image): direct texture handles. A
 // source image descriptor resolves to its cache entry once; later draws reach
 // it by one direct-mapped compare (no source scan, identity lookup, texel
@@ -349,6 +352,7 @@ void frag_release(const char* why){
 // UI_FRAG_WINDOW (Makefile): windows released for fragmented uploads (ok / none qualified / bytes), frames dropped
 // for one (=2) and the uploads that then fitted; the frame of the last drop (one per kFragRetryFrames).
 unsigned frag_win_ok,frag_win_none,frag_win_bytes,frag_drops,frag_drop_ok,frag_drop_frame=~0U-1000U;
+bool frag_discard; // =2: the open scene closes unrendered (stream_close), the previous picture stays one more frame
 unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_bytes); // MOVIE_WINDOW, below
 #endif
 #endif
@@ -1877,6 +1881,9 @@ void safe_audit_scene(bool present);
 #endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
+#if RE4DC_UI_FRAG_WINDOW>=2
+    if(frag_discard){present=false;frag_discard=false;} // UI_FRAG_WINDOW: this frame released textures its scene used
+#endif
 #if RE4DC_PS2_WORLD_R11F_OWNER
     if(present && !re4dc_r11f_present(frame,source_draws_finished,stream_aborted))present=false;
 #endif
@@ -2294,6 +2301,25 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
 #endif
         key=external;return true;
     }
+#if RE4DC_TEX_REF_SELFKEY
+    // TEX_REF_SELFKEY (Makefile): an R4NREF record no registered table covers names its own package; hashing its 32
+    // bytes as texels gives a key that is on no disc.
+    if(!indexed && !(reinterpret_cast<std::uintptr_t>(image.pixels)&3U)){
+        const unsigned* r=(const unsigned*)image.pixels;
+        if(r[0]==0x524e3452U && r[1]==0x00004645U && r[4]==image.width && r[5]==image.height && r[6]==image.format){
+            static unsigned selfkeys;
+            key={r[2],r[3]};
+            if(selfkeys++<16 || !(selfkeys&1023U))re4dc_log("native UI: ref self-key %08x-%08x %ux%u fmt=%u pix=%08x n=%u\n",key.crc,key.fnv,
+                image.width,image.height,image.format,(unsigned)reinterpret_cast<std::uintptr_t>(image.pixels),selfkeys);
+#if RE4DC_COPY_LEAN
+            if(nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,key};}
+#else
+            if(nsource<kSourceCount)sources[nsource++]={image,key};
+#endif
+            return true;
+        }
+    }
+#endif
     const unsigned metadata[]={image.width,image.height,image.format,image.palette_format,image.palette_bytes};
     key={0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
     hash_bytes(key,image.pixels,image_size(image));
@@ -2685,8 +2711,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
                       image.width,image.height,need,wr,wb,(unsigned)pvr_mem_available(),frame);
 #if RE4DC_UI_FRAG_WINDOW>=2
             // No window of free + unpinned blocks: the hole is blocked by uploads this frame already took (its draws, or
-            // the room preload's picks at the frame start). With a scene open, drop the frame unpresented (the route
-            // movie claim's fallback sequence); then this frame's uploads may go too. Never inside a direct model write.
+            // the room preload's picks at the frame start). Release the cheapest window including them and close this
+            // frame's scene unrendered at its present (frag_discard: the previous picture stays one more frame). The rest
+            // of the frame draws as usual (a released texture reloads on first sight; no part is refused, so no actor
+            // falls back to its source model), but none of it is shown. close_entry() waits for the render in flight
+            // (re4dc_pvr_vram_fence), as every eviction does. Never inside a direct model write.
 #if RE4DC_TA_DIRECT
             const bool direct=direct_open;
 #else
@@ -2694,24 +2723,13 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
             if(!ok && !stream_aborted && !direct && frame-frag_drop_frame>kFragRetryFrames){
                 const bool scene=stream_scene;
-#if RE4DC_PVR_STREAM
-                if(scene)stream_close(false);
-#endif
-#if RE4DC_PVR_PIPELINE
-                present_fence();
-#endif
-                if(re4dc::gpu::quiesce()==re4dc::gpu::FenceResult::ready){
-#if RE4DC_D349_RENDERER_STACK
-                    if(scene && (deferred_first || draining_parts))reset_deferred();
-#endif
-                    if(scene)stream_aborted=true;
-                    frag_drop_frame=frame;++frag_drops;
-                    unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
-                    if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
-                    if(ok)++frag_drop_ok;
-                    re4dc_log("native UI: frag drop frame=%u scene=%d pin=%d %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,
-                              scene?1:0,pin?1:0,ok?"ok":"FAILED",image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
-                }else re4dc_log("native UI: frag drop frame=%u fence pending\n",frame);
+                if(scene)frag_discard=true;
+                frag_drop_frame=frame;++frag_drops;
+                unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
+                if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
+                if(ok)++frag_drop_ok;
+                re4dc_log("native UI: frag drop frame=%u scene=%d pin=%d %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,
+                          scene?1:0,pin?1:0,ok?"ok":"FAILED",image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
             }
 #endif
         }
