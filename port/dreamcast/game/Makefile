@@ -883,11 +883,11 @@ $(OBJDIR)/cabin-source.h: cabin-source-force
 	@printf '#define RE4DC_CABIN_SOURCE %s\n' '$(CABIN_SOURCE)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
-CABIN_SOURCE_PLATFORM = $(OBJDIR)/platform/native_cabin.o $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/audio_aica.o
-CABIN_SOURCE_GAME = $(OBJDIR)/src/game/event.o $(OBJDIR)/src/game/snd_str0.o $(OBJDIR)/src/game/sce_sys.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o
+CABIN_SOURCE_PLATFORM = $(OBJDIR)/platform/native_event_file.o $(OBJDIR)/platform/native_cabin.o $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/audio_aica.o
+CABIN_SOURCE_GAME = $(OBJDIR)/src/game/datactrl.o $(OBJDIR)/src/game/dvd.o $(OBJDIR)/src/game/read.o $(OBJDIR)/src/game/event.o $(OBJDIR)/src/game/snd_str0.o $(OBJDIR)/src/game/sce_sys.o $(OBJDIR)/src/game/main_mem.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o
 $(CABIN_SOURCE_PLATFORM) $(CABIN_SOURCE_GAME) $(OBJDIR)/platform/native_movie_stream.o: $(OBJDIR)/cabin-source.h
-$(CABIN_SOURCE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/cabin-source.h
-$(CABIN_SOURCE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/cabin-source.h
+$(CABIN_SOURCE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/cabin-source.h -include platform/include/native_event_file.h
+$(CABIN_SOURCE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/cabin-source.h -include platform/include/native_event_file.h
 # D38: exact full blocking r11f10/11f11 movies borrow the retained world cell.
 # No resolution/audio changes, source-heap expansion or allocator fallback.
 MOVIE_WORLD_ARENA ?= 0
