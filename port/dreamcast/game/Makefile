@@ -1336,6 +1336,27 @@ $(error UI_FRAG_RESERVE needs UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1)
 endif
 endif
 UI_OVERLAY_SLAB_KB ?= 0
+# UI_FRAG_WINDOW=1|2 (t11 lane vr, render only, default 0; needs UI_VRAM=1 UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1):
+# a texture upload refused for fragmentation first releases the cheapest page-aligned window of unpinned uploads
+# (movie_window_release: one hole of the size) instead of evicting least recently used uploads one by one until a
+# hole appears (r105 results 495x150: 7 retries evicted everything evictable, 1.36 MB free and no 256 KiB hole;
+# r119: 410 retries, ~2,000 reloads). =2 also: when no window of free + unpinned blocks exists (the hole is blocked
+# by uploads this frame already drew) and the load is a pinned scene draw, this frame is dropped unpresented (as the
+# route movie's claim fallback: the open scene is closed unrendered, the previous render fenced, the rest of the
+# frame emits nothing), then the cheapest window including this frame's uploads is released and the texture
+# uploads now; the previous picture stays on screen one more frame, and the next frame draws everything again (the
+# released uploads reload on first sight). At most once per 120 frames; otherwise the old LRU retry and latch.
+# Was: the texture was refused for that frame (texchk FAIL, "no contiguous block ... latched") and UI_FRAG_RESERVE
+# handed it a block one frame later.
+UI_FRAG_WINDOW ?= 0
+ifneq ($(filter-out 0 1 2,$(UI_FRAG_WINDOW)),)
+$(error UI_FRAG_WINDOW must be 0, 1 or 2)
+endif
+ifneq ($(UI_FRAG_WINDOW),0)
+ifneq ($(UI_VRAM)$(UI_FRAG_LATCH)$(TEX_RESIDENT)$(MOVIE_WINDOW),1111)
+$(error UI_FRAG_WINDOW needs UI_VRAM=1 UI_FRAG_LATCH=1 TEX_RESIDENT=1 MOVIE_WINDOW=1)
+endif
+endif
 # TEX_CHECK=1|2 (test only, default 0 = play image unchanged): texture presence check (native_ui.cpp texchk::, lane
 # texchk). Logs every failed / refused texture lookup and any change of a resident texture's metadata or VRAM sample
 # ("texchk:" lines; gate tools/d367/texchk/texchk.sh). 2 also fills free texture RAM with magenta (with VRAM_PAGES=1).
@@ -1380,6 +1401,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_UI_VRAM %s\n#define RE4DC_UI_VRAM_RESERVE_KB %s\n' '$(UI_VRAM)' '$(UI_VRAM_RESERVE_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_LATCH %s\n#define RE4DC_UI_OVERLAY_SLAB_KB %s\n' '$(UI_FRAG_LATCH)' '$(UI_OVERLAY_SLAB_KB)' >> $@.tmp
 	@printf '#define RE4DC_UI_FRAG_RESERVE %s\n' '$(UI_FRAG_RESERVE)' >> $@.tmp
+	@printf '#define RE4DC_UI_FRAG_WINDOW %s\n' '$(UI_FRAG_WINDOW)' >> $@.tmp
 	@printf '#define RE4DC_PT_BLEND_FIX %s\n' '$(PT_BLEND_FIX)' >> $@.tmp
 	@printf '#define RE4DC_TEX_CHECK %s\n' '$(TEX_CHECK)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp

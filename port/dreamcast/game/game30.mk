@@ -121,6 +121,22 @@ MOVIE_HEAP_EVICT ?= 0
 MOVIE_LOAN_TEST ?= 0
 MOVIE_STAGE_ORDER ?= 0
 MOVIE_BALLAST_TEST ?= 0
+#   MOVIE_HEAP_PREFLIGHT=1 (t11 lane vr, default 0; needs MOVIE_HEAP_EVICT=1 SS_PACK=1): the same loan and evictions,
+#   done before a staging allocation that cannot fit instead of after it failed. The fit test is exact: OSAlloc's
+#   first fit over heap 4's free cells needs a cell of round32(n) + 0x20 (mem_alloc's tag) + 0x20 (the cell header).
+#   Heap 4 ends in the same state; gone are the failed attempts, each a required-allocation error line
+#   ("alloc[d800]:free[12800] native UI texture staging", r100 s30 at its open: 6 per run) and, in trace builds, a
+#   TRACE_ALLOC event (af). Movie staging only.
+MOVIE_HEAP_PREFLIGHT ?= 0
+ifneq ($(filter-out 0 1,$(MOVIE_HEAP_PREFLIGHT)),)
+$(error MOVIE_HEAP_PREFLIGHT must be 0 or 1)
+endif
+ifeq ($(MOVIE_HEAP_PREFLIGHT),1)
+ifneq ($(MOVIE_HEAP_EVICT)$(SS_PACK),11)
+$(error MOVIE_HEAP_PREFLIGHT=1 needs MOVIE_HEAP_EVICT=1 SS_PACK=1)
+endif
+$(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_HEAP_PREFLIGHT=1
+endif
 ifneq ($(MOVIE_HEAP_EVICT),0)
 ifneq ($(MOTION_OOM_EVICT)$(ROUTE_MOVIES),11)
 $(error MOVIE_HEAP_EVICT=1 needs MOTION_OOM_EVICT=1 ROUTE_MOVIES=1)

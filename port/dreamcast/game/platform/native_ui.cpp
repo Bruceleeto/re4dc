@@ -152,6 +152,9 @@ static unsigned ta_vertex_bytes=RE4DC_TA_VERTBUF_KB*1024U;   // TA_HEADROOM: the
 #ifndef RE4DC_UI_OVERLAY_SLAB_KB
 #define RE4DC_UI_OVERLAY_SLAB_KB 0
 #endif
+#ifndef RE4DC_UI_FRAG_WINDOW
+#define RE4DC_UI_FRAG_WINDOW 0 // Makefile: window release (1) + frame drop (2) for a fragmented upload
+#endif
 // UI_HANDLES=1 (default off = previous image): direct texture handles. A
 // source image descriptor resolves to its cache entry once; later draws reach
 // it by one direct-mapped compare (no source scan, identity lookup, texel
@@ -341,6 +344,12 @@ void frag_release(const char* why){
     pvr_mem_free(frag_held);frag_held=nullptr;++frag_expired;
     re4dc_log("native UI: frag reserve dropped (%s) key=%08x-%08x\n",why,frag_key.crc,frag_key.fnv);
 }
+#endif
+#if RE4DC_UI_FRAG_WINDOW
+// UI_FRAG_WINDOW (Makefile): windows released for fragmented uploads (ok / none qualified / bytes), frames dropped
+// for one (=2) and the uploads that then fitted; the frame of the last drop (one per kFragRetryFrames).
+unsigned frag_win_ok,frag_win_none,frag_win_bytes,frag_drops,frag_drop_ok,frag_drop_frame=~0U-1000U;
+unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_bytes); // MOVIE_WINDOW, below
 #endif
 #endif
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
@@ -2370,6 +2379,8 @@ unsigned meta_sum[kTextureCount],head_sum[kTextureCount],vram_sum[kTextureCount]
 unsigned fails,policy_skips,meta_changes,vram_changes,binds,arms,room_fails,room_changes,room_binds;
 struct Seen { Key key; const char* why; };
 Seen seen[64]; unsigned nseen;
+// The caller of the current load() (load is not inlined in TEX_CHECK builds): a refused key's owner, symbolized offline.
+const void* site;
 inline unsigned fnv(unsigned h,const void* p,unsigned n){const unsigned char* b=(const unsigned char*)p;for(unsigned i=0;i<n;++i)h=(h^b[i])*16777619U;return h;}
 inline unsigned head_hash(const Entry& e){
     const auto& h=e.package.header();
@@ -2409,6 +2420,19 @@ void fail(const Key& k,const char* why,const Re4dcUiImage& image,bool policy=fal
     for(unsigned i=0;i<nseen && i<64;++i)if(seen[i].key==k && seen[i].why==why)return;
     seen[nseen++%64]={k,why};
     re4dc_log("texchk: %s %s %08x-%08x %ux%u fmt=%u frame=%u\n",policy?"SKIP":"FAIL",why,k.crc,k.fnv,image.width,image.height,image.format,frame);
+    // A package that is not on the disc: where the image came from (t11 lane vr). The key of an image without an
+    // identity is a hash of its pixel bytes; a key that changes per build means the pixels are not asset data.
+    // pix / pal: the descriptor's pointers; region: vram (0xa4/0xa5 texture or framebuffer memory), p1 (P1 RAM),
+    // p2 (uncached RAM); w: the first 4 pixel words; site: load()'s caller (sh-elf-addr2line on the build's ELF).
+    if(!policy && (!std::strcmp(why,"open failed") || !std::strcmp(why,"absent"))){
+        const unsigned px=(unsigned)image.pixels,top=px>>24;
+        const char* region=top==0xa4||top==0xa5?"vram":top==0x8c?"p1":top==0xac?"p2":"other";
+        unsigned w[4]={0,0,0,0};
+        if(px && (top==0x8c || top==0xac || top==0xa5 || top==0xa4) && !(px&3))for(unsigned i=0;i<4;++i)w[i]=((const volatile unsigned*)px)[i];
+        re4dc_log("texchk: SRC %08x-%08x pix=%08x region=%s pal=%08x palfmt=%u palbytes=%u site=%08x w=%08x,%08x,%08x,%08x frame=%u\n",
+                  k.crc,k.fnv,px,region,(unsigned)image.palette,(unsigned)image.palette_format,(unsigned)image.palette_bytes,
+                  (unsigned)site,w[0],w[1],w[2],w[3],frame);
+    }
 }
 void frame_sweep(){
     const bool vram=frame%30==0;
@@ -2494,7 +2518,13 @@ void close_entry(Entry& entry) {
     entry.ui_header_key=~0U; // a new upload gets its own texture address
 #endif
 }
+#if RE4DC_TEX_CHECK
+__attribute__((noinline))   // TEX_CHECK: texchk::site is this function's caller
+#endif
 Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=nullptr) {
+#if RE4DC_TEX_CHECK
+    texchk::site=__builtin_return_address(0);
+#endif
     RE4DC_PROFILE_SCOPE(TextureResolve);RE4DC_PROFILE_COUNT(TextureLookups,1);
     if(!image.pixels || !image_size(image) || !image.width || !image.height || image.width>1024 || image.height>1024) return nullptr;
     Key key{};if(prepared_key)key=*prepared_key;else if(!image_key(image,key)){RE4DC_TEXCHK_FAIL(Key{},"identity");return nullptr;}
@@ -2643,6 +2673,39 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
                 ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
             }
             re4dc_log("native UI: overlay slab %s: %ux%u need=%u uses=%u\n",overlay_owner==slot?"taken":"too small",image.width,image.height,need,overlay_uses);
+        }
+#endif
+#if RE4DC_UI_FRAG_WINDOW
+        // UI_FRAG_WINDOW (Makefile): one hole of the size, not LRU evictions until one appears.
+        if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
+            unsigned wb=0;const unsigned wr=movie_window_release(need,false,wb);
+            if(wr){ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();frag_win_bytes+=wb;}
+            if(ok)++frag_win_ok;else ++frag_win_none;
+            re4dc_log("native UI: frag window %s: %ux%u need=%u released=%u entries/%u B free=%u frame=%u\n",ok?"ok":wr?"short":"none",
+                      image.width,image.height,need,wr,wb,(unsigned)pvr_mem_available(),frame);
+#if RE4DC_UI_FRAG_WINDOW>=2
+            // No window of free + unpinned blocks: the hole is blocked by uploads this frame already drew. Drop the
+            // frame unpresented (the route movie claim's fallback sequence), then this frame's uploads may go too.
+            if(!ok && pin && stream_scene && !stream_aborted && !direct_open && frame-frag_drop_frame>kFragRetryFrames){
+#if RE4DC_PVR_STREAM
+                stream_close(false);
+#endif
+#if RE4DC_PVR_PIPELINE
+                present_fence();
+#endif
+                if(re4dc::gpu::quiesce()==re4dc::gpu::FenceResult::ready){
+#if RE4DC_D349_RENDERER_STACK
+                    if(deferred_first || draining_parts)reset_deferred();
+#endif
+                    stream_aborted=true;frag_drop_frame=frame;++frag_drops;
+                    unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
+                    if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
+                    if(ok)++frag_drop_ok;
+                    re4dc_log("native UI: frag drop frame=%u %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,ok?"ok":"FAILED",
+                              image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
+                }else re4dc_log("native UI: frag drop frame=%u fence pending\n",frame);
+            }
+#endif
         }
 #endif
         // A fragmented pool can refuse a block that the totals admit. Free one
@@ -4578,6 +4641,9 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0) re4dc_log("native UI: frame=%u quads=%u drawn=%u missing=%u unsupported=%u drops=%u vram=%u peak=%u staging=%u loads=%u freed=%u culled=%u fb=%08x,%08x black=%d\n",frame,nquad,drawn,missing,unsupported,dropped,used,peak,staging_peak,loads,reclaimed,culled,(unsigned)pvr_get_front_buffer(),(unsigned)pvr_get_back_buffer(),re4dc_vi_black());
 #if RE4DC_UI_VRAM
     if(frame%120==0) re4dc_log("native UI VRAM: frame=%u budget=%u used=%u free=%u rejects=%u retries=%u evicted=%u\n",frame,vram_budget,used,(unsigned)pvr_mem_available(),vram_rejects,vram_retries,reclaimed);
+#if RE4DC_UI_FRAG_WINDOW
+    if(frame%120==0) re4dc_log("native UI frag window: frame=%u ok=%u none=%u bytes=%u drops=%u drop_ok=%u\n",frame,frag_win_ok,frag_win_none,frag_win_bytes,frag_drops,frag_drop_ok);
+#endif
 #if RE4DC_TEX_USE_CENSUS
     // TEX_USE_CENSUS (test only): how much of the resident set the last 2 s / 20 s actually drew (entry.frame is the
     // last frame a draw or a preload touched it).

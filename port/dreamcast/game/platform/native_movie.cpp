@@ -209,6 +209,30 @@ void* stage_alloc(size_t n){
 #if RE4DC_MOVIE_WORLD_ARENA
     if(movie_world_token)return n<=0xffffffffu?re4dc_ps2_mesh_movie_alloc(movie_world_token,unsigned(n)):nullptr;
 #endif
+#if RE4DC_MOVIE_HEAP_EVICT && defined(RE4DC_MOVIE_HEAP_PREFLIGHT) && RE4DC_MOVIE_HEAP_PREFLIGHT
+    // MOVIE_HEAP_PREFLIGHT (game30.mk): the loan and the key evictions below, before an allocation that cannot fit
+    // (exact: mem_alloc asks OSAlloc for round32(n) + 0x20, which takes a free cell of that + 0x20 header), so no
+    // required allocation fails first. Heap 4 ends as it did after the failed attempt and the same releases.
+    if(re4dc_heap_largest_current){
+        const unsigned want=((unsigned(n)+31U)&~31U)+0x40U;
+        unsigned free_bytes=0,largest=re4dc_heap_largest_current(&free_bytes);
+        if(largest<want){
+            unsigned lent=0,evicted=0,freed=0;
+            if(re4dc_model_release_retained){
+                lent=re4dc_model_release_retained();
+                if(lent)largest=re4dc_heap_largest_current(&free_bytes);
+            }
+            while(largest<want){
+                const unsigned f=re4dc_motion_evict_one();
+                if(!f)break;
+                ++evicted;freed+=f;
+                largest=re4dc_heap_largest_current(&free_bytes);
+            }
+            re4dc_log("route movie heap: preflight need=%u lent=%u evicted=%u motion keys (%u B) %s free=%u largest=%u\n",
+                      (unsigned)n,lent,evicted,freed,largest>=want?"fits":"short",free_bytes,largest);
+        }
+    }
+#endif
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
 #if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
