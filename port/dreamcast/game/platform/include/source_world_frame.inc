@@ -19,16 +19,55 @@ struct SourceWorldFrame {
 bool sourceWorldRenderActive;
 unsigned sourceWorldPrimGeneration;
 unsigned sourceWorldReports,sourceWorldFailures;
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+// Scalar observers only. CardMainTask owns System_flg 0x1000 until its objects
+// and layouts are retired. Observe in r200, then record four native frames once.
+struct SourceWorldDiagnostic {
+    bool armed=false,used=false,active=false,done=false,draw_observed=false;
+    unsigned first=0,native=0,field=0,reason=0,memory=0;
+    const char* stage="idle";
+    const void* model=nullptr;unsigned serial=0,work=~0U,table=~0U;int probe=0;
+    void begin(unsigned frame,bool in_room,bool card) {
+        active=false;native=frame;field=reason=memory=0;stage="prepare";draw_observed=false;
+        model=nullptr;serial=0;work=table=~0U;probe=0;
+        if(done)return;
+        if(!in_room){armed=false;if(used)done=true;return;}
+        if(!used){
+            if(card){armed=true;return;}
+            if(!armed)return;
+            used=true;first=frame;
+        }
+        // Unsigned subtraction handles frame wrap; the window never re-arms.
+        active=unsigned(frame-first)<4U;if(!active)done=true;
+    }
+} sourceWorldDiagnostic;
+bool sourceWorldDiagTest(bool ok,unsigned field) {
+    if(!ok && sourceWorldDiagnostic.active)sourceWorldDiagnostic.field=field;
+    return ok;
+}
+void sourceWorldDiagStage(const char* stage) {
+    if(sourceWorldDiagnostic.active)sourceWorldDiagnostic.stage=stage;
+}
+#define RE4DC_SOURCE_DIAG_TEST(test,field) sourceWorldDiagTest((test),(field))
+#define RE4DC_SOURCE_DIAG_STAGE(stage) sourceWorldDiagStage(stage)
+#else
+#define RE4DC_SOURCE_DIAG_TEST(test,field) (test)
+#define RE4DC_SOURCE_DIAG_STAGE(stage) ((void)0)
+#endif
 bool sourceWorldContext() {
-    return pG && pG->Rno0==3 && G_ROOM_ID==0x200 && (pG->System_flg&0x400) &&
-        // SceEventStart sets 0x800; Render still runs the source OTs and
-        // temporarily applies its scissor state. It is not a movie exclusion.
-        // D29 measured r200's pre-movie draw at System_flg 0x0c40.
-        !(pG->System_flg&0x100000) && !(pG->Status_flg[2]&0x04000000) &&
-        !(pG->Status_flg[1]&0x100) && !re4dc_coarse_image && !re4dc_pace_skipping &&
-        !re4dc_ui_movie_texture() && !re4dc_ss_ui_order();
+    return RE4DC_SOURCE_DIAG_TEST(pG,1) && RE4DC_SOURCE_DIAG_TEST(pG->Rno0==3,2) &&
+        RE4DC_SOURCE_DIAG_TEST(G_ROOM_ID==0x200,3) && RE4DC_SOURCE_DIAG_TEST(pG->System_flg&0x400,4) &&
+        // SceEventStart's 0x800 is not a movie exclusion; source OTs still run.
+        RE4DC_SOURCE_DIAG_TEST(!(pG->System_flg&0x100000),5) &&
+        RE4DC_SOURCE_DIAG_TEST(!(pG->Status_flg[2]&0x04000000),6) &&
+        RE4DC_SOURCE_DIAG_TEST(!(pG->Status_flg[1]&0x100),7) &&
+        RE4DC_SOURCE_DIAG_TEST(!re4dc_coarse_image,8) && RE4DC_SOURCE_DIAG_TEST(!re4dc_pace_skipping,9) &&
+        RE4DC_SOURCE_DIAG_TEST(!re4dc_ui_movie_texture(),10) && RE4DC_SOURCE_DIAG_TEST(!re4dc_ss_ui_order(),11);
 }
 void sourceWorldFail(unsigned reason) {
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+    if(sourceWorldDiagnostic.active)sourceWorldDiagnostic.reason=reason;
+#endif
     ++sourceWorldFailures;
     if(sourceWorldFailures<=16 || !(re4dc_ui_frame()%120))
         re4dc_log("PS2SOURCE_DECLINE f=%u reason=%u count=%u\n",re4dc_ui_frame(),reason,sourceWorldFailures);
@@ -37,6 +76,9 @@ void sourceWorldFail(unsigned reason) {
 // reason12 subcodes: 1 primitive metadata, 2 primitive owner, 3 cursor,
 // 4 OT metadata, 5 OT owner, 6 node bounds, 7 walk limit, 8 OT epoch.
 void sourceWorldMemoryFail(unsigned sub,unsigned table,unsigned long address,unsigned bytes) {
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+    if(sourceWorldDiagnostic.active)sourceWorldDiagnostic.memory=sub;
+#endif
     if(sourceWorldFailures<16 || !(re4dc_ui_frame()%120)) {
         Re4dcSourceWorldOtMemory memory{};re4dc_source_world_ot_memory(&memory);
         re4dc_log("PS2SOURCE_MEMORY f=%u sub=%u table=%x addr=%08lx bytes=%u retained=%u:%08lx-%08lx epoch=%u/%u\n",
@@ -50,15 +92,18 @@ void sourceWorldAbort(unsigned reason) {
 }
 bool sourceWorldIdentity(unsigned native,unsigned generation) {
     const auto& f=sourceWorldFrame;unsigned rg=0,c,b,s,r,pg=0;
-    return f.active && sourceWorldContext() && native==f.native && generation==f.package_generation &&
-        unsigned(pG->Frame_cnt)==f.source && static_cast<unsigned long>(pG->prim_cnt)==f.prim &&
-        unsigned(pG->nPrim)==f.bytes && unsigned(pG->vtx_buf_no)==f.buffer &&
-        sourceWorldPrimGeneration==f.prim_generation && re4dc_source_world_ot_epoch()==f.ot_epoch &&
-        reinterpret_cast<unsigned long>(GXWORK()->prim)>=f.end &&
-        reinterpret_cast<unsigned long>(GXWORK()->prim)-f.begin<=f.bytes &&
-        re4dc_alive_gen[2]==f.objects && re4dc_alive_gen[0]==f.pools &&
-        re4dc_room4_state(&rg,&c,&b,&s,&r) && rg==f.room_generation &&
-        re4dc_ps2_source_package(&pg) && pg==f.package_generation;
+    return RE4DC_SOURCE_DIAG_TEST(f.active,20) && sourceWorldContext() &&
+        RE4DC_SOURCE_DIAG_TEST(native==f.native,21) && RE4DC_SOURCE_DIAG_TEST(generation==f.package_generation,22) &&
+        RE4DC_SOURCE_DIAG_TEST(unsigned(pG->Frame_cnt)==f.source,23) &&
+        RE4DC_SOURCE_DIAG_TEST(static_cast<unsigned long>(pG->prim_cnt)==f.prim,24) &&
+        RE4DC_SOURCE_DIAG_TEST(unsigned(pG->nPrim)==f.bytes,25) && RE4DC_SOURCE_DIAG_TEST(unsigned(pG->vtx_buf_no)==f.buffer,26) &&
+        RE4DC_SOURCE_DIAG_TEST(sourceWorldPrimGeneration==f.prim_generation,27) &&
+        RE4DC_SOURCE_DIAG_TEST(re4dc_source_world_ot_epoch()==f.ot_epoch,28) &&
+        RE4DC_SOURCE_DIAG_TEST(reinterpret_cast<unsigned long>(GXWORK()->prim)>=f.end,29) &&
+        RE4DC_SOURCE_DIAG_TEST(reinterpret_cast<unsigned long>(GXWORK()->prim)-f.begin<=f.bytes,30) &&
+        RE4DC_SOURCE_DIAG_TEST(re4dc_alive_gen[2]==f.objects,31) && RE4DC_SOURCE_DIAG_TEST(re4dc_alive_gen[0]==f.pools,32) &&
+        RE4DC_SOURCE_DIAG_TEST(re4dc_room4_state(&rg,&c,&b,&s,&r),33) && RE4DC_SOURCE_DIAG_TEST(rg==f.room_generation,34) &&
+        RE4DC_SOURCE_DIAG_TEST(re4dc_ps2_source_package(&pg),35) && RE4DC_SOURCE_DIAG_TEST(pg==f.package_generation,36);
 }
 bool sourceWorldWalk(bool publish) {
     auto& f=sourceWorldFrame;unsigned count=0;
@@ -92,6 +137,9 @@ bool sourceWorldWalk(bool publish) {
             auto* model=static_cast<cModel*>(node->data);
             unsigned serial=0,work=~0U;
             const int accepted=re4dc_scroll_source_probe(model,&serial,&work);
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+            if(sourceWorldDiagnostic.active){auto& d=sourceWorldDiagnostic;d.model=model;d.serial=serial;d.work=work;d.table=table;d.probe=accepted;}
+#endif
             if(accepted<0){sourceWorldFail(4);return false;}
             if(!accepted)continue;
             if(count>=kSourceWorldCallbacks){sourceWorldFail(2);return false;}
@@ -103,7 +151,7 @@ bool sourceWorldWalk(bool publish) {
         }
     }
     if(publish)f.count=count;
-    return count!=0 && count==f.count;
+    return RE4DC_SOURCE_DIAG_TEST(count!=0,40) && RE4DC_SOURCE_DIAG_TEST(count==f.count,41);
 }
 struct SourceWorldRenderScope {
     bool previous;
@@ -148,6 +196,12 @@ int sourceWorldDraw(cModel* model) {
         const bool started=f.started;sourceWorldFail(5);
         if(started){sourceWorldAbort(5);return -1;}return 0;
     }
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+    if(sourceWorldDiagnostic.active && !sourceWorldDiagnostic.draw_observed){
+        sourceWorldDiagnostic.draw_observed=true;
+        re4dc_log("PS2PF owned f=%u model=%p serial=%u work=%u\n",re4dc_ui_frame(),static_cast<void*>(model),serial,work);
+    }
+#endif
     const int result=re4dc_ps2_source_draw(f.package_generation);
     if(result){f.started=true;if(result<0){f.failed=true;sourceWorldFail(6);}return result;}
     sourceWorldFail(7);return 0;
@@ -155,25 +209,34 @@ int sourceWorldDraw(cModel* model) {
 }
 extern "C" int re4dc_source_world_prepare(unsigned native,unsigned* generation) {
     auto& f=sourceWorldFrame;f.active=false;f.ready=false;f.started=false;f.failed=false;f.count=0;
-    if(!generation || !sourceWorldContext())return 0;
+    RE4DC_SOURCE_DIAG_STAGE("context");
+    if(!RE4DC_SOURCE_DIAG_TEST(generation,12) || !sourceWorldContext())return 0;
+    RE4DC_SOURCE_DIAG_STAGE("room-package");
     unsigned rg=0,c,b,s,r,pg=0;
-    if(!re4dc_room4_state(&rg,&c,&b,&s,&r) || !rg || !re4dc_ps2_source_package(&pg)){sourceWorldFail(1);return 0;}
+    if(!RE4DC_SOURCE_DIAG_TEST(re4dc_room4_state(&rg,&c,&b,&s,&r),13) ||
+       !RE4DC_SOURCE_DIAG_TEST(rg,14) || !RE4DC_SOURCE_DIAG_TEST(re4dc_ps2_source_package(&pg),15)){sourceWorldFail(1);return 0;}
     f.native=native;f.source=pG->Frame_cnt;f.room_generation=rg;f.package_generation=pg;
     f.objects=re4dc_alive_gen[2];f.pools=re4dc_alive_gen[0];
     f.prim=pG->prim_cnt;f.bytes=pG->nPrim;f.buffer=pG->vtx_buf_no;
     f.prim_generation=sourceWorldPrimGeneration;f.ot_epoch=re4dc_source_world_ot_epoch();
+    RE4DC_SOURCE_DIAG_STAGE("primitive-meta");
     if(!f.bytes || f.buffer>=RE4DC_PRIMITIVE_BUFFERS || f.bytes>~0U/RE4DC_PRIMITIVE_BUFFERS) {
         sourceWorldMemoryFail(1,~0U,f.prim,f.bytes);return 0;
     }
+    RE4DC_SOURCE_DIAG_STAGE("primitive-owner");
     if(!sourceWorldAllocated(reinterpret_cast<const void*>(f.prim),f.bytes*RE4DC_PRIMITIVE_BUFFERS,true)) {
         sourceWorldMemoryFail(2,~0U,f.prim,f.bytes*RE4DC_PRIMITIVE_BUFFERS);return 0;
     }
     f.begin=f.prim+static_cast<unsigned long>(f.bytes)*f.buffer;
     f.end=reinterpret_cast<unsigned long>(GXWORK()->prim);
+    RE4DC_SOURCE_DIAG_STAGE("primitive-cursor");
     if(f.end<f.begin || f.end-f.begin>f.bytes){sourceWorldMemoryFail(3,~0U,f.end,f.bytes);return 0;}
+    RE4DC_SOURCE_DIAG_STAGE("walk");
     if(!sourceWorldWalk(true))return 0;
     f.active=f.count!=0;
+    RE4DC_SOURCE_DIAG_STAGE("identity");
     if(!sourceWorldIdentity(native,pg)){f.active=false;return 0;}
+    RE4DC_SOURCE_DIAG_STAGE("accepted");
     *generation=pg;
 #if !RE4DC_PS2_WORLD_SOURCE_TEX_PREP
     f.ready=true;
@@ -194,3 +257,25 @@ extern "C" void re4dc_source_world_flush_result(unsigned native,int complete) {
         sourceWorldAbort(10);
     }
 }
+
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+extern "C" void re4dc_source_world_diag_begin(unsigned native) {
+    sourceWorldDiagnostic.begin(native,pG && G_ROOM_ID==0x200,pG && (pG->System_flg&0x1000));
+}
+extern "C" int re4dc_source_world_diag_active(unsigned native) {
+    return sourceWorldDiagnostic.active && sourceWorldDiagnostic.native==native;
+}
+extern "C" void re4dc_source_world_diag_report(unsigned native,const char* where) {
+    if(!re4dc_source_world_diag_active(native))return;
+    const auto& d=sourceWorldDiagnostic;const auto& f=sourceWorldFrame;
+    re4dc_log("PS2PF source f=%u where=%s stage=%s field=%u reason=%u memory=%u callbacks=%u ticket=%u/%u/%u/%u source=%u/%u sys=%08x status=%08x/%08x mode=%u coarse=%u pace=%u epochs=%u/%u package=%u\n",
+        native,where,d.stage,d.field,d.reason,d.memory,f.count,unsigned(f.active),unsigned(f.ready),unsigned(f.started),unsigned(f.failed),
+        pG?unsigned(pG->Frame_cnt):0U,f.source,pG?unsigned(pG->System_flg):0U,
+        pG?unsigned(pG->Status_flg[1]):0U,pG?unsigned(pG->Status_flg[2]):0U,pG?unsigned(pG->Rno0):0U,
+        unsigned(re4dc_coarse_image),unsigned(re4dc_pace_skipping),sourceWorldPrimGeneration,f.prim_generation,f.package_generation);
+    if(d.model)re4dc_log("PS2PF walk-last f=%u where=%s table=%x model=%p serial=%u work=%u accepted=%d\n",
+        native,where,d.table,d.model,d.serial,d.work,d.probe);
+}
+#endif
+#undef RE4DC_SOURCE_DIAG_TEST
+#undef RE4DC_SOURCE_DIAG_STAGE

@@ -4125,6 +4125,10 @@ extern "C" int re4dc_coarse_source_camera(float view[12],float projection[7],flo
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 #include "include/native_source_world.inc"
 #endif
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+extern "C" int re4dc_source_world_diag_active(unsigned);
+extern "C" void re4dc_source_world_diag_report(unsigned,const char*);
+#endif
 // re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
 extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
 #if RE4DC_MOVIE_WORLD_ARENA
@@ -4145,6 +4149,15 @@ extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
     const unsigned frame=re4dc_ui_frame();
     (void)p; // an unbound scenery part carries no camera (world / view are the binding's): the game's
     if(frame==last || !ps2w.storage || ps2w.room!=room)return;
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+    if(re4dc_source_world_diag_active(frame)){
+        // The already qualified descriptor supplies values only. Do not read
+        // the borrowed model/info/part objects or rerun the ownership walker.
+        re4dc_log("PS2PF legacy f=%u room=%03x model=%p serial=%u info=%p part=%p key=%02x/%02x/%02x/%02x\n",
+            frame,room,p.model,p.serial,p.info,p.part,unsigned(p.source_key[0]),unsigned(p.source_key[1]),unsigned(p.source_key[2]),unsigned(p.source_key[3]));
+        re4dc_source_world_diag_report(frame,"legacy");
+    }
+#endif
     last=frame;
     float view[12],projection[7],viewport[6];
     if(!re4dc_coarse_source_camera(view,projection,viewport))return;

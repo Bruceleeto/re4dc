@@ -6307,6 +6307,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     if(stream_aborted)return 0;
 #endif
     const Key key{k[0],k[1]};
+#if RE4DC_PS2_WORLD_PREFLIGHT_DIAG
+    sourceWorldDiagBind(key); // before a cache hit or a load, and before SQ lock
+#endif
 #if RE4DC_PS2_WORLD_HDR_CACHE
     const bool hdr_on=RE4DC_PS2_HDR_ON;
     unsigned hdr_size=0,hdr_mode=0,hdr_set=0;Ps2HdrSlot* hit=nullptr;
