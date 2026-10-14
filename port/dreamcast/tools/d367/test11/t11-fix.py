@@ -40,6 +40,17 @@ DATA = {
                 'dc/native/r10b/ps2-world.ids': PRIV + '/t11-20261014/r10b-cut/ps2-world.ids'},
 }
 ALL_A = 'r119c,em29,fbec,r100tr4,smx101,smx103,r10bcut'
+# D black faces (lane t11-bk, docs/lanes/t11-bk.md): the 0xa0000000 scenery BINs lit offline. blackps2 = the PS2 run-time
+# rule measured in PCSX2 (--a0-light ps2, default); blackgc = the GameCube static room lights (--a0-light gc). 15 rooms
+# (r102-r10b, r117-r11b; not r100 / r101). Each set's r10b is built with cutout 224 and its r103 with the SMX rule, so it
+# replaces r10bcut / smx103 (do not stage those with it). Re-keyed textures are loose files (newtex).
+BLACK_ROOMS = 'r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r119 r11a r11b'.split()
+for _s in ('blackps2', 'blackgc'):
+    DATA[_s] = {'dc/native/%s/ps2-world.%s' % (r, x): PRIV + '/t11-20261014/%s/%s/ps2-world.%s' % (_s, r, x)
+                for r in BLACK_ROOMS for x in ('re4mesh', 'r4pw', 'ids')}
+    DATA[_s]['tex'] = PRIV + '/t11-20261014/%s/newtex' % _s
+CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut'), ('blackgc', 'smx103'), ('blackps2', 'blackgc')]
+T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc'  # the test 11 recipe (user 10-14: GC light bake)
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
@@ -74,6 +85,8 @@ def main():
     rm = set(d.get('remove', []))
     rec = []
     names = [x for v in opt.get('--data', []) for x in v.split(',') if x]
+    for a_, b_ in CLASH:
+        assert not (a_ in names and b_ in names), 'data sets %s and %s replace the same files' % (a_, b_)
     for nm in names:
         for k, v in DATA[nm].items():
             if k == 'tex':
