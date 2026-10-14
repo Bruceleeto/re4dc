@@ -986,6 +986,22 @@ $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_PIN=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_PIN=1
 endif
 
+# D47: exact source callback transaction for pending/entered r200 door images.
+PS2_WORLD_TRANSITION_OWNER ?= 0
+ifneq ($(filter-out 0 1,$(PS2_WORLD_TRANSITION_OWNER)),)
+$(error PS2_WORLD_TRANSITION_OWNER must be 0 or 1)
+endif
+ifeq ($(PS2_WORLD_TRANSITION_OWNER),1)
+ifneq ($(PS2_WORLD_SOURCE_OWNER)$(PS2_WORLD_SOURCE_TEX_PREP)$(PVR_STREAM),111)
+$(error PS2_WORLD_TRANSITION_OWNER needs SOURCE_OWNER=1 SOURCE_TEX_PREP=1 PVR_STREAM=1)
+endif
+ifneq ($(PS2_WORLD_TRANSITION_PIN),0)
+$(error PS2_WORLD_TRANSITION_OWNER requires TRANSITION_PIN=0)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/trans_ot.o $(OBJDIR)/src/game/scroll.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_OWNER=1
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_OWNER=1
+endif
+
 KOS_GCCVER_MIN = 12.0.0
 include $(KOS_BASE)/Makefile.rules
 
