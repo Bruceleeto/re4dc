@@ -2277,6 +2277,69 @@ int external_image_key(const Re4dcUiImage& image,Key& external) {
         native=e.table.lookup(image.pixels,image.width,image.height,image.format,external.crc,external.fnv,image.palette,image.palette_format,image.palette_bytes);
     return native;
 }
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+// UI_HASH_DIAG (crowd.mk, test only): which images image_key() hashes texel by texel (no source-table hit, no external
+// identity), per 60 UI frames: calls, bytes, nsource, and the 12 heaviest images (load()'s caller, pixels, size, format).
+namespace hashdiag {
+struct Rec { const void* px; const void* site; unsigned w, h, fmt, bytes, n; };
+Rec rec[12]; unsigned nrec, calls, bytes, frames, full;
+const void* site;
+void note(const Re4dcUiImage& i, unsigned b) {
+    ++calls; bytes += b;
+    for (unsigned k = 0; k < nrec; ++k) if (rec[k].px == i.pixels) { ++rec[k].n; return; }
+    if (nrec < 12) { rec[nrec++] = Rec{i.pixels, site, i.width, i.height, i.format, b, 1}; return; }
+    unsigned lo = 0; for (unsigned k = 1; k < 12; ++k) if (rec[k].n * rec[k].bytes < rec[lo].n * rec[lo].bytes) lo = k;
+    if (rec[lo].n <= 1) rec[lo] = Rec{i.pixels, site, i.width, i.height, i.format, b, 1};
+}
+}
+#endif
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+// UI_SOURCE_LRU (crowd.mk; exact, render only): once sources[] is full, a new descriptor replaces the least recently
+// used entry instead of being re-hashed on every lookup. A replaced entry is a later descriptor, never a key change:
+// the key of a descriptor is still the hash of its texels (or its external identity) when first seen. An indexed
+// image cached this way also records an FNV of its palette bytes; a hit with a changed palette is hashed again
+// (exactly what the full path did). =2 (check build): every hit on a late entry hashes again and compares
+// ("UISRC" lines: bad must stay 0).
+unsigned source_used[kSourceCount],source_clock,source_evict,source_late_hits,source_bad;
+unsigned char source_late[kSourceCount];unsigned source_pal[kSourceCount];
+inline unsigned palette_fnv(const Re4dcUiImage& i){
+    unsigned h=2166136261U;const unsigned char* p=(const unsigned char*)i.palette;
+    for(unsigned n=0;n<i.palette_bytes;++n)h=(h^p[n])*16777619U;
+    return h;
+}
+void hash_bytes(Key& k,const void* ptr,unsigned size);
+inline Key full_hash(const Re4dcUiImage& image){
+    const unsigned metadata[]={image.width,image.height,image.format,image.palette_format,image.palette_bytes};
+    Key key={0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
+    hash_bytes(key,image.pixels,image_size(image));
+    if(image.palette_bytes) hash_bytes(key,image.palette,image.palette_bytes);
+    key.crc=~key.crc;return key;
+}
+// A hit on sources[n]: 0 = use it, 1 = an indexed late entry whose palette changed (take the full path).
+inline int source_hit(unsigned n,const Re4dcUiImage& image){
+    if(source_late[n]){
+        ++source_late_hits;
+        if(source_late[n]==2 && palette_fnv(image)!=source_pal[n])return 1;
+#if RE4DC_UI_SOURCE_LRU==2
+        if(source_late[n]!=3 && !(full_hash(image)==sources[n].key) && source_bad++<16)
+            re4dc_log("UISRC bad n=%u px=%08x %ux%u fmt=%u%s",n,(unsigned)reinterpret_cast<std::uintptr_t>(image.pixels),image.width,image.height,image.format,"\n");
+        if(!(source_late_hits&4095U))re4dc_log("UISRC check late_hits=%u evict=%u bad=%u%s",source_late_hits,source_evict,source_bad,"\n");
+#endif
+    }
+    source_used[n]=++source_clock;return 0;
+}
+// Insert (image, key): append while there is room (late = 0, as without the knob), else replace the LRU entry.
+// kind: 1 hashed texels, 2 hashed indexed texels (palette FNV kept), 3 external / self key (not re-hashable).
+inline void source_put(const Re4dcUiImage& image,const Key& key,unsigned hint,unsigned char kind){
+    unsigned n;
+    if(nsource<kSourceCount){n=nsource++;source_late[n]=0;}
+    else{
+        n=0;for(unsigned k=1;k<kSourceCount;++k)if(source_used[k]<source_used[n])n=k;
+        ++source_evict;source_late[n]=kind;if(kind==2)source_pal[n]=palette_fnv(image);
+    }
+    sources[n]={image,key};source_used[n]=++source_clock;source_hint[hint]=(unsigned char)(n+1);
+}
+#endif
 bool image_key(const Re4dcUiImage& image,Key& key) {
     Key external{};int native=0;
     const bool indexed=image.format==8 || image.format==9;
@@ -2290,8 +2353,18 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     const unsigned hint=source_slot(image);
     if(!native){
         const unsigned h=source_hint[hint];
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        int stale=-1;
+        if(h && h<=nsource && same_image(sources[h-1].image,image)){if(!source_hit(h-1,image)){key=sources[h-1].key;return true;}stale=int(h-1);}
+        if(stale<0)for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {
+            if(source_hit(n,image)){stale=int(n);break;}
+            source_hint[hint]=(unsigned char)(n+1);key=sources[n].key;return true;}
+        if(stale>=0){   // indexed late entry, palette changed: hash as the full path does and refresh this entry
+            key=full_hash(image);sources[stale].key=key;source_pal[stale]=palette_fnv(image);source_used[stale]=++source_clock;return true;}
+#else
         if(h && h<=nsource && same_image(sources[h-1].image,image)){key=sources[h-1].key;return true;}
         for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {source_hint[hint]=(unsigned char)(n+1);key=sources[n].key;return true;}
+#endif
     }
 #else
     if(!native)for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {key=sources[n].key;return true;}
@@ -2300,7 +2373,9 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     if(native<0){re4dc_log("native source identity: incompatible descriptor rejected\n");return false;}
     if(native) {
         if(identity_hits++<3)re4dc_log("native source identity: %08x-%08x (no source-texel hash)\n",external.crc,external.fnv);
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        if(!indexed)source_put(image,external,hint,3);
+#elif RE4DC_COPY_LEAN
         if(!indexed && nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,external};}
 #else
         if(!indexed && nsource<kSourceCount)sources[nsource++]={image,external};
@@ -2317,7 +2392,9 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
             key={r[2],r[3]};
             if(selfkeys++<16 || !(selfkeys&1023U))re4dc_log("native UI: ref self-key %08x-%08x %ux%u fmt=%u pix=%08x n=%u\n",key.crc,key.fnv,
                 image.width,image.height,image.format,(unsigned)reinterpret_cast<std::uintptr_t>(image.pixels),selfkeys);
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+            source_put(image,key,hint,3);
+#elif RE4DC_COPY_LEAN
             if(nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,key};}
 #else
             if(nsource<kSourceCount)sources[nsource++]={image,key};
@@ -2327,11 +2404,16 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     }
 #endif
     const unsigned metadata[]={image.width,image.height,image.format,image.palette_format,image.palette_bytes};
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    hashdiag::note(image,image_size(image)+image.palette_bytes);if(nsource>=kSourceCount)++hashdiag::full;
+#endif
     key={0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
     hash_bytes(key,image.pixels,image_size(image));
     if(image.palette_bytes) hash_bytes(key,image.palette,image.palette_bytes);
     key.crc=~key.crc;
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+    source_put(image,key,hint,indexed?2:1);
+#elif RE4DC_COPY_LEAN
     if(nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,key};}
 #else
     if(nsource<kSourceCount) sources[nsource++]={image,key};
@@ -2553,9 +2635,15 @@ void close_entry(Entry& entry) {
 #if RE4DC_TEX_CHECK
 __attribute__((noinline))   // TEX_CHECK: texchk::site is this function's caller
 #endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+__attribute__((noinline))
+#endif
 Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=nullptr) {
 #if RE4DC_TEX_CHECK
     texchk::site=__builtin_return_address(0);
+#endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    hashdiag::site=__builtin_return_address(0);
 #endif
     RE4DC_PROFILE_SCOPE(TextureResolve);RE4DC_PROFILE_COUNT(TextureLookups,1);
     if(!image.pixels || !image_size(image) || !image.width || !image.height || image.width>1024 || image.height>1024) return nullptr;
@@ -4274,6 +4362,19 @@ extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;doo
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_KOS_HEAP_CHECK
     re4dc_heap_check();
+#endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    if(++hashdiag::frames>=60){
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        re4dc_log("uihash: lru evict=%u late_hits=%u bad=%u%s",source_evict,source_late_hits,source_bad,"\n");
+#endif
+        re4dc_log("uihash: frames=%u calls=%u bytes=%u full=%u nsource=%u/%u%s",hashdiag::frames,hashdiag::calls,hashdiag::bytes,
+            hashdiag::full,nsource,kSourceCount,"\n");
+        for(unsigned k=0;k<hashdiag::nrec;++k){const auto& r=hashdiag::rec[k];
+            re4dc_log("uihash:  site=%08x px=%08x %ux%u fmt=%u bytes=%u n=%u%s",(unsigned)reinterpret_cast<std::uintptr_t>(r.site),
+                (unsigned)reinterpret_cast<std::uintptr_t>(r.px),r.w,r.h,r.fmt,r.bytes,r.n,"\n");}
+        hashdiag::frames=hashdiag::calls=hashdiag::bytes=hashdiag::full=hashdiag::nrec=0;
+    }
 #endif
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
     door_ui_mark=~0U;

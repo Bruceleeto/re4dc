@@ -495,3 +495,34 @@ $(error ACTOR_SKIN_OWNER_POOL=1 and ACTOR_SKIN_RESERVE=1 are exclusive (the rese
 endif
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_SKIN_OWNER_POOL=1
 endif
+
+# UI_HASH_DIAG=1 (lane crowd12 2026-10-14; test only, default 0: no effect): native_ui.cpp logs "uihash:" lines every 60
+# UI frames: how many image_key() lookups hashed an image's texels (no source-table hit, no external identity), how many
+# bytes, whether the source table (kSourceCount) was full, and the heaviest images with load()'s caller (symbolize with
+# sh-elf-addr2line on the build's ELF). Found: r101 cross view spends ~8 hw ms/frame in hash_bytes (lp2 wide runs).
+UI_HASH_DIAG ?= 0
+ifeq ($(filter $(UI_HASH_DIAG),0 1),)
+$(error UI_HASH_DIAG must be 0 or 1)
+endif
+ifeq ($(UI_HASH_DIAG),1)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_HASH_DIAG=1
+endif
+
+# UI_SOURCE_LRU=1 (lane crowd12 2026-10-14; exact, render only, default 0: no effect; needs COPY_LEAN=1): native_ui.cpp's
+# source table (sources[], kSourceCount = 128 with PVR_STREAM) maps an image descriptor to its texture key so a lookup
+# does not hash the texels again. Once full (r101: from about room frame 60), every new descriptor was hashed on every
+# lookup, every frame (r101 burning-cross view: ~650 hashes / 3 MB per 60 drawn frames; hash_bytes 8 hw ms/frame in the
+# lp2 wide runs). =1: a new descriptor replaces the least recently used entry instead. Keys are unchanged (the hash of
+# the texels when first seen, as for the first 128 descriptors); an indexed image cached this way also keeps its
+# palette's FNV and is hashed again when the palette changed. =2 (check build): every hit on a replaced entry also
+# hashes and compares ("UISRC check ... bad=" lines; bad must stay 0).
+UI_SOURCE_LRU ?= 0
+ifeq ($(filter $(UI_SOURCE_LRU),0 1 2),)
+$(error UI_SOURCE_LRU must be 0, 1 or 2)
+endif
+ifneq ($(UI_SOURCE_LRU),0)
+ifneq ($(COPY_LEAN),1)
+$(error UI_SOURCE_LRU needs COPY_LEAN=1 (the source hints))
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_SOURCE_LRU=$(UI_SOURCE_LRU)
+endif
