@@ -47,7 +47,7 @@ OBJDIR = obj
 
 # UI_POLY_ORDER: keep pickup/subscreen polygon headers in the source UI list.
 UI_POLY_ORDER ?= 0
-$(OBJDIR)/platform/native_ui.o: CPPFLAGS += -DRE4DC_UI_POLY_ORDER=$(UI_POLY_ORDER)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_POLY_ORDER=$(UI_POLY_ORDER)
 # REL modules linked into the image. On the GameCube each stage REL is its
 # own link (config/G4BE08/modules/<mod>/splits.txt lists its units; the
 # rooms it does not hold resolve to its _unresolved). tools/gen_modules.py

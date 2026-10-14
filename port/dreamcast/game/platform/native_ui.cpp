@@ -6372,9 +6372,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #endif
 
 #if RE4DC_UI_POLY_ORDER
-    ui_order_polygon_header(header);
+        ui_order_polygon_header(header);
 #endif
-    std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
+        std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
         model_pending=model_used+count;model_handle=handle;
         if(!stream_scene)stream_open();
         auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
