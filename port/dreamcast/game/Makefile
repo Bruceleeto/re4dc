@@ -1721,6 +1721,8 @@ include tahash.mk
 include mcheck.mk
 # D367 PS2 world holes (WORLD_HOLE_DIAG; test 11 item E; default off: no effect).
 include worldhole.mk
+# D367 effect sprite trimming (FX_SPRITE_TRIM; test 11; default off: no effect).
+include fxtrim.mk
 # D367 frame pacing (PACE_CATCHUP; default off: no effect).
 include pace.mk
 # Frozen source candidate controls, after all prerequisite defaults.

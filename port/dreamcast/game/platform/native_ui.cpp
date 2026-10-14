@@ -5892,6 +5892,9 @@ void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     }
 }
 #endif
+#if RE4DC_FX_SPRITE_TRIM || RE4DC_FX_SPRITE_TRIM_DIAG
+#include "include/fx_sprite_trim.inc"   // fxtrim.mk
+#endif
 void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     const auto& t=e->package.textures()[0];
     auto* h=reinterpret_cast<pvr_poly_hdr_t*>(out);
@@ -6003,6 +6006,52 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fxCoreTextureAcquired(s->image,e);
 #endif
     if(!e){++fx_missing;return 0;}
+#if RE4DC_FX_SPRITE_TRIM || RE4DC_FX_SPRITE_TRIM_DIAG
+    Re4dcEffectSprite trimmed;    // FX_SPRITE_TRIM: the quad over its texture's alpha box or octagon (fxtrim.mk)
+    float fx_oct_p[8],fx_oct_q[8];
+    const int fx_trim_kind=fx_trim(*s,e,trimmed,fx_oct_p,fx_oct_q);
+#if RE4DC_FX_SPRITE_TRIM
+    if(fx_trim_kind==2){
+#if RE4DC_TA_BIN_DIAG
+        {
+            float xs[8],ys[8];
+            for(unsigned i=0;i<8;++i){
+                xs[i]=s->x[3]+fx_oct_p[i]*(s->x[2]-s->x[3])+fx_oct_q[i]*(s->x[0]-s->x[3]);
+                ys[i]=s->y[3]+fx_oct_p[i]*(s->y[2]-s->y[3])+fx_oct_q[i]*(s->y[0]-s->y[3]);
+            }
+            (s->pad&2?tabin::fill_haze:s->pad&4?tabin::fill_mist:tabin::fill_fx)+=tabin::clip_area(xs,ys,8);
+        }
+#endif
+        if(source_draws_finished){
+            alignas(32) unsigned char packet[kFxOctPacket];fx_trim_oct_packet(*s,e,fx_oct_p,fx_oct_q,packet);
+            stream_select(PVR_LIST_TR_POLY);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;stream_send(packet,kFxOctPacket);tabin::skip_fill=false;
+#else
+            stream_send(packet,kFxOctPacket);
+#endif
+            ++fx_direct;++fx_count;return 1;
+        }
+        const unsigned required=kSpriteNode+kFxOctPacket,margin=8192;
+        unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
+        if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
+            if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
+            if(!deferred_spill || required>deferred_spill_top){++fx_dropped;return 0;}
+            storage=deferred_spill;top=&deferred_spill_top;
+        }
+        *top-=required;
+        auto* node=new(storage+*top) DeferredPart{};node->lighting=kFxOctTag;
+        fx_trim_oct_packet(*s,e,fx_oct_p,fx_oct_q,storage+*top+kSpriteNode);
+        if(deferred_last)deferred_last->next=node;else deferred_first=node;
+        deferred_last=node;++deferred_count;
+        ++fx_queued;++fx_count;
+        fx_peak=std::max(fx_peak,fx_count);
+        frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
+        return 1;
+    }
+#endif
+    if(fx_trim_kind==1)s=&trimmed;
+#endif
 #if RE4DC_TA_BIN_DIAG
     {
         const float xs[4]={s->x[0],s->x[1],s->x[2],s->x[3]},ys[4]={s->y[0],s->y[1],s->y[2],s->y[3]};
@@ -7020,6 +7069,22 @@ extern "C" void re4dc_model_finish_source_draws(){
             const bool screen=deferred_first->changed[0]!=0;
             deferred_first=deferred_first->next;fx_send(packet,screen);continue;
         }
+#if RE4DC_FX_SPRITE_TRIM
+        if(deferred_first->lighting==kFxOctTag){   // FX_SPRITE_TRIM octagon (fx_sprite_trim.inc)
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
+            const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;
+#endif
+            deferred_first=deferred_first->next;stream_send(packet,kFxOctPacket);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=false;
+#endif
+            continue;
+        }
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
         if(deferred_first->lighting==kOctTag){
 #if RE4DC_TA_MATERIAL_DIAG
