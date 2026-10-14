@@ -69,6 +69,7 @@ struct Census {
         const float y[4]={sprite_y[list][0],sprite_y[list][1],f[0],f[3]};
         add(list,x,y,4,2);
     }
+    void incomplete(bool pending) { if(pending)++invalid; }
     void clear() {
         count=overflow=invalid=orphans=0;
         std::memset(buckets,0,sizeof(buckets));std::memset(tris,0,sizeof(tris));std::memset(fill,0,sizeof(fill));

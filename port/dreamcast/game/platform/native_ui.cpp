@@ -206,6 +206,9 @@ extern "C" {
 }
 #endif
 #if RE4DC_TA_MATERIAL_DIAG
+#if !RE4DC_PVR_STREAM || !RE4DC_TA_BIN_DIAG || RE4DC_TA_HASH!=1
+#error TA_MATERIAL_DIAG needs PVR_STREAM=1 TA_BIN_DIAG=1 TA_HASH=1
+#endif
 #include "ta_material_diag.h"
 #endif
 #include "native_ui.h"
@@ -1633,6 +1636,7 @@ void scene_end(unsigned fr,bool present){
     re4dc_log("tabin fill: f=%u poly=%u haze=%u mist=%u fx=%u\n",fr,unsigned(fill_tr),unsigned(fill_haze),unsigned(fill_mist),unsigned(fill_fx));
     fill_tr=fill_haze=fill_mist=fill_fx=0;
 #if RE4DC_TA_MATERIAL_DIAG
+    for(const auto& state:ls)tamat::census.incomplete(state.half || state.hdr64_pending);
     tamat::report(fr,present);
 #endif
     std::memset(ent,0,sizeof(ent));std::memset(trtri,0,sizeof(trtri));
@@ -1713,7 +1717,11 @@ void stream_open() {
     // file/audio services. Each synchronous packet transfer reacquires it.
     sq_unlock();stream_scene=true;
 #if defined(RE4DC_LETTERBOX_CLIP) && RE4DC_LETTERBOX_CLIP
+#if RE4DC_TA_MATERIAL_DIAG
+    { tamat::Scope source_scope(3); re4dc_lbx_open(int(stream_list),stream_send); }
+#else
     re4dc_lbx_open(int(stream_list),stream_send); // platform/letterbox_clip.cpp: the opaque bars
+#endif
 #endif
 #if RE4DC_WORLD_AUTOSORT
     // list_begin, not scene_begin, waits for and acquires this TA bank.

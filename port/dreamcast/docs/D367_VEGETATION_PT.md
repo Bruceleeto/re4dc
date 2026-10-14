@@ -8,7 +8,7 @@ shadows keep their authored translucent behavior.
 ## Submitted-area observer
 
 `TA_MATERIAL_DIAG=0` is the default. Enabling it requires `TA_BIN_DIAG=1` and
-`TA_HASH=1`; use `MCHECK_PT=1` for the actual submitted-header blend check.
+`TA_HASH=1` and `PVR_STREAM=1`; use `MCHECK_PT=1` for the actual submitted-header blend check.
 Test-9's diagnostic mode also uses `RENDER_OPTION=0`, because the tiler is fixed
 to 640 by 480. The quality-only option is inactive inside that mode.
 
@@ -56,3 +56,8 @@ placement and opaque geometry, and keep a source-key/material-change manifest.
 For r100, update the real sidecar CRC and matching identity/cell references
 without changing cell geometry. Keep the runtime's expected sidecar checksum
 consistent so interior culling remains active. Never force a checksum collision.
+
+The diagnostic rejects incomplete 64-byte vertices or headers at scene end.
+Opaque letterbox bars use the UI source scope, including when stream opening
+was triggered by a world draw. The initial W1 smoke inherited the caller
+scope for those bars; its TR/PT attribution is unaffected.

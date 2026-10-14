@@ -30,5 +30,7 @@ int main(){
     c.add(2,tx,ty,3,1);assert(c.orphans==1 && c.fill[2]==153600);
     assert(c.select(2,1,0,0,true)==0);c.add(2,tx,ty,3,1);assert(c.rows[0].tris==1);
     c.clear();assert(c.select(2,1,0,9999,true)==0);
+    c.incomplete(false);assert(c.invalid==0);c.incomplete(true);assert(c.invalid==1);
+    c.clear();assert(c.invalid==0);
     std::puts("TA material diagnostic geometry, attribution, overflow and reset PASS");
 }
