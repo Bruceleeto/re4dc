@@ -14,8 +14,9 @@ New in test 11 (everything else is the same as test 10):
 * Leon and the villagers cast shadows again.
 * Enemy placement in r100, r101, r104, r108, r11a and r11b follows the PS2
   version.
-* The speed display no longer uses the VMU: hold R and press START to switch
-  it Off or On screen. The VMU keeps its Leon, Ashley, call and Luis pages.
+* The speed display is off unless you switch it on (hold R and press START: Off or
+  On screen). It no longer uses the VMU; the VMU keeps its Leon, Ashley, call and
+  Luis pages.
 * Torches glow again, and r11b's rain falls as light streaks like on the PS2.
 * Room effects follow the PS2 version.
 * Black walls and floors in chapter 1 and 2-1 rooms are lit the way the
