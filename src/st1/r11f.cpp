@@ -121,17 +121,71 @@ static void r11fMovieS00Func(Event* e)
     }
     Evt_R11FS00_Func(e);
 }
+extern "C" void re4dc_log(const char* fmt, ...);
+
+// These callbacks read only mode/cut/frame for the persistent room effects.
+// Keep one synthetic Event, shared by the sequential source movie tasks.
+static void r11fMovieCut(RouteEvtFunc func, unsigned cut)
+{
+    alignas(8) static u8 storage[sizeof(Event)] = {};
+    Event* e = (Event*) storage;
+    e->funcMode = 1;
+    e->NowCut = cut;
+    e->NowFrame = 0;
+    func(e);
+}
+
+static bool r11fMovieS02Fire;
+static void r11fMovieS02Func(Event* e)
+{
+    if (e->funcMode == 0) {
+        r11fMovieS02Fire = false;
+    }
+    Evt_R11FS02_Func(e);
+}
+
 static void r11fMovieS02Tick(unsigned picture)
 {
-    if (picture == 585) {
-        // PS2 cut 0xB/frame 0: persistent room fire reset, beyond movie presentation.
-        alignas(8) static u8 storage[sizeof(Event)] = {};
-        Event* e = (Event*) storage;
-        e->funcMode = 1;
-        e->NowCut = 0xB;
-        e->NowFrame = 0;
-        Evt_R11FS02_Func(e);
+    // PS2 cut 0xB starts at 585. Late pictures can be dropped without a tick.
+    if (!r11fMovieS02Fire && picture >= 585) {
+        r11fMovieS02Fire = true;
+        r11fMovieCut(Evt_R11FS02_Func, 0xB);
     }
+}
+
+static unsigned r11fMovieS11NextCut;
+static void r11fMovieS11Func(Event* e)
+{
+    if (e->funcMode == 0) {
+        r11fMovieS11NextCut = 0;
+    }
+    // In particular, actual mode 3 restores the walls on START; it does not
+    // synthesize natural cut 2 or its fire callback.
+    Evt_R11FS11_Func(e);
+}
+
+static void r11fMovieS11Tick(unsigned picture)
+{
+    // PS2 camera lengths 110, 81, 130: deliver crossed starts once, in order,
+    // even when the first presented picture after a dropped cut is later.
+    static const unsigned starts[] = {0, 110, 191};
+    while (r11fMovieS11NextCut < 3 && picture >= starts[r11fMovieS11NextCut]) {
+        r11fMovieCut(Evt_R11FS11_Func, r11fMovieS11NextCut++);
+    }
+}
+
+static bool r11fMovieFailed(unsigned id, int terminal)
+{
+    if (terminal == RE4DC_MOVIE_EOF || terminal == RE4DC_MOVIE_SKIP ||
+        terminal == RE4DC_MOVIE_UNHANDLED) {
+        return false;
+    }
+    // The bridge already balanced its inner event. Do not manufacture the
+    // source aftermath, a skip, retry, or EVD fallback after partial playback.
+    re4dc_log("r11f route movie failed: room=%03x id=%05x terminal=%d progression=blocked\n",
+              G_ROOM_ID, id, terminal);
+    SceEventEnd(0);
+    return true;
 }
 #else
 #define R11F_ROUTE_MOVIES 0
@@ -320,7 +374,7 @@ static void r11f_EventS00()
     } else {
 #if R11F_ROUTE_MOVIES
         if (movie) {
-            RouteMoviePlay(0x11f02, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11FS02_Func, r11fMovieS02Tick);
+            RouteMoviePlay(0x11f02, ROUTE_MOVIE_SND_EVENT, r11fMovieS02Func, r11fMovieS02Tick);
         } else
 #endif
 #line 214
@@ -692,7 +746,13 @@ static void r11f_EventS10EndProc()
 // After the fight: the s10 event once the boss is gone.
 static void r11f_Eventxxx()
 {
+#if R11F_ROUTE_MOVIES
+    if (!re4dc_movie_available(0x11f11))
+#endif
     EvtMgr.EvtReadAram("event/evd/r11fs11.evd", 0, 0, 0, 0);
+#if R11F_ROUTE_MOVIES
+    if (!re4dc_movie_available(0x11f10))
+#endif
     EvtMgr.EvtReadAram("event/evd/r11fs10.evd", 0, 0, 0, 0);
     while (r11f_work->em0.isActive() == 1) {
         SceSleep(1);
@@ -700,6 +760,15 @@ static void r11f_Eventxxx()
     SceEventStart(0);
     ((cEm2b*) r11f_work->em0.getPtr())->v50();
     SndRoomStrStop(2);
+#if R11F_ROUTE_MOVIES
+    // The source callback's mode-1 GetMod effects are baked into this movie.
+    const int terminal = RouteMoviePlay(0x11f10, ROUTE_MOVIE_SND_EVENT,
+                                       (RouteEvtFunc) Evt_R11FS10_Func, 0);
+    if (r11fMovieFailed(0x11f10, terminal)) {
+        return;
+    }
+    if (terminal == RE4DC_MOVIE_UNHANDLED)
+#endif
     EvtMgr.EvtReadExec("event/evd/r11fs10.evd", 0, 0);
     SceAtDataSet_exec(0x80, SCE_LEVEL10, 0, r11f_EventS11, 0, 1);
     SceEventEnd(0);
@@ -712,6 +781,14 @@ static void r11f_EventS11()
 
     SceEventStart(0);
     SceAtDataReset(0x80);
+#if R11F_ROUTE_MOVIES
+    const int terminal = RouteMoviePlay(0x11f11, ROUTE_MOVIE_SND_EVENT,
+                                       r11fMovieS11Func, r11fMovieS11Tick);
+    if (r11fMovieFailed(0x11f11, terminal)) {
+        return;
+    }
+    if (terminal == RE4DC_MOVIE_UNHANDLED)
+#endif
     EvtMgr.EvtReadExec("event/evd/r11fs11.evd", 0, 0);
     SceEventEnd(0);
     SceAtSetEnable(8, 1);
