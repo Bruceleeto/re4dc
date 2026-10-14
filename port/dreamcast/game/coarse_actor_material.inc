@@ -365,7 +365,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     }
     if(m->pTexChg || m->Shader_type || m->CullMode ||
        (!registry && !source_appearance_type(p->appearance,m->id,m->type)) ||
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+       ((!actor_fade_eligible(m,*p)) && (m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)) || m->alpha_omit!=255 ||
+#else
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+#endif
 #if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
        m->TevScaleGroup!=source_model_tev_group(m,leon,registry) ||
 #else
@@ -380,7 +384,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     }
     if(m->pTexChg || m->Shader_type || m->CullMode ||
        !source_appearance_type(p->appearance,m->id,m->type) ||
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+       ((!actor_fade_eligible(m,*p)) && (m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)) || m->alpha_omit!=255 ||
+#else
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+#endif
        m->TevScaleGroup!=(leon?1:0) ||
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}

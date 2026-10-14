@@ -35,6 +35,12 @@ extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mc
 #include <cmath>
 #include <malloc.h>
 #include <new>
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+// This platform TU has the standard placement-new declaration. The recovered
+// source headers use this compatibility guard because their <new> omits it.
+#define PLACEMENT_NEW_DEFINED
+#include "include/actor_death_fade.h"
+#endif
 #include <cstddef>
 #include <algorithm>
 #ifndef RE4DC_ACTOR_TRANSACTION
@@ -519,10 +525,16 @@ pvr_list_t draining_list=PVR_LIST_TR_POLY;
 #if RE4DC_ACTOR_TRANSACTION_DIAG
 unsigned avd_queue_epoch;
 #endif
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+void actor_fade_queue_reset();
+#endif
 void reset_deferred(){
     AVD_EVENT(Reset,nullptr,nullptr,0); // Caller reason intentionally unknown.
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     ++avd_queue_epoch;
+#endif
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    actor_fade_queue_reset();
 #endif
     deferred_spill=nullptr;deferred_spill_top=deferred_spill_capacity=0;deferred_light_sets=nullptr;deferred_basis=nullptr;deferred_lights=nullptr;deferred_first=deferred_last=nullptr;deferred_top=sizeof(frame_storage);deferred_count=0;}
 pvr_list_t select_model_pass(const Re4dcModelPart* p){
@@ -5367,6 +5379,9 @@ extern "C" int re4dc_model_defer_part(const Re4dcModelPart* p){
     (void)p;return 0;
 #endif
 }
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+#include "include/native_ui_actor_fade.inc"
+#endif
 #if RE4DC_EFFECT_SPRITES
 #if !RE4DC_D349_RENDERER_STACK || !RE4DC_PVR_STREAM
 #error EFFECT_SPRITES needs the D349 renderer stack and PVR_STREAM (deferred translucent queue)
@@ -6394,6 +6409,13 @@ extern "C" void re4dc_model_finish_source_draws(){
     stream_select(PVR_LIST_TR_POLY);draining_list=PVR_LIST_TR_POLY;
     while(deferred_first && !stream_aborted){
         AVD_EVENT(Drain,deferred_first,nullptr,unsigned(uintptr_t(deferred_first->lighting)));
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+        if(actor_fade_queue_seen)re4dc_log("AFD_FIFO visit ep=%u i=%u node=%p next=%p tag=%p\n",actor_fade_queue_epoch,
+            actor_fade_queue_walk++,deferred_first,deferred_first->next,deferred_first->lighting);
+#endif
+        if(actor_fade_drain_head())continue;
+#endif
 #if RE4DC_SUBSCREEN && RE4DC_PVR_STREAM
         if(deferred_first->lighting==kSubscreenQuadTag){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSubscreenQuadNode;
@@ -6445,6 +6467,10 @@ extern "C" void re4dc_model_finish_source_draws(){
         // and aborts this same frame; it never frees an in-flight PVR texture.
         Re4dcModelPart view=restore_view(deferred_first);
         AVD_EVENT(DrainModel,deferred_first,&view,0);
+#if RE4DC_ACTOR_GANADO_DEATH_FADE && RE4DC_ACTOR_TRANSACTION_DIAG
+        if(actor_fade_queue_seen)re4dc_log("AFD_FIFO model ep=%u node=%p m=%p info=%p part=%p alpha=%08x\n",
+            actor_fade_queue_epoch,deferred_first,view.model,view.info,view.part,view.alpha_state);
+#endif
         const auto* saved_lighting=deferred_first->lighting;
         deferred_first=deferred_first->next;
 #if RE4DC_COPY_LEAN

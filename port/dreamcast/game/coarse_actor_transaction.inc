@@ -2,6 +2,10 @@
 // Owners are acquired only from commonModelTrans, after re4dc_ui_begin.
 // The original emTrans/commonScreenMatSub has already run once for ALL actors.
 #include "actor_palette_arena.h"
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+#include "actor_death_fade.h"
+#include "em.h"
+#endif
 #include "actor_transaction_diag.h"
 #include "actor_transaction_diag_impl.inc"
 #include "actor_visibility_diag_impl.inc"
@@ -116,9 +120,16 @@ bool actor_plan_layout(Re4dcActorPlan& p) {
     }
     return p.material_count && p.material_count<=kRe4dcActorMaterials && p.run_count && p.run_count<=kRe4dcActorRuns;
 }
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+#include "coarse_actor_death_fade_context.inc"
+#endif
 bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
     if(!m->pParts || !p.count || p.count>kRe4dcActorRoles || !p.palettes ||
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+       ((!actor_fade_eligible(m,p)) && (m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)) || m->alpha_omit!=255 ||
+#else
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+#endif
        m->z_mode!=0 || m->CullMode || m->Shader_type || m->AddAmb_r || m->AddAmb_g || m->AddAmb_b ||
        (m->be_flag&(0x4000u|0x00020000u)) ||
        !re4dc_actor::exact_infos(m->pModelInfo,p.info,p.count) ||
@@ -178,7 +189,11 @@ unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail)
     *detail=0;
     if(!m->pParts)return 1;
     if(!p.count || p.count>kRe4dcActorRoles || !p.palettes){*detail=p.count;return 2;}
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    if(!actor_fade_eligible(m,p) && (m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f))return 3;
+#else
     if(m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f)return 3;
+#endif
     if(m->alpha_omit!=255){*detail=m->alpha_omit;return 4;}
     if(m->z_mode!=0 || m->CullMode || m->Shader_type){*detail=(unsigned(m->z_mode)<<16)|(unsigned(m->CullMode)<<8)|unsigned(m->Shader_type);return 5;}
     if(m->AddAmb_r || m->AddAmb_g || m->AddAmb_b){*detail=(unsigned(m->AddAmb_r)<<16)|(unsigned(m->AddAmb_g)<<8)|unsigned(m->AddAmb_b);return 6;}
@@ -271,7 +286,11 @@ unsigned actor_source_lighting(cModel* m,ActorOwnedRecord& r) {
 }
 #endif
 ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
-    const FrameIdentity& frame,const ModelIdentity& model,bool& failed) {
+    const FrameIdentity& frame,const ModelIdentity& model,bool& failed
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    ,bool publish=true,const ActorFadeContext* captured=nullptr,unsigned fade_revision=0,const void* fade_parts=nullptr
+#endif
+    ) {
     failed=false;
     if(!p.palette_bytes || p.palette_bytes>kActorPaletteCap){ATD(m,7,p.palette_bytes,kActorPaletteCap);return nullptr;}
     re4dc_bind_actor_frame(); // existing single frame owner, before its lease
@@ -283,6 +302,15 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
         const auto& mat=p.materials[acquired];
         if(!re4dc_actor_texture_acquire(&mat.image,mat.crc,mat.fnv,&textures[acquired])) {ATD(m,8,acquired,p.material_count);release_textures();return nullptr;}
     }
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    // All resource I/O is above this guard. The record allocation and every
+    // operation after it are synchronous/non-yielding native proof routines.
+    // G1 always supplies a stack-owned plan, never a pending-header reference.
+    if(!publish && (!actor_fade_current({frame,model,0,0},captured?2u:1u) ||
+       !fade_revision || m->pParts!=fade_parts || re4dc_actor_binding_revision(m)!=fade_revision)) {
+        release_textures();failed=true;return nullptr;
+    }
+#endif
     if(!re4dc_actor_workspace_acquire(p.workspace_bytes,&workspace)) {
         ATD(m,9,p.workspace_bytes,0);
         release_textures();return nullptr;
@@ -329,8 +357,17 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
         const auto& c=p.input[i];auto& part=r->part[order];
         part.info=info;part.flags=info->be_flag;part.role=i;
         part.source={c.positions.data,c.normals.data,c.position_count,c.normal_count,c.palette_count,0};
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        if(captured) {
+            if(order>=captured->count || captured->info[order]!=info || captured->role[order]!=i)return actor_decline(*r,failed);
+            part.flags=captured->flags[order];std::memcpy(part.mv,captured->mv[order],sizeof(part.mv));
+        } else {
+#endif
         Mtx pm,mv;PSMTXConcat(m->pParts->mat,info->mat,pm);PSMTXConcat(pG->Cam.v_mat,pm,mv);
         std::memcpy(part.mv,mv,sizeof(mv));
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        }
+#endif
         for(float f:part.mv)if(!coarse_finite(f))return actor_decline(*r,failed);
         part.chunk={info,c.stream.data,c.uv.data,part.mv,unsigned(c.stream.size),c.position_count,c.normal_count};
         bindings[order]={info,part.source,palettes[i],c.palette_count};
@@ -348,6 +385,14 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     b.shift=registry_position_shift(p.appearance);
 #endif
     b.lighting=&light;b.image=p.image;b.source_key[2]=1;b.depth_mode=m->z_mode;b.cull=0;b.alpha_state=255;
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    if(captured) {
+        b.alpha_state=captured->alpha;b.source_key[2]=captured->fog;r->lit=captured->lit;b.lighting=&r->lit;
+    } else if(actor_fade_eligible(m,p)) {
+        b.alpha_state=re4dc_fade::alpha(m->invisible_factor,m->invisible_factor2,1.0f,255);
+        b.source_key[2]=re4dc_fog_enabled();
+    }
+#endif
 #if RE4DC_NMR_SOURCE_CULL
     // NATIVE_MODEL_REGISTRY: the selected registry bosses (bit 1 em2f) cull as the source path does (model_bridge.cpp;
     // the plan admits CullMode 0 only), not cull none: from inside Del Lago's body the source shows no inner faces.
@@ -358,6 +403,9 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
 #endif
 #if RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     if(!RE4DC_LEON_LIKE(p.appearance)) {
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        if(!captured)
+#endif
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }
@@ -366,12 +414,18 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
        (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F) ||
         ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)) || ((RE4DC_NMR_SOURCE_LIGHT&16) && m->id==0x22) ||
         ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23))) {
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        if(!captured)
+#endif
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }
 #endif
 #if RE4DC_PS2_GANADO_LIT && !RE4DC_ACTOR_GANADO_SOURCE_LIGHT
     if(p.appearance<0x100u) {
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        if(!captured)
+#endif
         if(const unsigned why=actor_source_lighting(m,*r)){ATD(m,26,why,p.appearance);return actor_decline(*r,failed);}
         b.lighting=&r->lit;
     }
@@ -399,15 +453,30 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
         }
     }
 #endif
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    if(captured) {
+        std::memcpy(b.projection,captured->projection,sizeof(b.projection));
+        std::memcpy(b.viewport,captured->viewport,sizeof(b.viewport));
+    } else {
+#endif
     GXGetProjectionv(b.projection);GXGetViewportv(b.viewport);
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    }
+#endif
     r->passes=m->ot_type==7?3u:1u;
     // The whole actor, BOTH pass groups, qualifies before its first TA header.
     if(r->run_count!=p.run_count || !re4dc_actor_preflight_owned_runs(&b,r->runs,r->run_count,p.materials,p.material_count,&r->workspace,&r->skin,r->textures)) {
         ATD(m,15,r->run_count,p.run_count);return actor_decline(*r,failed);
     }
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    if(!publish)return r;
+#endif
     r->next=actor_owned_head;actor_owned_head=r;return r;
 }
 }
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+#include "coarse_actor_death_fade.inc"
+#endif
 
 #if RE4DC_CROWD
 // Lane crowd (crowd.mk; render only): after the owner path admitted a Ganado (plan + semantics), decide whether its
@@ -564,6 +633,9 @@ extern "C" int re4dc_crowd_far(cModel* m) {
 extern "C" void re4dc_actor_transaction_retire() {
     // Revoke exported owners without traversing old primitive storage. This is
     // called BEFORE FrameLedger retirement and SetPrimBuffPtr storage reuse.
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+    actor_fade_retire();
+#endif
     actor_owned_head=nullptr;actor_owned_live=false;
 #if RE4DC_LEON_NATIVE_PIPE
     leon_pipe.live=false;  // its leases are revoked below with every other owner's
@@ -646,6 +718,11 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
     }
 #endif
     if(choice==2) {
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        // ot_type 0 has one source call. Even a completed fade is not a legal
+        // second pass; never reinterpret its pending record as a leased owner.
+        if(actor_fade_find(model)){actor_fail();return -1;}
+#endif
 #if RE4DC_LEON_NATIVE_PIPE
         if(leon_pipe.live && leon_pipe.r.model==model) {
             if(!(leon_pipe.r.frame==frame)){actor_fail();return -1;}
@@ -746,6 +823,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
 #if RE4DC_CROWD
         if(crowd_ganado(m)) {
             crowd_would=crowd_policy(m);
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+            if(crowd_would && actor_fade_eligible(m,p))return 0;
+#endif
 #if defined(RE4DC_ENCV) && RE4DC_ENCV
             re4dc_encv_crowd=crowd_would;  // ENC_CENSUS=2 (coarse.cpp)
 #endif
@@ -770,6 +850,9 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
                 }
             }
         }
+#endif
+#if RE4DC_ACTOR_GANADO_DEATH_FADE
+        if(actor_fade_eligible(m,p))return actor_fade_enqueue(m,p,frame,model);
 #endif
         bool failed=false;r=actor_acquire(m,p,frame,model,failed);
         if(failed){actor_fail();return -1;}
