@@ -1,3 +1,4 @@
+#include "platform/include/movie_world_arena.h"
 // Route cutscenes (PS2-inspired profile: prerecorded cinematics as presentation).
 // The caller keeps its whole source sequence around the event: flags, enemy
 // sets, positions, doors, ladders, SceAtDataReset. This replaces only the
@@ -201,7 +202,13 @@ int RouteMoviePlay(unsigned id, unsigned flags, RouteEvtFunc func, RouteMovieTic
     pG->Disp_flg = 0xFFFFFFFF;
     // The movie owns presentation until it ends (the task does not sleep, so no
     // game frame runs); skip is the event cancel key, Key bit 29 = PAD START.
+#if RE4DC_MOVIE_WORLD_ARENA
+    re4dc_movie_world_scope(id);
+#endif
     int st = re4dc_movie_play(id, 0x1000, tick);
+#if RE4DC_MOVIE_WORLD_ARENA
+    re4dc_movie_world_scope(0);
+#endif
     re4dc_weapon_heap4_movie_restore();
     re4dc_ps2_interior_movie_restore();
     pG->System_flg &= ~0x400;  // Event::Run releases the held picture after frame 0

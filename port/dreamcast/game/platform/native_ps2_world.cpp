@@ -1,3 +1,4 @@
+#include "include/movie_world_arena.h"
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 #include "include/ps2_source_world.h"
 #endif
@@ -655,6 +656,9 @@ extern "C" int re4dc_ps2_world_covers(unsigned room){
 extern "C" int re4dc_ps2_world_covers(unsigned room){return room==0x101;}
 #endif
 extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float far){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_ps2_mesh_movie_blocked())return 1;
+#endif
     using namespace re4dc::room::ps2;
     RE4DC_PS2_WORLD_FOG_LATCH();
 #if RE4DC_PS2_WORLD_MESH
@@ -700,6 +704,9 @@ extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float
 // PS2_WORLD_ROOMS=2, an image the coarse path does not draw (native_static.cpp re4dc_ps2_mesh_source, camera
 // already set): pass 0 now; re4dc_ps2_world_flush draws PT / TR as for a coarse image.
 extern "C" int re4dc_ps2_world_source_draw(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_ps2_mesh_movie_blocked())return 1;
+#endif
     using namespace re4dc::room::ps2;
     RE4DC_PS2_WORLD_FOG_LATCH();
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=RE4DC_PS2_FAR;
@@ -708,10 +715,16 @@ extern "C" int re4dc_ps2_world_source_draw(){
 }
 #endif
 extern "C" int re4dc_ps2_world_pending(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_ps2_mesh_movie_blocked())return 0;
+#endif
     using namespace re4dc::room::ps2;
     return state.pending && state.frame==re4dc_ui_frame() && state.flushed!=state.frame;
 }
 extern "C" void re4dc_ps2_world_flush(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_ps2_mesh_movie_blocked())return;
+#endif
     using namespace re4dc::room::ps2;
     if(!state.pending || state.frame!=re4dc_ui_frame() || state.flushed==state.frame)return;
     state.flushed=state.frame;state.pending=false;
@@ -744,6 +757,12 @@ extern "C" void re4dc_ps2_world_flush(){
         }
     }
 }
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" void re4dc_ps2_world_movie_discard(){
+    using namespace re4dc::room::ps2;
+    state.pending=false;state.frame=state.flushed=~0u;
+}
+#endif
 extern "C" void re4dc_ps2_world_retire(){
 #if RE4DC_PS2_WORLD_MESH
     re4dc_ps2_mesh_retire();

@@ -1,3 +1,7 @@
+#include "include/movie_world_arena.h"
+#if RE4DC_MOVIE_WORLD_ARENA
+#include "native_io.h"
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 #include "include/ps2_source_world.h"
 #endif
@@ -3075,6 +3079,26 @@ struct Ps2World {
     std::uint8_t pass_mask[kMaskPlacements]{}; bool masked=false;
 #endif
 } ps2w;
+#if RE4DC_MOVIE_WORLD_ARENA
+#include "include/movie_world_arena_lifecycle.inc"
+movie_world::Ledger ps2_movie;
+struct MovieWorldFiles { unsigned mesh=0,side=0,mesh_crc=0,mesh_fnv=0,side_crc=0,side_fnv=0; } ps2_movie_files;
+struct MovieWorldRead { MovieWorldRead(){++ps2_movie.readers;} ~MovieWorldRead(){--ps2_movie.readers;} };
+bool ps2_movie_blocked(){if(!ps2_movie.unavailable())return false;++ps2_movie.blocked;return true;}
+bool ps2_movie_current(){
+    unsigned gen=0;
+    return re4dc_room4_live_generation(&gen) && gen==ps2_movie.generation &&
+        ps2_movie.base==ps2w.storage && ps2_movie.capacity==ps2w.bytes &&
+        re4dc_room4_cell_valid(ps2_movie.base,ps2_movie.capacity,gen);
+}
+void ps2_movie_unpublish(){
+    ps2w.package.close();ps2w.parts=nullptr;ps2w.placements=nullptr;ps2w.nplacements=0;
+    ps2w.lut=nullptr;ps2w.gather=nullptr;ps2w.camera=false;
+#if RE4DC_PS2_PASS_MASK
+    ps2w.masked=false;
+#endif
+}
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 unsigned sourceWorldPackageGeneration=1,sourceWorldSidecarCrc;
 #endif
@@ -3194,6 +3218,9 @@ std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
 void ps2_free();
 #endif
 bool ps2_open(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return false; // BEFORE storage/room-mismatch paths
+#endif
 #if RE4DC_PS2_WORLD_ROOMS
     if((ps2w.storage || ps2w.attempted) && ps2w.room!=ps2w.want)ps2_free(); // another room's package
 #endif
@@ -3356,6 +3383,16 @@ bool ps2_open(){
     pc::data.lent=false;
     if(pc::st.ok)pc::load();
 #endif
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2w.room==0x11f){
+        unsigned gen=0;
+        if(!re4dc_room4_live_generation(&gen) || !re4dc_room4_cell_valid(s,total,gen) || !ps2_movie.capture(s,total,gen)){
+            re4dc_missing("movie world arena initial owner invalid");return false;
+        }
+        ps2_movie_files={msize,psize,ps2_crc32(s,msize),movie_world::fnv(s,msize),
+                        ps2_crc32(s+mbytes,psize),movie_world::fnv(s+mbytes,psize)};
+    }
+#endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
 #if RE4DC_PS2_VERTEX_ALPHA
@@ -3364,6 +3401,74 @@ bool ps2_open(){
 #endif
     return true;
 }
+#if RE4DC_MOVIE_WORLD_ARENA
+bool ps2_movie_reload(){
+    if(!ps2_movie_current() || ps2_movie.phase!=movie_world::Phase::returning)return false;
+    MovieWorldRead read; // retirement must refuse any I/O-yielded reader
+    const auto& files=ps2_movie_files;
+    const unsigned mb=(files.mesh+31u)&~31u,pb=(files.side+31u)&~31u;
+    if(files.mesh!=797056 || files.side!=9076 || mb+pb+kLutBytes+kGatherBytes!=ps2_movie.capacity)return false;
+    Re4dcIoScope io;
+    const file_t fm=fs_open("/cd/dc/native/r11f/ps2-world.re4mesh",O_RDONLY);
+    const file_t fp=fs_open("/cd/dc/native/r11f/ps2-world.r4pw",O_RDONLY);
+    bool ok=fm!=FILEHND_INVALID && fp!=FILEHND_INVALID && fs_total(fm)==ssize_t(files.mesh) && fs_total(fp)==ssize_t(files.side);
+    auto* data=static_cast<unsigned char*>(ps2_movie.base);
+    // Keep source timeslicing outside the native file calls, including fallback reads.
+    if(ok)ok=ps2_movie_current() && read_package(fm,data,files.mesh,0);
+    if(ok)ok=ps2_movie_current() && read_package(fp,data+mb,files.side,0);
+    if(fm!=FILEHND_INVALID)fs_close(fm);
+    if(fp!=FILEHND_INVALID)fs_close(fp);
+    if(!ok || !ps2_movie_current())return false;
+    if(ps2_crc32(data,files.mesh)!=files.mesh_crc || movie_world::fnv(data,files.mesh)!=files.mesh_fnv ||
+       ps2_crc32(data+mb,files.side)!=files.side_crc || movie_world::fnv(data+mb,files.side)!=files.side_fnv)return false;
+    if(!ps2w.package.adopt(data,files.mesh,true,true))return false;
+    Ps2Head h{};std::memcpy(&h,data+mb,sizeof(h));
+    const auto& mh=ps2w.package.header();
+    const unsigned body=files.side-unsigned(sizeof(h));
+    if(std::memcmp(h.magic,"R4PW",4) || h.version!=1 || h.parts!=mh.part_count || h.meshes!=mh.mesh_count ||
+       body!=h.parts*sizeof(Ps2Part)+h.placements*sizeof(Ps2Placement) || ps2_crc32(data+mb+sizeof(h),body)!=h.crc){
+        ps2w.package.close();return false;
+    }
+    auto* parts=reinterpret_cast<const Ps2Part*>(data+mb+sizeof(h));
+    auto* placements=reinterpret_cast<const Ps2Placement*>(parts+h.parts);
+    for(unsigned i=0;i<h.parts;++i){const auto& q=parts[i];
+        if(q.pass>2 || q.cull>2 || !q.width || !q.height || q.width>1024 || q.height>1024){ps2w.package.close();return false;}}
+    for(unsigned i=0;i<h.placements;++i){const auto& q=placements[i];
+        if(q.mesh>=h.meshes){ps2w.package.close();return false;}
+        for(float f:q.affine)if(!re4dc::render::is_finite(f)){ps2w.package.close();return false;}}
+    ps2w.parts=parts;ps2w.placements=placements;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_PASS_MASK
+    ps2w.masked=h.placements<=Ps2World::kMaskPlacements;
+    for(unsigned i=0;ps2w.masked && i<h.placements;++i){
+        const auto& mesh=ps2w.package.meshes()[placements[i].mesh];unsigned mask=0;
+        for(unsigned k=0;k<mesh.part_count;++k)mask|=1u<<parts[mesh.first_part+k].pass;
+        ps2w.pass_mask[i]=std::uint8_t(mask);
+    }
+#endif
+#if RE4DC_MESH_FASTPATH
+    auto* lut=reinterpret_cast<std::uint32_t*>(data+mb+pb);re4dc::vp::build_lut(lut);ps2w.lut=lut;
+#endif
+    ps2w.gather=reinterpret_cast<re4dc::room::CompactVertex12*>(data+mb+pb+kLutBytes);
+    ps2w.camera=false; // next source/coarse draw supplies the current camera
+#if RE4DC_PS2_WORLD_DYNAMIC
+    // Preserve ids, slots, source flags, object/serials, original rest matrices,
+    // part witnesses and ordering. Same UI frame can contain source S11 edits.
+    dyn::frame=~0u;dyn::nmoved=0;std::memset(dyn::state,0,sizeof(dyn::state));
+#endif
+    return true;
+}
+bool ps2_movie_dyn_valid(){
+#if RE4DC_PS2_WORLD_DYNAMIC
+    if(dyn::block && !re4dc_room4_cell_valid(dyn::block,0,ps2_movie.generation))return false;
+    if(dyn::slots && !re4dc_room4_cell_valid(dyn::slots,dyn::nslots*sizeof(dyn::Slot),ps2_movie.generation))return false;
+#if RE4DC_PS2_WORLD_PARTS
+    if(dyn::slots)for(unsigned i=0;i<dyn::nslots;++i)if(dyn::slots[i].parts &&
+        !re4dc_room4_cell_valid(dyn::slots[i].parts,dyn::slots[i].nparts*sizeof(dyn::PartPose),ps2_movie.generation))return false;
+#endif
+#endif
+    return true;
+}
+#endif
 // 1 complete, 0 a part fell back (not drawn) or the camera is unusable, -1 aborted after publishing.
 #if RE4DC_SKY_ANY
 // SKY_FAR (post30.mk, look study 2026-10-10): the PS2 world rows (R4PW placement field = OBJ group = SMD row) that
@@ -3675,7 +3780,69 @@ int ps2_pass(unsigned pass,float zfar){
     return c.fallback?0:1;
 }
 }
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" int re4dc_movie_world_before_heap_change(const void* start,unsigned bytes){
+    if(!ps2_movie.base || !bytes)return 1;
+    const auto lo=reinterpret_cast<std::uintptr_t>(start),hi=lo+bytes;
+    const auto base=reinterpret_cast<std::uintptr_t>(ps2_movie.base);
+    // Include the retained cell's OS/Room4 headers and MAD trailer. No payload
+    // dereference until both range overlap and the current generation validate.
+    if(hi<lo)return 0;
+    const auto begin=base-64u,end=base+ps2_movie.capacity+32u;
+    if(hi<=begin || lo>=end)return 1;
+    if(ps2_movie.readers || !ps2_movie_current())return 0;
+    if(ps2_movie.phase==movie_world::Phase::borrowed){
+        if(!re4dc_movie_world_before_room_retire())return 0;
+    }else if(ps2_movie.unavailable())return 0;
+    // The still-live heap owns every free. Ready-world retirement and a safely
+    // cancelled borrow both reach this same existing owner boundary exactly once.
+    re4dc_ps2_mesh_retire();
+    return !ps2w.storage;
+}
+extern "C" int re4dc_ps2_mesh_movie_blocked(){return ps2_movie_blocked();}
+extern "C" unsigned re4dc_ps2_mesh_movie_borrow(unsigned id){
+    if((id!=0x11f10 && id!=0x11f11) || ps2w.room!=0x11f || ps2w.want!=0x11f ||
+       ps2_movie.phase!=movie_world::Phase::ready || ps2_movie.readers || !ps2_movie_current() ||
+       ps2_movie.capacity!=811264 || !ps2w.parts || !ps2w.placements || !ps2_movie_dyn_valid())return 0;
+    if(!re4dc_ui_movie_handoff_ready())return 0;
+    // Fence may yield: revalidate the owner before touching retained memory.
+    const unsigned token=ps2_movie.borrow(ps2_movie_current() && ps2_movie_dyn_valid(),true);
+    if(!token)return 0;
+    re4dc_ps2_world_movie_discard();ps2_movie_unpublish();
+    re4dc_log("MOVIEARENA borrow id=%05x token=%u gen=%u base=%p capacity=%u budget=%u\n",
+        id,token,ps2_movie.generation,ps2_movie.base,ps2_movie.capacity,movie_world::arena_bytes);
+    return token;
+}
+extern "C" int re4dc_ps2_mesh_movie_valid(unsigned token){return ps2_movie.valid(token,ps2_movie_current());}
+extern "C" void* re4dc_ps2_mesh_movie_alloc(unsigned token,unsigned bytes){
+    return ps2_movie.alloc(token,bytes,ps2_movie_current());
+}
+extern "C" int re4dc_ps2_mesh_movie_free(unsigned token,void* p){
+    return ps2_movie.release(token,p,ps2_movie_current());
+}
+extern "C" int re4dc_ps2_mesh_movie_return(unsigned token,int retiring){
+    if(!ps2_movie.begin_return(token,ps2_movie_current()))return -1;
+    const unsigned used=ps2_movie.used,slots=ps2_movie.nslots,blocked=ps2_movie.blocked;
+    if(retiring){
+        const bool ok=ps2_movie.retire(token,ps2_movie_current());
+        re4dc_log("MOVIEARENA retire token=%u used=%u slots=%u blocked=%u ok=%u\n",token,used,slots,blocked,unsigned(ok));
+        return ok?0:-1; // normal room owner subsequently frees exactly once
+    }
+    bool restored=false;unsigned attempt=0;
+    for(;attempt<2 && !restored;++attempt){
+        restored=ps2_movie_reload();
+        if(!restored)ps2_movie_unpublish();
+    }
+    const bool ok=ps2_movie.restored(token,ps2_movie_current(),restored);
+    re4dc_log("MOVIEARENA return token=%u used=%u slots=%u blocked=%u attempts=%u restored=%u\n",
+        token,used,slots,blocked,attempt,unsigned(ok));
+    return ok?1:-1;
+}
+#endif
 extern "C" void re4dc_ps2_mesh_camera(const float* view,const float* projection,const float* viewport){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return;
+#endif
     std::memcpy(ps2w.view,view,sizeof(ps2w.view));
     std::memcpy(ps2w.projection,projection,sizeof(ps2w.projection));
     std::memcpy(ps2w.viewport,viewport,sizeof(ps2w.viewport));
@@ -3704,10 +3871,16 @@ void pc_scan(unsigned frame){
 }
 #endif
 extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return 1;
+#endif
 #if RE4DC_PS2_INTERIOR_CULL==2
     if(!pass)pc_scan(re4dc_ui_frame());
 #endif
     if(pass>2 || !ps2w.camera || !ps2_open())return 0;
+#if RE4DC_MOVIE_WORLD_ARENA
+    MovieWorldRead read;
+#endif
     return ps2_pass(pass,zfar)>0;
 }
 #if RE4DC_PS2_INTERIOR_CULL
@@ -3816,6 +3989,15 @@ extern "C" void re4dc_ps2_mesh_log(unsigned frame){
 #endif
 }
 extern "C" void re4dc_ps2_mesh_retire(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie.readers || ps2_movie.unavailable()){
+        re4dc_missing("movie world arena retired before borrower cleanup");return;
+    }
+    if(ps2_movie.base && !ps2_movie.retire(ps2_movie.serial,ps2_movie_current())){
+        re4dc_missing("movie world arena stale owner retirement");return;
+    }
+    ps2_movie_files={};
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     if(sourceWorldPackageGeneration!=~0U)++sourceWorldPackageGeneration;
     sourceWorldSidecarCrc=0;
@@ -3922,6 +4104,9 @@ extern "C" int re4dc_ps2_world_room(unsigned room){
 #if RE4DC_PS2_WORLD_ROOMS >= 2
 // bind_mesh (room entry, file I/O allowed): open this room's PS2 world before its scenery package would open.
 extern "C" int re4dc_ps2_mesh_preload(unsigned room){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return 0;
+#endif
     if(!re4dc_ps2_world_room(room))return 0;
     ps2w.want=room;
     return ps2_open();
@@ -3941,6 +4126,9 @@ extern "C" int re4dc_coarse_source_camera(float view[12],float projection[7],flo
 #endif
 // re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
 extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return;
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     unsigned generation=0;
     // A qualified whole-room frame starts only at its original owned callback.
@@ -3968,6 +4156,9 @@ extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
 // PS2_PRELOAD_LEAN (game30.mk): the open package's part textures for the room preload (native_ui.cpp), in part
 // order with repeats (the caller skips keys it has); 0 past the end or when no package is open.
 extern "C" int re4dc_ps2_mesh_texture(unsigned i,unsigned out[4]){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return 0;
+#endif
     if(!ps2w.storage || !ps2w.parts || ps2w.room!=ps2w.want || i>=ps2w.package.header().part_count)return 0;
     const auto& q=ps2w.parts[i];
     out[0]=q.crc;out[1]=q.fnv;out[2]=q.width;out[3]=q.height;
@@ -3975,8 +4166,18 @@ extern "C" int re4dc_ps2_mesh_texture(unsigned i,unsigned out[4]){
 }
 #endif
 // The room the next ps2_open serves (native_ps2_world.cpp, before each draw).
-extern "C" void re4dc_ps2_mesh_select(unsigned room){ps2w.want=room;}
+extern "C" void re4dc_ps2_mesh_select(unsigned room){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return;
+#endif
+    ps2w.want=room;
+}
 // This room's package was tried and did not open: its own scenery draws (re4dc_ps2_world_covers).
-extern "C" int re4dc_ps2_mesh_failed(unsigned room){return ps2w.attempted && !ps2w.storage && ps2w.room==room;}
+extern "C" int re4dc_ps2_mesh_failed(unsigned room){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(ps2_movie_blocked())return 0; // a loan is still covered, never a source fallback
+#endif
+    return ps2w.attempted && !ps2w.storage && ps2w.room==room;
+}
 #endif
 #endif

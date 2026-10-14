@@ -1,3 +1,4 @@
+#include "include/movie_world_arena.h"
 #include "include/actor_visibility_diag.h"
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
 #include "include/ps2_source_world.h"
@@ -3363,6 +3364,12 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     sources_reset();
 }
 extern "C" void re4dc_ui_retire_room(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    // gameRoomMemInit can retire directly, without StageSet/re4dc_room_leave.
+    if(!re4dc_movie_world_before_room_retire()){
+        re4dc_missing("movie arena active during direct room retirement");return;
+    }
+#endif
 #if RE4DC_TEX_CHECK
     texchk::room_end();
 #endif
@@ -6508,6 +6515,57 @@ extern "C" void* re4dc_model_deferred_storage(unsigned* bytes){
     return *bytes?reinterpret_cast<unsigned char*>(model_packets)+kModelPacketBytes+kModelPreparationBytes+kModelStaticLightBytes:nullptr;
 }
 
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" int re4dc_ui_movie_try_close(){
+    // This path runs before source heap destruction: all checks are nonblocking.
+    if(direct_open || stream_scene || pvr_state.ta_busy || pvr_state.render_busy)return 0;
+#if RE4DC_D349_RENDERER_STACK
+    if(draining_parts)return 0;
+#endif
+#if RE4DC_PVR_PIPELINE==2
+    if(pvr_present_pending())return 0;
+#elif RE4DC_PVR_PIPELINE
+    if(present_submitted!=present_resolved)return 0;
+#endif
+#if RE4DC_PVR_PIPELINE
+    if(present_failures)return 0;
+#endif
+    movie_background=false;movie_picture=false;
+    if(movie_texture){pvr_mem_free(movie_texture);movie_texture=nullptr;
+#if RE4DC_TEX_RESIDENT
+        re4dc_ui_vram_unclaim();
+#endif
+    }
+    return 1;
+}
+extern "C" int re4dc_ui_movie_handoff_ready(){
+    if(!ready || movie_texture || direct_open)return 0;
+#if RE4DC_D349_RENDERER_STACK
+    if(draining_parts)return 0; // executing readers cannot be discarded
+    reset_deferred();source_draws_finished=true;
+#endif
+    re4dc_ps2_world_movie_discard();stream_aborted=true;
+#if RE4DC_PVR_STREAM
+    if(stream_scene)stream_close(false);
+#endif
+#if RE4DC_PVR_PIPELINE
+    present_fence();
+#if RE4DC_PVR_PIPELINE==2
+    if(pvr_present_pending())return 0;
+#else
+    if(present_submitted!=present_resolved)return 0;
+#endif
+    if(present_failures)return 0;
+#endif
+#if RE4DC_PVR_RECOVER
+    if(!pvr_ready::wait_clear(pvr_state.ta_busy,"movie arena TA",'K',pvr_ready::ta_timeouts) ||
+       !pvr_ready::wait_clear(pvr_state.render_busy,"movie arena render",'Q',pvr_ready::render_timeouts))return 0;
+#else
+    if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready)return 0;
+#endif
+    return !stream_scene && !direct_open && !pvr_state.ta_busy && !pvr_state.render_busy;
+}
+#endif
 #if RE4DC_ROUTE_MOVIES
 extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
     // Macroblock sizes inside the 512x256 texture; rows load as 32-byte blocks.
@@ -6614,6 +6672,14 @@ extern "C" int re4dc_ui_movie_present_now(){
 // own frames, under their UI quads (the action prompt), until switched off.
 extern "C" void re4dc_ui_movie_background(int on){movie_background=on!=0;}
 extern "C" int re4dc_ui_movie_close(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_movie_world_active()){
+        if(direct_open)return 0;
+#if RE4DC_D349_RENDERER_STACK
+        if(draining_parts)return 0;
+#endif
+    }
+#endif
     movie_background=false;
     if(!movie_texture)return 1;
 #if RE4DC_PVR_STREAM
@@ -6633,7 +6699,20 @@ extern "C" int re4dc_ui_movie_close(){
 #if RE4DC_PVR_PIPELINE
     present_fence();
 #endif
+#if RE4DC_MOVIE_WORLD_ARENA && RE4DC_PVR_PIPELINE
+    if(re4dc_movie_world_active()){
+#if RE4DC_PVR_PIPELINE==2
+        if(pvr_present_pending())return 0;
+#else
+        if(present_submitted!=present_resolved)return 0;
+#endif
+        if(present_failures)return 0;
+    }
+#endif
     if(re4dc::gpu::quiesce()!=re4dc::gpu::FenceResult::ready){re4dc_log("route movie texture retirement fence pending\n");return 0;}
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(re4dc_movie_world_active() && (pvr_state.ta_busy || pvr_state.render_busy))return 0;
+#endif
     pvr_mem_free(movie_texture);movie_texture=nullptr;movie_picture=false;
 #if RE4DC_TEX_RESIDENT
     re4dc_ui_vram_unclaim();

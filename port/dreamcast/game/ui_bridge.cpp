@@ -1,3 +1,4 @@
+#include "platform/include/movie_world_arena.h"
 // Source ID layout/animation/ordering -> existing native texture/PVR mechanisms.
 #include "light.h"
 #include "id_sys.h"
@@ -366,6 +367,12 @@ extern "C" void re4dc_pl08_pack_room_leave();
 extern "C" void re4dc_leon_hands_room_enter();              // coarse_actor_leon_hands.inc
 #endif
 extern "C" void re4dc_room_leave(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    // Must run before any native owner or source heap is retired.
+    if(!re4dc_movie_world_before_room_retire()){
+        re4dc_missing("movie world arena has an active reader at room retirement");return;
+    }
+#endif
     unsigned generation,cells,bytes,stale,refused;
     if(!re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused))return;
     re4dc_motion_retire_all();
@@ -619,6 +626,21 @@ void* room_alloc4_high(unsigned bytes,const char* tag){
 }
 #endif
 }
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" int re4dc_room4_live_generation(unsigned* generation){
+    *generation=room4.generation;
+    return room4.live && memCheckHeapActive(4) && Heap[4].handle>=0;
+}
+extern "C" int re4dc_room4_cell_valid(const void* p,unsigned bytes,unsigned generation){
+    // Check epoch, handle and address range before reading the Room4 header.
+    // In particular a stale pointer may already refer to inaccessible memory.
+    if(!p || !room4.live || generation!=room4.generation || !memCheckHeapActive(4) || Heap[4].handle<0)return 0;
+    const auto a=reinterpret_cast<std::uintptr_t>(p),lo=std::uintptr_t(Heap[4].start),hi=std::uintptr_t(Heap[4].end);
+    if(a<lo || a-lo<sizeof(Room4Cell) || a>=hi || (a&31u) || bytes>hi-a)return 0;
+    const auto* c=static_cast<const Room4Cell*>(p)-1;
+    return c->magic==kRoom4Magic && c->generation==generation && c->bytes<=hi-a && (!bytes || c->bytes==bytes);
+}
+#endif
 // gameRoomMemInit rebuilt heap 4: a new generation of native cells may start.
 extern "C" void re4dc_room4_open(){++room4.generation;room4.live_cells=0;room4.live_bytes=0;room4.live=true;}
 // StageSet entry, after the native owners retired: no new cells until the rebuild.

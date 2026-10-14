@@ -1,3 +1,4 @@
+#include "include/movie_world_arena.h"
 // PS2 prerecorded cinematics as presentation for source events (PS2-inspired
 // profile). Generalised from the experiment/ps2-fmv-spike r120s00 adapter:
 // same R4FMV003 transport (MPEG-1 WxH 29.97 + PCM16 stereo 32 kHz, one
@@ -52,6 +53,9 @@ namespace { void* plm_alloc(size_t n); }
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg.h"
 extern "C" int re4dc_movie_stream_initialized();
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" int re4dc_movie_stream_idle();
+#endif
 extern "C" unsigned re4dc_movie_stream_active();
 extern "C" unsigned re4dc_movie_stream_staged;
 #if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
@@ -136,6 +140,18 @@ struct Movie {
     const char* why=nullptr; unsigned reads=0,iter=0; unsigned long long read_us=0;
 #endif
 } m;
+#if RE4DC_MOVIE_WORLD_ARENA
+static_assert(sizeof(plm_buffer_t)==52 && sizeof(plm_video_t)==716,"review movie arena decoder ABI");
+unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;
+bool movie_full_call=false,movie_retiring=false;
+struct MovieReader { MovieReader(){++movie_readers;} ~MovieReader(){--movie_readers;} };
+bool movie_world_current(){return !movie_world_token || re4dc_ps2_mesh_movie_valid(movie_world_token);}
+void movie_stage_free(void* p){
+    if(movie_world_token){
+        if(!re4dc_ps2_mesh_movie_free(movie_world_token,p))re4dc_missing("movie arena invalid or duplicate free");
+    }else re4dc_ui_stage_free(p);
+}
+#endif
 #if RE4DC_ROUTE_MOVIE_DIAG
 #define MOVIE_WHY(s) (m.why=(s))
 #else
@@ -160,6 +176,9 @@ unsigned loan_test_id;   // test only: the movie that lent the cache at its firs
 extern "C" unsigned re4dc_ps2_interior_movie_release();   // native_static.cpp: the r100 cell block
 #endif
 void* stage_alloc(size_t n){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_world_token)return n<=0xffffffffu?re4dc_ps2_mesh_movie_alloc(movie_world_token,unsigned(n)):nullptr;
+#endif
     void* p=re4dc_ui_stage_alloc((unsigned)n);
 #if RE4DC_MOVIE_HEAP_EVICT
 #if defined(RE4DC_MOVIE_LOAN_TEST) && RE4DC_MOVIE_LOAN_TEST
@@ -346,9 +365,36 @@ int finish(int status){
     if(m.owns_service&&re4dc_movie_stream_active()==0){snd_stream_shutdown();m.owns_service=false;}
     if(m.file>=0){Re4dcIoScope owner;fs_close(m.file);m.file=-1;}
     // The texture is freed once the last scene that samples it has rendered.
-    for(unsigned tries=0;m.texture&&!re4dc_ui_movie_close()&&tries<100;++tries)thd_sleep(1);
-    m.texture=false;
-    for(unsigned i=0;i<m.nallocs;++i)re4dc_ui_stage_free(m.allocs[i]);
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_world_token){
+        if(movie_retiring){
+            // Called before a heap transition. Never wait for another source
+            // thread's open scene/GPU; a refusal halts before the heap mutates.
+            if(m.texture && re4dc_ui_movie_try_close())m.texture=false;
+        }else for(unsigned tries=0;m.texture && tries<=100;++tries){
+            if(re4dc_ui_movie_close()){m.texture=false;break;}
+            thd_sleep(1);
+        }
+        for(unsigned i=0;i<m.nallocs;++i)movie_stage_free(m.allocs[i]);
+        m.nallocs=0;
+        if(m.texture){
+            // Keep token and texture ownership live. Never republish the world
+            // or claim texture retirement from a void/failed fence result.
+            re4dc_missing("movie arena texture retirement fence failed");return RE4DC_MOVIE_ERROR;
+        }
+        if(re4dc_movie_stream_initialized() || re4dc_movie_stream_active()){
+            re4dc_missing("movie arena stream still owns staging");return RE4DC_MOVIE_ERROR;
+        }
+        const int result=re4dc_ps2_mesh_movie_return(movie_world_token,movie_retiring);
+        if(result<0){re4dc_missing("movie arena world restore failed after bounded reread");return RE4DC_MOVIE_ERROR;}
+        movie_world_token=0;++movie_epoch;
+    }else
+#endif
+    {
+        for(unsigned tries=0;m.texture&&!re4dc_ui_movie_close()&&tries<100;++tries)thd_sleep(1);
+        m.texture=false;
+        for(unsigned i=0;i<m.nallocs;++i)re4dc_ui_stage_free(m.allocs[i]);
+    }
 #if RE4DC_MOVIE_STAGE_ORDER
     release_reserved(0);   // pieces nobody took (a failed open)
 #endif
@@ -407,7 +453,18 @@ bool open(unsigned id){
     {Re4dcIoScope owner;if(fs_seek(m.file,2048,SEEK_SET)!=2048)return false;}
     const unsigned long long video_us=(unsigned long long)m.expected_frames*1001000ULL/30,audio_us=(unsigned long long)m.audio_bytes*1000000ULL/128000;
     m.duration_us=video_us>audio_us?video_us:audio_us;
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_full_call && movie_scope==id && (id==0x11f10 || id==0x11f11)){
+        if(movie_world_token || m.width!=288 || m.height!=192 || !m.full || !RE4DC_ROUTE_MOVIE_YUV ||
+           !re4dc_movie_stream_idle() || m.expected_frames!=(id==0x11f10?265u:321u))return false;
+        movie_world_token=re4dc_ps2_mesh_movie_borrow(id);
+        if(!movie_world_token)return false; // eligible arena attempt has NO heap fallback
+    }
+#endif
 #if RE4DC_MOVIE_STAGE_ORDER
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(!movie_world_token)
+#endif
     if(!reserve_largest_first(RE4DC_ROUTE_MOVIE_YUV&&m.full,!re4dc_movie_stream_initialized()))return false;
 #endif
     unsigned char* rb=(unsigned char*)plm_alloc(ReadCap+32);
@@ -431,10 +488,16 @@ bool open(unsigned id){
 #if RE4DC_MOVIE_HEAP_EVICT
     // The service's separation buffer (Ring + 32 B, native_movie_stream.c) is staged without eviction: make
     // room for a piece that size first and hand it back, so the service's first-fit allocation finds one.
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(!movie_world_token){
+#endif
 #if RE4DC_MOVIE_STAGE_ORDER
     release_reserved(m.owns_service?Ring+32:~0u);
 #else
     if(m.owns_service)if(void* room=stage_alloc(Ring+32))re4dc_ui_stage_free(room);
+#endif
+#if RE4DC_MOVIE_WORLD_ARENA
+    }
 #endif
 #endif
 #if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
@@ -574,7 +637,13 @@ bool show(plm_frame_t* f,unsigned index,unsigned now,RouteMoviePictureTick tick,
     vsync_cnt=0;
     if(m.shown==1){movie_state(1,(int)(m.id&0xffff));
         re4dc_log("route movie first picture: id=%05x latency_us=%llu\n",m.id,timer_us_gettime64()-m.entered);}
+#if RE4DC_MOVIE_WORLD_ARENA
+    const unsigned epoch=movie_epoch;
+#endif
     if(tick)tick(index);
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(epoch!=movie_epoch || !movie_world_current())return false;
+#endif
     return true;
 }
 }
@@ -693,19 +762,41 @@ int iterate(RouteMoviePictureTick tick,bool stepped){
 // of k; a picture two fields late is dropped (never shown late) so audio and
 // picture stay on one clock.
 extern "C" int re4dc_movie_play(unsigned id,unsigned mask,RouteMoviePictureTick tick){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(m.entered || movie_world_token || movie_full_call)return RE4DC_MOVIE_ERROR;
+    movie_full_call=true;
+    const int result=re4dc_movie_play_until(id,mask,tick,~0u);
+    movie_full_call=false;return result;
+#else
     return re4dc_movie_play_until(id,mask,tick,~0u);
+#endif
 }
 // As re4dc_movie_play up to picture `stop_at` (not shown): RE4DC_MOVIE_RUNNING leaves the
 // movie open, its sound playing, for re4dc_movie_step / re4dc_movie_end (route lane: r104s00's
 // QTE cut runs as game frames over the rest of the movie, the PS2 pattern).
 extern "C" int re4dc_movie_play_until(unsigned id,unsigned mask,RouteMoviePictureTick tick,unsigned stop_at){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(m.entered || movie_world_token)return RE4DC_MOVIE_ERROR;
+    int st;
+    {MovieReader reader;st=start(id,mask);}
+    const unsigned epoch=movie_epoch;
+#else
     int st=start(id,mask);
+#endif
     while(st==RE4DC_MOVIE_RUNNING){
+#if RE4DC_MOVIE_WORLD_ARENA
+        if(epoch!=movie_epoch)return RE4DC_MOVIE_CANCEL;
+        if(!movie_world_current()){re4dc_missing("movie arena stale iteration");return RE4DC_MOVIE_ERROR;}
+#endif
         if(m.k>=stop_at){
             re4dc_log("route movie handoff: id=%05x picture=%u (game frames continue it)\n",m.id,m.k);
             return RE4DC_MOVIE_RUNNING;
         }
+#if RE4DC_MOVIE_WORLD_ARENA
+        {MovieReader reader;st=iterate(tick,false);}
+#else
         st=iterate(tick,false);
+#endif
     }
     return st;
 }
@@ -730,10 +821,39 @@ extern "C" int re4dc_movie_step(RouteMoviePictureTick tick){
 }
 // Retires an open (handed-off or stepped) movie.
 extern "C" int re4dc_movie_end(void){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_world_token && movie_readers){re4dc_missing("movie arena end while reader active");return RE4DC_MOVIE_ERROR;}
+#endif
     if(!m.entered)return m.terminal?m.terminal:RE4DC_MOVIE_ERROR;
     return finish(m.held_end?RE4DC_MOVIE_EOF:RE4DC_MOVIE_CANCEL);
 }
-extern "C" int re4dc_movie_cancel(){return m.entered?finish(RE4DC_MOVIE_CANCEL):RE4DC_MOVIE_CANCEL;}
+extern "C" int re4dc_movie_cancel(){
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_world_token && movie_readers){re4dc_missing("movie arena cancel while reader active");return RE4DC_MOVIE_ERROR;}
+#endif
+    return m.entered?finish(RE4DC_MOVIE_CANCEL):RE4DC_MOVIE_CANCEL;
+}
+#if RE4DC_MOVIE_WORLD_ARENA
+extern "C" void re4dc_movie_world_scope(unsigned id){movie_scope=(id==0x11f10 || id==0x11f11)?id:0;}
+extern "C" int re4dc_movie_world_active(){return movie_world_token!=0;}
+extern "C" void* re4dc_movie_world_sep_alloc(unsigned bytes){
+    return movie_world_token?re4dc_ps2_mesh_movie_alloc(movie_world_token,bytes):nullptr;
+}
+extern "C" int re4dc_movie_world_sep_free(void* p){
+    return movie_world_token && re4dc_ps2_mesh_movie_free(movie_world_token,p);
+}
+extern "C" int re4dc_movie_world_before_room_retire(){
+    // A source cut callback/I/O-yield can request retirement with live pointers
+    // still on the stack. Refuse BEFORE room owners or heap 4 are touched.
+    if(movie_readers && (movie_scope || movie_world_token))return 0;
+    if(!movie_world_token)return 1;
+    if(!movie_world_current())return 0;
+    movie_retiring=true;
+    const int status=finish(RE4DC_MOVIE_CANCEL);
+    movie_retiring=false;movie_scope=0;
+    return status==RE4DC_MOVIE_CANCEL && !movie_world_token;
+}
+#endif
 #if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
 // LAKE_RIPPLES (native_lake.cpp): 1 while a movie is open (its decoder needs the CPU; the lake layers wait).
 extern "C" int re4dc_movie_open_now(){return m.entered && !m.terminal;}
