@@ -972,6 +972,20 @@ $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_PREFLIGHT_DIAG=1
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_PREFLIGHT_DIAG=1
 endif
 
+# D46: retain only an already-resident, exact native r200 texture during source
+# door fades. This does not widen the source-model owner ticket.
+PS2_WORLD_TRANSITION_PIN ?= 0
+ifneq ($(filter-out 0 1,$(PS2_WORLD_TRANSITION_PIN)),)
+$(error PS2_WORLD_TRANSITION_PIN must be 0 or 1)
+endif
+ifeq ($(PS2_WORLD_TRANSITION_PIN),1)
+ifneq ($(PS2_WORLD_SOURCE_OWNER)$(PS2_WORLD_SOURCE_TEX_PREP)$(VRAM_PAGES),111)
+$(error PS2_WORLD_TRANSITION_PIN needs SOURCE_OWNER=1 SOURCE_TEX_PREP=1 VRAM_PAGES=1)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_PIN=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_TRANSITION_PIN=1
+endif
+
 KOS_GCCVER_MIN = 12.0.0
 include $(KOS_BASE)/Makefile.rules
 
