@@ -107,8 +107,12 @@ def main():
         log('FAIL: release tracks not verified'); fp_check.main([str(ev), '--known', a.known]); return 1
     tp = time.time()
     fpb = os.environ.get('FP_BUILD', '')  # WSL path of the release build's out dir, when the search finds none
+    # lane stage-ext4 (default on): fp_master.sh masters the bases on ext4, caches track03.iso once in the C: disc cache
+    # and hard-links it into _discs; RE4DC_STAGE_EXT4=0 = the old path (master straight into _discs through /mnt/c)
+    ext4_on = os.environ.get('RE4DC_STAGE_EXT4', '1') != '0'
+    ext4 = 'export RE4DC_STAGE_EXT4=%d\n' % ext4_on
     fpx = os.environ.get('FP_TWIN_EXTRA', '')  # extra twin-only diagnostic knobs (fp_prep.sh), e.g. WEP_TARGET_GUARD=2
-    rc, out = wsl(('export FP_BUILD=%s\n' % fpb if fpb else '') + ("export FP_TWIN_EXTRA='%s'\n" % fpx if fpx else '') + 'set -o pipefail\nbash %s %s %s %s %s 2>&1\n' % (
+    rc, out = wsl(('export FP_BUILD=%s\n' % fpb if fpb else '') + ("export FP_TWIN_EXTRA='%s'\n" % fpx if fpx else '') + ext4 + 'set -o pipefail\nbash %s %s %s %s %s 2>&1\n' % (
         "'%s'" % wslpath(HERE / 'fp_prep.sh'), "'%s'" % wslpath(g), tracks['track03.bin'], label, "'%s'" % wslpath(ev)), ev, 'prep', log)
     meta['prep_wall'] = '%.0f s' % (time.time() - tp)
     if rc != 0 or 'PREP_OK' not in out:
@@ -117,6 +121,17 @@ def main():
         (ev / 'gate.json').write_text(json.dumps(meta, indent=1))
         return 2
     prep = json.loads((ev / 'prep.json').read_text())
+    if ext4_on:  # the bases were hashed on ext4: prove the cached copy natively (no 9p re-read)
+        for d in ('twin', 'rel'):
+            b = ev / '_discs' / d
+            h = hashlib.sha256()
+            with open(b / 'track03.iso', 'rb') as f:
+                for blk in iter(lambda: f.read(1 << 22), b''):
+                    h.update(blk)
+            if h.hexdigest() != (b / 'track03.sha256').read_text().strip():
+                log('prep failed: %s/track03.iso copy does not match track03.sha256' % d)
+                return 2
+        log('ext4 bases: copies match track03.sha256')
     segs = fp_check.parse_conf(HERE / 'segments.conf')
     if a.only:
         segs = [s for s in segs if s['name'] in a.only.split(',')]
