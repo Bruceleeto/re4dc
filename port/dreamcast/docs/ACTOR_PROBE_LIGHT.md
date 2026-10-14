@@ -339,6 +339,39 @@ What this shows:
 - Mode 3 (FLAT WARM) keeps flat's luma and warms the hue. The jacket's B/G goes from 0.90-0.95 to 0.85-0.91; GC is
   0.77-0.92.
 
+## Leon fill (LEON_LIGHT_FILL) and draws outside the owner path
+
+Lane light-p3 (branch `lane/light-p3`, for test 12). Both changes are render only and default off.
+
+**Draws of Leon's 2x textures outside the owner path** (commit `eeef15ae`, part of `LEON_LIGHT_HEADROOM=1`).
+- With headroom, the owner path halves Leon's vertex colours, but the radio-call portrait and the source fallback
+  draw Leon through `re4dc_model_submit` at full scale, so the 2x textures came out blown (test 11 known issue).
+- `re4dc_model_submit` (native_model.cpp) now gives any part not already marked, whose image is one of Leon's 2x keys
+  (`re4dc_leon_hr_image`, native_ui.cpp: the `charbake_variants.h` keys plus pl08; only 512x512 and 64x128 images are
+  looked up), a copied lighting record with `tev_scale` x0.5, marked in `normal_matrix[7]`.
+- `build_lights` keeps the fast fold for those records: it folds at full scale (caps checked on 2x the scale) and
+  halves the vertex colours after the pass (`half_post`), so the result is exactly the 1x look.
+- Path audit (code reading): the owner paths were already halved; every other model draw goes through
+  `re4dc_model_submit`; Ganado casts never use Leon textures; UI, title, save, menus and movies have no Leon textures.
+
+**Fill, `LEON_LIGHT_FILL=F`** (commit `5ccb3a9b`; F is an integer 0..100; needs `ACTOR_PROBE_LIGHT=1/2`).
+- **Problem.** With the probe, Leon's camera-facing side is lit only by the ambient and the folded residual, so the
+  jacket mean stays 25-45% below the flat Leon even with headroom (table above).
+- **What it does.** Leon's parts get a second direction from the part origin toward the camera (view space `-t/|t|`,
+  in the part's normal basis like the probe direction). Its colour is F% of the probe's total (directional + ambient)
+  at the probe's scale, headroom x0.5 included. `probe_dirs_all` builds it per palette entry for skinned parts.
+- It uses the fast kernel's direction 1, which is zero for a probe fold, so there is no new pass, path or per-vertex
+  work: the kernel already evaluates three directions.
+- **Unchanged:** the probe direction, its colour, the ambient, and the shared `actor_light_probe.h` record (the
+  shadow lane reads `dir` and `coherence`). Ganados keep one direction.
+- **Why not simpler.** A higher ambient lifts every side equally and flattens the probe's shading; the flat Leon has
+  no shading at all. The fill lifts only the side the camera sees, which is what the jacket-luma gap measures.
+- **Extension contract.** The fill takes direction 1. `ACTOR_PROBE_LIGHT_EXTRA` (option branch `a6496bef`) also uses
+  directions 1 and 2, so with the fill on it may use only direction 2 (EXTRA <= 1). Not combined in any build yet.
+- **Checks.** Host test: fill=45 with headroom, fill=30 at probe=2 (direction, colour, Ganado unchanged, shared record
+  unchanged, palette directions equal to `skin_light_dirs`), and make-rule cases. Knob-off identity lfoffP vs p3baseP
+  and vs p3off2P: IDENTITY PASS. `LEON_LIGHT_FILL=0` with probe + headroom (lf0W) vs p3hr2W: IDENTITY PASS.
+
 ## Recommendation
 
 - **Leon, update of 2026-10-14: if the probe ships, ship it with `LEON_LIGHT_HEADROOM=1` and the 2x pak.** Without
