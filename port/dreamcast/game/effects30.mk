@@ -219,6 +219,18 @@ ifneq ($(filter $(FX_LEVEL),0 1 2)$(PS2_FX_ROOMS),$(FX_LEVEL)1)
 $(error FX_LEVEL must be 0, 1 or 2 and needs PS2_FX_ROOMS=1)
 endif
 endif
+# EFFECT_OWNERS_ALL=1 (test 11 lane fx 2026-10-14, parity census; needs EFFECT_SPRITES=1 and EFFECT_ROOM; render only, default
+#                    0): native sprite eligibility by effect class instead of the owner whitelist: every EspCommonTrans
+#                    sprite draws whatever its owner (Leon's blood / splashes PL00 0x03, crate / barrel / door / padlock
+#                    breaks and torches Et 0x55..0xbb, door locks 0xc9 / 0xcb, boat, animal, trap, Del Lago effects).
+#                    Room tables keep EFFECT_ROOM's rules; mask / render-target / non-blend sprites stay out. With
+#                    FX_LEVEL the admitted owners get a per-frame budget (kFxLevel owners; never thinned or resized).
+EFFECT_OWNERS_ALL ?= 0
+ifneq ($(EFFECT_OWNERS_ALL),0)
+ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
+$(error EFFECT_OWNERS_ALL must be 0 or 1 and needs EFFECT_SPRITES=1 and EFFECT_ROOM)
+endif
+endif
 # EFFECT_TORCH=1 (issue #30, test 11 lane fx 2026-10-14; needs EFFECT_SPRITES=1 ESP_SPRITE_FAST=1; render only, default 0):
 #                    the Esp0e glows (torch / lamp flames) of the torch objects et0b / et0c / et10 / et14 / et19 / et1c / et38
 #                    (owners 0x5f 0x60 0x64 0x68 0x6d 0x70 0x8c; r11b's nine cEmTorch are et14) are drawn as native
@@ -349,6 +361,9 @@ ifneq ($(PS2_FX_ROOMS_EXT),0)
 endif
 ifneq ($(PS2_FX_GEN),0)
 	@printf '#define RE4DC_PS2_FX_GEN %s\n' '$(PS2_FX_GEN)' >> $@.tmp
+endif
+ifneq ($(EFFECT_OWNERS_ALL),0)
+	@printf '#define RE4DC_EFFECT_OWNERS_ALL %s\n' '$(EFFECT_OWNERS_ALL)' >> $@.tmp
 endif
 ifneq ($(FX_LEVEL),)
 	@printf '#define RE4DC_FX_LEVEL %s\n' '$(FX_LEVEL)' >> $@.tmp

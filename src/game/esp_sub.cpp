@@ -163,6 +163,18 @@ static int EspTorchGlowOwner(u32 owner)
            owner == 0x8C;
 }
 #endif
+#if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
+// EFFECT_OWNERS_ALL (effects30.mk): eligibility by effect class, not owner. Every EspCommonTrans sprite draws natively
+// whatever its owner: Leon's own blood / splashes (PL00 0x03), crate / barrel / door / padlock break effects and torches
+// (Et owners 0x55..0xbb, door locks 0xc9 / 0xcb), boat, animal, trap and Del Lago effects. The room tables (0x01, 0xd0)
+// keep EFFECT_ROOM's rules; the mask / render-target / non-blend checks below still apply. FX_LEVEL budgets the
+// admitted owners per frame (never thins, resizes or fades them).
+static int EspOwnerAdmitted(u32 owner)
+{
+    return owner != 0x01 && owner != 0xD0 && !(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F) ||
+                                               owner == 0x5E);
+}
+#endif
 static int EspSpriteEligible(cEsp* esp)
 {
     // Et0a hanging lamps use 0x5e for their source flame/smoke sprites, including
@@ -180,6 +192,9 @@ static int EspSpriteEligible(cEsp* esp)
     }
 #if defined(RE4DC_EFFECT_TORCH) && RE4DC_EFFECT_TORCH
     if (!(re4dc_esp0e_glow && EspTorchGlowOwner(owner)))   // EFFECT_TORCH: an Esp0e glow copy of a torch owner
+#endif
+#if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
+    if (!EspOwnerAdmitted(owner))
 #endif
     if (!room && !(owner == 0 || owner == 0x10 || (owner >= 0x34 && owner <= 0x4F) || owner == 0x5E)) {
         return 0;
@@ -344,6 +359,9 @@ class cPs2fxEsp15 : public cEsp {
 public:
     Ps2fxEsp15Work m_Free;
 };
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+extern "C" int re4dc_hwfog_haze(unsigned room, float depth, float indoor);   // game/hwfog.cpp (hwfog.mk)
 #endif
 static const Ps2fxHaze* Ps2fxHazeFor(cEsp* esp)
 {
@@ -790,11 +808,12 @@ struct FxLevel {
     f32 far;        // view-depth cap, mm (0: none; camera haze is exempt, it has its own range)
     u16 budget;     // room-effect sprites per frame (0: none)
     u8 rain;        // r11b PS2 rain lines per 100
+    u16 owners;     // EFFECT_OWNERS_ALL: admitted-owner sprites per frame (0: none)
 };
 static const FxLevel kFxLevel[3] = {
-    {8, 1.0f, 1.0f, 0.0f, 0, 100},           // 0: PS2 as-is
-    {6, 0.9f, 1.15f, 40000.0f, 48, 70},      // 1: reduced
-    {4, 0.8f, 1.3f, 25000.0f, 32, 50},       // 2: low
+    {8, 1.0f, 1.0f, 0.0f, 0, 100, 0},           // 0: PS2 as-is
+    {6, 0.9f, 1.15f, 40000.0f, 48, 70, 48},     // 1: reduced
+    {4, 0.8f, 1.3f, 25000.0f, 32, 50, 24},      // 2: low
 };
 enum { FXL_THIN = 1, FXL_SIZE = 2, FXL_ALPHA = 4, FXL_FAR = 8, FXL_BUDGET = 16, FXL_ALL = 31 };
 // Per-recipe overrides: the dial parts a matching sprite keeps out of (room 0, id / tex 0xff: any).
@@ -856,6 +875,16 @@ static void FxLevelScale(Re4dcEffectSprite* s, f32 size, f32 alpha)
 // EspSpriteEmit: depth cap, per-frame budget, size and alpha (0: not drawn).
 static int FxLevelSprite(const cEsp* esp, Re4dcEffectSprite* s)
 {
+#if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
+    if (re4dc_fx_level && kFxLevel[re4dc_fx_level].owners && EspOwnerAdmitted(esp->info.owner)) {
+        static u32 s_owner_frame, s_owner_used;   // admitted owners: the per-frame budget only
+        if (s_owner_frame != pG->Frame_cnt) {
+            s_owner_frame = pG->Frame_cnt;
+            s_owner_used = 0;
+        }
+        return s_owner_used++ < kFxLevel[re4dc_fx_level].owners;
+    }
+#endif
     const unsigned parts = s->screen ? 0 : FxLevelParts(esp);
     if (!parts) {
         return 1;
@@ -1242,6 +1271,18 @@ static void EspSpriteEmit(cEsp* esp)
         if (d < 3000.0f) {
             const f32 rate = 1.0f - (3000.0f - d) / 2500.0f;
             fa *= rate > 0.0f ? rate : 0.0f;
+        }
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+        {   // HW_FOG_HAZE (hwfog.mk): a haze sprite beyond the room's keep depth is carried by the PVR fog table
+            f32 indoor = 1.0f;
+            if (w->Room_del_frame != 0 && w->Room_del_cnt != 0) {
+                const u32 cnt = w->Room_del_cnt < w->Room_del_frame ? w->Room_del_cnt : w->Room_del_frame;
+                indoor = 1.0f - (f32) cnt / w->Room_del_frame;
+            }
+            if (re4dc_hwfog_haze(hz->room, d, indoor)) {
+                return;
+            }
         }
 #endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
