@@ -3,11 +3,11 @@
 # out-<label>/candidate.txt; checked by tools/d367/kit-check.sh; read by build-public.sh. Do not edit.
 # @ASSETS@ = the unpacked Build-Assets zip (re4dc-assets/).
 # test: 11
-# tag: test-af0eedf6-20261014
-# source: af0eedf6
+# tag: test-eb4e8813-20261014
+# source: eb4e8813
 # recipe: port/dreamcast/tools/d367/test11/t11-build.sh
-# image-sha256: 8cfbb6fbfe0116e48ec2dabc8584dfccf6e96faba5c1ae913b311ead3d1a512a
-# assets-zip: RE4DC-Test11-af0eedf6-Build-Assets.zip
+# image-sha256: eafa01ab97fe038e9a999c8e31bd00d6ae15df03cbc65eafe354b8bcb1a6ca2c
+# assets-zip: RE4DC-Test11-eb4e8813-Build-Assets.zip
 LOGIC_TRACE=0
 GAME_DECISION_TRACE=0
 ACTOR_TRANSACTION_DIAG=0
@@ -86,7 +86,6 @@ PS2_R100_TR4=1
 LAKE_ZBIAS=1.001
 WORLD_HOLE_FIX=1
 SPEED_VMU_OFF=1
-UI_FRAG_WINDOW=2
 TEX_REF_SELFKEY=1
 MOVIE_HEAP_PREFLIGHT=1
 PS2_FX_ROOMS=1
@@ -100,6 +99,7 @@ ACTOR_PROBE_LIGHT=1
 LEON_SOURCE_LIGHT=1
 LEON_LIGHT_HEADROOM=1
 PS2_ENEMY_ROOMS=0x3f
+MV_SHADOWS=1
 IMAGE_PAD_BYTES=0
 DBG_WARP=0
 PC_SAMPLER=0

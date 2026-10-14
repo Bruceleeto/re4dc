@@ -20,7 +20,7 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 `SHA256SUMS.txt`, builds the program, puts it on the release disc and prints the path of
 `disc.gdi` (under `port/dreamcast/out-contrib/disc`). Options:
 
-* `--release <tag>` picks a release, for example `--release test-af0eedf6-20261014` (test 11).
+* `--release <tag>` picks a release, for example `--release test-eb4e8813-20261014` (test 11).
   An older release needs the `build-public.sh` of its own source commit (see "Which recipe" below).
 * `--toolchain <dir>` uses or builds the toolchain there; a toolchain already in the environment
   (`RE4DC_KOS_BASE`) is used as is.
@@ -72,7 +72,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test11/release-knobs.txt` (test 11, source af0eedf6). The maintainers write that file from
+`tools/d367/test11/release-knobs.txt` (test 11, source eb4e8813). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -94,7 +94,7 @@ Either way, measure your change against your own build with the change switched 
 
 ## 3. Put it on a release disc
 
-    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-af0eedf6-20261014-GDEMU.zip \
+    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-eb4e8813-20261014-GDEMU.zip \
         port/dreamcast/out-public mydisc
 
 `mydisc` gets `disc.gdi` and its three tracks: the release disc with your program as the boot file and
