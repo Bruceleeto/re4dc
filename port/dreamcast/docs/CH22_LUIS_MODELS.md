@@ -117,8 +117,9 @@ or fit reviewed weights across the original GC chain. Do not change cloth logic.
    six infos, 90 runtime bones, and 11 distinct source TPL image facts (8+3).
    The seven-head gun adds nine material facts and one TPL image. The 208 summed
    actor part heads are not 208 material facts. The current 128-material CH23
-   limit covers Luis alone, but the ordinary eight-TPL-image limit does not;
-   compute the merged r11c package including other actors before choosing limits.
+   limit covers Luis alone. The eight-image limit applies to each source TPL,
+   so both Luis TPLs (eight and three images) fit without extending that limit.
+   Compute the complete merged r11c package before changing any arena capacity.
 5. GC body BIN 04 requires the bump/specular contract. The qualified em35-only
    material exception does not admit Luis. Any extension must be id-4 qualified,
    behind the existing drop-bump guard, and preserve diffuse/alpha evidence.
