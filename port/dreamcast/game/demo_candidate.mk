@@ -1,6 +1,7 @@
 # Candidate-only source fragment. Not applied to any checkout or build recipe.
 ACTOR_TRANSACTION ?= 0
 ACTOR_LEON_NATIVE_LOOK ?= 0
+ACTOR_GANADO_DEATH_FADE ?= 0
 # Include after the Makefile's base GAME_CPPFLAGS / PLATFORM_CPPFLAGS assignments.
 # GFLAGS is not consumed by this recipe. Both game and platform TUs need these.
 GAME_CPPFLAGS += -DRE4DC_ACTOR_TRANSACTION=$(ACTOR_TRANSACTION) -DRE4DC_ACTOR_LEON_NATIVE_LOOK=$(ACTOR_LEON_NATIVE_LOOK)
@@ -71,7 +72,7 @@ endif
 # Reading this file performs no shell/file operation. Recipes run only when a
 # dependent object is requested by a separately authorized make invocation.
 
-DEMO_PRESENTATION_KNOBS := ACTOR_TRANSACTION ACTOR_LEON_NATIVE_LOOK PAD_PROMPTS PAD_PROMPT_MANUAL_ART VMU_DIALOG
+DEMO_PRESENTATION_KNOBS := ACTOR_TRANSACTION ACTOR_LEON_NATIVE_LOOK ACTOR_GANADO_DEATH_FADE PAD_PROMPTS PAD_PROMPT_MANUAL_ART VMU_DIALOG
 # Keep stamp values single, literal booleans; no shell quoting of arbitrary text.
 $(foreach k,$(DEMO_PRESENTATION_KNOBS),$(if $(filter 1,$(words $($(k)))),$(if $(filter 0 1,$($(k))),,$(error $(k) must be 0 or 1)),$(error $(k) must be one value: 0 or 1)))
 
@@ -82,6 +83,7 @@ $(DEMO_PRESENTATION_STAMP): demo-presentation-knobs-force
 	@printf '%s\n' \
 	  'ACTOR_TRANSACTION=$(strip $(ACTOR_TRANSACTION))' \
 	  'ACTOR_LEON_NATIVE_LOOK=$(strip $(ACTOR_LEON_NATIVE_LOOK))' \
+	  'ACTOR_GANADO_DEATH_FADE=$(strip $(ACTOR_GANADO_DEATH_FADE))' \
 	  'PAD_PROMPTS=$(strip $(PAD_PROMPTS))' \
 	  'PAD_PROMPT_MANUAL_ART=$(strip $(PAD_PROMPT_MANUAL_ART))' \
 	  'VMU_DIALOG=$(strip $(VMU_DIALOG))' > $@.tmp
@@ -138,4 +140,14 @@ $(error ACTOR_GANADO_APP0_GRIP requires ACTOR_TRANSACTION=1)
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_APP0_GRIP=1
 $(OBJDIR)/coarse_actor.o: actor_material_records_app0_grip.inc
+endif
+
+# G1 candidate: the reviewed id13 death fades retain source FIFO order. Off
+# adds no compiler define or implementation dependency to existing objects.
+ifeq ($(ACTOR_GANADO_DEATH_FADE),1)
+ifneq ($(ACTOR_TRANSACTION)$(D349_RENDERER_STACK)$(PVR_STREAM)$(NATIVE_ACTOR_SKIN_LAZY)$(SKIN_PALETTE_LAZY)$(PS2_GANADO_LIT),111111)
+$(error ACTOR_GANADO_DEATH_FADE requires ACTOR_TRANSACTION=1 D349_RENDERER_STACK=1 PVR_STREAM=1 NATIVE_ACTOR_SKIN_LAZY=1 SKIN_PALETTE_LAZY=1 PS2_GANADO_LIT=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_GANADO_DEATH_FADE=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_GANADO_DEATH_FADE=1
 endif
