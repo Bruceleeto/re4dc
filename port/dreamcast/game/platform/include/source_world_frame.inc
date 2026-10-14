@@ -184,7 +184,11 @@ bool sourceWorldCapturedStorageCurrent() {
     return true;
 }
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
 bool sourceWorldIdentity(unsigned native,unsigned generation,bool deep=true) {
+#else
+bool sourceWorldIdentity(unsigned native,unsigned generation) {
+#endif
     const auto& f=sourceWorldFrame;unsigned rg=0,c,b,s,r,pg=0;
     return RE4DC_SOURCE_DIAG_TEST(f.active,20) &&
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -324,11 +328,14 @@ struct SourceWorldRenderScope {
     explicit SourceWorldRenderScope():previous(sourceWorldRenderActive){sourceWorldRenderActive=true;}
     ~SourceWorldRenderScope(){
         auto& f=sourceWorldFrame;
-        if(!f.failed && (
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        if(!f.failed && (
             f.withheld ||
-#endif
             f.started) && (!sourceWorldIdentity(f.native,f.package_generation) || !sourceWorldWalk(false)))sourceWorldAbort(11);
+#else
+        if(f.started && !f.failed && f.native==re4dc_ui_frame() &&
+           (!sourceWorldIdentity(f.native,f.package_generation) || !sourceWorldWalk(false)))sourceWorldAbort(11);
+#endif
         sourceWorldRenderActive=previous;
     }
 };
