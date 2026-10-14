@@ -22,6 +22,11 @@ knobs() { case $1 in
   c) echo "" ;; t1) echo "FX_SPRITE_TRIM=1" ;; t2) echo "$TR2" ;;
   z) echo "$TR2 FX_LEVEL=0" ;; m) echo "$TR2 FX_LEVEL=1" ;; lo) echo "$TR2 FX_LEVEL=2" ;;
   g0|g1|g2) echo "$TR2 PS2_FX_GEN=1 EFFECT_OWNERS_ALL=1 FX_LEVEL=${1:1:1}" ;;
+  # GPU proxy arms (translucent fill per scene, "tabin fill:"; TA_BIN_DIAG test only): control, FX level 0 / 2 with
+  # HW fog (vd) and without (vf)
+  cd) echo "TA_HASH=1 TA_BIN_DIAG=1" ;;
+  vd0|vd2) echo "$TR2 FX_LEVEL=${1:2:1} HW_FOG_HAZE=1 TA_HASH=1 TA_BIN_DIAG=1" ;;
+  vf0|vf2) echo "$TR2 FX_LEVEL=${1:2:1} TA_HASH=1 TA_BIN_DIAG=1" ;;
   *) echo "?" ;; esac; }
 endof() { cat $R/out-$1/end.txt 2>/dev/null; }
 for a in "$@"; do

@@ -1,9 +1,11 @@
 name r101-village-ab
-# Village console A/B disc (test 12, 10-14): boot straight into the r101 square, the fight about to start (bell-warp.txt:
-# flags 6/7 clear, first visit done, r101 manual page read), god mode so a view can be held as long as needed.
+# Village console A/B disc (test 12, 10-14): boot straight into the r101 square at the shared benchmark-r101 spot
+# (lane crowd12 e8776749 benchmark-r101-warp.txt without alivelog): Leon by the pyre / cross facing the square, 12
+# Ganados alive, alert 30 = the whole crowd hunts him from room frame 30; god mode so a view can be held.
 room 0x101
-pos -7914 0 -254
-ang 2.9600
+pos -7914 0 2000
+ang 1.5708
 find 0x00002000
 inv default
 god
+alert 30
