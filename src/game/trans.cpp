@@ -2834,12 +2834,14 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     }
     efbDone = 0;
     matSet = 0;
-#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#if RE4DC_PS2_WORLD_SOURCE_OWNER && RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!flag){
         const int owned=sourceWorldDraw(m);
         if(owned<0)return; // caller restores render state without reading a retired model
         if(owned>0)info=nullptr; // successful source postludes still execute
     }
+#elif RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
 #endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
