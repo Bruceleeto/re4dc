@@ -394,3 +394,22 @@ endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
 endif
+
+# Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.
+# Default off keeps the original registry and adds no compiler flags. The pool
+# is fixed at the existing workspace owner limit times the maximum plan roles.
+ACTOR_SKIN_OWNER_POOL ?= 0
+ifeq ($(filter $(ACTOR_SKIN_OWNER_POOL),0 1),)
+$(error ACTOR_SKIN_OWNER_POOL must be 0 or 1)
+endif
+ifeq ($(ACTOR_SKIN_OWNER_POOL),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_SKIN_OWNER_POOL needs ACTOR_TRANSACTION=1)
+endif
+ifeq ($(ACTOR_SKIN_RESERVE),1)
+# cx-integrate: the pool replaces native_actor_owner_registry.inc, so native_actor_skin_reserve.inc (D36/P) is not
+# compiled and trans.cpp's re4dc_actor_skin_reserve call would link to a silent missing-symbol stub.
+$(error ACTOR_SKIN_OWNER_POOL=1 and ACTOR_SKIN_RESERVE=1 are exclusive (the reserve indexes the shared registry))
+endif
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_SKIN_OWNER_POOL=1
+endif
