@@ -377,6 +377,12 @@ def read_scene(room, src, light_ids, vc_scale=1.0, color_light='authored', norma
                 rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale + amb0, vc_clamp) * mcol * tev
                 if stats is not None:
                     stats['a0_faces'] += len(faces)
+            elif a0_light == 'ps2':
+                # the measured PS2 rule has no clamp at 1.0 on the vertex colour of any COLOR BIN (0xe0 too: GS =
+                # W x smx x VC up to the GS 8-bit limit)
+                rgb = VC[ix[:, :, 0], :3] * vc_scale * mcol * (float(pj['W']) if a0_ps2_w else tev)
+                if stats is not None:
+                    stats['ps2_unclamped_faces'] += len(faces)
             else:
                 rgb = np.minimum(VC[ix[:, :, 0], :3] * vc_scale, vc_clamp) * mcol * tev
         else:
