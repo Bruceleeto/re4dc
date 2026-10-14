@@ -185,7 +185,19 @@ void test_declines(){
     present_failures=1;CHECK(!re4dc_ps2_mesh_movie_borrow(0x11f10));present_failures=0;
     CHECK(ps2_movie.phase==movie_world::Phase::ready&&ps2w.package.live&&ps2w.parts);
     CHECK(hash==ps2_crc32(saved_world,811264)&&world_frees==0&&reads==0);
-    auto* header=reinterpret_cast<Room4Cell*>(dyn::slots)-1;++header->generation;
+    // Equal padded total cannot certify the exact on-disc layout: decline
+    // before discarding a frame or overwriting the retained payload.
+    for(unsigned variant=0;variant<3;++variant){
+        initialize();const unsigned before=ps2_crc32(saved_world,811264);
+        if(variant==0){ps2_movie_files.mesh-=32;ps2_movie_files.side+=32;}
+        if(variant==1)--ps2_movie_files.side;
+        if(variant==2)++ps2_movie_files.side;
+        CHECK(!re4dc_ps2_mesh_movie_borrow(0x11f10));
+        CHECK(ps2_movie.phase==movie_world::Phase::ready&&ps2w.package.live);
+        CHECK(!reset_calls&&!discard_calls&&!fence_calls&&!reads&&!world_frees);
+        CHECK(ps2_crc32(saved_world,811264)==before);
+    }
+    initialize();auto* header=reinterpret_cast<Room4Cell*>(dyn::slots)-1;++header->generation;
     CHECK(!re4dc_ps2_mesh_movie_borrow(0x11f10));
 }
 void test_restore_faults(){
@@ -246,12 +258,13 @@ using snd_stream_hnd_t=int;
 constexpr int RE4DC_MOVIE_EOF=1,RE4DC_MOVIE_SKIP=2,RE4DC_MOVIE_ERROR=3,RE4DC_MOVIE_CANCEL=4;
 bool stream_initialized=false,stream_active=false,texture_alive=false,texture_closes=true;
 unsigned texture_close_calls=0,shutdown_calls=0,stopped=0,destroyed=0,terminals=0,returned_cache=0;
+void (*destroy_yield_hook)()=nullptr;
 int re4dc_movie_disc_owner=0;
 unsigned re4dc_ui_movie_presented(){return 0;}
 unsigned re4dc_movie_stream_active(){return stream_active?1:0;}
 int re4dc_movie_stream_initialized(){return stream_initialized;}
 void snd_stream_stop(int){++stopped;}
-void snd_stream_destroy(int){++destroyed;stream_active=false;}
+void snd_stream_destroy(int){++destroyed;if(destroy_yield_hook)destroy_yield_hook();stream_active=false;}
 void snd_stream_shutdown(){++shutdown_calls;if(movie_sep)re4dc_movie_sep_free(movie_sep);stream_initialized=false;}
 int re4dc_ui_movie_close(){++texture_close_calls;if(texture_closes){texture_alive=false;movie_texture=nullptr;return 1;}return 0;}
 int re4dc_ui_movie_try_close(){const int ok=::re4dc_ui_movie_try_close();if(ok)texture_alive=false;return ok;}
@@ -264,7 +277,7 @@ void memory(const char*){}
 void movie_state(int,int){++terminals;}
 #include "production_player.inc"
 void setup(){
-    initialize();m=Movie{};movie_world_token=0;movie_scope=0;movie_epoch=1;movie_readers=0;movie_full_call=movie_retiring=false;
+    initialize();m=Movie{};movie_world_token=0;movie_scope=0;movie_epoch=1;movie_readers=0;movie_full_call=movie_retiring=movie_finishing=false;destroy_yield_hook=nullptr;
     stream_initialized=stream_active=texture_alive=texture_closes=true;
     texture_close_calls=shutdown_calls=stopped=destroyed=terminals=returned_cache=0;
     const unsigned token=re4dc_ps2_mesh_movie_borrow(0x11f10);CHECK(token);movie_world_token=service_token=token;
@@ -272,7 +285,29 @@ void setup(){
     CHECK(re4dc_movie_sep_alloc(32,32768));m.id=0x11f10;m.entered=10;m.start=11;m.stream=1;m.owns_service=true;m.texture=true;m.file=7;
     movie_scope=0x11f10;re4dc_movie_disc_owner=1;movie_texture=reinterpret_cast<void*>(0x1234);movie_picture=true;
 }
+void reenter_during_destroy(){
+    CHECK(movie_finishing&&movie_world_token&&stream_active&&movie_sep&&ps2_movie.live==13);
+    const auto token=movie_world_token;const unsigned stop_before=stopped,destroy_before=destroyed;
+    CHECK(!re4dc_movie_world_before_room_retire());
+    CHECK(!re4dc_movie_world_before_heap_change(heap_begin,unsigned(rw_bytes)));
+    for(unsigned api=0;api<2;++api){
+        bool halted=false;try{if(api)re4dc_movie_end();else re4dc_movie_cancel();}
+        catch(const std::runtime_error&){halted=true;}
+        CHECK(halted&&movie_finishing&&movie_world_token==token);
+        CHECK(stopped==stop_before&&destroyed==destroy_before&&ps2_movie.live==13&&world_frees==0&&reads==0);
+    }
+}
 void test_terminals(){
+    // The device adapter yields at the actual production finish call-site.
+    // All external retirement entries must refuse until its one owner returns.
+    for(unsigned entry=0;entry<2;++entry){
+        setup();destroy_yield_hook=reenter_during_destroy;
+        if(entry)CHECK(re4dc_movie_world_before_room_retire());
+        else CHECK(re4dc_movie_cancel()==RE4DC_MOVIE_CANCEL);
+        CHECK(!movie_finishing&&!movie_world_token&&destroyed==1&&stopped==1&&shutdown_calls==1);
+        CHECK(ps2_movie.phase==(entry?movie_world::Phase::retired:movie_world::Phase::ready));
+        service_token=0;destroy_yield_hook=nullptr;
+    }
     for(int status:{RE4DC_MOVIE_EOF,RE4DC_MOVIE_SKIP,RE4DC_MOVIE_ERROR,RE4DC_MOVIE_CANCEL}){
         setup();CHECK(finish(status)==status);CHECK(!movie_world_token&&!m.entered&&!m.texture&&!texture_alive);
         CHECK(ps2_movie.phase==movie_world::Phase::ready&&ps2w.package.live&&reads==2);
@@ -345,7 +380,12 @@ void test_transitions(){
     try{MemClearAllHeap();}catch(const std::runtime_error&){halted=true;}
     CHECK(halted&&destroys==0&&creates==0&&world_frees==0&&fence_calls==before_fence);
     CHECK(player::movie_world_token&&player::m.texture&&ps2_movie.live==0&&reads==0); // no false ownership release
-    pvr_state.render_busy=false;CHECK(player::re4dc_movie_world_before_room_retire());
+    // Production re4dc_missing is a non-returning halt. Our exception adapter
+    // deliberately leaves its interrupted retirement fail-closed. Reset that
+    // test-only halted caller before releasing the remaining fixture resources.
+    CHECK(player::movie_retiring&&!player::movie_finishing);
+    player::movie_retiring=false;pvr_state.render_busy=false;
+    CHECK(player::re4dc_movie_world_before_room_retire());
     service_token=0;
 }
 }

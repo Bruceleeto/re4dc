@@ -143,7 +143,12 @@ struct Movie {
 #if RE4DC_MOVIE_WORLD_ARENA
 static_assert(sizeof(plm_buffer_t)==52 && sizeof(plm_video_t)==716,"review movie arena decoder ABI");
 unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;
-bool movie_full_call=false,movie_retiring=false;
+bool movie_full_call=false,movie_retiring=false,movie_finishing=false;
+struct MovieFinishScope {
+    bool active;
+    MovieFinishScope():active(movie_world_token!=0){if(active)movie_finishing=true;}
+    ~MovieFinishScope(){if(active)movie_finishing=false;}
+};
 struct MovieReader { MovieReader(){++movie_readers;} ~MovieReader(){--movie_readers;} };
 bool movie_world_current(){return !movie_world_token || re4dc_ps2_mesh_movie_valid(movie_world_token);}
 void movie_stage_free(void* p){
@@ -355,6 +360,12 @@ void memory(const char* phase){
         re4dc_movie_stream_initialized(),re4dc_movie_stream_active());
 }
 int finish(int status){
+#if RE4DC_MOVIE_WORLD_ARENA
+    // snd_stream_destroy may yield while DMA owns the separator. Keep one
+    // teardown owner across that yield and every subsequent cleanup step.
+    if(movie_world_token && movie_finishing){re4dc_missing("movie arena recursive teardown");return RE4DC_MOVIE_ERROR;}
+    MovieFinishScope finish_scope;
+#endif
     if(m.terminal)status=m.terminal;else m.terminal=status;
 #if RE4DC_ROUTE_MOVIE_DIAG
     re4dc_log("route movie diag: id=%05x status=%d why=%s iter=%u reads=%u read_us=%llu" "\n",m.id,status,m.why?m.why:"-",m.iter,m.reads,m.read_us);
@@ -845,7 +856,7 @@ extern "C" int re4dc_movie_world_sep_free(void* p){
 extern "C" int re4dc_movie_world_before_room_retire(){
     // A source cut callback/I/O-yield can request retirement with live pointers
     // still on the stack. Refuse BEFORE room owners or heap 4 are touched.
-    if(movie_readers && (movie_scope || movie_world_token))return 0;
+    if(movie_finishing || movie_retiring || (movie_readers && (movie_scope || movie_world_token)))return 0;
     if(!movie_world_token)return 1;
     if(!movie_world_current())return 0;
     movie_retiring=true;

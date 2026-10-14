@@ -51,7 +51,8 @@ def extract():
 def extract_player():
     path='platform/native_movie.cpp'
     parts=[function(path,'struct Movie {').rstrip()+' m;\n']
-    parts.append('unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;\nbool movie_full_call=false,movie_retiring=false;\n')
+    parts.append('unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;\nbool movie_full_call=false,movie_retiring=false,movie_finishing=false;\n')
+    parts.append(function(path,'struct MovieFinishScope {').rstrip()+';\n')
     for signature in ['bool movie_world_current(', 'void movie_stage_free(', 'int finish(',
                       'extern "C" int re4dc_movie_end(', 'extern "C" int re4dc_movie_cancel(',
                       'extern "C" int re4dc_movie_world_before_room_retire(']:
@@ -104,7 +105,10 @@ def main():
         out=Path(temp);(out/'production_helpers.inc').write_text(source);(out/'production_player.inc').write_text(player);(out/'production_heap.inc').write_text(heap)
         exe=out/'test';cmd=['g++','-std=c++20','-O1','-g','-Wall','-Wextra','-Werror','-Wno-misleading-indentation','-fsanitize=undefined','-fno-sanitize-recover=all','-I'+str(out),'-I'+str(G/'platform/include'),str(Path(__file__).with_name('movie_world_arena_test.cpp')),'-o',str(exe)]
         subprocess.run(cmd,check=True)
-        result=subprocess.run([str(exe)],check=True,text=True,capture_output=True)
+        result=subprocess.run([str(exe)],text=True,capture_output=True)
+        if result.returncode:
+            print(result.stdout+result.stderr,flush=True)
+            result.check_returncode()
     report={'status':'PASS','production_source_pins':pins,'extracted_helpers_sha256':hashlib.sha256(source.encode()).hexdigest(),'extracted_player_sha256':hashlib.sha256(player.encode()).hexdigest(),'extracted_heap_sha256':hashlib.sha256(heap.encode()).hexdigest(),'source_contract_checks':checks,'compiler_argv':cmd,'stdout':result.stdout,'stderr':result.stderr,'limits':'Host device/filesystem/package-validator adapters; no linked target or game execution.'}
     if args.output:Path(args.output).write_text(json.dumps(report,indent=2)+'\n')
     print(result.stdout,end='');print('source integration contracts:',checks)

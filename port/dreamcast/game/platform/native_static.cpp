@@ -3803,7 +3803,8 @@ extern "C" int re4dc_ps2_mesh_movie_blocked(){return ps2_movie_blocked();}
 extern "C" unsigned re4dc_ps2_mesh_movie_borrow(unsigned id){
     if((id!=0x11f10 && id!=0x11f11) || ps2w.room!=0x11f || ps2w.want!=0x11f ||
        ps2_movie.phase!=movie_world::Phase::ready || ps2_movie.readers || !ps2_movie_current() ||
-       ps2_movie.capacity!=811264 || !ps2w.parts || !ps2w.placements || !ps2_movie_dyn_valid())return 0;
+       ps2_movie.capacity!=811264 || ps2_movie_files.mesh!=797056 || ps2_movie_files.side!=9076 ||
+       !ps2w.parts || !ps2w.placements || !ps2_movie_dyn_valid())return 0;
     if(!re4dc_ui_movie_handoff_ready())return 0;
     // Fence may yield: revalidate the owner before touching retained memory.
     const unsigned token=ps2_movie.borrow(ps2_movie_current() && ps2_movie_dyn_valid(),true);
