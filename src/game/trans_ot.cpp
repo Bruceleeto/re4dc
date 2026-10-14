@@ -13,6 +13,9 @@
 #include "db_log.h"
 #include "main_mem.h"
 #include "trans_ot.h"
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+#include "ps2_source_world.h"
+#endif
 #if defined(RE4DC_OT_MASK) && RE4DC_OT_MASK
 #include "trans.h"
 extern "C" {
@@ -333,6 +336,11 @@ int ExecOt(int type)
     int count = 0;
 
     g_NowExecOtType = type;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_callback_continue()){
+        w->prev_kind=0;GXSetAlphaCompare(7,0,1,7,0);g_NowExecOtType=OT_MAX;return 0;
+    }
+#endif
 #if defined(RE4DC_OT_MASK) && RE4DC_OT_MASK
     if (!(g_OtUsed & (1u << type))) {
         // No entry since the clear: the walk below would call nothing.
@@ -360,7 +368,16 @@ int ExecOt(int type)
         for (; p; p = p->next) {
             if (p->data) {
                 count++;
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+                re4dc_source_world_callback_begin(type,p,p->func,p->data,p->kind);
+#endif
                 p->func(p->data);
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+                re4dc_source_world_callback_end();
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+                if(!re4dc_source_world_callback_continue())break;
+#endif
                 w->prev_kind = p->kind;
             }
         }

@@ -844,6 +844,9 @@ struct Emitter {
     void put(unsigned n){sq=re4dc_ta_put(sq,dst+used,n);slots+=n;}
 #endif
     bool bind(){
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return false;}
+#endif
         if(bound)return true;
 #if RE4DC_MV_SHADOWS
         struct MvReceiver{MvReceiver(){re4dc_mv_receiver=1;}~MvReceiver(){re4dc_mv_receiver=0;}} mv_receiver;
@@ -869,6 +872,11 @@ struct Emitter {
             if(!re4dc_model_direct_begin(&p,&out))return false;
 #endif
             sq=out.sq;submitted=true;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+            if(!re4dc_source_world_binding_valid()){
+                end_direct();re4dc_source_world_binding_failed();return false;
+            }
+#endif
             packet.vertices=out.scratch;packet.capacity=out.scratch_capacity;
             packet.u_scale=out.u_scale;packet.v_scale=out.v_scale;
             dst=static_cast<pvr_vertex_t*>(out.scratch);bound=true;limit=out.scratch_capacity;
@@ -877,6 +885,9 @@ struct Emitter {
         }
 #endif
         if(!re4dc_model_packet_begin(&p,&packet))return false;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return false;}
+#endif
         dst=static_cast<pvr_vertex_t*>(packet.vertices);bound=true;limit=packet.capacity;
         load_screen(mvq,p.projection,p.viewport); // binding may yield
         return true;
@@ -884,6 +895,9 @@ struct Emitter {
     bool flush(){
         if(!streaming || !used)return false;
         re4dc_model_packet_commit(used);submitted=true;used=0;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return false;}
+#endif
         load_screen(mvq,p.projection,p.viewport);
         return true;
     }
@@ -3485,6 +3499,9 @@ extern "C" { unsigned re4dc_ps2_sky_header; } // native_ui.cpp: 1 = the next PS2
 namespace {
 #endif
 int ps2_pass(unsigned pass,float zfar){
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
+#endif
     auto& c=ps2w.count[pass];c={};
 #if RE4DC_SKY_ANY
     re4dc_ps2_sky_header=0;
@@ -3597,6 +3614,9 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
     const auto& pk=ps2w.package;
     for(unsigned i=0;i<ps2w.nplacements;++i){
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();++c.aborts;return -1;}
+#endif
 #if RE4DC_PS2_PASS_MASK==2
         if(ps2w.masked){
             // =2 (diagnostic): the scan beside the mask bit.
@@ -3622,7 +3642,11 @@ int ps2_pass(unsigned pass,float zfar){
         }
 #if RE4DC_PS2_WORLD_DYNAMIC
         const float* affine=pl.affine;float moved_affine[12];
-        if(dyn::ids && pl.placement<dyn::nids){
+        if(
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+           !re4dc_source_world_group_claimed() &&
+#endif
+           dyn::ids && pl.placement<dyn::nids){
             const unsigned id=dyn::ids[pl.placement];
             if(id<dyn::kIds && dyn::slot_of[id]!=dyn::kNone){
                 const unsigned st=dyn::query(id);
@@ -3679,9 +3703,19 @@ int ps2_pass(unsigned pass,float zfar){
         }
         const float lod_scale=std::sqrt(scale)*px/lod_px;
         for(unsigned k=0;k<mesh.part_count;++k){
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+            if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();++c.aborts;return -1;}
+#endif
             const unsigned index=mesh.first_part+k;const auto& meta=ps2w.parts[index];
             if(meta.pass!=pass)continue;
             ++c.parts;part.cull=meta.cull;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+            // Offset belongs to this exact placement/part draw, never its
+            // shared texture key, cached header or package metadata.
+            if(!re4dc_source_world_uv(pl.placement,pl.mesh,index,pass,part.uv_offset)){
+                re4dc_source_world_binding_failed();++c.aborts;return -1;
+            }
+#endif
 #if RE4DC_PS2_VERTEX_ALPHA
             const bool marked=(meta.reserved&1U)!=0; // a --vertex-alpha tr4 part: ARGB4444 corners, alpha kept
             MeshDraw d{{part,{},near,far},pk,pk.parts()[index],
@@ -3710,6 +3744,10 @@ int ps2_pass(unsigned pass,float zfar){
 #else
             const int result=d.run();
             d.end_direct(); // before any abort: releases the store queues
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+            part.uv_offset[0]=part.uv_offset[1]=0.f;
+            if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();++c.aborts;return -1;}
 #endif
             if(result>0)++c.native;
             else if(result<0){re4dc_model_packet_abort();++c.aborts;return -1;}
@@ -3875,6 +3913,9 @@ extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return 1;
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
+#endif
 #if RE4DC_PS2_INTERIOR_CULL==2
     if(!pass)pc_scan(re4dc_ui_frame());
 #endif
@@ -3882,7 +3923,14 @@ extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
 #if RE4DC_MOVIE_WORLD_ARENA
     MovieWorldRead read;
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    const int result=ps2_pass(pass,zfar);
+    // Only the claimed transaction consumes numeric pass evidence. Ordinary
+    // native/D41 callers retain the original boolean return contract.
+    return re4dc_source_world_group_claimed()?result:result>0;
+#else
     return ps2_pass(pass,zfar)>0;
+#endif
 }
 #if RE4DC_PS2_INTERIOR_CULL
 // native_movie.cpp open (before heap_before): a route movie borrows the cell block. Returns the bytes freed.
@@ -4134,6 +4182,11 @@ extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return;
 #endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    // A planned or provisional transaction owns launch arbitration even after
+    // revocation. Unmatched rigid parts keep their ordinary source geometry.
+    if(!re4dc_source_world_legacy_allowed(re4dc_ui_frame()))return;
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     unsigned generation=0;
     // A qualified whole-room frame starts only at its original owned callback.
@@ -4162,6 +4215,9 @@ extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
     float view[12],projection[7],viewport[6];
     if(!re4dc_coarse_source_camera(view,projection,viewport))return;
     re4dc_ps2_mesh_camera(view,projection,viewport);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    re4dc_ps2_source_legacy_started(frame);
+#endif
     const int drawn=re4dc_ps2_world_source_draw();
     if(++images<=8 || !(images%120))re4dc_log("PS2MESH source image frame=%u room=%03x drawn=%d images=%u\n",frame,room,drawn,images);
 }

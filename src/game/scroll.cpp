@@ -95,6 +95,9 @@ int SmdInit(cSmd* smd, cSmx* smx, cSmd* comn)
     nScrWork = pSmd->getWorkNum();
     scrTbl = (cObj**) MEM_ALLOC(nScrWork * sizeof(cObj*), 1, 13);
     SmdClear(0);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    sourceWorldR200Qualify();
+#endif
     return nScrWork;
 }
 
@@ -108,6 +111,9 @@ void SmdClear(int mode)
     case 0:
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
         sourceWorldScrollClear();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        sourceWorldR200ScrollClear();
+#endif
 #endif
         memclr_asm(scrObjTbl, 250 * sizeof(cObj*));
         memclr_asm(scrTbl, nScrWork * sizeof(cObj*));
@@ -187,6 +193,9 @@ int setObj(int blk)
         obj->matUpdate();
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
         sourceWorldScrollBind(unsigned(i),obj);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        sourceWorldR200ScrollBind(unsigned(i),obj);
+#endif
 #endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_NATIVE_STATIC
         re4dc_static_bind(obj, ((unsigned) pG->stage_no << 8) | pG->room_no, blk, i, w->binNo,
@@ -208,6 +217,9 @@ int setObj(int blk)
         }
 #endif
     }
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(blk==-1)sourceWorldR200ScrollPublish();
+#endif
     return 0;
 }
 
@@ -502,6 +514,9 @@ void BlockDestroy(int blk)
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     // A block replacement invalidates the bounded whole-room witness.
     sourceWorldScrollClear();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        sourceWorldR200ScrollClear();
+#endif
 #endif
     cObj* p = ObjMgr.pAlive;
     cObj* cur;

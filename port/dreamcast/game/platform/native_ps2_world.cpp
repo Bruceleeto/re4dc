@@ -710,8 +710,15 @@ extern "C" int re4dc_ps2_world_source_draw(){
     using namespace re4dc::room::ps2;
     RE4DC_PS2_WORLD_FOG_LATCH();
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=RE4DC_PS2_FAR;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    re4dc_ps2_source_pass_begin(0);
+    const int drawn=re4dc_ps2_mesh_draw(0,state.far);
+    re4dc_ps2_source_pass_result(0,drawn);state.pending=true;
+    return drawn;
+#else
     const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
     return drawn;
+#endif
 }
 #endif
 extern "C" int re4dc_ps2_world_pending(){
@@ -733,9 +740,23 @@ extern "C" void re4dc_ps2_world_flush(){
 #endif
 #if RE4DC_PS2_WORLD_MESH
     {
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+        re4dc_ps2_source_pass_begin(1);
+        const int pt=re4dc_ps2_mesh_draw(1,state.far);
+        re4dc_ps2_source_pass_result(1,pt);
+        re4dc_ps2_source_pass_begin(2);
+        const int tr=re4dc_ps2_mesh_draw(2,state.far);
+        re4dc_ps2_source_pass_result(2,tr);
+        unsigned generation=0;
+        const bool transition=re4dc_ps2_source_package(&generation) &&
+            re4dc_source_world_transition_owner(state.frame,generation);
+        re4dc_source_world_flush_result(state.frame,transition?
+            re4dc_ps2_source_receipt_complete(state.frame,generation):re4dc_ps2_source_passes_complete());
+#else
         const bool pt=re4dc_ps2_mesh_draw(1,state.far)!=0,tr=re4dc_ps2_mesh_draw(2,state.far)!=0;
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
         re4dc_source_world_flush_result(state.frame,re4dc_ps2_source_passes_complete());
+#endif
 #endif
         if(!(state.frame%120) || !pt || !tr)re4dc_ps2_mesh_log(state.frame);
         return;

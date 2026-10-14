@@ -18,6 +18,78 @@
 #include "actor_tex_prep.h"
 #endif
 
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+#include "ps2_source_world.h"
+namespace {
+constexpr unsigned kSourceWorldCallbackStack=8;
+Re4dcSourceWorldCallback sourceWorldCallbacks[kSourceWorldCallbackStack]{};
+unsigned sourceWorldCallbackDepth,sourceWorldModelDepth;
+bool sourceWorldCallbackPoisoned;
+struct SourceWorldModelScope {
+    SourceWorldModelScope(){re4dc_source_world_model_enter();}
+    ~SourceWorldModelScope(){re4dc_source_world_model_leave();}
+};
+}
+extern "C" void re4dc_source_world_callback_begin(unsigned table,const void* node,
+        void (*func)(void*),void* data,unsigned kind) {
+    if(sourceWorldCallbackPoisoned)return;
+    if(sourceWorldCallbackDepth==~0U){sourceWorldCallbackPoisoned=true;return;}
+    const unsigned depth=++sourceWorldCallbackDepth;
+    if(depth<=kSourceWorldCallbackStack)
+        sourceWorldCallbacks[depth-1]={table,kind,depth,0,node,func,data};
+}
+extern "C" void re4dc_source_world_callback_end() {
+    if(sourceWorldCallbackPoisoned)return;
+    if(!sourceWorldCallbackDepth){sourceWorldCallbackPoisoned=true;return;}
+    --sourceWorldCallbackDepth;
+}
+extern "C" int re4dc_source_world_callback_current(Re4dcSourceWorldCallback* out) {
+    if(!out || sourceWorldCallbackPoisoned || !sourceWorldCallbackDepth ||
+       sourceWorldCallbackDepth>kSourceWorldCallbackStack)return 0;
+    *out=sourceWorldCallbacks[sourceWorldCallbackDepth-1];
+    out->model_depth=sourceWorldModelDepth;
+    return 1;
+}
+extern "C" void re4dc_source_world_model_enter() {
+    if(sourceWorldCallbackPoisoned)return;
+    if(sourceWorldModelDepth==~0U){sourceWorldCallbackPoisoned=true;return;}
+    ++sourceWorldModelDepth;
+}
+extern "C" void re4dc_source_world_model_leave() {
+    if(sourceWorldCallbackPoisoned)return;
+    if(!sourceWorldModelDepth){sourceWorldCallbackPoisoned=true;return;}
+    --sourceWorldModelDepth;
+}
+#endif
+
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+namespace { bool sourceWorldModelBlocked(cModel*); }
+#endif
+
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+namespace {
+#if RE4DC_PS2_WORLD_R11F_OWNER
+bool sourceWorldR11fModelAborted(const cModel*);
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+bool sourceWorldModelAborted(const cModel*);
+#endif
+// A failed owned draw can have retired the payload. This test compares only
+// captured addresses and transaction state; cleanup must not read the model.
+bool sourceWorldModelPostludeBlocked(const cModel* model) {
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(sourceWorldR11fModelAborted(model))return true;
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(sourceWorldModelAborted(model))return true;
+#endif
+    return false;
+}
+}
+#define SOURCE_WORLD_MODEL_POSTLUDE_GUARD(model) if(sourceWorldModelPostludeBlocked(model))return
+#else
+#define SOURCE_WORLD_MODEL_POSTLUDE_GUARD(model) ((void)0)
+#endif
 #include "em.h"
 #include "obj.h"
 #include "camera.h"
@@ -1284,6 +1356,7 @@ static void ModelRenderBody(cModel* m);
         g_encvLast = (k) + 200;                                                                                     \
         const unsigned o0 = re4dc_model_output_count(), i0 = re4dc_model_input_count();                             \
         ModelRenderBody(m);                                                                                         \
+        SOURCE_WORLD_MODEL_POSTLUDE_GUARD(m);                                                                       \
         re4dc_encv_render_note(m, re4dc_model_output_count() - o0, re4dc_model_input_count() - i0);                \
     }
 extern "C" {
@@ -1329,6 +1402,12 @@ void emTrans(cModel* m)
 }
 void ModelRender(cModel* m)
 {
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+    SourceWorldModelScope sourceWorldModelScope;
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(sourceWorldModelBlocked(m))return;
+#endif
     const unsigned s = re4dc_encv_render_pick(m);
     switch (s) {
     case 0: re4dc_iv_r_new(m); break;
@@ -2560,6 +2639,15 @@ void ModelRender(cModel* m)
 #endif
 {
     static int modeltransalphaupdate = 1;
+#if !(defined(RE4DC_ENCV) && RE4DC_ENCV)
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+    SourceWorldModelScope sourceWorldModelScope;
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    // A revoked captured address is suppressed before ModelRender reads it.
+    if(sourceWorldModelBlocked(m))return;
+#endif
+#endif
 
 #if RE4DC_PACE_CATCHUP
     // Skipped iteration (pace.cpp): the draw writes nothing logic reads; the frame is not shown.
@@ -2654,6 +2742,19 @@ void ModelRender(cModel* m)
     const unsigned invisOut0 = re4dc_model_output_count();
 #endif
     commonModelTrans(m, m->pModelInfo, pG->Cam.v_mat, 0);
+
+#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(sourceWorldModelPostludeBlocked(m)) {
+        // Preserve caller cleanup before skipping all model-dependent observers
+        // and postludes, including CROWD_INVIS_SKIP=2 and debug/front replay.
+#if RE4DC_FRONT_LEAN && defined(__sh__)
+        g_leanRender=0;
+#endif
+        if(modeltransalphaupdate){GXSetAlphaUpdate(0);GXSetDstAlpha(0,0);}
+        shaderReset();
+        return;
+    }
+#endif
 #if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 2
     if (m->kindid == 0) {
         const unsigned invisEmitted = re4dc_model_output_count() - invisOut0;
@@ -2734,7 +2835,11 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     efbDone = 0;
     matSet = 0;
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
-    if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
+    if(!flag){
+        const int owned=sourceWorldDraw(m);
+        if(owned<0)return; // caller restores render state without reading a retired model
+        if(owned>0)info=nullptr; // successful source postludes still execute
+    }
 #endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {

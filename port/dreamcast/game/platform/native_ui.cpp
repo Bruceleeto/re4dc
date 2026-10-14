@@ -1773,6 +1773,9 @@ void safe_audit_scene(bool present);
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
     if(!stream_scene)stream_open();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();present=false;}
+#endif
 #if defined(RE4DC_SHADOW_BLOB) && RE4DC_SHADOW_BLOB
     if(present && !stream_aborted && !direct_open && world_autosort)re4dc_blob_emit(frame);
 #endif
@@ -1807,6 +1810,12 @@ void stream_close(bool present) {
     sq_lock((void*)PVR_TA_INPUT);
     if(pvr_list_finish()<0 || pvr_scene_finish()<0)re4dc_missing("native stream finish failed");
     stream_scene=false;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    // Last decision, after source/UI/shadow drains, after the final yielding scene finish.
+    // The receipt is revalidated even if a prior barrier already flushed PT/TR.
+    if(!re4dc_source_world_present(frame,source_draws_finished,stream_aborted || !present))present=false;
+#endif
+
 #if RE4DC_PVR_LATCH
     latch::put(present?'c':'d');latch::bump(latch::kC);
 #endif
@@ -4240,6 +4249,13 @@ static void ui_order_flush(){
 extern "C" void re4dc_ui_present(){
     RE4DC_PROFILE_SCOPE(UiDrain);
     if(!frame_ready)return;
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    // A missing source drain must discard a provisional image before the
+    // ordinary deferred-queue assertion can treat it as a presentable scene.
+    if(!source_draws_finished && !re4dc_source_world_present(frame,0,stream_aborted)){
+        if(stream_scene)stream_close(false);return;
+    }
+#endif
 #if RE4DC_D349_RENDERER_STACK
     if(deferred_first)re4dc_missing("source render barrier did not drain models");
     stream_select(PVR_LIST_TR_POLY);
@@ -4686,6 +4702,10 @@ namespace { const Re4dcModelPacket* model_reserved=nullptr; }
 #endif
 extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket* out){
     RE4DC_PROFILE_SCOPE(PacketPack);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
 #if RE4DC_ACTOR_UV16
     // The actor path's per-part PCW bits (16-bit UV, strip length) go on this
     // part's slab copy only; the cached per-texture header stays generic.
@@ -4701,7 +4721,11 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
     if(model_texture){
         const Key baked_key{model_texture[0],model_texture[1]};
         const Re4dcUiImage baked{&baked_key,nullptr,model_texture[2],model_texture[3],5,0,0}; // size checks only
-        handle=load(baked,false,&baked_key);if(!handle){++model_texture_rejects;return 0;}
+        handle=load(baked,false,&baked_key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+if(!handle){++model_texture_rejects;return 0;}
     }else{
 #endif
 #if RE4DC_UI_HANDLES
@@ -4710,9 +4734,17 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
     if(p->material_flags&4)masked=p;
 #endif
 #if RE4DC_MESH_TEXTURES
-    handle=resolve(p->image,masked,false);if(!handle){++model_texture_rejects;return 0;}
+    handle=resolve(p->image,masked,false);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+if(!handle){++model_texture_rejects;return 0;}
 #else
-    Entry* handle=resolve(p->image,masked,false);if(!handle){++model_texture_rejects;return 0;}
+    Entry* handle=resolve(p->image,masked,false);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+if(!handle){++model_texture_rejects;return 0;}
 #endif
 #else
     Key prepared{};const Key* key=nullptr;
@@ -4720,13 +4752,21 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
     if(p->material_flags&4){if(!model_mask_key(p,prepared)){++model_texture_rejects;return 0;}key=&prepared;}
 #endif
 #if RE4DC_MESH_TEXTURES
-    handle=load(p->image,false,key);if(!handle){
+    handle=load(p->image,false,key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
         ++model_texture_rejects;return 0;}
 #else
-    Entry* handle=load(p->image,false,key);if(!handle){
+    Entry* handle=load(p->image,false,key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
@@ -4753,6 +4793,10 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
 #endif
     list=draining_parts?draining_list:select_model_pass(p);
     stream_select(list);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
 #endif
     pvr_poly_hdr_t header;std::uint32_t count;
 #if RE4DC_D349_RENDERER_STACK
@@ -4918,6 +4962,10 @@ extern "C" int re4dc_model_direct_begin(const Re4dcModelPart* p,Re4dcModelDirect
     // packet path; the header lands in the slab, then goes out by store queue.
     if(!re4dc_model_packet_begin(p,&packet))return 0;
     if(!stream_scene)stream_open();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
     const auto* header=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
     for(unsigned i=0;i<8;++i)sq[i]=header[i];
@@ -6299,6 +6347,9 @@ static void ps2_sky_header(pvr_poly_hdr_t& header){
 #endif
 extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* out){
 #if RE4DC_TA_DIRECT
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
     if(direct_open){re4dc_missing("native direct part nested");return 0;}
     if(!k || !out || k[4]>2 || k[5]>2 || !frame_ready || stream_aborted ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
@@ -6340,6 +6391,10 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         const unsigned pass=k[4];
         const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
         stream_select(list);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
 #if RE4DC_WORLD_AUTOSORT
         world_sort_begin();
 #endif
@@ -6353,6 +6408,10 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         {
             const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
             Entry* const ref_handle=load(image,false,&key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
             bool bad=ref_handle!=handle;
             if(!bad){
                 const auto& t=ref_handle->package.textures()[0];
@@ -6399,6 +6458,10 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
         model_pending=model_used+count;model_handle=handle;
         if(!stream_scene)stream_open();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
         auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
         const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
         for(unsigned i=0;i<8;++i)sq[i]=words[i];
@@ -6419,12 +6482,20 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #endif
     const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
     Entry* handle=load(image,false,&key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
     if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
     const auto& t=handle->package.textures()[0];
     if(t.width!=k[2] || t.height!=k[3])return 0; // repeated UVs cannot use padding
     const unsigned pass=k[4];
     const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
     stream_select(list);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
 #if RE4DC_WORLD_AUTOSORT
     world_sort_begin();
 #endif
@@ -6477,6 +6548,10 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     std::uint32_t count;re4dc::render::begin_pvr_packet(model_packets+model_used,count,header);
     model_pending=model_used+count;model_handle=handle;
     if(!stream_scene)stream_open();
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
+#endif
+
     auto* sq=static_cast<std::uint32_t*>(static_cast<void*>(sq_lock((void*)PVR_TA_INPUT)));
     const auto* words=reinterpret_cast<const std::uint32_t*>(model_packets+model_used);
     for(unsigned i=0;i<8;++i)sq[i]=words[i];
@@ -6496,6 +6571,12 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #else
     (void)k;(void)out;return 0;
 #endif
+}
+#endif
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+extern "C" int re4dc_source_world_op_window(){
+    return frame_ready && !stream_aborted && !direct_open && !model_used && !source_draws_finished &&
+        (!stream_scene || (!(stream_closed_lists&(1U<<PVR_LIST_OP_POLY)) && stream_list==PVR_LIST_OP_POLY));
 }
 #endif
 extern "C" void re4dc_model_finish_source_draws(){

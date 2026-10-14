@@ -149,6 +149,13 @@ void sourceWorldTexturePrepare() {
     const Key key{pick.crc,pick.fnv};
     const Re4dcUiImage image{&key,nullptr,pick.width,pick.height,5,0,0};
     Entry* entry=load(image,true,&key);
+#if RE4DC_PS2_WORLD_TRANSITION_OWNER
+    // Preparation may yield before any callback is withheld. Reprove its
+    // source/package owners before the returned cache entry is inspected.
+    if(!re4dc_source_world_preflight_current(frame,generation)){
+        re4dc_source_world_prepared(frame,generation,0);return;
+    }
+#endif
     unsigned current=0;
     const bool valid=re4dc_ps2_source_package(&current) && current==generation &&
         entry && entry->valid && entry->key==key && entry->frame==frame &&
