@@ -1,0 +1,19 @@
+name benchmark-r101-A10
+# benchmark-r101 (lane crowd12, 2026-10-14): the r101 square, Leon by the burning cross / pyre facing the square
+# (lp2 "wide" view: 12 Ganados alive), the whole crowd alerted at room frame 30 and converging on him, god mode.
+# No pad input: Leon stands still, so the camera stays behind him on the same view. Full effects on screen: the
+# camera haze and mist, the pyre fire, torches. Settle room frames 0..299 (10 s), measure 300..1199 (30 s of game time).
+room 0x101
+pos -7914 0 2000
+ang 1.5708
+find 0x00002000
+inv default
+god
+alert 30
+alivelog 150
+# diagnostic crowd ablation (lane crowd12): Ganado list entries dead at room entry: 2 start-alive em15 entries + every
+# joiner / wave entry (0x1a 0x1b 0x22..0x4a), so the alive count stays fixed (villager join at alive < 9 and the waves at < 5 cannot refill)
+dead 0x14 0x15 0x1a 0x1b 0x22 0x23 0x24 0x28 0x29 0x2a
+dead 0x2b 0x2c 0x2e 0x2f 0x30 0x31 0x32 0x36 0x37 0x38
+dead 0x39 0x3a 0x3c 0x3d 0x3e 0x3f 0x40 0x41 0x42 0x43
+dead 0x44 0x45 0x46 0x48 0x49 0x4a

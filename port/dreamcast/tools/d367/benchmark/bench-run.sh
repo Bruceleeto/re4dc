@@ -21,6 +21,9 @@ E=${BENCH_EV:-/c/Flycast-Evidence/re4-dreamcast/bench-20261014}
 EW=$(echo "$E" | sed 's#^/c/#/mnt/c/#')
 ST=/root/probe/bench-stage; FIXD=/root/probe/bench-stage/fix
 mkdir -p "$E/_tools"
+# coordinator hold: no new staging while BENCH_HOLD_FILE (default the crowd12 tmp HOLD) holds a future epoch
+HF=${BENCH_HOLD_FILE:-/c/Users/lambd/.claude/jobs/1e668c67/tmp/crowd12/HOLD}
+while [ -f "$HF" ] && [ "$(date +%s)" -lt "$(cat "$HF")" ]; do sleep 30; done
 free=$(powershell -NoProfile -Command "[int]((Get-PSDrive C).Free/1GB)" | tr -d '\r')
 [ "$free" -ge "${BENCH_MIN_GB:-19}" ] || { echo "C: has $free GB free (< ${BENCH_MIN_GB:-19}): not staging"; exit 1; }
 cd "$H" || exit 1
