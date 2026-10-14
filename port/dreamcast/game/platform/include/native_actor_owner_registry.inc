@@ -61,12 +61,31 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
 #else
 #if RE4DC_ACTOR_SKIN_DIAG
 unsigned owned_skin_diag_reports;
-void owned_skin_diag(unsigned why,unsigned source_frame,unsigned n,unsigned role,unsigned value) {
-    if(owned_skin_diag_reports++<32)
+void owned_skin_diag(unsigned why,unsigned source_frame,unsigned n,unsigned role,unsigned value,const Re4dcActorSkinBinding* in) {
+    if(owned_skin_diag_reports++<32) {
         re4dc_log("SKINACQ why=%u source=%u registry=%u count=%u serial=%u roles=%u role=%u value=%u\n",
             why,source_frame,skin_frame,skin_count,owned_skin_serial,n,role,value);
+        if(why==4) {
+            unsigned unique=0,eager=0,materialized=0,owned=0;
+            for(unsigned i=0;i<skin_count;++i) {
+                bool earlier=false;
+                for(unsigned j=0;j<i;++j)earlier|=skins[j].info==skins[i].info;
+                unique+=!earlier;eager+=skins[i].positions!=nullptr;
+                materialized+=skins[i].materialized!=0;owned+=owned_skins[i].serial!=0;
+            }
+            re4dc_log("SKINACQ_SLOTS unique=%u eager=%u materialized=%u owned=%u\n",unique,eager,materialized,owned);
+            for(unsigned k=0;k<n;++k) {
+                unsigned matches=0,lazy=0,mat=0,held=0;
+                for(unsigned i=0;i<skin_count;++i)if(skins[i].info==in[k].info) {
+                    ++matches;lazy+=!skins[i].positions;mat+=skins[i].materialized!=0;held+=owned_skins[i].serial!=0;
+                }
+                re4dc_log("SKINACQ_ROLE role=%u info=%p entries=%u matches=%u lazy=%u materialized=%u owned=%u\n",
+                    k,in[k].info,in[k].entries,matches,lazy,mat,held);
+            }
+        }
+    }
 }
-#define SKINACQ_REFUSE(why,role,value) do { owned_skin_diag(why,source_frame,n,role,value);return 0; } while(0)
+#define SKINACQ_REFUSE(why,role,value) do { owned_skin_diag(why,source_frame,n,role,value,in);return 0; } while(0)
 #else
 #define SKINACQ_REFUSE(why,role,value) return 0
 #endif
