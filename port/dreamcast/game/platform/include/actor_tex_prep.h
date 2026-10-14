@@ -7,7 +7,11 @@ class cModel;
 // presentation ticket leaves the synchronous completed-ledger inspection.
 constexpr unsigned kRe4dcGanadoTexPicks=5;
 constexpr unsigned kRe4dcActorTexPicks=kRe4dcGanadoTexPicks+1;
-enum class Re4dcActorTexKind : unsigned { Ganado, PlayerPl08 };
+enum class Re4dcActorTexKind : unsigned { Ganado, PlayerPl08
+#if RE4DC_ACTOR_TEX_PREP_LEON
+    , PlayerLeon
+#endif
+};
 enum class Re4dcActorTexReason : unsigned {
     None, Source, Range, Model, Chain, Lifetime, Asset, Owner, Row, Material,
     Hidden, Variant, Capacity, Changed, Count
@@ -19,7 +23,7 @@ struct Re4dcActorTexPick {
     Re4dcUiImage image{}; // pixels is the existing immutable bundle token
     unsigned crc=0,fnv=0,appearances=0,far=0; // appearances is the five-Ganado mask only
     Re4dcActorTexKind kind=Re4dcActorTexKind::Ganado;
-    unsigned package_generation=0; // PlayerPl08 only; never a source pointer
+    unsigned package_generation=0; // pl08 epoch or immutable Leon variant tag; never a source pointer
 };
 struct Re4dcActorTexBatch {
     re4dc_source::FrameIdentity source{};
@@ -39,5 +43,11 @@ unsigned re4dc_player_tex_metadata(cModel*,const re4dc_source::FrameIdentity*,
                                    const re4dc_source::ModelIdentity*,Re4dcActorTexMetadata*);
 int re4dc_player_tex_current(unsigned);
 int re4dc_player_tex_pick(unsigned,Re4dcActorTexPick*);
+#if RE4DC_ACTOR_TEX_PREP_LEON
+unsigned re4dc_leon_tex_metadata(cModel*,const re4dc_source::FrameIdentity*,
+                                const re4dc_source::ModelIdentity*,Re4dcActorTexMetadata*);
+int re4dc_leon_tex_current(unsigned);
+int re4dc_leon_tex_pick(unsigned,Re4dcActorTexPick*);
+#endif
 int re4dc_actor_tex_enumerate(Re4dcActorTexBatch*);
 }

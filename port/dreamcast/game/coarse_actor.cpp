@@ -431,3 +431,7 @@ extern "C" void re4dc_charbake_cycle(void){re4dc_charbake_set(charbake_variant+1
 extern "C" unsigned re4dc_charbake_variant(void){return charbake_variant;}
 extern "C" const char* re4dc_charbake_label(void){return re4dc_charbake::variants[charbake_variant].label;}
 #endif
+
+#if RE4DC_ACTOR_TEX_PREP_LEON
+#include "actor_tex_prep_leon_pick.inc"
+#endif

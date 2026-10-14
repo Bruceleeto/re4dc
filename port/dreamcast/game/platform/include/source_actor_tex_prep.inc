@@ -48,14 +48,24 @@ extern "C" int re4dc_actor_tex_enumerate(Re4dcActorTexBatch* output) {
         const bool is_player=m==(cModel*)player;
         if(!is_player && (m==(cModel*)partner || m->id<0x10 || m->id>0x20))continue;
         ++batch.candidates;Re4dcActorTexMetadata metadata{};
-        const unsigned reason=is_player?re4dc_player_tex_metadata(m,&now,&model,&metadata):
+        unsigned reason=is_player?re4dc_player_tex_metadata(m,&now,&model,&metadata):
             re4dc_actor_tex_metadata(m,&now,&model,&metadata);
+#if RE4DC_ACTOR_TEX_PREP_LEON
+        if(is_player && reason)reason=re4dc_leon_tex_metadata(m,&now,&model,&metadata);
+#endif
         if(reason) {
             if(reason>=unsigned(Re4dcActorTexReason::Count))return fail(Re4dcActorTexReason::Changed);
             ++batch.declined[reason];continue;
         }
         Re4dcActorTexPick picks[2]{};unsigned count=0;
         if(is_player) {
+#if RE4DC_ACTOR_TEX_PREP_LEON
+            if(metadata.appearance==0x100) {
+                if(player_keys || !re4dc_leon_tex_pick(metadata.appearance,picks) ||
+                   picks[0].kind!=Re4dcActorTexKind::PlayerLeon ||
+                   picks[0].package_generation!=metadata.package_generation)return fail(Re4dcActorTexReason::Changed);
+            } else
+#endif
             if(player_keys || !re4dc_player_tex_pick(metadata.appearance,picks) ||
                picks[0].kind!=Re4dcActorTexKind::PlayerPl08 ||
                picks[0].package_generation!=metadata.package_generation)return fail(Re4dcActorTexReason::Changed);
@@ -102,5 +112,9 @@ extern "C" int re4dc_actor_tex_enumerate(Re4dcActorTexBatch* output) {
     }
     for(unsigned i=0;i<batch.count;++i)if(batch.picks[i].kind==Re4dcActorTexKind::PlayerPl08 &&
         !re4dc_player_tex_current(batch.picks[i].package_generation))return fail(Re4dcActorTexReason::Changed);
+#if RE4DC_ACTOR_TEX_PREP_LEON
+    for(unsigned i=0;i<batch.count;++i)if(batch.picks[i].kind==Re4dcActorTexKind::PlayerLeon &&
+        !re4dc_leon_tex_current(batch.picks[i].package_generation))return fail(Re4dcActorTexReason::Changed);
+#endif
     *output=batch;return 1;
 }

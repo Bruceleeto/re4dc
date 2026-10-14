@@ -45,10 +45,18 @@ void actor_texture_prepare() {
         const auto& pick=batch.picks[i];const Key key{pick.crc,pick.fnv};
         if(pick.kind==Re4dcActorTexKind::PlayerPl08) {
             if(!re4dc_player_tex_current(pick.package_generation))continue;
+#if RE4DC_ACTOR_TEX_PREP_LEON
+        } else if(pick.kind==Re4dcActorTexKind::PlayerLeon) {
+            if(!re4dc_leon_tex_current(pick.package_generation))continue;
+#endif
         } else if(pick.kind!=Re4dcActorTexKind::Ganado || batch.variant!=re4dc_ganado_tex_variant())break;
         const auto& image=pick.image; // TEX_CHECK diagnostics use the same descriptor.
         Entry* entry=load(image,true,&key);
-        const bool current=pick.kind!=Re4dcActorTexKind::PlayerPl08 || re4dc_player_tex_current(pick.package_generation);
+        const bool current=(pick.kind!=Re4dcActorTexKind::PlayerPl08 || re4dc_player_tex_current(pick.package_generation))
+#if RE4DC_ACTOR_TEX_PREP_LEON
+            && (pick.kind!=Re4dcActorTexKind::PlayerLeon || re4dc_leon_tex_current(pick.package_generation))
+#endif
+            ;
         const bool valid=current && entry && entry->valid && entry->key==key && entry->frame==frame &&
             entry->package.upload_complete() && entry->package.header().texture_count==1 &&
             entry->package.pvr_texture(0) && entry->package.textures()[0].width==pick.image.width &&

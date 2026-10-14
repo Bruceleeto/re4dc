@@ -135,3 +135,6 @@ extern "C" unsigned re4dc_actor_tex_metadata(cModel* m,const re4dc_source::Frame
 }
 
 #include "actor_tex_prep_player.inc"
+#if RE4DC_ACTOR_TEX_PREP_LEON
+#include "actor_tex_prep_leon.inc"
+#endif
