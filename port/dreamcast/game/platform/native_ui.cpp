@@ -205,6 +205,9 @@ extern "C" {
 #include "pvr_internal.h"   // KOS pvr_state (Makefile: -I$(KOS_BASE)/kernel/arch/dreamcast/hardware/pvr)
 }
 #endif
+#if RE4DC_TA_MATERIAL_DIAG
+#include "ta_material_diag.h"
+#endif
 #include "native_ui.h"
 #include "hud_source_mask.h"
 #include "native_model.h"
@@ -1368,6 +1371,42 @@ void pt_audit_scene(unsigned fr,bool present){
 // one word for the end-of-list. Logs per scene the overflow-pool bytes it needs against the pool KOS reserves
 // (opb_overflow_count x the initial blocks), the deepest tile per list, the translucent triangles in the
 // busiest tile (the ISP autosort load) and an ISP/TSP parameter estimate against the TA vertex bank.
+#if RE4DC_TA_MATERIAL_DIAG
+namespace tamat {
+re4dc_tamat::Census census;
+// 0 unclassified, 1 PS2 world, 2 source models, 3 UI, 4 effects.
+// These are submission paths; offline source manifests classify actual assets.
+unsigned source,packet_source,scene;
+struct Scope { unsigned saved; explicit Scope(unsigned s):saved(source){source=s;} ~Scope(){source=saved;} };
+void header(unsigned list,const std::uint32_t* q){
+    const unsigned old=census.count;
+    const unsigned i=census.select(list,source,q[2],q[3],(q[0]&8)!=0);
+    if(i==re4dc_tamat::None || i<old)return;
+    auto& row=census.rows[i];
+    if(!row.textured){row.resolved=1;return;}
+    const unsigned address=(q[3]&0x001fffffU)<<3;
+    for(const auto& e:entries){
+        if(!e.valid || !e.package.upload_complete())continue;
+        const unsigned n=e.package.header().texture_count;
+        for(unsigned t=0;t<n;++t){
+            if((unsigned(reinterpret_cast<std::uintptr_t>(e.package.pvr_texture(t)))&0x007fffffU)==address){
+                row.crc=e.key.crc;row.fnv=e.key.fnv;row.resolved=1;return;
+            }
+        }
+    }
+}
+void report(unsigned frame,bool present){
+    for(unsigned i=0;i<census.count;++i){const auto& r=census.rows[i];if(!r.tris)continue;
+        re4dc_log("tamat: f=%u scene=%u p=%u l=%u source=%u key=%08x-%08x tcw=%08x tsp=%08x tris=%u fill=%u resolved=%u textured=%u\n",
+            frame,scene,present?1u:0u,r.list,r.source,r.crc,r.fnv,r.tcw,r.tsp,r.tris,unsigned(r.fill),r.resolved,r.textured);
+    }
+    re4dc_log("tamat total: f=%u scene=%u p=%u rows=%u overflow=%u invalid=%u orphan=%u tris=%u/%u/%u fill=%u/%u/%u\n",
+        frame,scene,present?1u:0u,census.count,census.overflow,census.invalid,census.orphans,
+        census.tris[0],census.tris[2],census.tris[4],unsigned(census.fill[0]),unsigned(census.fill[2]),unsigned(census.fill[4]));
+    ++scene;census.clear();
+}
+}
+#endif
 namespace tabin {
 constexpr unsigned kTw=20,kTh=15,kTiles=kTw*kTh;
 unsigned short ent[5][kTiles];
@@ -1462,12 +1501,19 @@ void feed_block(unsigned list,const std::uint32_t* q){
     if(list==1){feed_mod(q);return;}
 #endif
     L& s=ls[list];
-    if(s.half){ s.half=false; return; }                 // second half of a 64-byte vertex / header
+    if(s.half){
+#if RE4DC_TA_MATERIAL_DIAG
+        if(s.sprite)tamat::census.sprite_second(list,reinterpret_cast<const float*>(q));
+#endif
+        s.half=false; return; }                 // second half of a 64-byte vertex / header
     if(s.hdr64_pending){ s.hdr64_pending=false; return; }
     const std::uint32_t pcw=q[0];const unsigned t=pcw>>29;
     if(t==4u||t==5u){
         if(((pcw>>24)&7)!=list)++scene_mismatch;
         cur_tsp[list]=q[2];cur_tcw[list]=q[3];
+#if RE4DC_TA_MATERIAL_DIAG
+        tamat::header(list,q);
+#endif
         s.sprite=t==5u; s.tex=pcw&8; s.uv16=pcw&1; s.offset=pcw&4; s.vol=pcw&64; const unsigned col=(pcw>>4)&3;
         if(s.nv>0 && s.nv<3)++s.short_strips;
         s.nv=0;
@@ -1485,6 +1531,9 @@ void feed_block(unsigned list,const std::uint32_t* q){
         // A, B, C xyz in words 1..9, D xy in 10..11: words 8.. are in the second half (not kept), so use A and B
         // and C's x (word 7); D is C's mirror in practice: take the box of A, B and C.x with y of A/B.
         s.half=true;
+#if RE4DC_TA_MATERIAL_DIAG
+        tamat::census.sprite_first(list,f);
+#endif
         const float xs[3]={f[1],f[4],f[7]},ys[2]={f[2],f[5]};
         obj_begin(s); ++s.tris;
         add_box(list,std::min({xs[0],xs[1],xs[2]}),std::max({xs[0],xs[1],xs[2]}),std::min(ys[0],ys[1]),std::max(ys[0],ys[1]),2);
@@ -1498,6 +1547,9 @@ void feed_block(unsigned list,const std::uint32_t* q){
         if(s.tri_in_obj==0||s.tri_in_obj==6){ obj_begin(s); scene_param+=2*s.vtx_words; }
         ++s.tri_in_obj; ++s.tris; scene_param+=s.vtx_words;
         add_box(list,std::min({x,s.x[0],s.x[1]}),std::max({x,s.x[0],s.x[1]}),std::min({y,s.y[0],s.y[1]}),std::max({y,s.y[0],s.y[1]}),1);
+        #if RE4DC_TA_MATERIAL_DIAG
+        {const float tx[3]={s.x[0],s.x[1],x},ty[3]={s.y[0],s.y[1],y};tamat::census.add(list,tx,ty,3,1);}
+#endif
         if(list==2 && !skip_fill){const float tx[3]={s.x[0],s.x[1],x},ty[3]={s.y[0],s.y[1],y};
                      if(x==x&&y==y&&s.x[0]==s.x[0]&&s.x[1]==s.x[1])fill_tr+=clip_area(tx,ty,3);}
     }
@@ -1580,6 +1632,9 @@ void scene_end(unsigned fr,bool present){
         unsigned(RE4DC_TA_VERTEX_BYTES),maxtr,tris,shorts,orph,scene_wild,scene_mismatch,peak?" PEAK":"");
     re4dc_log("tabin fill: f=%u poly=%u haze=%u mist=%u fx=%u\n",fr,unsigned(fill_tr),unsigned(fill_haze),unsigned(fill_mist),unsigned(fill_fx));
     fill_tr=fill_haze=fill_mist=fill_fx=0;
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::report(fr,present);
+#endif
     std::memset(ent,0,sizeof(ent));std::memset(trtri,0,sizeof(trtri));
     for(auto& s:ls)s=L{};
 #if RE4DC_MV_SHADOWS
@@ -1897,6 +1952,9 @@ struct HudBatch { alignas(32) pvr_vertex_t v[128]; unsigned n=1; };
 void safe_audit_note(const HudBatch& b);
 #endif
 void hud_flush(HudBatch& b){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
 #if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
     safe_audit_note(b);
 #endif
@@ -3642,6 +3700,9 @@ const pvr_poly_hdr_t& glyph_header(unsigned bank){
 // One run: a header when the palette bank changes, then a 4-vertex strip per glyph (a strip
 // after an end-of-strip vertex reuses the last header).
 void glyph_draw_run(unsigned first,unsigned count){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
     alignas(32) pvr_vertex_t buf[1+4*16];
     unsigned n=0;int bank=-1;
     auto flush=[&]{
@@ -3928,6 +3989,9 @@ void door_release(const char* why){
 // One textured quad: the picture scaled by (kx, ky) about the screen centre, clipped to x 0..640, y 56..425 (the
 // source's GXSetScissor(0, 56, W, H - 111)), alpha a.
 void door_quad(float kx,float ky,unsigned a){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
     pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565|PVR_TXRFMT_NONTWIDDLED|PVR_TXRFMT_X32_STRIDE,
         door_tw,door_th,door_tex,PVR_FILTER_BILINEAR);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
@@ -3945,6 +4009,9 @@ void door_quad(float kx,float ky,unsigned a){
     stream_send(packet,sizeof(packet));
 }
 void door_fade(unsigned argb,float y0=56,float y1=425){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
     alignas(32) pvr_vertex_t v[5];
     pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
@@ -4242,6 +4309,9 @@ void pace_note_draw(int mode){
 // Same quad bytes/header path as final present; source model barriers can consume
 // a prefix without dropping/reordering the unconsumed UI or reallocating storage.
 static void ui_draw_quad(unsigned i){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
         if(!handles[i])return;
 #if RE4DC_NATIVE_MES
         if(handles[i]==kGlyphRun){glyph_draw_run(quads[i].image.width,quads[i].image.height);return;}
@@ -4744,6 +4814,9 @@ extern "C" void re4dc_model_texture(const unsigned* key){model_texture=key;}
 namespace { const Re4dcModelPacket* model_reserved=nullptr; }
 #endif
 extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::packet_source=2;
+#endif
     RE4DC_PROFILE_SCOPE(PacketPack);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
@@ -4923,6 +4996,9 @@ if(!handle){
     return 1;
 }
 extern "C" void re4dc_model_packet_commit(unsigned count){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(tamat::packet_source);
+#endif
     // A loaded but wholly clipped/rolled-back part owns no submitted packets.
     // Keep its upload cached; pin only when this part actually commits a draw.
     if(count){
@@ -5004,6 +5080,9 @@ extern "C" void re4dc_ta_hash(const void* data,unsigned bytes){
 }
 #endif
 extern "C" int re4dc_model_direct_begin(const Re4dcModelPart* p,Re4dcModelDirect* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(2);
+#endif
 #if RE4DC_TA_DIRECT
     if(direct_open){re4dc_missing("native direct part nested");return 0;}
     Re4dcModelPacket packet{};
@@ -5081,6 +5160,9 @@ extern "C" int re4dc_ui_blob_send(const void* data,unsigned bytes){
 #endif
 #if RE4DC_COARSE_ONE_SUBMIT && RE4DC_TA_DIRECT
 extern "C" int re4dc_model_direct_begin_reserved(const Re4dcModelPart* p,const Re4dcModelPacket* reserved,Re4dcModelDirect* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(2);
+#endif
     model_reserved=reserved;
     const int begun=re4dc_model_direct_begin(p,out);
     model_reserved=nullptr; // a nested-part refusal returns before packet_begin takes it
@@ -5130,6 +5212,9 @@ extern "C" int re4dc_leon_direct_capture(const Re4dcModelPart* p,Re4dcLeonHeader
     return 1;
 }
 extern "C" std::uint32_t* re4dc_leon_direct_switch(const Re4dcModelPart* p,const Re4dcLeonHeader* h,unsigned vertices,std::uint32_t* sq){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(2);
+#endif
     Entry* handle=static_cast<Entry*>(h?h->entry:nullptr);
 #if RE4DC_MESH_TEXTURES
     if(model_texture)return nullptr;
@@ -5372,6 +5457,9 @@ extern "C" void re4dc_coarse_end(unsigned vertices){
 // (/cd/dc/tex/<crc>-<fnv>.re4tex); no source image exists for it.
 extern "C" void re4dc_static_flush_impostors();
 extern "C" int re4dc_model_pt_begin(unsigned crc,unsigned fnv,unsigned width,unsigned height,int fog,Re4dcModelPacket* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::packet_source=2;
+#endif
     if(!frame_ready || stream_aborted || !ensure_model_storage() || model_used+8>kModelPacketBytes/32)return 0;
 #if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
     if(ui_order && quads_flushed<nquad)ui_order_flush();
@@ -5574,6 +5662,9 @@ FxHeaderKey fx_hdr_key{~0U,0,0,nullptr,0,0,0};
 alignas(32) pvr_poly_hdr_t fx_hdr_cache;
 #endif
 void fx_send(unsigned char* packet,bool screen){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
 #if RE4DC_WORLD_AUTOSORT
     if(world_autosort && screen){
         auto* b=reinterpret_cast<pvr_sprite_txr_t*>(packet+sizeof(pvr_poly_hdr_t));
@@ -5668,6 +5759,9 @@ extern "C" float re4dc_fog_gate_far() __attribute__((weak)); // ACTOR_FOG_GATE b
 // EFFECT_SPRITES (effects30.mk): one effect sprite from EspCommonTrans. Never aborts the
 // frame: without texture, over the per-frame cap or without queue room the sprite is dropped.
 extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
     if(!frame_ready || stream_aborted || draining_parts)return 0;
 #if defined(RE4DC_FX_CORE_TEX_PREP) && RE4DC_FX_CORE_TEX_PREP
     fxCoreBeginFxFrame();
@@ -6252,6 +6346,9 @@ extern "C" int re4dc_leon_owned_tr_idle(const Re4dcModelPart* part){
 extern "C" unsigned re4dc_ps2_world_fog(); // native_ps2_world.cpp: latched at this frame's scenery draw
 #endif
 extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,Re4dcModelPacket* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::packet_source=1;
+#endif
     if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
 #if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
@@ -6297,6 +6394,9 @@ extern "C" int re4dc_ps2_world_packet(unsigned crc,unsigned fnv,unsigned width,u
 }
 #if RE4DC_PS2_WORLD_KERNEL==4
 extern "C" int re4dc_ps2_world_packet_cull(unsigned crc,unsigned fnv,unsigned width,unsigned height,unsigned pass,unsigned cull,Re4dcModelPacket* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::packet_source=1;
+#endif
     if(!out || pass>2 || !frame_ready || stream_aborted || direct_open ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
 #if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
@@ -6401,6 +6501,9 @@ static void ps2_sky_header(pvr_poly_hdr_t& header){
 }
 #endif
 extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* out){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(1);
+#endif
 #if RE4DC_TA_DIRECT
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
@@ -6701,6 +6804,9 @@ extern "C" void re4dc_model_finish_source_draws(){
 #endif
 #if RE4DC_SUBSCREEN && RE4DC_PVR_STREAM
         if(deferred_first->lighting==kSubscreenQuadTag){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(3);
+#endif
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSubscreenQuadNode;
             const unsigned bytes=deferred_first->changed[0];
             deferred_first=deferred_first->next;stream_send(packet,bytes);continue;
@@ -6714,6 +6820,9 @@ extern "C" void re4dc_model_finish_source_draws(){
         }
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
         if(deferred_first->lighting==kOctTag){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
 #if RE4DC_TA_BIN_DIAG
             tabin::skip_fill=true;
@@ -6727,6 +6836,9 @@ extern "C" void re4dc_model_finish_source_draws(){
 #endif
 #if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
         if(deferred_first->lighting==kLineTag){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
             deferred_first=deferred_first->next;stream_send(packet,kLinePacket);continue;
         }
@@ -6734,6 +6846,9 @@ extern "C" void re4dc_model_finish_source_draws(){
 #endif
 #if defined(RE4DC_LOOK_TOGGLE)
         if(deferred_first->lighting==kGradeTag){
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
             auto* packet=reinterpret_cast<unsigned char*>(deferred_first)+kGradeNode;
             const unsigned bytes=deferred_first->changed[0];
             deferred_first=deferred_first->next;grade_send(packet,bytes);continue;
