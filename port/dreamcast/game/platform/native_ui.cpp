@@ -23,6 +23,9 @@ extern "C" void re4dc_heap_check(void);
 extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mcheck.mk)
 #endif
 #include <type_traits>
+#if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
+#include "include/ta_pt_audit.h"
+#endif
 #ifndef RE4DC_WORLD_AUTOSORT
 #define RE4DC_WORLD_AUTOSORT 0
 #endif
@@ -1338,32 +1341,20 @@ void ta_hash_reset(){for(unsigned i=0;i<5;++i){ta_hash_h[i]=2166136261u;ta_hash_
 #endif
 void ta_hash_marker(pvr_list_t list){const std::uint32_t w=0xF00D0000u|(unsigned)list;re4dc_ta_hash(&w,4);}
 #if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
-// MCHECK_PT=1 (mcheck.mk, test builds only; needs TA_HASH): every polygon / sprite header (PCW para type 4 / 5) the
-// TA_HASH hooks see whose PCW list type is punch-through (4) is checked for blend SRCALPHA / INVSRCALPHA (TSP word 2,
-// src bits 31..29 = 4, dst 28..26 = 5). Per scene: "pt_audit:" headers, bad headers, the first bad header + caller.
-unsigned pt_audit_hdr,pt_audit_bad,pt_audit_logs;
-std::uint32_t pt_audit_w0,pt_audit_w2;
-void* pt_audit_ra;
-void pt_audit_feed(const void* data,unsigned bytes,void* ra){
-    const auto* w=static_cast<const std::uint32_t*>(data);
-    for(unsigned b=0;b+32<=bytes;b+=32){
-        const std::uint32_t* q=w+b/4;
-        const unsigned t=q[0]>>29;
-        if((t!=4u && t!=5u) || ((q[0]>>24)&7u)!=4u)continue;
-        ++pt_audit_hdr;
-        if((q[2]>>29)!=4u || ((q[2]>>26)&7u)!=5u){
-            if(!pt_audit_bad){pt_audit_w0=q[0];pt_audit_w2=q[2];pt_audit_ra=ra;}
-            ++pt_audit_bad;
-        }
-    }
+// MCHECK_PT=1: observe packet boundaries per list before checking actual PT
+// headers. v2 rejects malformed/truncated packets; a 64-byte payload tail is
+// never interpreted as a fresh PCW. No emitted data or TA_HASH input is changed.
+re4dc_pt_audit::Decoder pt_audit;
+void pt_audit_feed(unsigned list,const void* data,unsigned bytes,void* ra){
+    pt_audit.feed(list,data,bytes,reinterpret_cast<std::uintptr_t>(ra));
 }
 void pt_audit_scene(unsigned fr,bool present){
-    if(pt_audit_hdr && (pt_audit_bad?pt_audit_logs<400:!(fr%30))){
-        if(pt_audit_bad)++pt_audit_logs;
-        re4dc_log("pt_audit: frame=%u present=%u pt_hdr=%u bad=%u w0=%08x w2=%08x ra=%p\n",fr,present?1u:0u,
-                  pt_audit_hdr,pt_audit_bad,pt_audit_w0,pt_audit_w2,pt_audit_ra);
+    const auto s=pt_audit.finish_scene();
+    if(s.bad || s.invalid || s.incomplete || (s.headers && !(fr%30))){
+        re4dc_log("pt_audit: v=2 frame=%u present=%u pt_hdr=%u bad=%u invalid=%u incomplete=%u why=%u w0=%08x w2=%08x ra=%p\n",
+            fr,present?1u:0u,s.headers,s.bad,s.invalid,s.incomplete,s.reason,s.w0,s.w2,
+            reinterpret_cast<void*>(s.caller));
     }
-    pt_audit_hdr=pt_audit_bad=0;
 }
 #endif
 #if RE4DC_TA_BIN_DIAG
@@ -5066,7 +5057,7 @@ extern "C" int re4dc_model_direct_enabled(){return RE4DC_TA_DIRECT;}
 extern "C" void re4dc_ta_hash(const void* data,unsigned bytes){
     const unsigned l=(unsigned)stream_list<5?(unsigned)stream_list:2;
 #if defined(RE4DC_MCHECK_PT) && RE4DC_MCHECK_PT
-    pt_audit_feed(data,bytes,__builtin_return_address(0));
+    pt_audit_feed(unsigned(stream_list),data,bytes,__builtin_return_address(0));
 #endif
 #if RE4DC_TA_BIN_DIAG
     tabin::cur_ra=__builtin_return_address(0);
