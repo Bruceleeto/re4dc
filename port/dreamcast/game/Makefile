@@ -868,6 +868,15 @@ endif
 # Default zero preserves prior objects/assets; exact carrier staging is a separate reviewed gate.
 CABIN_SOURCE ?= 0
 CABIN_HANDOFF_DIAG ?= 0
+CABIN_COMPLETE_HANDOFF ?= 0
+ifneq ($(filter-out 0 1,$(CABIN_COMPLETE_HANDOFF)),)
+$(error CABIN_COMPLETE_HANDOFF must be 0 or 1)
+endif
+ifeq ($(CABIN_COMPLETE_HANDOFF),1)
+ifneq ($(CABIN_SOURCE),1)
+$(error CABIN_COMPLETE_HANDOFF requires CABIN_SOURCE=1)
+endif
+endif
 ifneq ($(filter-out 0 1,$(CABIN_HANDOFF_DIAG)),)
 $(error CABIN_HANDOFF_DIAG must be 0 or 1)
 endif
@@ -889,7 +898,7 @@ endif
 .PHONY: cabin-source-force
 $(OBJDIR)/cabin-source.h: cabin-source-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_CABIN_SOURCE %s\n#define RE4DC_CABIN_HANDOFF_DIAG %s\n' '$(CABIN_SOURCE)' '$(CABIN_HANDOFF_DIAG)' > $@.tmp
+	@printf '#define RE4DC_CABIN_SOURCE %s\n#define RE4DC_CABIN_HANDOFF_DIAG %s\n#define RE4DC_CABIN_COMPLETE_HANDOFF %s\n' '$(CABIN_SOURCE)' '$(CABIN_HANDOFF_DIAG)' '$(CABIN_COMPLETE_HANDOFF)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 CABIN_SOURCE_PLATFORM = $(OBJDIR)/platform/native_event_file.o $(OBJDIR)/platform/native_cabin.o $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/audio_aica.o
