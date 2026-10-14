@@ -1341,7 +1341,7 @@ UI_OVERLAY_SLAB_KB ?= 0
 # (movie_window_release: one hole of the size) instead of evicting least recently used uploads one by one until a
 # hole appears (r105 results 495x150: 7 retries evicted everything evictable, 1.36 MB free and no 256 KiB hole;
 # r119: 410 retries, ~2,000 reloads). =2 also: when no window of free + unpinned blocks exists (the hole is blocked
-# by uploads this frame already drew) and the load is a pinned scene draw, this frame is dropped unpresented (as the
+# by uploads this frame already took: its draws, or the room preload's picks), this frame is dropped unpresented (as the
 # route movie's claim fallback: the open scene is closed unrendered, the previous render fenced, the rest of the
 # frame emits nothing), then the cheapest window including this frame's uploads is released and the texture
 # uploads now; the previous picture stays on screen one more frame, and the next frame draws everything again (the

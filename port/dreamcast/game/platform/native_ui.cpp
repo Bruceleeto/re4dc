@@ -2684,25 +2684,33 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
             re4dc_log("native UI: frag window %s: %ux%u need=%u released=%u entries/%u B free=%u frame=%u\n",ok?"ok":wr?"short":"none",
                       image.width,image.height,need,wr,wb,(unsigned)pvr_mem_available(),frame);
 #if RE4DC_UI_FRAG_WINDOW>=2
-            // No window of free + unpinned blocks: the hole is blocked by uploads this frame already drew. Drop the
-            // frame unpresented (the route movie claim's fallback sequence), then this frame's uploads may go too.
-            if(!ok && pin && stream_scene && !stream_aborted && !direct_open && frame-frag_drop_frame>kFragRetryFrames){
+            // No window of free + unpinned blocks: the hole is blocked by uploads this frame already took (its draws, or
+            // the room preload's picks at the frame start). With a scene open, drop the frame unpresented (the route
+            // movie claim's fallback sequence); then this frame's uploads may go too. Never inside a direct model write.
+#if RE4DC_TA_DIRECT
+            const bool direct=direct_open;
+#else
+            const bool direct=false;
+#endif
+            if(!ok && !stream_aborted && !direct && frame-frag_drop_frame>kFragRetryFrames){
+                const bool scene=stream_scene;
 #if RE4DC_PVR_STREAM
-                stream_close(false);
+                if(scene)stream_close(false);
 #endif
 #if RE4DC_PVR_PIPELINE
                 present_fence();
 #endif
                 if(re4dc::gpu::quiesce()==re4dc::gpu::FenceResult::ready){
 #if RE4DC_D349_RENDERER_STACK
-                    if(deferred_first || draining_parts)reset_deferred();
+                    if(scene && (deferred_first || draining_parts))reset_deferred();
 #endif
-                    stream_aborted=true;frag_drop_frame=frame;++frag_drops;
+                    if(scene)stream_aborted=true;
+                    frag_drop_frame=frame;++frag_drops;
                     unsigned db=0;const unsigned dr=movie_window_release(need,true,db);
                     if(dr)ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
                     if(ok)++frag_drop_ok;
-                    re4dc_log("native UI: frag drop frame=%u %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,ok?"ok":"FAILED",
-                              image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
+                    re4dc_log("native UI: frag drop frame=%u scene=%d pin=%d %s: %ux%u need=%u released=%u entries/%u B free=%u\n",frame,
+                              scene?1:0,pin?1:0,ok?"ok":"FAILED",image.width,image.height,need,dr,db,(unsigned)pvr_mem_available());
                 }else re4dc_log("native UI: frag drop frame=%u fence pending\n",frame);
             }
 #endif
