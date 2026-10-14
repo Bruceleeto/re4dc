@@ -47,7 +47,16 @@ extern "C" int re4dc_actor_tex_enumerate(Re4dcActorTexBatch* output) {
         player_seen|=m==(cModel*)player;partner_seen|=m==(cModel*)partner;
         const bool is_player=m==(cModel*)player;
         if(!is_player && (m==(cModel*)partner || m->id<0x10 || m->id>0x20))continue;
-        ++batch.candidates;Re4dcActorTexMetadata metadata{};
+        ++batch.candidates;
+#if RE4DC_ACTOR_TEX_PREP_DRAW
+        // An optional Ganado preload needs an actual source OT preparation in
+        // this exact completed ledger, not merely an alive-list emTrans call.
+        // This hint cannot suppress a later draw or grant a texture lease.
+        if(!is_player && !sourceActorLedger.texture_draw(now,model)) {
+            ++batch.declined[unsigned(Re4dcActorTexReason::Hidden)];continue;
+        }
+#endif
+        Re4dcActorTexMetadata metadata{};
         unsigned reason=is_player?re4dc_player_tex_metadata(m,&now,&model,&metadata):
             re4dc_actor_tex_metadata(m,&now,&model,&metadata);
 #if RE4DC_ACTOR_TEX_PREP_LEON

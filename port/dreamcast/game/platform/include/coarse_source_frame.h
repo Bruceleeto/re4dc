@@ -45,6 +45,9 @@ struct FrameEntry {
     std::uint32_t reasons;
     ModelPath path;
     std::uint32_t prepared;
+#if RE4DC_ACTOR_TEX_PREP_DRAW
+    std::uint32_t texture_draw=0; // hint only; never presentation authority
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     std::uint32_t presentation=0;
 #endif
@@ -167,6 +170,31 @@ public:
             const auto& e=entries_[k];
             if(e.path!=ModelPath::Coarse || !e.coarse_ticket.texture.slot || !e.coarse_ticket.texture.serial || !e.coarse_ticket.binding_revision)return false;
             ticket=e.coarse_ticket;return true;
+        }
+        return false;
+    }
+#endif
+#if RE4DC_ACTOR_TEX_PREP_DRAW
+    bool texture_draw_pending(const FrameIdentity& now,std::uintptr_t address)const {
+        // Validate the borrowed ledger and captured address before the caller
+        // may read current model identity. This predicate grants no ownership.
+        if(!valid(now) || phase_!=Claimed || cursor_>=count_)return false;
+        const auto& e=entries_[cursor_];
+        return e.path==ModelPath::Source && e.model.address==address;
+    }
+    bool note_texture_draw(const FrameIdentity& now,const ModelIdentity& model) {
+        // Only the exact current source callback may publish a successful OT
+        // preparation. No borrowed storage is read after retirement or change.
+        if(!valid(now) || phase_!=Claimed || cursor_>=count_)return false;
+        auto& e=entries_[cursor_];
+        if(e.path!=ModelPath::Source || !(e.model==model))return false;
+        e.texture_draw=1;return true;
+    }
+    bool texture_draw(const FrameIdentity& now,const ModelIdentity& model)const {
+        if(!valid(now) || phase_!=Ready)return false;
+        for(std::uint32_t k=0;k<count_;++k)if(entries_[k].model==model) {
+            const auto& e=entries_[k];
+            return e.path==ModelPath::Source && e.prepared && e.texture_draw;
         }
         return false;
     }

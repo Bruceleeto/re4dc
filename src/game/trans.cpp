@@ -699,6 +699,15 @@ ModelIdentity sourceActorModel(cModel* m) {
     const unsigned manager=m==(cModel*)pPL?0u:m==(cModel*)pSUB?1u:2u;
     return {reinterpret_cast<std::uintptr_t>(m),unsigned(m->serial),manager};
 }
+#if RE4DC_ACTOR_TEX_PREP_DRAW
+void sourceActorTextureDraw(cModel* m) {
+    FrameIdentity now{};
+    if(!sourceActorActive || sourceActorRenderActive || !sourceActorRam(m) ||
+       !sourceActorIdentity(now) ||
+       !sourceActorLedger.texture_draw_pending(now,reinterpret_cast<std::uintptr_t>(m)))return;
+    sourceActorLedger.note_texture_draw(now,sourceActorModel(m));
+}
+#endif
 #if RE4DC_ACTOR_EARLY_COARSE
 // This synchronous certificate scope grants only material inspection. It does
 // not grant original-callback ownership or let transaction_draw choose a path.
@@ -1558,6 +1567,10 @@ void ModelTrans(cModel* m)
             if (m->ot_type == 7) {
                 DeleteOtData(ot2, (u16) ret2);
             }
+#if RE4DC_ACTOR_TEX_PREP_DRAW
+        } else {
+            sourceActorTextureDraw(m);
+#endif
         }
         if (m->kindid == 0) {
             lightSetEm(m);
