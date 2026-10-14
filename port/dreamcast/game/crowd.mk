@@ -345,6 +345,16 @@ PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP_DRAW=1
 endif
 # Standard Leon joins the existing player-first pre-scene atlas preparation.
 ACTOR_TEX_PREP_LEON ?= 0
+ACTOR_SKIN_DIAG ?= 0
+ifeq ($(filter $(ACTOR_SKIN_DIAG),0 1),)
+$(error ACTOR_SKIN_DIAG must be 0 or 1)
+endif
+ifeq ($(ACTOR_SKIN_DIAG),1)
+ifneq ($(ACTOR_TRANSACTION),1)
+$(error ACTOR_SKIN_DIAG needs ACTOR_TRANSACTION=1)
+endif
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_SKIN_DIAG=1
+endif
 ifeq ($(filter $(ACTOR_TEX_PREP_LEON),0 1),)
 $(error ACTOR_TEX_PREP_LEON must be 0 or 1)
 endif
