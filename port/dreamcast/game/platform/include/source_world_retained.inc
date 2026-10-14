@@ -1,5 +1,10 @@
 // Source heap 1 keeps its allocated prefix when 1 -> 2 retires only the
 // allocator descriptor. Publish that exact lifetime for OT buckets only.
+// The retained chain and allocation addresses are immutable for that lifetime:
+// heap1 has no live allocator descriptor, child heaps start after its last cell,
+// and every source operation that can reclaim/restore/overwrite it revokes first.
+// Capture/publication prove complete nonoverlap; each read rechecks the bounded
+// chain and isolates the queried full cell against every current chain span.
 // Included by main_mem beside the actual descriptor/checker-list owners.
 namespace {
 struct SourceWorldRetainedPrefix {
@@ -65,6 +70,8 @@ bool sourceWorldRetainedChain(OSHeapCell* head,unsigned long begin,unsigned long
     unsigned visited=0;unsigned long maximum=begin;
     OSHeapCell* previous=nullptr;bool found=false;
     const auto address=reinterpret_cast<unsigned long>(value);
+    const auto wanted=address>=32UL?address-32UL:0UL;
+    unsigned long queryEnd=0,nearestAfter=end;
     for(auto* cell=head;cell;) {
         const auto start=reinterpret_cast<unsigned long>(cell);
         if(++visited>65536 || (start&31UL) || start<begin || start>=end ||
@@ -73,6 +80,13 @@ bool sourceWorldRetainedChain(OSHeapCell* head,unsigned long begin,unsigned long
         if(size<64 || (unsigned(size)&31U) || unsigned(size)>end-start || cell->prev!=previous)return false;
         const auto finish=start+unsigned(size),payload=start+32UL;
         if(finish>maximum)maximum=finish;
+        // Track the nearest cell after the exact queried header, and reject
+        // any earlier cell containing it. Together these isolate its entire
+        // extent in one pass, regardless of allocated-list address ordering.
+        if(value && start!=wanted) {
+            if(start<wanted && finish>wanted)return false;
+            if(start>wanted && start<nearestAfter)nearestAfter=start;
+        }
         if(value && address==payload) {
             // MEM_ALLOC places MAD after the rounded request. OSAlloc may
             // donate an unsplit 32-byte tail; neither MAD nor that tail is OT.
@@ -81,12 +95,23 @@ bool sourceWorldRetainedChain(OSHeapCell* head,unsigned long begin,unsigned long
             if(unsigned(size)<64 || rounded>unsigned(size)-64 || unsigned(size)-64-rounded>32)return false;
             const auto* tag=reinterpret_cast<const unsigned char*>(payload+rounded);
             if(tag[0] || tag[1]!='M' || tag[2]!='A' || tag[3]!='D')return false;
-            found=true;
+            queryEnd=finish;found=true;
         }
         previous=cell;cell=cell->next;
     }
+    if(value) {
+        if(!found || queryEnd>nearestAfter)return false;
+    } else {
+        // Cold capture and publication only. The first pass already proved
+        // each header and finite linkage safe, so compare all cell extents.
+        // No writes or allocator calls occur between validation and this pass.
+        for(auto* a=head;a;a=a->next)for(auto* b=a->next;b;b=b->next) {
+            const auto ab=reinterpret_cast<unsigned long>(a),bb=reinterpret_cast<unsigned long>(b);
+            if(ab<bb+unsigned(b->size) && bb<ab+unsigned(a->size))return false;
+        }
+    }
     if(highest)*highest=maximum;
-    return value ? found : true;
+    return true;
 }
 struct SourceWorldRetainedTransfer {
     OSHeapCell* head=nullptr;
@@ -128,7 +153,7 @@ extern "C" void re4dc_source_world_ot_memory(Re4dcSourceWorldOtMemory* out) {
 }
 extern "C" int re4dc_source_world_ot_retained(const void* value,unsigned bytes) {
     const auto& p=sourceWorldRetained;
-    if(!p.live || Heap[1].handle!=-1 || Heap[1].status || Heap[1].start!=p.begin ||
+    if(!value || !bytes || !p.live || Heap[1].handle!=-1 || Heap[1].status || Heap[1].start!=p.begin ||
        !sourceWorldRetainedOwners(p.begin,p.end))return 0;
     unsigned long highest=0;
     return sourceWorldRetainedChain(p.head,p.begin,p.end,&highest,value,bytes) && highest==p.end;

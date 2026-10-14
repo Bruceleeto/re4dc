@@ -40,7 +40,7 @@ def generate(out):
     sdk='\n'.join(line for line in sdk.splitlines() if not line.startswith('#include'))
     prelude='#include <stdint.h>\n#include <stddef.h>\ntypedef uint32_t u32;typedef int32_t s32;typedef uint8_t u8;\n_Static_assert(sizeof(u32)==4,"source u32 remains32-bit");\n'
     prelude+='#define ASSERTMSGLINE(...) ((void)0)\n#define ASSERTLINE(...) ((void)0)\n#define OFFSET(a,b) ((u32)(a)&((b)-1))\nvoid OSReport(const char*,...);\n'
-    (out/'source_world_actual_osalloc.c').write_text(prelude+sdk+'\nunsigned source_test_sdk_descriptor_size(void){return sizeof(HeapDesc); }\nunsigned source_test_sdk_cell_size_offset(void){return offsetof(Cell,size); }\nunsigned source_test_sdk_payload_offset(void){return HEADERSIZE; }\n')
+    (out/'source_world_actual_osalloc.c').write_text(prelude+sdk+'\nunsigned source_test_sdk_descriptor_size(void){return sizeof(HeapDesc); }\nunsigned source_test_sdk_cell_size_offset(void){return offsetof(Cell,size); }\nunsigned source_test_sdk_payload_offset(void){return HEADERSIZE; }\nunsigned long source_test_sdk_state(unsigned slot){switch(slot){case 0:return (unsigned long)HeapArray;case 1:return NumHeaps;case 2:return (unsigned long)ArenaStart;case 3:return (unsigned long)ArenaEnd;default:return __OSCurrHeap;}}\n')
     argv=[os.environ.get('CC','gcc'),'-std=gnu11',*FLAGS,'-w','-c',str(out/'source_world_actual_osalloc.c'),'-o',str(out/'osalloc.o')]
     run=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     (out/'sdk-compiler-command.json').write_text(json.dumps(argv,indent=2)+'\n')
