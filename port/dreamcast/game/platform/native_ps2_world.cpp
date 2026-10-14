@@ -1,3 +1,6 @@
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/ps2_source_world.h"
+#endif
 // PS2_WORLD_DRAW=1: full authored r101 world; isolated presentation candidate.
 // Original collision, object/event lifecycles and gameplay do not use this data.
 #ifndef RE4DC_PS2_WORLD_DRAW
@@ -718,6 +721,9 @@ extern "C" void re4dc_ps2_world_flush(){
 #if RE4DC_PS2_WORLD_MESH
     {
         const bool pt=re4dc_ps2_mesh_draw(1,state.far)!=0,tr=re4dc_ps2_mesh_draw(2,state.far)!=0;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+        re4dc_source_world_flush_result(state.frame,re4dc_ps2_source_passes_complete());
+#endif
         if(!(state.frame%120) || !pt || !tr)re4dc_ps2_mesh_log(state.frame);
         return;
     }

@@ -1,4 +1,7 @@
 #include "include/actor_visibility_diag.h"
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/ps2_source_world.h"
+#endif
 #ifndef RE4DC_PT_BLEND_FIX
 #define RE4DC_PT_BLEND_FIX 0
 #endif
@@ -3943,6 +3946,9 @@ extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;doo
 #if RE4DC_ACTOR_TEX_PREP
 #include "include/native_ui_actor_tex_prep.inc"
 #endif
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/native_ui_source_world.inc"
+#endif
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_KOS_HEAP_CHECK
     re4dc_heap_check();
@@ -4041,6 +4047,9 @@ extern "C" void re4dc_ui_begin(){
 #endif
 #if RE4DC_ACTOR_TEX_PREP
     actor_texture_prepare(); // ordinary preload demotion has already finished
+#endif
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldTexturePrepare();
 #endif
     re4dc::profile::begin();
 #if defined(__sh__)
@@ -6282,6 +6291,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         sq_flush(sq);
         direct_open=true;
         model_handle->frame=frame; // the header is in the TA: pinned for this scene
+#if RE4DC_PS2_WORLD_SOURCE_TEX_PREP
+        sourceWorldTextureAcquired(key);
+#endif
         ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
         out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
         out->u_scale=out->v_scale=1;
@@ -6349,6 +6361,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     sq_flush(sq);
     direct_open=true;
     model_handle->frame=frame; // the header is in the TA: pinned for this scene
+#if RE4DC_PS2_WORLD_SOURCE_TEX_PREP
+        sourceWorldTextureAcquired(key);
+#endif
     ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
     out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
     out->u_scale=out->v_scale=1;

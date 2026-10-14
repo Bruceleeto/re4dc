@@ -2385,6 +2385,11 @@ extern "C" void re4dc_ps2_fx_common_render(int coarse,int skipping);
 extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping);
 #endif
 
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "ps2_source_world.h"
+#include "source_world_frame.inc"
+#endif
+
 // Per frame, the draw pass: runs the ordering tables in order (render textures, shadow setup,
 // far sub screen, scroll, sub screen, models, shadow draw, near sub screen, effects, world, VU1
 // effects, screen, cockpit, id models, messages, after-render, debug, then 0x13..0x15), the
@@ -2446,11 +2451,19 @@ void Render()
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN_FAR);
     SetDrawTmpBufType(0);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_SCROLL); }
+#else
     ExecOt(OT_TYPE_SCROLL);
+#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN);
     SetDrawTmpBufType(0);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_MODEL); }
+#else
     ExecOt(OT_TYPE_MODEL);
+#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SHADOW_DRAW);
     SetDrawTmpBufType(0);
@@ -2551,6 +2564,9 @@ void ModelRender(cModel* m)
 #endif
 #if RE4DC_FRONT_NATIVE && defined(__sh__)
     int frontNative = frontNativeOk(m);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(sourceWorldCandidate(m))frontNative=0;
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     if(re4dc_actor_transaction_candidate(m))frontNative=0;
 #endif
@@ -2691,6 +2707,9 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     }
     efbDone = 0;
     matSet = 0;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
         const int owned=re4dc_actor_transaction_draw(m);

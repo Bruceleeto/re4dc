@@ -1,3 +1,6 @@
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/ps2_source_world.h"
+#endif
 #ifndef RE4DC_PS2_WORLD_DRAW
 #define RE4DC_PS2_WORLD_DRAW 0
 #endif
@@ -3067,6 +3070,9 @@ struct Ps2World {
     std::uint8_t pass_mask[kMaskPlacements]{}; bool masked=false;
 #endif
 } ps2w;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+unsigned sourceWorldPackageGeneration=1,sourceWorldSidecarCrc;
+#endif
 #if RE4DC_PS2_VERTEX_ALPHA
 // PS2_VERTEX_ALPHA (game30.mk): the ARGB4444 halves of a marked part's corner colour, laid out as vp::build_lut's
 // ARGB1555 table ([0,256) high byte A4 R4, [256,512) low byte G4 B4), so the LUT path ORs the two the same way.
@@ -3272,6 +3278,10 @@ bool ps2_open(){
         return false;
     }
     ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(sourceWorldPackageGeneration!=~0U)++sourceWorldPackageGeneration;
+    sourceWorldSidecarCrc=h.crc;
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC && RE4DC_PS2_WORLD_ROOMS
     {
         // The id sidecar of this package (optional; a mismatched or absent file leaves every placement baked): the
@@ -3801,6 +3811,10 @@ extern "C" void re4dc_ps2_mesh_log(unsigned frame){
 #endif
 }
 extern "C" void re4dc_ps2_mesh_retire(){
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(sourceWorldPackageGeneration!=~0U)++sourceWorldPackageGeneration;
+    sourceWorldSidecarCrc=0;
+#endif
     ps2w.package.close();
     if(ps2w.storage)re4dc_static_free(ps2w.storage);
     ps2w.storage=nullptr;ps2w.bytes=0;ps2w.parts=nullptr;ps2w.placements=nullptr;ps2w.nplacements=0;
@@ -3917,8 +3931,17 @@ extern "C" int re4dc_ps2_world_source_draw();   // native_ps2_world.cpp: pass 0 
 extern "C" int re4dc_ss_ui_order(); // the subscreen owns the swapped model area
 #endif
 extern "C" int re4dc_coarse_source_camera(float view[12],float projection[7],float viewport[6]); // coarse.cpp
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/native_source_world.inc"
+#endif
 // re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
 extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    unsigned generation=0;
+    // A qualified whole-room frame starts only at its original owned callback.
+    if(room==0x200 && re4dc_ps2_source_package(&generation) &&
+       re4dc_source_world_current(re4dc_ui_frame(),generation))return;
+#endif
 #if RE4DC_SS_UI_ORDER
     // Inventory rigid models also carry static_geometry. They are not room scenery:
     // submitting the PS2 world here would close the subscreen's ordered TR list.
