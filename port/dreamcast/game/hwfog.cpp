@@ -36,11 +36,12 @@ struct HwFogRow {
 };
 // Per-room rows (port/dreamcast/docs/HW_FOG_HAZE.md). keep = the recipe's full-alpha near-fade depth (3 m), box = the PS2 recipe range,
 // veil = matched on frozen stills (the replaced sprites' mean brightness against the fog's, same tick and camera):
-// r106 0.92 x 0.10, r109 0.43 x 0.10, r107 below 0.12 x 0.10 (its far sprites added 0.0-0.2 / 255). r100 / r103 are
-// EFFECT_HAZE_LEAN M3's (its own table veil and sprite subset) and have no row. r101 (the village, test 12's first
-// target) keeps M3's table veil and near subset; its row replaces the M3 subset sprites (1 in 7, alpha x 1.5, drawn
-// at every depth) beyond the keep depth, and its veil stands in for them: about 1/7 x 1.5 of a full far layer.
+// r106 0.92 x 0.10, r109 0.43 x 0.10, r107 below 0.12 x 0.10 (its far sprites added 0.0-0.2 / 255). r103 is
+// EFFECT_HAZE_LEAN M3's (its own table veil and sprite subset) and has no row. r100 and r101 keep M3's table veil and
+// near subset; their rows replace the M3 subset sprites (1 in 16 / 1 in 7 slots, alpha x 1.5, drawn at every depth)
+// beyond the keep depth, and the row veil stands in for them (about subset share x 1.5 of a full far layer).
 const HwFogRow kRows[] = {
+    {0x100, 3000.0f, 5000.0f, 0.010f},  // 8d8775: the M3 subset (1 in 16) beyond 3 m (M3's own table veil stays)
     {0x101, 3000.0f, 5000.0f, 0.015f},  // 716c5a: the M3 subset beyond 3 m (M3's own table veil stays)
     {0x106, 3000.0f, 5000.0f, 0.09f},   // fog colour 6e6a59
     {0x107, 3000.0f, 5000.0f, 0.02f},   // 5f6059
