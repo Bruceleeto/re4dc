@@ -2659,17 +2659,12 @@ void ModelRender(cModel* m)
 #if RE4DC_PS2_WORLD_R11F_OWNER
     if(sourceWorldR11fModelBlocked(m))return;
 #endif
-#endif
-    static int modeltransalphaupdate = 1;
-#if !(defined(RE4DC_ENCV) && RE4DC_ENCV)
-#if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
-    SourceWorldModelScope sourceWorldModelScope;
-#endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     // A revoked captured address is suppressed before ModelRender reads it.
     if(sourceWorldModelBlocked(m))return;
 #endif
 #endif
+    static int modeltransalphaupdate = 1;
 
 #if RE4DC_PACE_CATCHUP
     // Skipped iteration (pace.cpp): the draw writes nothing logic reads; the frame is not shown.
