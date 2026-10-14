@@ -225,10 +225,15 @@ endif
 #                    breaks and torches Et 0x55..0xbb, door locks 0xc9 / 0xcb, boat, animal, trap, Del Lago effects).
 #                    Room tables keep EFFECT_ROOM's rules; mask / render-target / non-blend sprites stay out. With
 #                    FX_LEVEL the admitted owners get a per-frame budget (kFxLevel owners; never thinned or resized).
+#                    Test 12: needs FX_LEVEL (never unbudgeted: the budget is 48 / 32 / 16 at level 0 / 1 / 2, so the
+#                    admitted owners cannot take the whole 64-sprite cap); Leon's PL00 effects are opted out of it.
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
 $(error EFFECT_OWNERS_ALL must be 0 or 1 and needs EFFECT_SPRITES=1 and EFFECT_ROOM)
+endif
+ifeq ($(FX_LEVEL),)
+$(error EFFECT_OWNERS_ALL=1 needs FX_LEVEL (the admitted-owner budget))
 endif
 endif
 # EFFECT_TORCH=1 (issue #30, test 11 lane fx 2026-10-14; needs EFFECT_SPRITES=1 ESP_SPRITE_FAST=1; render only, default 0):
