@@ -331,6 +331,18 @@ endif
 # off adds no compiler flags, preserving the existing disabled program bytes.
 ACTOR_TEX_PREP ?= 0
 ACTOR_TEX_PREP_DIAG ?= 0
+# Optional Ganado preloads require successful source OT/screen preparation.
+ACTOR_TEX_PREP_DRAW ?= 0
+ifeq ($(filter $(ACTOR_TEX_PREP_DRAW),0 1),)
+$(error ACTOR_TEX_PREP_DRAW must be 0 or 1)
+endif
+ifeq ($(ACTOR_TEX_PREP_DRAW),1)
+ifneq ($(ACTOR_TEX_PREP)$(COARSE_SOURCE_ACTORS)$(ACTOR_TRANSACTION),111)
+$(error ACTOR_TEX_PREP_DRAW needs ACTOR_TEX_PREP=1 COARSE_SOURCE_ACTORS=1 ACTOR_TRANSACTION=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP_DRAW=1
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP_DRAW=1
+endif
 # Standard Leon joins the existing player-first pre-scene atlas preparation.
 ACTOR_TEX_PREP_LEON ?= 0
 ifeq ($(filter $(ACTOR_TEX_PREP_LEON),0 1),)
