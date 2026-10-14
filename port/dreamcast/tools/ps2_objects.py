@@ -23,6 +23,12 @@ triangle is oriented so its face normal agrees with its corner normals in the sa
                  [--json report.json] [--gc-iso ISO] [--ps2-iso ISO]
      replaces the payload's BIN entries (GC arc : PS2 arc, archive indices as the game numbers them) and/or ETM
      BINs (paired by name) with le_mirror-converted rebuilt BINs; every other byte of the payload is kept.
+     --keep-larger     also convert an object whose PS2 mesh is not smaller (PS2 assets are the target; lane objs,
+                       2026-10-14). Without it such an object keeps its GC geometry (the 10-11 dars).
+     --world-owned 20,...  GC room BINs the PS2 version draws as part of its scenario SMD (so the PS2 world package
+                       already draws it): the GC copy keeps its header, joints and part headers with no triangles
+                       (empty parts; one unused vertex so no array is empty). r101 BIN 0x20 = the burning stake
+                       (SetObj00), PS2 SMD_016 / SMD_120.
   ps2_objects.py selftest <gc.bin>   (rebuild with the GC geometry itself as the "PS2" input; layout check)
 """
 import argparse
@@ -202,8 +208,10 @@ def gc_winding_sense(m):
     return 1 if agree >= 0 else -1
 
 
-def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None):
-    """-> (new big-endian GC BIN, stats). gc_tris_from: selftest geometry list instead of the PS2 BIN."""
+def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
+    """-> (new big-endian GC BIN, stats). gc_tris_from: selftest geometry list instead of the PS2 BIN.
+    allow_empty: a model with no triangle is written (world-owned objects); otherwise it is refused (a PS2 placeholder
+    such as the window panes et0000 / et2500, one degenerate triangle, is never converted silently)."""
     m = GcModel(gc_bytes)
     sense = gc_winding_sense(m)
     unit = m.normal_unit()
@@ -300,6 +308,11 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None):
             corner = (vmap[vk], nmap[nk]) + ((rec[2],) if m.stride == 8 else ()) + (umap[uq],)
             tri.append(corner)
         part_tris[k].append(tuple(tri))
+    if not verts:
+        if not allow_empty:
+            raise ValueError('no PS2 triangle (placeholder model)')
+        # world-owned / empty geometry: keep one unused vertex, normal and UV so no array is empty
+        verts.append((0, 0, 0, 0)); nrms.append((0, 0, 0, 0)); uvs.append((0, 0))
     if len(verts) > 0xFFFF or len(nrms) > 0xFFFF:
         raise ValueError('array too large')
     if len(pal) > 0xFF:
@@ -543,12 +556,26 @@ def room(args):
         if cur.rstrip(b'\0') != src_le.rstrip(b'\0'):
             raise ValueError('pair %s: the payload BIN is not le_mirror(GC BIN); refusing to replace modified data' % pair)
         new, st = rebuild(gbin, pe[pa][1])
-        if st['out_tris'] >= st['gc_tris']:
+        if st['out_tris'] >= st['gc_tris'] and not args.keep_larger:
             st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc=hex(pa), skipped='PS2 not smaller')
             report['objects'].append(st)
             continue
         rep[i] = to_le(new, pair)
         st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc=hex(pa), le_bytes_before=len(cur), le_bytes_after=len(rep[i]))
+        report['objects'].append(st)
+    for x in [x for x in (args.world_owned or '').split(',') if x]:
+        ga = int(x, 16)
+        i = ga - 4
+        tag, s, e = ge[i]
+        if tag.rstrip(b'\0') != b'BIN' or le[i][0].rstrip(b'\0') != b'BIN' or i in rep:
+            raise ValueError('world-owned %s: not a free BIN entry' % x)
+        gbin = gd[s:e]
+        cur = pay[le[i][1]:le[i][2]]
+        if cur.rstrip(b'\0') != to_le(gbin, x).rstrip(b'\0'):
+            raise ValueError('world-owned %s: the payload BIN is not le_mirror(GC BIN)' % x)
+        new, st = rebuild(gbin, None, lambda m: [], allow_empty=True)
+        rep[i] = to_le(new, x)
+        st.update(kind='room BIN', gc_arc=hex(ga), ps2_arc='world', le_bytes_before=len(cur), le_bytes_after=len(rep[i]))
         report['objects'].append(st)
     inner = {}
     if args.etm:
@@ -573,7 +600,7 @@ def room(args):
                     if body[0x40:].rstrip(b'\0') != src_le.rstrip(b'\0'):
                         raise ValueError('ETM %s is not le_mirror(GC)' % nm)
                     new, st = rebuild(gbin, pents[nm])
-                    if st['out_tris'] >= st['gc_tris']:
+                    if st['out_tris'] >= st['gc_tris'] and not args.keep_larger:
                         st.update(kind='etc', name=nm, skipped='PS2 not smaller')
                         report['objects'].append(st)
                     else:
@@ -627,6 +654,7 @@ def main():
     a = sp.add_parser('room')
     a.add_argument('--dar', required=True); a.add_argument('--room', required=True); a.add_argument('--pairs')
     a.add_argument('--etm'); a.add_argument('--pad-to'); a.add_argument('--out', required=True); a.add_argument('--json')
+    a.add_argument('--keep-larger', action='store_true'); a.add_argument('--world-owned')
     a.add_argument('--gc-iso', default=GC_ISO); a.add_argument('--ps2-iso', default=PS2_ISO)
     args = ap.parse_args()
     if args.cmd == 'bin':

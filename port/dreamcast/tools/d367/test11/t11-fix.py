@@ -65,6 +65,20 @@ CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut')
 # at half brightness; never stage it with a knob-off binary (2x bright).
 DATA['leonhr'] = {'dc/tex.pak': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
 T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bake (no r119) + Leon 2x, both in tex.pak
+# PS2 room objects (lane objs, docs/lanes/objs.md; Phase 2 B1 extended, test 12 candidate, NOT in T11_DATA): room
+# archives st1/rNNN.dar whose room-code set pieces and etc models (boxes, barrels, doors, racks, ladders, ...) carry
+# the PS2 geometry (tools/ps2_objects.py room --keep-larger; r101 BIN 0x20 = the burning stake is world-owned: the PS2
+# draws it in its scenario SMD, so the GC copy is emptied). Disc data only; the executable is unchanged.
+# objs-<room> = one room (unpadded payload), objs = every room below, objs-r100p / objs-r101p = payload padded to the
+# source size (equalised heap 4 arms). r119 keeps r119c (look lane: et1100 + BIN 0x22 together make the dark block).
+OBJS_ROOMS = 'r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r11a r11b'.split()
+OBJS = PRIV + '/objs-20261014'
+for _r in OBJS_ROOMS:
+    DATA['objs-' + _r] = {'st1/%s.dar' % _r: '%s/%so/%s.dar' % (OBJS, _r, _r)}
+DATA['objs'] = {k: v for _r in OBJS_ROOMS for k, v in DATA['objs-' + _r].items()}
+for _r in ('r100', 'r101'):
+    DATA['objs-%sp' % _r] = {'st1/%s.dar' % _r: '%s/%sp/%s.dar' % (OBJS, _r, _r)}
+# (later --data names win: '--data <test 11 data>,objs,objs-r100p' = every room with the padded r100)
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

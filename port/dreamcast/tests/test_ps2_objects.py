@@ -84,6 +84,21 @@ class Ps2ObjectsTests(unittest.TestCase):
         f = po.cross(po.sub(b, a), po.sub(c, a))
         self.assertEqual(f[1] > 0, po.gc_winding_sense(po.GcModel(g)) > 0)
 
+    def test_empty_geometry_keeps_layout(self):
+        # world-owned objects (lane objs): no triangles, every part header kept, one unused vertex
+        g = gc_bin()
+        with self.assertRaises(ValueError):
+            po.rebuild(g, None, lambda m: [])         # a placeholder is refused unless allowed
+        new, st = po.rebuild(g, None, lambda m: [], allow_empty=True)
+        m0, m1 = po.GcModel(g), po.GcModel(new)
+        self.assertEqual(st['out_tris'], 0)
+        self.assertEqual(st['empty_parts'], m0.nd)
+        self.assertEqual(m1.nd, m0.nd)
+        self.assertEqual([p['hdr'][:0x18] for p in m0.parts], [p['hdr'][:0x18] for p in m1.parts])
+        self.assertEqual((m1.nv, m1.nn), (1, 1))
+        self.assertEqual(new[0x40:0x50], g[0x40:0x50])     # joints kept
+        po.to_le(new)
+
     def test_tagged_identity(self):
         n = 3
         hdr = bytearray(0x10 + 8 * n)
