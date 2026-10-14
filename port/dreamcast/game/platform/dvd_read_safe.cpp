@@ -17,6 +17,22 @@
 //
 // DVD_STUCK_TEST=<seconds> (test discs only, with DVD_STUCK_ADDR): sets the flag just before the first stream start after
 // that much uptime: the stuck state on demand, with or without the fix.
+//
+// DISC_READ_FALLBACK=1 (issue #28, default 0): reads that a disc emulator does not complete. DreamShell's ISO loader
+// (IDE-modded console) crashed test 10 at boot in Snd_str_blk_init: its log showed "cdrom_abort_cmd: Timeout exceeded,
+// resetting." and then "DVD: Read Ok" for the sound stream table, whose contents were not the file. KOS ends a blocking
+// DMA wait (cdrom_stream_request, cdrom_read_sectors_ex with dma) when the vblank handler sees the GD command no
+// longer busy, and returns ERR_OK without checking that the transfer happened; when the emulated stream command
+// fails, the buffer keeps its old bytes and fs_iso9660's stream stop then times out (the reset in the log). The fix:
+// before each DMA read the last 32 bytes of the destination get a marker (written through the uncached P2 mirror: the
+// read's dcache invalidate would drop a cached write); if the marker is still there after an "OK" read, or the read
+// failed, or a stream stop timed out, the session latches to PIO: the read is done again by PIO sector reads
+// (cdrom_read_sectors_ex dma=false, the stream stopped first), later stream starts are refused (fs_iso9660 then uses
+// sector reads) and later sector reads use PIO. Normal discs never trip it: the cost is the marker (two 32-byte
+// uncached accesses per DMA read).
+//
+// DISC_FAIL_TEST=1|2 (test discs only): every DMA stream request (1), and also every DMA sector read (2), is skipped
+// and reported OK, as the emulator does: the failure on demand, with or without the fix.
 #include <kos.h>
 #include <dc/cdrom.h>
 
@@ -28,10 +44,20 @@
 #ifndef RE4DC_DVD_STUCK_TEST
 #define RE4DC_DVD_STUCK_TEST 0
 #endif
+#ifndef RE4DC_DISC_READ_FALLBACK
+#define RE4DC_DISC_READ_FALLBACK 0
+#endif
+#ifndef RE4DC_DISC_FAIL_TEST
+#define RE4DC_DISC_FAIL_TEST 0
+#endif
 
 extern "C" int __real_cdrom_stream_start(int sector, int cnt, bool dma);
 extern "C" int __real_cdrom_stream_request(void* buffer, size_t size, bool block);
 extern "C" semaphore_t _g1_ata_sem;
+#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST
+extern "C" int __real_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma);
+extern "C" int __real_cdrom_stream_stop(bool abort_dma);
+#endif
 
 namespace {
 int s_sector, s_cnt;
@@ -52,12 +78,125 @@ void stuck_test()
     }
 }
 #endif
+#if RE4DC_DISC_READ_FALLBACK
+bool g_pio;  // session latch: DMA reads did not land, every read is PIO from now on
+unsigned g_fb_dma, g_fb_reads;
+alignas(32) uint8_t g_bounce[2048];
+
+volatile uint32_t* mark_at(void* buf, size_t size)
+{
+    return (volatile uint32_t*) ((((uintptr_t) buf + size - 32) & 0x1FFFFFFFu) | 0xA0000000u);
 }
+uint32_t mark_word(volatile uint32_t* p, int i)
+{
+    return 0x5EAD0DC5u ^ (uint32_t) (uintptr_t) p ^ (uint32_t) i * 0x9E3779B9u;
+}
+// A DMA destination this can check: 32-byte aligned (the DMA requirement) and at least 32 bytes.
+bool markable(void* buf, size_t size)
+{
+    return !((uintptr_t) buf & 31) && size >= 32;
+}
+void mark(void* buf, size_t size)
+{
+    volatile uint32_t* p = mark_at(buf, size);
+    for (int i = 0; i < 8; ++i) p[i] = mark_word(p, i);
+}
+bool landed(void* buf, size_t size)
+{
+    volatile uint32_t* p = mark_at(buf, size);
+    for (int i = 0; i < 8; ++i) {
+        if (p[i] != mark_word(p, i)) return true;
+    }
+    return false;
+}
+void latch(const char* why)
+{
+    if (!g_pio) re4dc_log("disc read fallback: %s; reads use PIO sector reads from now on\n", why);
+    g_pio = true;
+}
+// Bytes [pos, pos + size) of the run starting at `lba`, by PIO sector reads.
+int pio_fill(uint8_t* dst, int lba, size_t pos, size_t size)
+{
+    while (size) {
+        const int sec = lba + (int) (pos / 2048);
+        const size_t off = pos % 2048;
+        int rv;
+        size_t k;
+        if (!off && size >= 2048 && !((uintptr_t) dst & 1)) {
+            k = size & ~(size_t) 2047;
+            rv = __real_cdrom_read_sectors_ex(dst, sec, k / 2048, false);
+        } else {
+            rv = __real_cdrom_read_sectors_ex(g_bounce, sec, 1, false);
+            k = 2048 - off < size ? 2048 - off : size;
+            if (rv == ERR_OK) memcpy(dst, g_bounce + off, k);
+        }
+        if (rv != ERR_OK) return rv;
+        dst += k;
+        pos += k;
+        size -= k;
+    }
+    return ERR_OK;
+}
+// A stream request that failed or did not land: stop the stream (fs_iso9660 then sees no transfer pending and ends
+// its stream too) and fill the request from where the stream stood.
+int stream_fallback(void* buffer, size_t size, const char* why)
+{
+    latch(why);
+    ++g_fb_reads;
+    __real_cdrom_stream_stop(false);
+    const int rv = pio_fill((uint8_t*) buffer, s_sector, s_consumed, size);
+    if (rv == ERR_OK) s_consumed += size;
+    re4dc_log("disc read fallback: stream request (%u bytes at sector %d + %u) %s by PIO (fallbacks %u)\n",
+              (unsigned) size, s_sector, (unsigned) (s_consumed - (rv == ERR_OK ? size : 0)),
+              rv == ERR_OK ? "read" : "FAILED", g_fb_reads);
+    return rv;
+}
+#endif
+}
+
+#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST
+extern "C" int __wrap_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma)
+{
+#if RE4DC_DISC_READ_FALLBACK
+    if (!dma || g_pio || !markable(buffer, cnt * 2048)) return __real_cdrom_read_sectors_ex(buffer, sector, cnt, dma && !g_pio);
+    mark(buffer, cnt * 2048);
+#else
+    if (!dma) return __real_cdrom_read_sectors_ex(buffer, sector, cnt, dma);
+#endif
+#if RE4DC_DISC_FAIL_TEST >= 2
+    int rv = ERR_OK;  // skipped: the emulator's "done" without the transfer
+#else
+    int rv = __real_cdrom_read_sectors_ex(buffer, sector, cnt, true);
+#endif
+#if RE4DC_DISC_READ_FALLBACK
+    if (rv != ERR_OK || !landed(buffer, cnt * 2048)) {
+        latch(rv == ERR_OK ? "a DMA sector read reported OK but did not land" : "a DMA sector read failed");
+        ++g_fb_dma;
+        rv = __real_cdrom_read_sectors_ex(buffer, sector, cnt, false);
+        re4dc_log("disc read fallback: %u sectors at %u read again by PIO: %s (fallbacks %u)\n", (unsigned) cnt,
+                  (unsigned) sector, rv == ERR_OK ? "ok" : "FAILED", g_fb_dma);
+    }
+#endif
+    return rv;
+}
+
+extern "C" int __wrap_cdrom_stream_stop(bool abort_dma)
+{
+    const int rv = __real_cdrom_stream_stop(abort_dma);
+#if RE4DC_DISC_READ_FALLBACK
+    if (rv == ERR_TIMEOUT) latch("a stream stop timed out (the drive was reset)");
+#endif
+    return rv;
+}
+#endif
 
 extern "C" int __wrap_cdrom_stream_start(int sector, int cnt, bool dma)
 {
 #if RE4DC_DVD_STUCK_TEST
     stuck_test();
+#endif
+#if RE4DC_DISC_READ_FALLBACK
+    if (g_pio) return ERR_SYS;  // fs_iso9660 falls back to sector reads
 #endif
     s_sector = sector;
     s_cnt = cnt;
@@ -68,13 +207,32 @@ extern "C" int __wrap_cdrom_stream_start(int sector, int cnt, bool dma)
 
 extern "C" int __wrap_cdrom_stream_request(void* buffer, size_t size, bool block)
 {
+#if RE4DC_DISC_READ_FALLBACK
+    // fs_iso9660's one non-blocking request (32 bytes) polls for completion right after: blocking here is the same.
+    const bool check = s_dma && markable(buffer, size);
+    if (check) {
+        block = true;
+        mark(buffer, size);
+    }
+#endif
+#if RE4DC_DISC_FAIL_TEST
+    int rv = s_dma ? ERR_OK : __real_cdrom_stream_request(buffer, size, block);  // skipped: "done" without the transfer
+#else
     int rv = __real_cdrom_stream_request(buffer, size, block);
+#endif
     if (rv == ERR_OK) {
+#if RE4DC_DISC_READ_FALLBACK
+        if (check && !landed(buffer, size)) return stream_fallback(buffer, size, "a DMA stream request reported OK but did not land");
+#endif
         s_consumed += size;
         return rv;
     }
 #if RE4DC_DVD_READ_SAFE
+#if RE4DC_DISC_READ_FALLBACK
+    if (rv != ERR_SYS) return stream_fallback(buffer, size, "a stream request failed");
+#else
     if (rv != ERR_SYS) return rv;
+#endif
     ++g_refused;
     for (int i = 0; i < 5 && rv == ERR_SYS; ++i) {
         thd_sleep(2);
@@ -102,6 +260,9 @@ extern "C" int __wrap_cdrom_stream_request(void* buffer, size_t size, bool block
     re4dc_log("dvd read safe: stream request refused, %s%s (%u bytes; refused %u recovered %u failed %u)\n",
               rv == ERR_OK ? "recovered" : "FAILED", restarted ? " after a stream restart" : "", (unsigned) size,
               g_refused, g_recovered, g_failed);
+#endif
+#if RE4DC_DISC_READ_FALLBACK
+    if (rv != ERR_OK) rv = stream_fallback(buffer, size, "a stream request failed");
 #endif
     return rv;
 }

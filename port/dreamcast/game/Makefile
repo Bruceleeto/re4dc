@@ -780,14 +780,29 @@ endif
 # request is retried for 10 ms, then the stale flag is cleared (cdrom_abort_cmd with abort_dma), the stream restarted
 # where it stood and the request repeated. DVD_STUCK_TEST=<seconds> + DVD_STUCK_ADDR=<address of KOS dma_in_progress>
 # (test discs only) set the flag on demand. Not with IO_PROBE=1 (it wraps the same entry points).
+# DISC_READ_FALLBACK=1 (issue #28, default 0; same file): a DMA read (stream request or sector read) that fails, or
+# reports OK without landing (a marker in the destination's last 32 bytes survives: DreamShell's ISO loader), or a
+# stream stop that times out latches the session to PIO sector reads; the read is redone by PIO. It also validates the
+# sound stream table / ISS block headers (src/game/snd.cpp) and re-reads or skips a bad one instead of faulting.
+# DISC_FAIL_TEST=1|2 (test discs only): every DMA stream request (1), and also every DMA sector read (2), is skipped and
+# reported OK: the emulator's failure on demand.
+DISC_READ_FALLBACK ?= 0
+DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
 DVD_STUCK_ADDR ?= 0
-ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST),00)
+ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST),0000)
 ifeq ($(IO_PROBE),1)
-$(error DVD_READ_SAFE / DVD_STUCK_TEST and IO_PROBE=1 wrap the same cdrom entry points)
+$(error DVD_READ_SAFE / DVD_STUCK_TEST / DISC_READ_FALLBACK and IO_PROBE=1 wrap the same cdrom entry points)
 endif
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
+ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST),00)
+GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST)
+endif
+ifeq ($(DISC_READ_FALLBACK),1)
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1
+endif
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DVD_READ_SAFE=$(DVD_READ_SAFE) -DRE4DC_DVD_STUCK_TEST=$(DVD_STUCK_TEST) -DRE4DC_DVD_STUCK_ADDR=$(DVD_STUCK_ADDR)
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
