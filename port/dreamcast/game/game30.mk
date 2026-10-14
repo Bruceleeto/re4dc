@@ -270,7 +270,12 @@ endif
 #   MeshDraw parts (room scenery and objects, the PS2 world) in the opaque list; inside a volume they show at MV_SCALE
 #   percent (50). OP_MOD object pointer blocks of MV_OPB_BINS words (8 or 16) come out of the vertex buffer, not the
 #   texture pool. Near-plane crossings are clipped and capped. TA_BIN_DIAG counts the volume list ("tabin mod:").
-MV_SHADOWS ?= 0
+#   Light direction (shadow lane 2026-10-14): each footprint stretches away from its caster's dominant light, the
+#   shared per-actor light probe (actor_light_probe.h; builds with ACTOR_PROBE_LIGHT define RE4DC_ACTOR_LIGHT_PROBE_API),
+#   by MV_BODY mm (1700) of body height x the probe's coherence, at most MV_LEN_MAX mm (1800). No probe: straight down
+#   (the look above). MV_DIR_AZ + MV_DIR_EL (degrees; test builds) = one fixed light for every caster without a probe.
+#   SHADOW_MV is another name for MV_SHADOWS.
+MV_SHADOWS ?= $(if $(SHADOW_MV),$(SHADOW_MV),0)
 ifneq ($(MV_SHADOWS),0)
 MV_OPB_BINS ?= 8
 MV_SCALE ?= 50
@@ -280,11 +285,22 @@ MV_TOP ?= 250
 MV_DEPTH ?= 1200
 MV_RANGE_M ?= 15
 MV_MAX ?= 12
+MV_BODY ?= 1700
+MV_LEN_MAX ?= 1800
+MV_DIR_AZ ?=
+MV_DIR_EL ?=
 ifeq ($(filter $(MV_OPB_BINS),8 16),)
 $(error MV_OPB_BINS is 8 or 16)
 endif
 MV_DEFS := -DRE4DC_MV_SHADOWS=1 -DRE4DC_MV_OPB_BINS=$(MV_OPB_BINS) -DRE4DC_MV_SCALE=$(MV_SCALE) -DRE4DC_MV_SIDES=$(MV_SIDES) \
-  -DRE4DC_MV_RADIUS=$(MV_RADIUS) -DRE4DC_MV_TOP=$(MV_TOP) -DRE4DC_MV_DEPTH=$(MV_DEPTH) -DRE4DC_MV_RANGE_M=$(MV_RANGE_M) -DRE4DC_MV_MAX=$(MV_MAX)
+  -DRE4DC_MV_RADIUS=$(MV_RADIUS) -DRE4DC_MV_TOP=$(MV_TOP) -DRE4DC_MV_DEPTH=$(MV_DEPTH) -DRE4DC_MV_RANGE_M=$(MV_RANGE_M) -DRE4DC_MV_MAX=$(MV_MAX) \
+  -DRE4DC_MV_BODY=$(MV_BODY) -DRE4DC_MV_LEN_MAX=$(MV_LEN_MAX)
+ifneq ($(MV_DIR_AZ)$(MV_DIR_EL),)
+ifeq ($(and $(MV_DIR_AZ),$(MV_DIR_EL)),)
+$(error MV_DIR_AZ and MV_DIR_EL go together)
+endif
+MV_DEFS +=-DRE4DC_MV_DIR_AZ=$(MV_DIR_AZ) -DRE4DC_MV_DIR_EL=$(MV_DIR_EL)
+endif
 PLATFORM_CPPFLAGS += $(MV_DEFS)
 PLATFORM_OBJS += $(OBJDIR)/mv_shadow.o
 $(OBJDIR)/mv_shadow.o: mv_shadow.cpp
