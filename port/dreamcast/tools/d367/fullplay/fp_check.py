@@ -97,8 +97,24 @@ def visits(lines):
 
 LEAK_BYTES = 32 * 1024
 
+def leak_judge(vals, sign):
+    """Floor rule (2026-10-14, replaces "3 monotonic samples"): the first entry is cold (empty caches) and is not
+    judged; of the warm entries (3 or more needed), the last two must not both be worse than the worst earlier warm
+    entry (the floor), with the last one worse by more than LEAK_BYTES; or every warm entry is worse than the one
+    before and the warm entries lose more than LEAK_BYTES in all (a small steady leak). A cache that refills and
+    empties between visits (VRAM texture cache, KOS fragments) stays inside its floor; a leak sets a new low on
+    every visit."""
+    warm = vals[1:]
+    if len(warm) < 3:
+        return False, None
+    earlier, last = warm[:-2], warm[-2:]
+    floor = min(earlier) if sign < 0 else max(earlier)
+    worse = [(floor - x) if sign < 0 else (x - floor) for x in last]
+    steady = all((b - a) * sign > 0 for a, b in zip(warm, warm[1:])) and abs(warm[-1] - warm[0]) > LEAK_BYTES
+    return (all(w > 0 for w in worse) and worse[-1] > LEAK_BYTES) or steady, floor
+
 def leak_check(vs):
-    """repeated visits of the same room in one run: free memory must not trend down."""
+    """repeated visits of the same room in one run: free memory must not keep falling below its floor (leak_judge)."""
     rows, fails = [], []
     by = {}
     for v in vs:
@@ -112,11 +128,12 @@ def leak_check(vs):
                 continue
             d = [vals[i + 1] - vals[i] for i in range(len(vals) - 1)]
             total = vals[-1] - vals[0]
-            trend = all(x * sign > 0 for x in d) if sign else False  # every visit worse than the one before
-            bad = len(vals) >= 3 and trend and abs(total) > LEAK_BYTES
-            rows.append(dict(room=room, metric=key, values=vals, total=total, monotonic=trend, fail=bad))
+            trend = all(x * sign > 0 for x in d) if sign else False  # every visit worse than the one before (report)
+            bad, floor = leak_judge(vals, sign)
+            rows.append(dict(room=room, metric=key, values=vals, total=total, monotonic=trend, floor=floor, fail=bad))
             if bad:
-                fails.append('r%s %s %s (%+d B over %d visits)' % (room, key, ' -> '.join(str(x) for x in vals), total, len(vals)))
+                fails.append('r%s %s %s (last two warm entries past the warm floor %d; %+d B over %d visits)' % (
+                    room, key, ' -> '.join(str(x) for x in vals), floor, total, len(vals)))
     return rows, fails
 
 def retired_world_opens(lines):
@@ -193,6 +210,7 @@ def check_segment(evdir, seg, known):
     reset_drops = 0
     last_load, load_k = '', None
     handoff = set()
+    skipped = set()
     for i, ln in enumerate(lines, 1):
         if DELIBERATE_FREEZE.search(ln):
             froze = True
@@ -217,6 +235,10 @@ def check_segment(evdir, seg, known):
                     mm = re.search(r'terminal=4 id=([0-9a-f]+) frames=(\d+)/(\d+)', ln)
                     if mm and mm.group(1) in handoff and mm.group(2) == mm.group(3):
                         continue
+                    # a movie the player skipped (the skip key logged for it first) ends with terminal 2 by design
+                    mm = re.search(r'terminal=2 id=([0-9a-f]+) ', ln)
+                    if mm and mm.group(1) in skipped:
+                        continue
                 # a "package rejected" line names its file only in the "native UI: load" line before it
                 ctx = ln + (' <- ' + last_load if 'package rejected' in ln and last_load else '')
                 k = known_for(known, cat, seg['name'], ctx)
@@ -234,6 +256,9 @@ def check_segment(evdir, seg, known):
         mh = re.search(r'route movie handoff: id=([0-9a-f]+)', ln)
         if mh:
             handoff.add(mh.group(1))
+        ms = re.search(r'route movie skip: id=([0-9a-f]+) ', ln)
+        if ms:
+            skipped.add(ms.group(1))
         if ln.startswith('native UI: load '):
             last_load, load_k = ln.strip(), None
     res['counts'] = {'%s/%s%s' % (k[0], k[1], ' (known)' if k[2] else ''): n for k, n in seen.items()}

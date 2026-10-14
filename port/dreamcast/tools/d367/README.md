@@ -757,9 +757,11 @@ failed`, `NMRPACK refuse`, `NMRM decline`, `MODEL_BLOB_FALLBACK`); TEX_CHECK `FA
 `no contiguous block`, `pair missing`, `open failed`; allocation failures (`allocation failed`, `alloc[..]:free[..]`,
 `NOMEM`, `does not fit`, ...); disc / VMU I/O failures; a movie that does not reach its end (`terminal` != 1) and any
 s30 picture dropped; `Coming Soon`; log ring overrun; a segment goal not reached (each segment lists the log lines
-its route must show: title menu, movies played whole, room entries, saves, loads); free memory trending down over 3+
-visits of the same room in one segment (heap 4 census free after load, heap 4 at entry, KOS used, VRAM; > 32 KB and
-worse on every visit); r100 after load + reset + New Game with > 16 KB less heap 4 than after a fresh boot.
+its route must show: title menu, movies played whole, room entries, saves, loads); a leak over repeated entries of
+the same room in one segment (heap 4 census free after load, heap 4 at entry, KOS used, VRAM; `leak_judge`, the floor
+rule since 2026-10-14: the cold first entry is not judged; with 3+ warm entries, the last two both past the worst
+earlier warm entry and the last by > 32 KB, or every warm entry worse than the one before by > 32 KB in all; the
+old "3 monotonic samples" rule failed test 11's `long` on a texture cache that oscillates); r100 after load + reset + New Game with > 16 KB less heap 4 than after a fresh boot.
 
 **Known issues** (`known-issues.txt`): `builds | category | segment | regex | why`, scoped to the release tree's commit
 (`builds`) so a later build that still shows them fails again. Rows name their KNOWN_ISSUES.md row, or are marked
@@ -803,8 +805,11 @@ console faulted at ui frame 2166); the console bad read
 depends on stale memory contents Flycast does not reproduce, so the suite proves alignment of the paths it plays,
 not the absence of that fault.
 
-**Short cache loop (`--only cache`).** `cache` warps r100 <-> r101 four times (1500 room frames per visit, ~8 min)
-for the leak check on r100 x5 / r101 x4 entries; it answers the memory-trend question faster than `long`.
+**Short cache loop (`--only cache`).** `cache` warps r100 <-> r101 four times (450 room frames per visit; a room's
+texture and model loads finish within ~240 frames of its entry) and samples every entry: r100 x5 / r101 x4 for the
+floor rule, about 4 min of segment wall. It answers the memory-trend question in place of `long`. The 1500-frame
+version (ca10b / ca11b, ~8.6 min) and the 450-frame version (cq10a / cq11a) give the same verdicts on test 10 and
+eb4e8813 (PASS, the same r100 VRAM floor).
 
 **Traps.** fp_prep picks the newest `out-*` whose binary equals the disc's 1ST_READ.BIN; another lane's knob-off build
 can match (cr11a picked out-d11ktP = b8fc59e3), and known rows keyed to the release commit then do not apply: pass

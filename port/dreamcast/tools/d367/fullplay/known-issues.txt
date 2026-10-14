@@ -27,8 +27,3 @@ db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | texture | bell | re4tex 128x128 f
 db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | alloc | h2 | alloc\[[0-9a-f]+\]:free\[[0-9a-f]+\] native UI texture staging | NEW 10-14: r100 s30 start: UI texture staging (55 KB) does not fit while the movie borrows heap 4
 db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | texture | ch21 | fbec854a-b7656a09 | NEW 10-14: chapter 2-1 results screen texture /cd/dc/tex/f/fbec854a-b7656a09.re4tex (pair color c050cf4e-216cd784 mask ec97f64b-dab43d54) is not on the disc
 40fb4deb,135fde2b | movie | lake | route movie terminal=3 id=10b10 | NEW 10-14: test 9.1 twin: r10b s10 ends on its first picture (terminal=3, "texture retirement: open scene discarded", vram_free=21504 at start); plays whole on test 9 and a93e8be0
-# The long segment's 3 r100 entries are deterministic (t11b and t11c gave the same numbers): kos_used rises ~95 KB from
-# the cold first entry (test 10 too: 12356364 -> 12458636 -> 12451772) and free VRAM is texture-cache occupancy
-# (test 10 2509824 -> 108704 -> 444576, lower than test 11). Test 11 eb4e8813: kos_used 12307212 -> 12400852 -> 12405292,
-# vram 2510080 -> 575392 -> 313248; heap 4 identical per entry, no texture refusal or allocation failure in the run.
-eb4e8813 | leak | long | ^r100 (kos_used|vram) | NEW 10-14: r100 long-run trend at test 10's level (cold first entry + texture cache occupancy, test 10 floor lower), not a leak; the short cache loop (segment cache) checks r100 x5
