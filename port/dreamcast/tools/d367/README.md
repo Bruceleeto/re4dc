@@ -688,3 +688,102 @@ Diagnostic builds only; the default image does not change.
   `iowrap:` lines with each `iotime` line: blocking time by file path, by caller (return
   address, symbolize with `symbols-demangled.txt`), by KOS wait kind and thread, and per
   thread.
+
+## Full-play gate (`fullplay/fullplay.sh`, 2026-10-14)
+
+Must pass before any test build is published. Test 9 shipped a leak (ModuleMemFree dropped live frees at room
+exits) and the test 10 recipe nearly shipped GameCube Leon in every room (hand package not staged): the old gates
+ran on arm images and short routes, not on the release disc. This gate starts from the release package itself.
+
+```
+# Git Bash on the Windows host
+bash port/dreamcast/tools/d367/fullplay/fullplay.sh <release zip | gdemu dir> [--label L] [--only seg,seg] [--jobs N]
+# exit 0 PASS, 1 FAIL, 2 tool error; one-page REPORT.md + verdict.json in the evidence dir
+# (default C:\Flycast-Evidence\re4-dreamcast\fullplay-<date>\<label>-<time>)
+python port/dreamcast/tools/d367/fullplay/fp_check.py <evidence dir>   # re-judge a finished run
+```
+
+**What it boots.**
+1. The release tracks, checked against the package's own SHA256SUMS (the zip's inner `SHA256SUMS.txt`; for a
+   gdemu dir, the sibling `*GDEMU.zip`'s, or a `SHA256SUMS.txt` naming `gdemu/` files). A mismatch fails.
+2. **real** segment: those tracks, unmodified (hard links), driven only by host key presses (`fp_run.py --keys`:
+   WM_KEYDOWN to Flycast's window, the default keyboard map) from boot through the title, New Game, the r120 intro
+   and r100.
+3. **rel** discs: the release's own game tree (`fp_iso.py extract` from track 3) remastered with the release
+   1ST_READ.BIN + a padscript.
+4. **twin** discs: the same tree with the twin's 1ST_READ.BIN and `dc/*.ovl`. The twin is the release recipe
+   (`candidate.txt` of the route build whose binary equals the disc's 1ST_READ.BIN) + diagnostic knobs only:
+   `DBG_WARP=1 WARP_JUMP=1 PC_SAMPLER=0`, `TEX_CHECK=1` and `MCHECK_LEONGC=1` where the tree has them, built from a
+   clean worktree at the release commit. Proofs in `prep.json`: the same worktree rebuilds the release binary
+   byte-identically (`IDENTITY OK`), and each base disc's file manifest equals the release's except 1ST_READ.BIN,
+   `dc/*.ovl` (twin) and the two fixture files (`base-diff.txt`). The twin image is larger (DBG_WARP code), so its
+   heap 4 is ~32 KB smaller than the release's (9.1: twin `_end` 8c40391c vs 8c3fbadc): memory results on twin segments are conservative.
+5. Fixtures without per-segment discs: `dc/warp.txt` and `dc/padscript.txt` exist in each base's directory with
+   their extents redirected into track 1 (LBA 400 / 420, 8 KB, NUL-padded); every segment writes its own 1.2 MB
+   `track01.iso` and hard-links the shared track 3 (`fp_master.sh`, `fp_iso.py redirect`).
+
+**Segments** (`segments.conf`; run in parallel, longest first; each stops a grace period after its goal):
+| Segment | How | Disc | Max s | Covers |
+|---|---|---|---|---|
+| real-newgame | real | real | 480 | boot, title, New Game, the r120 intro movies, r100 entry and s40 on the untouched release disc |
+| h2 | warped | twin | 540 | r100 house: s03, the s03 Ganado (rig kill), s20 ambush fight, s30 cliff movie (heap 4's tightest point) |
+| bell | warped | twin | 1000 | r101 village fight played to the bell by its own 11,700-frame timer (god mode), bell movie |
+| door103 | warped | twin | 300 | r101 after the bell, post-bell call, the r103 door, r103 farm with its Ganados |
+| r106 | warped | twin | 300 | r103 -> r106 door, r106 hall |
+| ch11 | warped | twin | 600 | r106 closet event (chapter 1-1 end), results, save, chapter 1-2: r104 arrival event and QTE |
+| r107 | warped | twin | 300 | r104 -> r107 emblem gate door, r107 |
+| ch12 | warped | twin | 600 | r105 key event (s00, chapter 1-2 end), results, save, chapter 1-3 opens with s10 |
+| r108 | warped | twin | 240 | r108 entry (village outskirts) |
+| r109 | warped | twin | 240 | r108 -> r109 bridge door, r109 |
+| r10a | warped | twin | 240 | r10a entry |
+| lake | warped | twin | 720 | r10b lake: boat boarding, Del Lago (rig trigger + kill), chapter 1-3 end, save, chapter 2-1 starts in r11b |
+| boat | warped | twin | 360 | r10b: board the boat, get off, board again (x13) |
+| r11b | warped | twin | 240 | r11b (chapter 2-1 start): entry and a walk to the cabin side (rig goto), heap 4 census at 900 and 1500 |
+| g3 | warped | twin | 720 | r11a -> r119 door, El Gigante (rig trigger + rocket kill), its movies |
+| r118 | warped | twin | 240 | r118 entry |
+| ch21 | warped | twin | 1000 | r117 Ashley found (s00), Playing Manual, Saddler (s10), chapter 2-1 end, save |
+| reset | scripted | rel | 900 | load a save (r102), play, soft reset (Game Reset), New Game, r120 intro, r100 + s40 again |
+| long | warped | twin | 2700 | long session: 8 room changes r100 -> r101 -> r103 -> r101 -> r100 -> r101 -> r103 -> r101 -> r100 through the source's room-change path (WARP_JUMP), 6750 room frames (~3.75 min) per visit, ~30 min in all, god mode; leak check on repeated visits |
+
+The tool rebuilds the twin (and the release binary for the identity proof) on every run, in a clean worktree at
+the release commit under /root/probe/lanes-20261014/fullplay/trees/ (`FP_BUILD=<out dir>` names the release build when
+the search by binary finds none). Wall time on this host: prep ~2-2.5 min, segments ~35 min (`long` is the
+critical path: 8 x 6750 room frames), the rest finish within ~15 min at 6 Flycasts.
+
+**Fails on** (`fp_check.py RULES`, every line of every segment log): FAULT / HALT / crash screen hang (`no new frame`,
+unless after a deliberate `warp: frozen` or a Coming Soon hold) / Flycast exit; `RE4DC MISSING`; `MISALIGN`;
+`dropped (heap`; any GameCube fallback (`LEONGC` lines, `LHPACK dir ... why!=0`, `PS2WORLD fallback`, `PS2MESH open
+failed`, `NMRPACK refuse`, `NMRM decline`, `MODEL_BLOB_FALLBACK`); TEX_CHECK `FAIL` / `CHANGED`, `upload FAILED`,
+`no contiguous block`, `pair missing`, `open failed`; allocation failures (`allocation failed`, `alloc[..]:free[..]`,
+`NOMEM`, `does not fit`, ...); disc / VMU I/O failures; a movie that does not reach its end (`terminal` != 1) and any
+s30 picture dropped; `Coming Soon`; log ring overrun; a segment goal not reached (each segment lists the log lines
+its route must show: title menu, movies played whole, room entries, saves, loads); free memory trending down over 3+
+visits of the same room in one segment (heap 4 census free after load, heap 4 at entry, KOS used, VRAM; > 32 KB and
+worse on every visit); r100 after load + reset + New Game with > 16 KB less heap 4 than after a fresh boot.
+
+**Known issues** (`known-issues.txt`): `builds | category | segment | regex | why`, scoped to the release tree's commit
+(`builds`) so a later build that still shows them fails again. Rows name their KNOWN_ISSUES.md row, or are marked
+`NEW 10-14` (found by this gate; add them to KNOWN_ISSUES.md). They are listed in the report but not counted. The
+follow-on lines of one texture load (`upload FAILED`, `texchk:`) share the verdict of its first failure line; a
+`package rejected` line is matched together with the `native UI: load <path>` line before it.
+
+**Real vs warped.** Only `real-newgame` boots the release disc untouched (host keys). `reset` runs the release
+binary with a padscript (load a VMU save, play, soft reset, New Game). Every other segment is warped on the twin
+(the warp rig places Leon, sets flags, kills or triggers what a padscript cannot play reliably; `long` changes rooms
+through WARP_JUMP's SceAtExecRoomJump, not by walking doors). The r100 s30 movie, the r101 bell, the boat and
+the chapter ends play in the game's own code once the rig has set the scene.
+
+**Validation (2026-10-14, evidence C:\Flycast-Evidence\re4-dreamcast\fullplay-20261014\).**
+- Test 9.1 (40fb4deb zip, release binary rebuilt from 135fde2b and 40fb4deb): **PASS** with known issues, 35.6 min
+  (`t91-c`). Found and listed as `NEW 10-14` rows: VRAM fragmentation refusals (`no contiguous block`, r105 / r10b /
+  r119), a 128x128 texture missing at the r101 bell whose id changes per build, the chapter 2-1 results texture
+  fbec854a-b7656a09 not on the disc, `alloc[..]:free[..] native UI texture staging` at the r100 s30 start, and on
+  the 9.1 twin r10b s10 ending on its first picture (terminal=3; plays whole on test 9 and a93e8be0).
+- Test 9 (db351823 zip): **FAIL**, `dropped (heap 0 destroyed)` module frees at room exits in 9 segments (bell,
+  door103, r106, ch11, r107, r109, lake, g3, long) (`t9-a`, 47.5 min; its `long` used the first fixture, rerun in
+  `t9-long`).
+- Test-10-style disc (a93e8be0 + LEON_HAND_PACK=1, 9.1 data tree, no `leon_hands_pl00.re4hp`;
+  `_validation\nohandpack`): **FAIL** in all 19 segments, including the untouched-disc `real-newgame` and the
+  release-binary `reset` (`LHPACK dir rows=0 ... why=1`) and every twin segment (`LEONGC f=... why=4`) (`nohp-a`,
+  36.0 min).
+
