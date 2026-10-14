@@ -1644,6 +1644,8 @@ include blender30.mk
 include tahash.mk
 # D367 machine checks (MCHECK_PT, MCHECK_SAFE; test builds; default off: no effect).
 include mcheck.mk
+# D367 PS2 world holes (WORLD_HOLE_DIAG; test 11 item E; default off: no effect).
+include worldhole.mk
 # D367 frame pacing (PACE_CATCHUP; default off: no effect).
 include pace.mk
 # Frozen source candidate controls, after all prerequisite defaults.

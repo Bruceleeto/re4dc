@@ -2427,6 +2427,47 @@ void room_end(){
 #define RE4DC_TEXCHK_FAIL(k,why) ((void)0)
 #define RE4DC_TEXCHK_SKIP(k,why) ((void)0)
 #endif
+#if RE4DC_WORLD_HOLE_DIAG
+// WORLD_HOLE_DIAG (worldhole.mk, test only): load()'s refusal reason (the texchk reason text, stringified so a build
+// without TEX_CHECK records it too) for re4dc_ps2_world_direct_begin's per-part reason (native_static.cpp WHD lines).
+const char* whd_load_why;
+unsigned whd_why; // re4dc_ps2_world_direct_begin's last refusal (worldhole.mk lists the codes)
+// The first stream abort of the frame: kind 1 model part queue full (defer_part), 2 re4dc_model_packet_abort (ra =
+// caller), 3 UI quad queue full; q = required, frame queue top, spill top, spill capacity, queued parts, quads.
+unsigned whd_abort_frame=~0U,whd_abort_kind,whd_abort_q[6],whd_aborts;void* whd_abort_ra;
+#define RE4DC_WHD_ABORT(kind,ra,req) do{++whd_aborts;if(whd_abort_frame!=frame){whd_abort_frame=frame;whd_abort_kind=(kind);\
+    whd_abort_ra=(ra);whd_abort_q[0]=(req);whd_abort_q[1]=deferred_top;whd_abort_q[2]=deferred_spill_top;\
+    whd_abort_q[3]=deferred_spill_capacity;whd_abort_q[4]=deferred_count;whd_abort_q[5]=nquad;}}while(0)
+#undef RE4DC_TEXCHK_FAIL
+#undef RE4DC_TEXCHK_SKIP
+#if RE4DC_TEX_CHECK
+#define RE4DC_TEXCHK_FAIL(k,why) (whd_load_why=#why,texchk::fail((k),(why),image))
+#define RE4DC_TEXCHK_SKIP(k,why) (whd_load_why=#why,texchk::fail((k),(why),image,true))
+#else
+#define RE4DC_TEXCHK_FAIL(k,why) (whd_load_why=#why)
+#define RE4DC_TEXCHK_SKIP(k,why) (whd_load_why=#why)
+#endif
+#define RE4DC_WHD(code) (whd_why=(code))
+#else
+#define RE4DC_WHD(code) ((void)0)
+#define RE4DC_WHD_ABORT(kind,ra,req) ((void)0)
+#endif
+#if RE4DC_WORLD_HOLE_FIX
+// WORLD_HOLE_FIX: translucent model parts dropped because the frame queue (frame_storage + the 8 KiB spill) was full.
+// One WHFIX line per frame with drops (the first 64 such frames, then every 120th frame): parts and bytes asked for.
+unsigned whfix_frame=~0U,whfix_parts,whfix_bytes,whfix_frames,whfix_total;
+void whfix_flush(){
+    if(whfix_frame==~0U || !whfix_parts)return;
+    ++whfix_frames;whfix_total+=whfix_parts;
+    if(whfix_frames<=64 || !(whfix_frame%120))
+        re4dc_log("WHFIX frame=%u dropped_parts=%u bytes=%u frames=%u total=%u\n",whfix_frame,whfix_parts,whfix_bytes,whfix_frames,whfix_total);
+    whfix_parts=whfix_bytes=0;
+}
+void whfix_drop(unsigned required){
+    if(whfix_frame!=frame){whfix_flush();whfix_frame=frame;}
+    ++whfix_parts;whfix_bytes+=required;
+}
+#endif
 void close_entry(Entry& entry) {
 #if RE4DC_TEX_CHECK
     if(entry.valid)texchk::verify(entry,"close",true);
@@ -4256,7 +4297,7 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
     if((q->color>>24)==0){++culled;return;}
     if(q->masked || q->blend>4){++unsupported;return;}
 #if RE4DC_D349_RENDERER_STACK
-    if((nquad+1)*sizeof(Re4dcUiQuad)>deferred_top){++dropped;++frame_queue_drops;stream_aborted=true;return;}
+    if((nquad+1)*sizeof(Re4dcUiQuad)>deferred_top){RE4DC_WHD_ABORT(3,__builtin_return_address(0),unsigned(sizeof(Re4dcUiQuad)));++dropped;++frame_queue_drops;stream_aborted=true;return;}
 #else
     if(nquad==kQuadCount){++dropped;return;}
 #endif
@@ -5046,6 +5087,7 @@ extern "C" unsigned re4dc_model_input_count(){return model_input;}  // ENC_CENSU
 extern "C" int re4dc_model_packet_streaming(){return RE4DC_PVR_STREAM;}
 extern "C" void re4dc_model_packet_abort(){
 #if RE4DC_PVR_STREAM
+    RE4DC_WHD_ABORT(2,__builtin_return_address(0),0);
     // Previous chunks may already be in TA. Never present an incomplete model:
     // reject further submissions and let the same source owner discard/fence it.
     stream_aborted=true;model_used=0;model_handle=nullptr;
@@ -5549,7 +5591,15 @@ int defer_part(const Re4dcModelPart* p,const SourceLighting* source){
     if(required>deferred_top || deferred_top-required<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
         if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
         if(!deferred_spill || required>deferred_spill_top){
+            RE4DC_WHD_ABORT(1,__builtin_return_address(0),required);
+#if RE4DC_WORLD_HOLE_FIX
+            // WORLD_HOLE_FIX (worldhole.mk): the queue is full: drop this translucent part only. Nothing of it was
+            // queued or sent, so the frame stays whole (aborting it hid the whole frame and refused every later
+            // PS2 world PT / TR part: r117 entry, the r119 El Gigante fight).
+            ++deferred_drops;++frame_queue_drops;whfix_drop(required);re4dc_model_result(3,0,0);return 1;
+#else
             ++deferred_drops;++frame_queue_drops;stream_aborted=true;re4dc_model_result(3,0,0);return 1;
+#endif
         }
         storage=deferred_spill;top=&deferred_spill_top;
     }
@@ -5621,7 +5671,15 @@ extern "C" int re4dc_model_defer_part(const Re4dcModelPart* p){
     if(required>deferred_top || deferred_top-required<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
         if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
         if(!deferred_spill || required>deferred_spill_top){
+            RE4DC_WHD_ABORT(1,__builtin_return_address(0),required);
+#if RE4DC_WORLD_HOLE_FIX
+            // WORLD_HOLE_FIX (worldhole.mk): the queue is full: drop this translucent part only. Nothing of it was
+            // queued or sent, so the frame stays whole (aborting it hid the whole frame and refused every later
+            // PS2 world PT / TR part: r117 entry, the r119 El Gigante fight).
+            ++deferred_drops;++frame_queue_drops;whfix_drop(required);re4dc_model_result(3,0,0);return 1;
+#else
             ++deferred_drops;++frame_queue_drops;stream_aborted=true;re4dc_model_result(3,0,0);return 1;
+#endif
         }
         storage=deferred_spill;top=&deferred_spill_top;
     }
@@ -6526,9 +6584,15 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-    if(direct_open){re4dc_missing("native direct part nested");return 0;}
+    if(direct_open){RE4DC_WHD(1);re4dc_missing("native direct part nested");return 0;}
+#if RE4DC_WORLD_HOLE_DIAG
+    whd_why=(!k || !out || k[4]>2 || k[5]>2)?10U:!frame_ready?2U:stream_aborted?3U:!ensure_model_storage()?4U:
+            model_used+32>kModelPacketBytes/32?5U:0U;
+    if(whd_why)return 0;
+#else
     if(!k || !out || k[4]>2 || k[5]>2 || !frame_ready || stream_aborted ||
        !ensure_model_storage() || model_used+32>kModelPacketBytes/32)return 0;
+#endif
 #if RE4DC_UI_POLY_ORDER && RE4DC_SS_UI_ORDER
     if(ui_order && quads_flushed<nquad)ui_order_flush();
     if(stream_aborted)return 0;
@@ -6580,7 +6644,7 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #if RE4DC_WORLD_AUTOSORT
         world_sort_begin();
 #endif
-        if(stream_aborted)return 0;
+        if(stream_aborted){RE4DC_WHD(8);return 0;}
         pvr_poly_hdr_t header;
         auto* hw=reinterpret_cast<std::uint32_t*>(&header);
         for(unsigned i=0;i<4;++i){hw[i]=slot.words[i];hw[4+i]=0;}
@@ -6669,6 +6733,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     }
 #endif
     const Re4dcUiImage image{&key,nullptr,k[2],k[3],5,0,0};
+#if RE4DC_WORLD_HOLE_DIAG
+    whd_load_why="other";
+#endif
     Entry* handle=load(image,false,&key);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
@@ -6677,9 +6744,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #if RE4DC_PS2_WORLD_R11F_OWNER
     if(!re4dc_r11f_binding_valid()){re4dc_r11f_binding_failed();return 0;}
 #endif
-    if(!handle || !frame_ready || stream_aborted || direct_open){++model_texture_rejects;return 0;}
+    if(!handle || !frame_ready || stream_aborted || direct_open){RE4DC_WHD(!handle?6U:!frame_ready?2U:stream_aborted?3U:1U);++model_texture_rejects;return 0;}
     const auto& t=handle->package.textures()[0];
-    if(t.width!=k[2] || t.height!=k[3])return 0; // repeated UVs cannot use padding
+    if(t.width!=k[2] || t.height!=k[3]){RE4DC_WHD(7);return 0;} // repeated UVs cannot use padding
     const unsigned pass=k[4];
     const pvr_list_t list=pass==0?PVR_LIST_OP_POLY:pass==1?PVR_LIST_PT_POLY:PVR_LIST_TR_POLY;
     stream_select(list);
@@ -6693,7 +6760,7 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 #if RE4DC_WORLD_AUTOSORT
     world_sort_begin();
 #endif
-    if(stream_aborted)return 0;
+    if(stream_aborted){RE4DC_WHD(8);return 0;}
     pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,list,re4dc::texture::pvr_format(t),t.width,t.height,handle->package.pvr_texture(0),PVR_FILTER_BILINEAR);
     const pvr_cull_mode_t cull[]={PVR_CULLING_NONE,PVR_CULLING_CCW,PVR_CULLING_CW};
     c.gen.culling=cull[k[5]];
@@ -6769,6 +6836,19 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     (void)k;(void)out;return 0;
 #endif
 }
+#if RE4DC_WORLD_HOLE_DIAG
+// WORLD_HOLE_DIAG: the last refusal of re4dc_ps2_world_direct_begin (0 none) and load()'s reason text; cleared.
+extern "C" unsigned re4dc_whd_abort(void** ra,unsigned* q){
+    if(whd_abort_frame!=frame)return 0;
+    *ra=whd_abort_ra;for(unsigned i=0;i<6;++i)q[i]=whd_abort_q[i];
+    return whd_abort_kind;
+}
+extern "C" unsigned re4dc_whd_take(const char** load_why,unsigned* used,unsigned* overflow){
+    const unsigned w=whd_why;whd_why=0;
+    *load_why=w==6?whd_load_why:nullptr;*used=model_used;*overflow=model_overflow;
+    return w;
+}
+#endif
 #endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
 extern "C" int re4dc_source_world_op_window(){

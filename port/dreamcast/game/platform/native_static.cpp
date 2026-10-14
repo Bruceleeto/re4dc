@@ -3543,6 +3543,72 @@ static bool ps2_sky_row(unsigned room,unsigned row){
 extern "C" { unsigned re4dc_ps2_sky_header; } // native_ui.cpp: 1 = the next PS2 world header has its fog off
 namespace {
 #endif
+#if RE4DC_WORLD_HOLE_DIAG
+// WORLD_HOLE_DIAG (worldhole.mk, test only): why each PS2 world part that is not drawn (a pass fallback: with
+// PS2_WORLD_ROOMS=2 a hole) was refused. Codes = native_ui.cpp re4dc_ps2_world_direct_begin's refusals:
+// 0 draw (no bind refusal recorded), 1 nested, 2 frame not ready, 3 stream aborted (an earlier model part overflowed),
+// 4 no packet storage, 5 packet store full, 6 texture not resident (load() reason in tex=), 7 texture size, 8 stream
+// aborted at the list switch, 9 owner binding, 10 bad key. One WHD line per pass of a frame with refusals (the first
+// part's key and the model packet use / overflow count at it), a WHDSUM line per room every 120 frames.
+extern "C" unsigned re4dc_whd_take(const char** load_why,unsigned* used,unsigned* overflow); // native_ui.cpp
+extern "C" unsigned re4dc_whd_abort(void** ra,unsigned* q); // native_ui.cpp: the frame's first stream abort
+namespace whd {
+constexpr unsigned kCodes=11,kWhy=8;
+const char* const kName[kCodes]={"draw","nested","notready","aborted","storage","full","tex","size","abort2","owner","key"};
+unsigned frame_code[kCodes],total[3][kCodes],parts[3],refused[3],frames_with[3],lines;
+const char* why_name[kWhy];unsigned why_count[kWhy],why_frame[kWhy];
+unsigned first_key[2],first_used,first_overflow,room,window_frame;
+void note(unsigned pass,const unsigned* key){
+    const char* lw=nullptr;unsigned used=0,ovf=0;
+    unsigned code=re4dc_whd_take(&lw,&used,&ovf);
+    if(code>=kCodes)code=0;
+    if(!frame_code[0] && !frame_code[1] && !frame_code[2] && !frame_code[3] && !frame_code[4] && !frame_code[5] &&
+       !frame_code[6] && !frame_code[7] && !frame_code[8] && !frame_code[9] && !frame_code[10]){
+        first_key[0]=key[0];first_key[1]=key[1];first_used=used;first_overflow=ovf;
+    }
+    ++frame_code[code];++total[pass][code];++refused[pass];
+    if(lw){
+        unsigned i=0;while(i<kWhy && why_name[i] && why_name[i]!=lw)++i;
+        if(i<kWhy){why_name[i]=lw;++why_count[i];++why_frame[i];}
+    }
+}
+void end_pass(unsigned pass,unsigned nparts,unsigned frame,unsigned r){
+    parts[pass]+=nparts;
+    if(r!=room){
+        for(auto& t:total)for(auto& x:t)x=0;
+        for(unsigned i=0;i<kWhy;++i){why_name[i]=nullptr;why_count[i]=0;}
+        parts[0]=parts[1]=parts[2]=refused[0]=refused[1]=refused[2]=frames_with[0]=frames_with[1]=frames_with[2]=0;
+        room=r;window_frame=frame;
+    }
+    unsigned n=0;for(unsigned c=0;c<kCodes;++c)n+=frame_code[c];
+    if(n){
+        ++frames_with[pass];
+        if(++lines<=4000){
+            char tw[160];unsigned o=0;tw[0]=0;
+            for(unsigned i=0;i<kWhy && why_name[i] && o<140;++i)if(why_frame[i])
+                o+=snprintf(tw+o,sizeof(tw)-o,"%s%s:%u",o?",":"",why_name[i],why_frame[i]);
+            re4dc_log("WHD frame=%u room=%03x pass=%u parts=%u refused=%u draw=%u nested=%u notready=%u aborted=%u storage=%u full=%u tex=%u size=%u abort2=%u owner=%u key=%u first=%08x-%08x used=%u overflow=%u texwhy=%s\n",
+                frame,r,pass,nparts,n,frame_code[0],frame_code[1],frame_code[2],frame_code[3],frame_code[4],frame_code[5],
+                frame_code[6],frame_code[7],frame_code[8],frame_code[9],frame_code[10],first_key[0],first_key[1],first_used,
+                first_overflow,o?tw:"-");
+            void* ra=nullptr;unsigned q[6]={};
+            if(const unsigned kind=re4dc_whd_abort(&ra,q))
+                re4dc_log("WHDABORT frame=%u room=%03x kind=%u ra=%p required=%u queue_top=%u spill_top=%u spill_cap=%u queued=%u quads=%u\n",
+                    frame,r,kind,ra,q[0],q[1],q[2],q[3],q[4],q[5]);
+        }
+    }
+    for(auto& x:frame_code)x=0;
+    for(auto& x:why_frame)x=0;
+    if(pass==2 && frame-window_frame>=120){
+        window_frame=frame;
+        for(unsigned q=0;q<3;++q)
+            re4dc_log("WHDSUM frame=%u room=%03x pass=%u parts=%u refused=%u frames=%u draw=%u notready=%u aborted=%u storage=%u full=%u tex=%u size=%u abort2=%u other=%u\n",
+                frame,r,q,parts[q],refused[q],frames_with[q],total[q][0],total[q][2],total[q][3],total[q][4],total[q][5],
+                total[q][6],total[q][7],total[q][8],total[q][1]+total[q][9]+total[q][10]);
+    }
+}
+}
+#endif
 int ps2_pass(unsigned pass,float zfar){
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
@@ -3809,7 +3875,11 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
             if(result>0)++c.native;
             else if(result<0){re4dc_model_packet_abort();++c.aborts;return -1;}
+#if RE4DC_WORLD_HOLE_DIAG
+            else {++c.fallback;whd::note(pass,key);}
+#else
             else ++c.fallback;
+#endif
 #if RE4DC_PS2_INTERIOR_CULL==2
             if(pc_state){
                 // The check run: only the hidden clusters / meshlets, opaque magenta, untextured and unfogged.
@@ -3872,6 +3942,9 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
 #if RE4DC_SKY_ANY
     re4dc_ps2_sky_header=0;
+#endif
+#if RE4DC_WORLD_HOLE_DIAG
+    whd::end_pass(pass,c.parts,re4dc_ui_frame(),ps2w.room);
 #endif
     return c.fallback?0:1;
 }
