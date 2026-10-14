@@ -23,7 +23,11 @@ echo "stage $D"
 case "$D" in STAGED_PAYLOAD_IDENTITY_PASS*) ;; *) echo "stage failed"; exit 1 ;; esac
 echo "${PURPOSE:-t11 $N: arm $L, fixture $FIX, $SECS s} stop_tick=${RE4DC_LOG_STOP_TICK:-none}" > $S/PURPOSE.txt
 C=$S/capture
-python ${RUNNER:-run-emulator-novsync-i26.py} route-t11-$N --seconds $SECS --period ${PERIOD:-30} > $S-run-stdout.txt 2>&1
+for try in $(seq 1 30); do   # the runner refuses at its Flycast ceiling (RE4DC_MAX_FLYCASTS): wait and retry
+  python ${RUNNER:-run-emulator-novsync-i26.py} route-t11-$N --seconds $SECS --period ${PERIOD:-30} > $S-run-stdout.txt 2>&1
+  grep -q "Emulator queue occupied" $S-run-stdout.txt || break
+  sleep 60
+done
 python -c "import json;d=json.load(open('$C/run-result.json'));print(d['status'],d.get('errors'))"
 grep -a -E 'warp:|room |route movie|HALT|RE4DC MISSING|FAULT|LHPACK|LEONGC|texchk|LOG OVERRUN' $C/run-output.txt > $S/route.txt
 echo "$N halt=$(grep -ac HALT $C/run-output.txt) missing=$(grep -ac 'RE4DC MISSING' $C/run-output.txt) fault=$(grep -ac FAULT $C/run-output.txt) leongc=$(grep -ac '^LEONGC f=' $C/run-output.txt) overrun=$(grep -ac 'LOG OVERRUN' $C/run-output.txt)"
