@@ -444,10 +444,21 @@ int DvdReadN(const char* name, void* dst, int a, int b, int c, int mode, const c
 // (synchronous DMAs), after letting a running read finish its current piece.
 void MemorySwap(void* mram, u32 aram, u32 size)
 {
+#if RE4DC_CABIN_SOURCE
+    const int cabin_swap = re4dc_cabin_carrier_swap_begin(mram, aram, size);
+    if(cabin_swap<0){re4dc_missing("cabin mutable exchange admission");return;}
+    Re4dcDvdBorrowScope cabin_dvd_borrow;
+#endif
 #if defined(RE4DC_GAME)
     // Immutable EVD backing cannot receive the modified MRAM half. Reject
     // before touching either buffer; this is an explicit remaining dependency.
-    if (size > 0xffffffe0U || re4dc_event_file_range(aram, ALIGN32(size))) {
+    if (size > 0xffffffe0U ||
+#if RE4DC_CABIN_SOURCE
+        (!cabin_swap && re4dc_event_file_range(aram, ALIGN32(size)))
+#else
+        re4dc_event_file_range(aram, ALIGN32(size))
+#endif
+    ) {
         re4dc_event_file_reject_swap();
     }
 #endif
@@ -473,13 +484,35 @@ void MemorySwap(void* mram, u32 aram, u32 size)
         }
         rest -= n;
         memcpy(DVD_BUFF, p, n);
+        #if RE4DC_CABIN_SOURCE
+        if(cabin_swap && !re4dc_cabin_carrier_swap_scope(cabin_swap,1)){
+            re4dc_cabin_carrier_swap_end(cabin_swap,0,DVD_BUFF);re4dc_missing("cabin exchange read scope");return;
+        }
+        if(Aram.DmaTransReq(1,q,(u32)DVD_BUFF2,n,1)<0 && cabin_swap){
+            re4dc_cabin_carrier_swap_end(cabin_swap,0,DVD_BUFF);re4dc_missing("cabin exchange read submission");return;
+        }
+#else
         Aram.DmaTransReq(1, q, (u32) DVD_BUFF2, n, 1);
+#endif
         memcpy(p, DVD_BUFF2, n);
         p += n;
+        #if RE4DC_CABIN_SOURCE
+        if(cabin_swap && !re4dc_cabin_carrier_swap_scope(cabin_swap,0)){
+            re4dc_cabin_carrier_swap_end(cabin_swap,0,DVD_BUFF);re4dc_missing("cabin exchange write scope");return;
+        }
+        if(Aram.DmaTransReq(0,(u32)DVD_BUFF,q,n,1)<0 && cabin_swap){
+            re4dc_cabin_carrier_swap_end(cabin_swap,0,DVD_BUFF);re4dc_missing("cabin exchange write submission");return;
+        }
+#else
         Aram.DmaTransReq(0, (u32) DVD_BUFF, q, n, 1);
+#endif
         q += n;
     }
     DCFlushRange(mram, size);
+#if RE4DC_CABIN_SOURCE
+    if(cabin_swap && re4dc_cabin_carrier_swap_end(cabin_swap,1,DVD_BUFF)!=1)
+        re4dc_missing("cabin exchange completion");
+#endif
 }
 
 // Part transfer: copies the read piece from the DVD buffer to its MRAM destination.
@@ -1107,7 +1140,7 @@ int cDvdQueue::fileClose()
 // and blocks, else it is appended to the list. Returns the request slot, -1 when full.
 int cAram::DmaTransReq(int type, u32 src, u32 dst, u32 len, int wait)
 {
-#if defined(RE4DC_GAME)
+#if defined(RE4DC_GAME) && !RE4DC_CABIN_SOURCE
     if (len > 0xffffffe0U || re4dc_event_file_range(type == 0 ? dst : src, ALIGN32(len))) {
         OSReport("ARAM DMA rejected: immutable EVD range; use source unit installation\n");
         return -1;
@@ -1122,6 +1155,18 @@ int cAram::DmaTransReq(int type, u32 src, u32 dst, u32 len, int wait)
         OSReport("No ARAM Queue\n");
         return -1;
     }
+#if RE4DC_CABIN_SOURCE
+    const int cabin_dma = len<=0xffffffe0U ? re4dc_cabin_carrier_dma_admit(r,type,src,dst,ALIGN32(len)) : -1;
+    if(cabin_dma<0 || (!cabin_dma && re4dc_event_file_range(type==0?dst:src,ALIGN32(len)))){
+        r->be_flag=0;OSReport("ARAM DMA rejected: no current mutable EVD owner\n");return -1;
+    }
+#endif
+#if RE4DC_CABIN_SOURCE
+    if(cabin_dma && wait && pCur){
+        if(re4dc_cabin_carrier_dma_release(r,1)<0){re4dc_missing("cabin synchronous DMA admission");return -1;}
+        r->be_flag=0;return -1;
+    }
+#endif
     r->type = type;
     r->src = src;
     r->dst = dst;
@@ -1129,6 +1174,11 @@ int cAram::DmaTransReq(int type, u32 src, u32 dst, u32 len, int wait)
     if (wait) {
         pCur = r;
         DmaTrans(r, 1);
+#if RE4DC_CABIN_SOURCE
+        // DmaTrans is void and its diagnostic may return. An owned synchronous
+        // request succeeds only after its source slot and owner lease retire.
+        if(cabin_dma && (r->be_flag || re4dc_cabin_carrier_dma_owned(r)))return -1;
+#endif
     } else {
         if (pList == 0) {
             pList = r;
@@ -1174,9 +1224,23 @@ void cAram::DmaTrans(AramReq* r, int wait)
 {
     r->len = ALIGN32(r->len);
     DCFlushRange((void*) (r->type == 0 ? r->src : r->dst), r->len);
+#if RE4DC_CABIN_SOURCE
+    const int cabin_copy=re4dc_cabin_carrier_dma_copy(r,r->type,r->src,r->dst,r->len);
+    if(cabin_copy<0){re4dc_missing("cabin DMA copy failed");return;}
+    if(cabin_copy){
+        const void* completed=re4dc_cabin_carrier_dma_callback((unsigned)cabin_copy);
+        if(completed!=r){re4dc_missing("cabin DMA callback generation");return;}
+        if(pCur!=r){re4dc_missing("cabin DMA source queue ownership");return;}
+        ARQRequest cabin_request={};cabin_request.owner=(u32)r;
+        aram_cb((u32)&cabin_request);
+    }else
+#endif
     ARQPostRequest(&ArqReq, (u32) r, r->type, 1, r->src, r->dst, r->len, aram_cb);
     if (wait & 1) {
         while (r->chk(0x04000000) == 0) {}
+#if RE4DC_CABIN_SOURCE
+        if(re4dc_cabin_carrier_dma_release(r,0)<0){re4dc_missing("cabin DMA consume");return;}
+#endif
         r->be_flag = 0;
     }
 }
@@ -1187,6 +1251,9 @@ int cAram::TransCheck(int no)
     AramReq* r = &AramQueue[no];
 
     if (r->be_flag == 0 || r->chk(0x04000000) == 1) {
+#if RE4DC_CABIN_SOURCE
+        if(re4dc_cabin_carrier_dma_release(r,0)<0){re4dc_missing("cabin DMA check consume");return 0;}
+#endif
         r->be_flag = 0;
         return 1;
     }
@@ -1203,9 +1270,18 @@ int cAram::DmaCancel(int no)
         while (TransCheck(no) == 0) {}
         return 1;
     }
+#if RE4DC_CABIN_SOURCE
+    if(pList==&AramQueue[no] && re4dc_cabin_carrier_dma_owned(pList)){
+        if(re4dc_cabin_carrier_dma_release(pList,1)<0){re4dc_missing("cabin DMA head cancellation");return 0;}
+        AramReq* old=pList;pList=old->next;old->clear();return 1;
+    }
+#endif
     if (pList) {
         for (p = pList; p->next; p = p->next) {
             if (p->next == &AramQueue[no]) {
+#if RE4DC_CABIN_SOURCE
+                if(re4dc_cabin_carrier_dma_release(p->next,1)<0){re4dc_missing("cabin DMA cancellation");return 0;}
+#endif
                 p->next = p->next->next;
                 (&AramQueue[no])->clear();
                 ret = 1;
@@ -1230,6 +1306,9 @@ void cAram::DmaCancelAll()
         }
     }
     while (pList) {
+#if RE4DC_CABIN_SOURCE
+        if(re4dc_cabin_carrier_dma_release(pList,1)<0){re4dc_missing("cabin DMA cancel all");return;}
+#endif
         pList->be_flag = 0;
         pList = pList->next;
     }
@@ -1240,6 +1319,9 @@ void cAram::DmaCancelAll()
 // records the memory above the FST.
 void cDvd::Init()
 {
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_carriers_reset()){re4dc_missing("cabin carrier reader before DVD reset");return;}
+#endif
     u32 size;
     u32 fst;
 
@@ -2229,3 +2311,9 @@ void cDvd::DiscReadInfo()
 
 // The original's .rodata is 8-aligned (0x1D98: 4 bytes of end padding after the last pool).
 asm(".section .rodata; .balign 8");
+
+#if RE4DC_CABIN_SOURCE
+extern "C" int re4dc_cabin_source_swap_buffer(unsigned type,unsigned address,unsigned bytes){
+    return bytes && bytes<=0x10000 && address==(u32)(type==0?DVD_BUFF:DVD_BUFF2);
+}
+#endif

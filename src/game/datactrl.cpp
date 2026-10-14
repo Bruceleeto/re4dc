@@ -120,6 +120,11 @@ int cDataUnit::getCondition()
 void cDataUnit::checkMallocRelease()
 {
     if (chk(2) == 1) {
+#if RE4DC_CABIN_SOURCE
+        if(!re4dc_cabin_carrier_before_free(m_malloc_addr)){
+            re4dc_missing("cabin unit allocation still leased");return;
+        }
+#endif
         if (DC.dbgHeap == 1) {
             Debug_free_h(m_malloc_addr, m_malloc_heap);
         } else {
@@ -273,6 +278,11 @@ void cDataUnit::setLoadToMram()
         }
         break;
     case 2:
+#if RE4DC_CABIN_SOURCE
+        if(re4dc_cabin_carrier_mram_move(this,(void*)(m_fix_addr?m_fix_addr:(arg?arg:(u32)m_addr)))<0){
+            m_err=3;m_command=0;return;
+        }
+#endif
         if (m_fix_addr == 0) {
             if (arg != 0 && arg != (u32) m_addr) {
                 checkMallocRelease();
@@ -315,7 +325,11 @@ void cDataUnit::setLoadToMram()
         if (m_be_flag & RE4DC_EVENT_FILE_FLAG) {
             // The caller's final allocation is the only complete RAM copy.
             // Failed/partial reads are never published to source consumers.
-            if (!re4dc_event_file_install(m_name, m_size, (void*) dest)) {
+            int cabin_install = 0;
+#if RE4DC_CABIN_SOURCE
+            cabin_install = re4dc_cabin_carrier_install(this, (void*) dest);
+#endif
+            if (cabin_install < 0 || (!cabin_install && !re4dc_event_file_install(m_name, m_size, (void*) dest))) {
                 m_err = 2;
                 m_command = 0;
                 checkMallocRelease();
@@ -389,7 +403,11 @@ void cDataUnit::setLoadToAram()
         }
 #if defined(RE4DC_GAME) && RE4DC_EVENT_FILES
         if (re4dc_event_file_name(m_name)) {
-            if (!re4dc_event_file_prepare(m_name, m_size)) {
+            int cabin_prepare = 0;
+#if RE4DC_CABIN_SOURCE
+            cabin_prepare = re4dc_cabin_carrier_prepare(this, m_name, m_size, dest);
+#endif
+            if (cabin_prepare < 0 || (!cabin_prepare && !re4dc_event_file_prepare(m_name, m_size))) {
                 m_err = 2;
                 m_command = 0;
                 dest = 0;
@@ -439,6 +457,14 @@ void cDataUnit::setLoadToAram()
     case 2:
 #if defined(RE4DC_GAME) && RE4DC_EVENT_FILES
         if (m_be_flag & RE4DC_EVENT_FILE_FLAG) {
+#if RE4DC_CABIN_SOURCE
+            unsigned cabin_park_address=arg;
+            const int cabin_park=re4dc_cabin_carrier_park(this,&cabin_park_address);
+            if(cabin_park>0){
+                checkMallocRelease();dest=cabin_park_address;m_addr=(void*)dest;
+                m_condition=4;m_command=0;m_wait=0;break;
+            }
+#endif
             // After activation these bytes can contain relocated pointers and
             // mutations. Never discard them by treating the original as current.
             m_err = 3;
@@ -476,6 +502,9 @@ void cDataUnit::setLoadToAram()
 #if defined(RE4DC_GAME) && RE4DC_EVENT_FILES
         if (m_be_flag & RE4DC_EVENT_FILE_FLAG) {
             if (arg != 0 && arg != (u32) m_addr) {
+#if RE4DC_CABIN_SOURCE
+                if (re4dc_cabin_carrier_rebase(this, arg) < 0) return;
+#endif
                 m_addr = (void*) arg;
                 dest = arg;
                 re4dc_event_file_moved();
@@ -518,6 +547,9 @@ void cDataUnit::setLoadToAram()
 // to condition 0 (the ARAM space is reclaimed by the sort).
 int cDataUnit::setClear()
 {
+#if RE4DC_CABIN_SOURCE
+    if (!re4dc_cabin_carrier_clear(this)) return 0;
+#endif
     m_command = 0;
     switch (m_condition) {
     case 5:
@@ -555,7 +587,11 @@ ret:
 // Executes "delete": clear plus the unit itself is freed (m_be_flag bit0 off).
 int cDataUnit::setDelete()
 {
+#if RE4DC_CABIN_SOURCE
+    if (!setClear()) return 0;
+#else
     setClear();
+#endif
     m_size = 0;
     m_be_flag &= ~1;
     OSReport("DC:%s set DELETE\n", m_name);
@@ -748,6 +784,12 @@ u32 cDataCtrl::getAramFree(u32 size)
     for (i = 0; i < 32; i++) {
         u = &m_DataUnit[i];
         if (u->chk(1) != 0) {
+#if RE4DC_CABIN_SOURCE
+            const unsigned cabin_reserved=re4dc_cabin_carrier_reserved(u);
+            if(cabin_reserved){
+                tbl[n].addr=cabin_reserved;tbl[n].size=u->m_size;++n;continue;
+            }
+#endif
             switch (u->getCondition()) {
             case 7:
                 tbl[n].addr = u->arg;
@@ -819,6 +861,9 @@ void cDataCtrl::init()
 // Clears all 32 units and the ARAM allocator (room start).
 void cDataCtrl::initDataUnit()
 {
+#if RE4DC_CABIN_SOURCE
+    if (!re4dc_cabin_carriers_reset()) { re4dc_missing("cabin carrier reader before unit reset"); return; }
+#endif
     cDataUnit* u;
     u32 i;
 
@@ -877,6 +922,11 @@ cDataUnit* cDataCtrl::getNewUnit()
     for (i = 0; i < 32; i++) {
         u = &m_DataUnit[i];
         if (u->chk(1) == 0) {
+#if RE4DC_CABIN_SOURCE
+            if(!re4dc_cabin_carrier_unit_available(u)){
+                re4dc_missing("cabin source unit identity still owned");return NULL;
+            }
+#endif
             u->m_be_flag |= 1;
             u->setCondition(0);
             u->setCommand(0, 0, 0);
@@ -1128,3 +1178,72 @@ void cDataCtrl::check()
         checkDummyId();
     }
 }
+
+#if RE4DC_CABIN_SOURCE
+extern "C" int re4dc_cabin_source_unit_valid(const void* address,unsigned index,unsigned logical,unsigned bytes) {
+    static const char* names[]={"evd/r11cs00.evd","evd/r11cs10.evd","evd/r11cs20.evd"};
+    if(index>=3)return 0;
+    for(unsigned i=0;i<32;++i) {
+        const cDataUnit& u=DC.m_DataUnit[i];
+        if(address!=&u)continue;
+        if(!(u.m_be_flag&1) || u.m_size!=bytes || strcmp(u.m_name,names[index]))return 0;
+        if(u.m_condition==0)return u.dest==logical;
+        if(u.m_condition==2)return u.m_addr!=NULL;
+        if(u.m_condition==4 || u.m_condition==5 || u.m_condition==7)return (u32)u.m_addr==logical;
+        if(u.m_condition==6)return u.dest==logical;
+        return 0;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_source_range_available(const void* unit,unsigned address,unsigned bytes) {
+    if(!address || address+bytes<address)return 0;
+    for(unsigned i=0;i<32;++i){
+        const cDataUnit& u=DC.m_DataUnit[i];if(&u==unit || !(u.m_be_flag&1))continue;
+        unsigned first=0,second=0;
+        const unsigned reserved=re4dc_cabin_carrier_reserved(&u);
+        if(reserved)first=reserved;
+        else if(u.m_condition==4 || u.m_condition==5 || u.m_condition==7)first=(u32)u.m_addr;
+        else if(u.m_condition==3 || u.m_condition==6)first=u.dest;
+        if(u.m_condition==7)second=u.arg;
+        const unsigned starts[]={first,second};
+        for(unsigned start:starts)if(start && (start+u.m_size<start ||
+           (address<start+u.m_size && start<address+bytes)))return 0;
+    }
+    return 1;
+}
+extern "C" int re4dc_cabin_source_allocation(const void*,unsigned,int*);
+extern "C" int re4dc_cabin_source_free(void*,unsigned,int);
+extern "C" int re4dc_cabin_source_unit_retire_ready(const void* address,unsigned index,unsigned logical,unsigned bytes,const void* mram){
+    static const char* names[]={"evd/r11cs00.evd","evd/r11cs10.evd","evd/r11cs20.evd"};
+    if(index>=3)return 0;
+    for(unsigned i=0;i<32;++i){
+        const cDataUnit& u=DC.m_DataUnit[i];if(address!=&u)continue;
+        if(!(u.m_be_flag&1) || u.m_size!=bytes || strcmp(u.m_name,names[index]))return 0;
+        if(u.m_condition==0){if(u.m_addr || u.dest || mram || (u.m_be_flag&2))return 0;}
+        else if(u.m_condition==4){if((u32)u.m_addr!=logical || (u.m_be_flag&2))return 0;}
+        else if(u.m_condition==2){if(!mram || u.m_addr!=mram)return 0;}
+        else return 0;
+        if(u.m_be_flag&2){
+            int heap=-1;
+            if(u.m_malloc_addr!=mram || !re4dc_cabin_source_allocation(mram,bytes,&heap) || heap!=u.m_malloc_heap)return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_source_unit_release(void* address,unsigned bytes){
+    for(unsigned i=0;i<32;++i)if(address==&DC.m_DataUnit[i]){
+        cDataUnit& u=DC.m_DataUnit[i];
+        if(u.m_be_flag&2){
+            if(!re4dc_cabin_source_free(u.m_malloc_addr,bytes,u.m_malloc_heap))return 0;
+            u.m_be_flag&=~2;
+        }
+        return 1;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_source_unit_clear(void* address) {
+    for(unsigned i=0;i<32;++i)if(address==&DC.m_DataUnit[i])return DC.m_DataUnit[i].setClear();
+    return 0;
+}
+#endif

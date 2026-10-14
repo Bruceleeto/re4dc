@@ -122,6 +122,7 @@ extern "C" void re4dc_cabin_event_deleted(const void* event){
     if(cabin.id && cabin.event==event && event){cabin.event=nullptr;close_audio();}
 }
 extern "C" void re4dc_cabin_before_events(){
+    re4dc_cabin_carriers_before_events();
     if(cabin_event_reader_fault)return;
     if(cabin_event_readers==~0u){
         cabin_event_reader_fault=true;cabin_failure("cabin event reader overflow");return;
@@ -130,6 +131,7 @@ extern "C" void re4dc_cabin_before_events(){
     service();
 }
 extern "C" void re4dc_cabin_after_events(){
+    re4dc_cabin_carriers_after_events();
     if(cabin_event_reader_fault)return;
     if(!cabin_event_readers){
         cabin_event_reader_fault=true;cabin_failure("cabin event reader imbalance");return;
@@ -161,6 +163,7 @@ extern "C" int re4dc_cabin_aftermath(unsigned id){
     cabin=CabinSource{};return 1;
 }
 extern "C" int re4dc_cabin_before_heap_change(const void* start,unsigned bytes){
+    if(!re4dc_cabin_carriers_before_heap(start,bytes))return 0;
     if(!cabin.id || !bytes)return 1;
     const uintptr_t lo=(uintptr_t)start,hi=lo+bytes;
     if(hi<lo)return 0;

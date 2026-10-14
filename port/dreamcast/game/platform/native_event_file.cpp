@@ -108,3 +108,379 @@ extern "C" void re4dc_event_file_reject_swap() {
     re4dc_missing("MemorySwap: immutable EVD requires mutable snapshot backing");
     __builtin_trap();
 }
+
+#if RE4DC_CABIN_SOURCE
+// CABIN_CARRIER_OWNER_BEGIN
+// Logical ARAM remains immutable unless this exact source unit has admitted a
+// private, verified, mutable copy. No shared ARQ/audio implementation is used.
+extern "C" int re4dc_cabin_source_unit_valid(const void*,unsigned,unsigned,unsigned);
+extern "C" int re4dc_cabin_source_unit_clear(void*);
+extern "C" int re4dc_cabin_source_unit_retire_ready(const void*,unsigned,unsigned,unsigned,const void*);
+extern "C" int re4dc_cabin_source_unit_release(void*,unsigned);
+extern "C" int re4dc_cabin_source_range_available(const void*,unsigned,unsigned);
+extern "C" const void* re4dc_cabin_source_module(const void*,unsigned);
+extern "C" int re4dc_cabin_source_allocation(const void*,unsigned,int*);
+extern "C" void* re4dc_cabin_source_alloc(unsigned,int);
+extern "C" int re4dc_cabin_source_free(void*,unsigned,int);
+extern "C" int re4dc_cabin_source_swap_buffer(unsigned,unsigned,unsigned);
+namespace {
+enum CarrierState { CarrierAbsent,CarrierPreparing,CarrierReference,CarrierReady,CarrierSwap,CarrierMram,CarrierFailed };
+struct CabinCarrier {
+    void* unit; unsigned generation,logical,bytes; void* backing; int heap,backing_heap;
+    void* mram; const void* module; const void* event;
+    unsigned state,role,phase,readers; bool releasing;
+};
+struct CabinCarrierDma {
+    const void* request; unsigned generation,owner,type,src,dst,bytes,state,token;
+    void* mram; int heap;
+};
+CabinCarrier carriers[3]{};
+CabinCarrierDma carrier_dma[16]{};
+unsigned carrier_epoch,carrier_event_readers,carrier_dma_scope,carrier_dma_epoch;
+bool carrier_fault;
+static_assert(sizeof(carriers)+sizeof(carrier_dma)+sizeof(carrier_epoch)+
+              sizeof(carrier_event_readers)+sizeof(carrier_dma_scope)+sizeof(carrier_dma_epoch)+sizeof(carrier_fault)<=1024,
+              "review cabin carrier fixed metadata budget");
+const char* carrier_names[3]={"evd/r11cs00.evd","evd/r11cs10.evd","evd/r11cs20.evd"};
+const unsigned carrier_sizes[3]={27456,7296,5568};
+const unsigned carrier_certificates[3]={0x71ab9c4d,0x8ede2d00,0x55c322f1};
+int carrier_index(const char* name){
+    if(name)for(unsigned i=0;i<3;++i)if(!std::strcmp(name,carrier_names[i]))return (int)i;
+    return -1;
+}
+bool carrier_overlap(unsigned a,unsigned n,unsigned b,unsigned m){
+    if(!n||!m)return false;
+    if(a+n<a||b+m<b)return true;
+    return a<b+m && b<a+n;
+}
+CabinCarrier* carrier_token(unsigned token){
+    if(token)for(auto& c:carriers)if(c.state && c.generation==token)return &c;
+    return nullptr;
+}
+unsigned carrier_number(const CabinCarrier& c){return unsigned(&c-carriers);}
+bool carrier_current(const CabinCarrier& c){
+    return c.state && c.unit && re4dc_cabin_source_unit_valid(c.unit,carrier_number(c),c.logical,c.bytes);
+}
+int carrier_fail(CabinCarrier* c){
+    if(c){
+        // A completed first exchange may already hold the only displaced module
+        // copy. An error must never turn it into a reclaimable ordinary buffer.
+        if(c->state==CarrierSwap && c->phase>=2)c->role=1;
+        c->state=CarrierFailed;
+    }
+    return -1;
+}
+CabinCarrier* carrier_range(unsigned address,unsigned bytes){
+    CabinCarrier* result=nullptr;
+    for(auto& c:carriers)if(c.state && carrier_overlap(address,bytes,c.logical,c.bytes)){
+        if(result){carrier_fault=true;return nullptr;}result=&c;
+    }
+    return result;
+}
+bool carrier_inside(unsigned address,unsigned bytes,unsigned base,unsigned size){
+    return bytes && !(address&31) && !(bytes&31) && address>=base && address-base<=size && bytes<=size-(address-base);
+}
+bool carrier_mram_current(const CabinCarrier& c){
+    int heap=-1;
+    if(!c.mram || !re4dc_cabin_source_allocation(c.mram,c.bytes,&heap) || heap!=c.heap)return false;
+    return !c.module || re4dc_cabin_source_module(c.mram,c.bytes)==c.module;
+}
+bool carrier_backing_current(const CabinCarrier& c){
+    if(!c.backing)return true;
+    int heap=-1;
+    return re4dc_cabin_source_allocation(c.backing,c.bytes,&heap) && heap==c.backing_heap;
+}
+bool carrier_can_retire(const CabinCarrier& c){
+    return c.state!=CarrierPreparing && c.state!=CarrierSwap && !c.readers &&
+        !c.event && !carrier_event_readers && !carrier_dma_scope && !c.releasing && c.role!=1;
+}
+bool carrier_retirement_ready(const CabinCarrier& c){
+    if(!carrier_can_retire(c) || !carrier_backing_current(c) ||
+       (c.mram && !carrier_mram_current(c)) ||
+       !re4dc_cabin_source_unit_retire_ready(c.unit,carrier_number(c),c.logical,c.bytes,c.mram))return false;
+    const void* owned[]={c.backing,c.mram};
+    for(const void* p:owned)if(p)for(const auto& other:carriers)if(&other!=&c && other.state &&
+       (carrier_overlap((unsigned)(uintptr_t)p,c.bytes,(unsigned)(uintptr_t)other.backing,other.backing?other.bytes:0) ||
+        carrier_overlap((unsigned)(uintptr_t)p,c.bytes,(unsigned)(uintptr_t)other.mram,other.mram?other.bytes:0)))return false;
+    return !carrier_overlap((unsigned)(uintptr_t)c.backing,c.backing?c.bytes:0,
+        (unsigned)(uintptr_t)c.mram,c.mram?c.bytes:0);
+}
+}
+extern "C" int re4dc_cabin_carrier_prepare(void* unit,const char* name,unsigned bytes,unsigned logical){
+    const int i=carrier_index(name);if(i<0)return 0;
+    auto& c=carriers[i];
+    if(carrier_fault || c.state || !unit || bytes!=carrier_sizes[i] || !logical || (logical&31) ||
+       logical+bytes<logical || !re4dc_cabin_source_range_available(unit,logical,bytes) || carrier_epoch==0x7fffffffu)return -1;
+    for(const auto& other:carriers)if(other.state && (other.unit==unit ||
+       carrier_overlap(logical,bytes,other.logical,other.bytes)))return -1;
+    c=CabinCarrier{};c.unit=unit;c.generation=++carrier_epoch;c.logical=logical;c.bytes=bytes;c.heap=c.backing_heap=-1;c.state=CarrierPreparing;
+    // The lease exists before the certified reader can yield to another task.
+    if(!carrier_current(c) || !run(name,bytes,nullptr,carrier_certificates[i]) || !carrier_current(c))return carrier_fail(&c);
+    c.state=CarrierReference;return 1;
+}
+extern "C" int re4dc_cabin_carrier_clear(void* unit){
+    for(auto& c:carriers)if(c.state && c.unit==unit){
+        if(carrier_fault || !carrier_retirement_ready(c))return 0;
+        c.releasing=true;
+        // Both exact allocations were checked above. These synchronous frees
+        // cannot yield between validation and the source ownership update.
+        if(!re4dc_cabin_source_unit_release(c.unit,c.bytes)){
+            c.releasing=false;return 0;
+        }
+        if(c.backing && !re4dc_cabin_source_free(c.backing,c.bytes,c.backing_heap)){
+            c.releasing=false;return 0;
+        }
+        c=CabinCarrier{};
+    }
+    return 1;
+}
+extern "C" int re4dc_cabin_carriers_reset(){
+    if(carrier_fault || carrier_event_readers || carrier_dma_scope)return 0;
+    // Preflight the entire set; no partial identity erase on a refused reset.
+    for(const auto& c:carriers)if(c.state && !carrier_retirement_ready(c))return 0;
+    for(auto& c:carriers)if(c.state && !re4dc_cabin_source_unit_clear(c.unit))return 0;
+    return 1;
+}
+extern "C" int re4dc_cabin_carrier_rebase(void* unit,unsigned address){
+    for(auto& c:carriers)if(c.state && c.unit==unit){
+        if(address==c.logical)return 1;
+        if(!address || (address&31) || address+c.bytes<address || !carrier_current(c) ||
+           !carrier_can_retire(c) || (c.state!=CarrierReference && c.state!=CarrierReady) || c.mram ||
+           !re4dc_cabin_source_range_available(unit,address,c.bytes))return -1;
+        for(const auto& other:carriers)if(&other!=&c && other.state &&
+           carrier_overlap(address,c.bytes,other.logical,other.bytes))return -1;
+        c.logical=address;return 1;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_install(void* unit,void* destination){
+    for(auto& c:carriers)if(c.state && c.unit==unit){
+        if(carrier_fault || !carrier_current(c) || !destination || c.mram || c.event || c.readers ||
+           carrier_event_readers || (c.state!=CarrierReference && c.state!=CarrierReady) || c.role==1)return -1;
+        int heap=-1;
+        if(!re4dc_cabin_source_allocation(destination,c.bytes,&heap))return -1;
+        c.mram=destination;c.heap=heap;c.state=CarrierPreparing;
+        bool ok;
+        if(c.backing){std::memcpy(destination,c.backing,c.bytes);ok=true;}
+        else ok=run(carrier_names[carrier_number(c)],c.bytes,destination,carrier_certificates[carrier_number(c)]);
+        if(!ok || !carrier_current(c) || !carrier_mram_current(c)){
+            // The failed destination has never been published and the certified
+            // read has returned. Relinquish only that destination so the source
+            // can free its own allocation; an existing backing stays owned.
+            c.mram=nullptr;c.heap=-1;return carrier_fail(&c);
+        }
+        c.state=CarrierMram;return 1;
+    }
+    return 0;
+}
+extern "C" unsigned re4dc_cabin_carrier_reserved(const void* unit){
+    for(const auto& c:carriers)if(c.state && c.unit==unit)return c.logical;
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_unit_available(const void* unit){
+    if(carrier_fault)return 0;
+    for(const auto& c:carriers)if(c.state && c.unit==unit)return 0;
+    return 1;
+}
+extern "C" int re4dc_cabin_carrier_mram_move(const void* unit,const void* destination){
+    for(const auto& c:carriers)if(c.state && c.unit==unit)
+        return !carrier_fault && carrier_current(c) && destination==c.mram ? 1 : -1;
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_park(void* unit,unsigned* logical){
+    for(auto& c:carriers)if(c.state && c.unit==unit){
+        const unsigned target=logical && *logical ? *logical : c.logical;
+        if(carrier_fault || carrier_number(c)>=2 || !logical || !carrier_current(c) ||
+           c.state!=CarrierMram || !carrier_mram_current(c) || c.module || c.event ||
+           c.readers || carrier_event_readers || !target || (target&31) ||
+           target+c.bytes<target || !re4dc_cabin_source_range_available(unit,target,c.bytes))return -1;
+        c.state=CarrierPreparing;
+        if(!c.backing){c.backing=re4dc_cabin_source_alloc(c.bytes,c.heap);c.backing_heap=c.heap;}
+        if(!c.backing || !carrier_current(c) || !carrier_mram_current(c))return carrier_fail(&c);
+        std::memcpy(c.backing,c.mram,c.bytes);
+        // The source frees its allocation only after this exact copy completes.
+        c.logical=target;c.mram=nullptr;c.heap=-1;c.role=2;c.state=CarrierReady;*logical=target;return 1;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_before_free(const void* p){
+    if(!p)return 1;
+    for(const auto& d:carrier_dma)if(d.state && d.mram==p)return 0;
+    for(const auto& c:carriers)if(c.state && (p==c.backing || p==c.mram)){
+        if(!(c.releasing && !c.readers && !c.event && !carrier_event_readers))return 0;
+    }
+    return 1;
+}
+extern "C" int re4dc_cabin_carriers_before_heap(const void* start,unsigned bytes){
+    const unsigned address=(unsigned)(uintptr_t)start;
+    if(carrier_fault || address+bytes<address)return 0;
+    for(const auto& d:carrier_dma)if(d.state && d.mram &&
+       carrier_overlap(address,bytes,(unsigned)(uintptr_t)d.mram,d.bytes))return 0;
+    for(const auto& c:carriers)if(c.state &&
+       (carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.backing,c.backing?c.bytes:0) ||
+        carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.mram,c.mram?c.bytes:0)) && !carrier_retirement_ready(c))return 0;
+    return 1;
+}
+extern "C" int re4dc_cabin_carriers_suspendable(const void* start,unsigned bytes){
+    if(!re4dc_cabin_carriers_before_heap(start,bytes))return 0;
+    const unsigned address=(unsigned)(uintptr_t)start;
+    for(const auto& c:carriers)if(c.state &&
+       (carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.backing,c.backing?c.bytes:0) ||
+        carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.mram,c.mram?c.bytes:0)))return 0;
+    return 1;
+}
+extern "C" int re4dc_cabin_carriers_retire_heap(const void* start,unsigned bytes){
+    // The caller has checked every affected range and closed media before this
+    // commit. Revalidate the whole local set before any non-yielding source free.
+    if(!re4dc_cabin_carriers_before_heap(start,bytes))return 0;
+    const unsigned address=(unsigned)(uintptr_t)start;
+    for(auto& c:carriers)if(c.state &&
+       (carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.backing,c.backing?c.bytes:0) ||
+        carrier_overlap(address,bytes,(unsigned)(uintptr_t)c.mram,c.mram?c.bytes:0)) &&
+       !re4dc_cabin_source_unit_clear(c.unit))return 0;
+    return 1;
+}
+extern "C" void re4dc_cabin_carriers_before_events(){
+    if(carrier_event_readers==~0u){carrier_fault=true;return;}++carrier_event_readers;
+}
+extern "C" void re4dc_cabin_carriers_after_events(){
+    if(!carrier_event_readers){carrier_fault=true;return;}--carrier_event_readers;
+}
+extern "C" int re4dc_cabin_carrier_event(const void* event,const void* data,const char* key){
+    const char* canonical=key && !std::strncmp(key,"event/",6)?key+6:key;
+    const int i=carrier_index(canonical);if(i<0)return 1;
+    auto& c=carriers[i];
+    if(!event || carrier_fault || !carrier_current(c) || data!=c.mram || !carrier_mram_current(c) || c.event ||
+       !((c.state==CarrierReady && c.role==1) || c.state==CarrierMram))return 0;
+    c.event=event;return 1;
+}
+extern "C" void re4dc_cabin_carrier_event_deleted(const void* event){
+    for(auto& c:carriers)if(c.state && c.event==event)c.event=nullptr;
+}
+extern "C" unsigned re4dc_cabin_carrier_reverse_token(const void* unit,const void* module,const void* mram,unsigned bytes,int* heap){
+    if(!heap || !module || !mram || carrier_fault || carrier_event_readers || carrier_dma_scope)return 0;
+    for(const auto& c:carriers)if(c.unit==unit && c.state==CarrierReady && c.role==1 &&
+       c.module==module && c.mram==mram && c.bytes==bytes && !c.readers && !c.event && !c.releasing &&
+       carrier_current(c) && carrier_mram_current(c) && carrier_backing_current(c)){
+        *heap=c.heap;return c.generation;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_reverse_complete(const void* unit,const void* module,const void* mram,unsigned bytes,int heap,unsigned token){
+    if(!token || !module || !mram || carrier_fault || carrier_event_readers || carrier_dma_scope)return 0;
+    int current_heap=-1;
+    if(re4dc_cabin_source_module(mram,bytes)!=module ||
+       !re4dc_cabin_source_allocation(mram,bytes,&current_heap) || current_heap!=heap)return 0;
+    for(const auto& c:carriers)if(c.unit==unit && c.generation==token && c.bytes==bytes && c.heap==heap &&
+       c.state==CarrierReady && c.role==2 && !c.mram && !c.module && !c.readers && !c.event && !c.releasing &&
+       carrier_current(c) && carrier_backing_current(c))return 1;
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_swap_begin(void* mram,unsigned logical,unsigned bytes){
+    CabinCarrier* cp=carrier_range(logical,bytes);
+    if(carrier_fault)return -1;
+    if(!cp)return 0;
+    auto& c=*cp;
+    if(carrier_number(c)>=2 || !carrier_current(c) || logical!=c.logical || bytes!=c.bytes ||
+       c.readers || c.event || carrier_event_readers || carrier_dma_scope ||
+       (c.state!=CarrierReference && c.state!=CarrierReady) || !mram ||
+       (c.mram && c.mram!=mram))return -1;
+    int heap=-1;const void* module=re4dc_cabin_source_module(mram,bytes);
+    if(!module || !re4dc_cabin_source_allocation(mram,bytes,&heap))return -1;
+    if(c.module && (c.module!=module || c.heap!=heap))return -1;
+    c.mram=mram;c.module=module;c.heap=heap;c.state=CarrierPreparing;
+    if(!c.backing){
+        c.backing=re4dc_cabin_source_alloc(bytes,heap);c.backing_heap=heap;
+        if(!c.backing || !run(carrier_names[carrier_number(c)],bytes,c.backing,carrier_certificates[carrier_number(c)]))return carrier_fail(&c);
+    }
+    if(!carrier_current(c) || !carrier_mram_current(c))return carrier_fail(&c);
+    c.state=CarrierSwap;c.phase=0;return (int)c.generation;
+}
+extern "C" int re4dc_cabin_carrier_swap_scope(unsigned token,unsigned type){
+    auto* c=carrier_token(token);
+    if(carrier_dma_scope || !c || c->state!=CarrierSwap || !carrier_current(*c) ||
+       !carrier_mram_current(*c) || c->readers || type>1 || c->phase!=(type==1?0u:1u))return 0;
+    carrier_dma_scope=token;return 1;
+}
+extern "C" int re4dc_cabin_carrier_dma_admit(const void* request,unsigned type,unsigned src,unsigned dst,unsigned bytes){
+    const unsigned scope=carrier_dma_scope;carrier_dma_scope=0;
+    const unsigned address=type==0?dst:src;
+    auto* c=carrier_range(address,bytes);
+    if(carrier_fault)return -1;
+    if(!c)return scope?-1:0;
+    if(!request || type>1 || !carrier_current(*c) || !carrier_inside(address,bytes,c->logical,c->bytes) ||
+       !c->backing || c->readers==~0u || c->state==CarrierFailed)return -1;
+    if(c->state==CarrierSwap){
+        if(scope!=c->generation || bytes!=c->bytes || address!=c->logical ||
+           c->phase!=(type==1?0u:1u) || !carrier_mram_current(*c) ||
+           !re4dc_cabin_source_swap_buffer(type,type==0?src:dst,bytes))return -1;
+    }else if(scope || c->state!=CarrierReady || c->role==1 || c->event || carrier_event_readers)return -1;
+    int heap=-1;void* mram=nullptr;
+    if(c->state!=CarrierSwap){
+        mram=(void*)(uintptr_t)(type==0?src:dst);
+        if(!re4dc_cabin_source_allocation(mram,bytes,&heap))return -1;
+    }
+    if(carrier_dma_epoch==0x7fffffffu)return -1;
+    for(const auto& d:carrier_dma)if(d.state && d.request==request)return -1;
+    for(auto& d:carrier_dma)if(!d.state){
+        d={request,c->generation,carrier_number(*c),type,src,dst,bytes,1,++carrier_dma_epoch,mram,heap};++c->readers;return 1;
+    }
+    return -1;
+}
+extern "C" int re4dc_cabin_carrier_dma_owned(const void* request){
+    for(const auto& d:carrier_dma)if(d.state && d.request==request)return 1;return 0;
+}
+extern "C" int re4dc_cabin_carrier_dma_copy(const void* request,unsigned type,unsigned src,unsigned dst,unsigned bytes){
+    for(auto& d:carrier_dma)if(d.state && d.request==request){
+        auto& c=carriers[d.owner];
+        if(carrier_fault || d.state!=1 || d.generation!=c.generation || d.type!=type || d.src!=src || d.dst!=dst || d.bytes!=bytes ||
+           !carrier_current(c) || !c.backing || (c.state!=CarrierSwap && c.state!=CarrierReady))return carrier_fail(&c);
+        int heap=-1;
+        if(d.mram && (!re4dc_cabin_source_allocation(d.mram,bytes,&heap) || heap!=d.heap))return carrier_fail(&c);
+        const unsigned address=type==0?dst:src;
+        if(!carrier_inside(address,bytes,c.logical,c.bytes))return carrier_fail(&c);
+        auto* backing=static_cast<unsigned char*>(c.backing)+(address-c.logical);
+        if(type==0)std::memcpy(backing,(const void*)(uintptr_t)src,bytes);
+        else std::memcpy((void*)(uintptr_t)dst,backing,bytes);
+        if(c.state==CarrierSwap)++c.phase;
+        d.state=2;return (int)d.token;
+    }
+    return 0;
+}
+extern "C" const void* re4dc_cabin_carrier_dma_callback(unsigned token){
+    for(auto& d:carrier_dma)if(d.state && d.token==token){
+        auto& c=carriers[d.owner];
+        if(carrier_fault || d.state!=2 || c.generation!=d.generation || !carrier_current(c)){carrier_fail(&c);return nullptr;}
+        d.state=3;return d.request;
+    }
+    // This entry point is used only by the owned transfer, never generic ARQ.
+    // Tokens are never reused even when a source request slot is recycled.
+    carrier_fault=true;return nullptr;
+}
+extern "C" int re4dc_cabin_carrier_dma_release(const void* request,int cancelled){
+    for(auto& d:carrier_dma)if(d.state && d.request==request){
+        auto& c=carriers[d.owner];
+        if(c.generation!=d.generation || !c.readers || (cancelled?d.state!=1:d.state!=3))return carrier_fail(&c);
+        --c.readers;d=CabinCarrierDma{};return 1;
+    }
+    return 0;
+}
+extern "C" int re4dc_cabin_carrier_swap_end(unsigned token,int success,const void* saved){
+    auto* c=carrier_token(token);carrier_dma_scope=0;
+    if(!success){
+        // An owned software copy can have returned failure after marking the
+        // owner failed. Preserve the current MRAM half even with that retained
+        // request lease: no hardware ARQ was submitted for the owned request.
+        if(c && c->phase==1 && carrier_current(*c) && carrier_mram_current(*c) &&
+           carrier_backing_current(*c) && re4dc_cabin_source_swap_buffer(0,(unsigned)(uintptr_t)saved,c->bytes))
+            std::memcpy(c->mram,saved,c->bytes);
+        return carrier_fail(c);
+    }
+    if(!c || c->state!=CarrierSwap || c->readers || !carrier_current(*c) || !carrier_mram_current(*c))return carrier_fail(c);
+    if(c->phase!=2)return carrier_fail(c);
+    c->role=c->role==1?2:1;c->phase=0;c->state=CarrierReady;
+    if(c->role==2){c->mram=nullptr;c->module=nullptr;}
+    return 1;
+}
+// CABIN_CARRIER_OWNER_END
+#endif

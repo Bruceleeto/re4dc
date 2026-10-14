@@ -225,6 +225,18 @@ void MemSuspendHeap(int no)
     int h = Heap[no].handle;
 
     if (memGetHeapSattus(no) == 0 && h >= 0) {
+#if RE4DC_CABIN_SOURCE
+        // Suspend/resume preserves live allocations. It cannot silently retire
+        // a parked current EVD merely because that EVD has no active readers.
+        if(!re4dc_cabin_carriers_suspendable((void*)Heap[no].start,Heap[no].end-Heap[no].start) ||
+           !re4dc_movie_world_before_heap_change((void*)Heap[no].start,Heap[no].end-Heap[no].start)){
+            re4dc_missing("cabin owner before heap suspension");return;
+        }
+        // The movie fence may have yielded after the first check.
+        if(!re4dc_cabin_carriers_suspendable((void*)Heap[no].start,Heap[no].end-Heap[no].start)){
+            re4dc_missing("cabin revalidation before heap suspension");return;
+        }
+#endif
         heap_backup[h] = HeapHead[h];
         HeapHead[h].free = NULL;
         HeapHead[h].allocated = NULL;
@@ -354,7 +366,11 @@ int MemCreateHeap(int no, u32 start, u32 end)
         return 0;
     }
     if (Heap[no].handle >= 0) {
+#if RE4DC_CABIN_SOURCE
+        if(!MemDestroyHeap(no))return 0;
+#else
         MemDestroyHeap(no);
+#endif
     }
     OSReport("-- MemCreateHeap %d %08x - %08x  ", no, start, end);
     Heap[no].handle = OSCreateHeap((void*) start, (void*) end);
@@ -383,6 +399,11 @@ int MemDestroyHeap(int no)
         if (!re4dc_movie_world_before_heap_change((void*)Heap[no].start, Heap[no].end-Heap[no].start)) {
             re4dc_missing("movie arena reader before heap destruction");
             return 0;
+        }
+#endif
+#if RE4DC_CABIN_SOURCE
+        if(!re4dc_cabin_carriers_retire_heap((void*)Heap[no].start,Heap[no].end-Heap[no].start)){
+            re4dc_missing("cabin retirement before heap destruction");return 0;
         }
 #endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ACTOR_TRANSACTION
@@ -428,6 +449,24 @@ int MemReplaceHeap(int from, int to)
     if (!memCheckHeapActive(to)) {
         return 0;
     }
+#if RE4DC_CABIN_SOURCE
+    // Check every carrier without mutation before a media close can yield or
+    // either descriptor can be changed. Unit retirement stays at destruction.
+    const int cabin_heaps[]={from,to};
+    for(int heap:cabin_heaps)if(Heap[heap].handle>=0 &&
+       !re4dc_cabin_carriers_before_heap((void*)Heap[heap].start,Heap[heap].end-Heap[heap].start)){
+        re4dc_missing("cabin preflight before source heap replacement");return 0;
+    }
+    for(int heap:cabin_heaps)if(Heap[heap].handle>=0 &&
+       !re4dc_movie_world_before_heap_change((void*)Heap[heap].start,Heap[heap].end-Heap[heap].start)){
+        re4dc_missing("cabin reader before source heap replacement");return 0;
+    }
+    // Media fences can yield. Recheck the entire set after their last return.
+    for(int heap:cabin_heaps)if(Heap[heap].handle>=0 &&
+       !re4dc_cabin_carriers_before_heap((void*)Heap[heap].start,Heap[heap].end-Heap[heap].start)){
+        re4dc_missing("cabin revalidation before source heap replacement");return 0;
+    }
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
     SourceWorldRetainedTransfer retained;
     if(!sourceWorldRetainedCapture(from,to,&retained))return 0;
@@ -456,7 +495,11 @@ int MemReplaceHeap(int from, int to)
             }
         }
 #endif
+#if RE4DC_CABIN_SOURCE
+        if(!MemDestroyHeap(from))return 0;
+#else
         MemDestroyHeap(from);
+#endif
     } else {
         start = Heap[to].start;
         end = Heap[to].end;
@@ -488,6 +531,12 @@ void MemClearAllHeap()
     u32 i;
 
 #if defined(RE4DC_GAME) && !defined(__PPC__) && ((defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA) || (defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE))
+#if RE4DC_CABIN_SOURCE
+    for(i=0;i<MEM_HEAP_NUM;++i)if(Heap[i].handle>=0 &&
+       !re4dc_cabin_carriers_before_heap((void*)Heap[i].start,Heap[i].end-Heap[i].start)){
+        re4dc_missing("cabin preflight before all-heap clear");return;
+    }
+#endif
     // Ancestor heaps are destroyed first. Retire the overlapping native owner
     // while all descriptors are intact, before any iteration changes a heap.
     for (i = 0; i < MEM_HEAP_NUM; i++) {
@@ -497,6 +546,12 @@ void MemClearAllHeap()
             return;
         }
     }
+#if RE4DC_CABIN_SOURCE
+    for(i=0;i<MEM_HEAP_NUM;++i)if(Heap[i].handle>=0 &&
+       !re4dc_cabin_carriers_before_heap((void*)Heap[i].start,Heap[i].end-Heap[i].start)){
+        re4dc_missing("cabin revalidation before all-heap clear");return;
+    }
+#endif
 #endif
     for (i = 0; i < MEM_HEAP_NUM; i++) {
         if (Heap[i].handle >= 0) {
@@ -684,6 +739,9 @@ void Mem_free(void* p)
 // Frees a block (to the OS current heap) when heap `heap` is active.
 void Mem_free_h(void* p, int heap)
 {
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_carrier_before_free(p)){re4dc_missing("cabin carrier reader before individual free");return;}
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_PS2_WORLD_SOURCE_OWNER
     sourceWorldRetainedFree(p);
 #endif
@@ -1150,3 +1208,41 @@ static void memSetCheck()
 
 // main_sub's .bss starts 8-aligned; the split object carries the 4-byte pad.
 asm(".section .bss; .balign 8");
+
+#if RE4DC_CABIN_SOURCE
+extern "C" int re4dc_cabin_source_allocation(const void* pointer,unsigned bytes,int* heap){
+    if(!pointer || !bytes || !heap)return 0;
+    for(unsigned i=0;i<MEM_HEAP_NUM;++i){
+        if(Heap[i].handle<0 || !memCheckHeapActive(i))continue;
+        const OSHeapDescriptor& descriptor=HeapHead[Heap[i].handle];
+        for(const OSHeapCell* cell=descriptor.allocated;cell;cell=cell->next){
+            if((const u8*)cell+0x20!=pointer || cell->size<0x40)continue;
+            // Source carriers/modules use tagged mem_alloc blocks. Account for
+            // OSAlloc consuming an otherwise unusable final 32-byte remainder.
+            unsigned payload=(unsigned)cell->size-0x40;
+            bool tag=false;
+            for(int tail=32;tail>=0;tail-=32){
+                if((unsigned)tail>payload)continue;
+                const u8* t=(const u8*)pointer+payload-tail;
+                if(t[0]==0 && t[1]=='M' && t[2]=='A' && t[3]=='D'){
+                    if(bytes>payload-tail)return 0;tag=true;break;
+                }
+            }
+            if(!tag)return 0;
+            *heap=(int)i;return 1;
+        }
+    }
+    return 0;
+}
+extern "C" void* re4dc_cabin_source_alloc(unsigned bytes,int heap){
+    return mem_alloc(bytes,"cabin mutable EVD",0,1,heap);
+}
+extern "C" int re4dc_cabin_source_free(void* pointer,unsigned bytes,int heap){
+    int actual_heap=-1;
+    if(!re4dc_cabin_carrier_before_free(pointer) ||
+       !re4dc_cabin_source_allocation(pointer,bytes,&actual_heap) || actual_heap!=heap)return 0;
+    // The exact live source allocation was checked above. OSFreeToHeap is a
+    // synchronous, non-yielding list update and has no fallible return path.
+    OSFreeToHeap(Heap[heap].handle,pointer);return 1;
+}
+#endif

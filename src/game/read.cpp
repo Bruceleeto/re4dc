@@ -394,6 +394,11 @@ static void ModuleMemFree(void* p)
 // when bit3) and the separately copied module (bit0), clears the slot.
 void InitModule(ReadModule* m)
 {
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_carrier_before_free(m->pArc)){
+        re4dc_missing("cabin borrowed module still has readers");return;
+    }
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__)
     // Required before archive destruction, including the separately linked REL.
     re4dc_motion_unbind(m->pArc);
@@ -1419,3 +1424,11 @@ void* GetDataExt(void* arc, const char* tag, int no)
 }
 
 asm(".section .bss; .balign 32");
+
+#if RE4DC_CABIN_SOURCE
+extern "C" const void* re4dc_cabin_source_module(const void* pointer,unsigned bytes){
+    // Both original r11c swaps borrow the already-loaded module 0x13.
+    const ReadModule* module=SearchEmModule(0x13);
+    return module && module->pArc==pointer && bytes && bytes<=module->size ? module : NULL;
+}
+#endif

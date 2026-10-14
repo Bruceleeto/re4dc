@@ -2600,7 +2600,12 @@ int EventMgr::EvtFree(char* nm)
         pLog->err(0, 0, "EventMgr::EvtFree : NameEvt failed [%s]", nm);
         return 0;
     }
+#if RE4DC_CABIN_SOURCE
+    const bool cabin_owned=unit && re4dc_cabin_carrier_reserved(unit);
+    if(!cabin_owned)DelRead(nm);
+#else
     DelRead(nm);
+#endif
     if (no > 7) {
         pLog->err(0, 0, "EventMgr::EvtFree : WkNo failed [%d]", no);
         return 0;
@@ -2609,15 +2614,39 @@ int EventMgr::EvtFree(char* nm)
     if (unit != 0) {
         if (unit->waitLoadOk() == 0) {
             pLog->err(0, 0, "EvtFree() : out of memory (0x%x)[%s]", unit->m_size, nm);
+#if RE4DC_CABIN_SOURCE
+            if(cabin_owned)return 0;
+#endif
         }
         if (em != 0 && readEm[no].swapped == 1) {
             mod = SearchEmModule(em);
+#if RE4DC_CABIN_SOURCE
+            const void* cabin_mram=mod ? mod->pArc : 0;
+            const unsigned cabin_bytes=unit->m_size;int cabin_heap=-1;
+            const unsigned cabin_reverse=cabin_owned ? re4dc_cabin_carrier_reverse_token(unit,mod,cabin_mram,cabin_bytes,&cabin_heap) : 0;
+            if(cabin_owned && !cabin_reverse)return 0;
+#endif
             MemorySwap(mod->pArc, (u32) unit->m_addr, unit->m_size);
+#if RE4DC_CABIN_SOURCE
+            // A diagnostic in this void source API may return. Only a positive
+            // receipt for this exact owner and module can release source role.
+            if(cabin_owned && !re4dc_cabin_carrier_reverse_complete(unit,mod,cabin_mram,cabin_bytes,cabin_heap,cabin_reverse))return 0;
+#endif
             readEm[no].swapped = 0;
             EspEmDataSwapPop(em);
         }
+#if RE4DC_CABIN_SOURCE
+        if(cabin_owned){
+            // A refused clear retains ReadTbl and the current exchange role so
+            // the caller can retry after actual Event/DMA readers have left.
+            if(!unit->setClear())return 0;
+        }else
+#endif
         unit->setCommand(CMND_CLEAR_DATA, 0, 0);
     }
+#if RE4DC_CABIN_SOURCE
+    if(cabin_owned && !DelRead(nm))return 0;
+#endif
     return 1;
 }
 
@@ -2696,6 +2725,12 @@ int EventMgr::SetEvt(char* nm, Event** out)
         DelEvt(evt, 0);
         return 0;
     }
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_carrier_event(evt,evd,nm)){
+        destroyNow(evt);
+        re4dc_missing("cabin source EVD allocation ownership");return 0;
+    }
+#endif
     if (evt->init(nm, (EvtHeader*) evd) == 0) {
         pLog->err(0, 0, "EventMgr::SetEvt : init failed[%s]", nm);
         DelEvt(evt, 0);
@@ -2753,6 +2788,7 @@ int EventMgr::DelEvt(void* evt_, int flag)
         char* p = nm;
         strcpy(p, evt->Name);
 #if RE4DC_CABIN_SOURCE
+        re4dc_cabin_carrier_event_deleted(evt);
         re4dc_cabin_event_deleted(evt);
 #endif
         destroyNow(evt);
