@@ -284,11 +284,22 @@ struct Source { Re4dcUiImage image{}; Key key{}; };
 // bytes from the optional source-key lookup cache, not the game heap/queue.
 // An uncached source descriptor still resolves through its existing owner table.
 Entry entries[kTextureCount]; Source sources[kSourceCount]; unsigned nsource;
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+// FX_TEX_POOL=<KB> (effects30.mk, test 12 fx lane; render only): a resident effect texture pool. An effect sprite's
+// texture (re4dc_effect_sprite) is pinned while the pool's bytes stay under the budget, so the room's effect set (the
+// r101 pyre fire flipbook) is loaded once and kept out of the UI / world LRU eviction; until the pool is full an effect
+// texture may load even while the cache is evicting (the EFFECT_ROOM thrash guard applies once it is full). Pins end
+// at room retirement (re4dc_ui_retire_room) or when the entry closes.
+bool fx_pool_pin[kTextureCount];unsigned fx_pool_size[kTextureCount],fx_pool_bytes,fx_pool_pins,fx_pool_full;
+#define RE4DC_FX_POOL_PINNED(e) fx_pool_pin[unsigned(&(e)-entries)]
+#else
+#define RE4DC_FX_POOL_PINNED(e) false
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)))
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)) || RE4DC_FX_POOL_PINNED(e))
 #else
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame)
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || RE4DC_FX_POOL_PINNED(e))
 #endif
 // EFFECT_SPRITES=1 (effects30.mk; default off = previous image): native effect sprites
 // (re4dc_effect_sprite below).
@@ -2535,6 +2546,10 @@ void close_entry(Entry& entry) {
     // Revoke before freeing/fencing storage; forced retirement is observable.
     actor_texture_leases.retire_entry(unsigned(&entry-entries));
 #endif
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    {const unsigned i=unsigned(&entry-entries);
+     if(i<kTextureCount && fx_pool_pin[i]){fx_pool_pin[i]=false;fx_pool_bytes-=fx_pool_size[i];}}
+#endif
     if(entry.valid) used-=entry.package.vram_bytes();
     entry.package.close();entry.valid=false;
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
@@ -3655,6 +3670,10 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     sources_reset();
 }
 extern "C" void re4dc_ui_retire_room(){
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    for(unsigned i=0;i<kTextureCount;++i)fx_pool_pin[i]=false;   // FX_TEX_POOL: the next room fills its own pool
+    fx_pool_bytes=0;fx_pool_full=0;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     // gameRoomMemInit can retire directly, without StageSet/re4dc_room_leave.
     if(!re4dc_movie_world_before_room_retire()){
@@ -4714,6 +4733,10 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0) re4dc_log("native effect sprites: frame=%u queued=%u direct=%u missing=%u dropped=%u capped=%u culled=%u peak=%u\n",frame,fx_queued,fx_direct,fx_missing,fx_dropped,fx_capped,fx_culled,fx_peak);
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     if(frame%120==0) re4dc_log("native effect guard: frame=%u resident_only_skips=%u\n",frame,fx_resident_skips);
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    if(frame%120==0) re4dc_log("native effect pool: frame=%u pinned_bytes=%u pins=%u full=%u budget=%u vram_free=%u\n",frame,
+                               fx_pool_bytes,fx_pool_pins,fx_pool_full,unsigned(RE4DC_FX_TEX_POOL)*1024U,(unsigned)pvr_mem_available());
+#endif
 #endif
 #endif
 #if RE4DC_NATIVE_MES
@@ -5992,6 +6015,9 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     if(fx_count>=RE4DC_EFFECT_SPRITE_MAX){++fx_capped;return 0;}
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     fx_resident_only=frame-fx_evict_frame<=1 || fx_new_loads>=kFxNewLoads;
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    if(!fx_pool_full && fx_new_loads<kFxNewLoads)fx_resident_only=false;   // FX_TEX_POOL: fill the pool first
+#endif
     const unsigned opens=load_opens;
 #endif
 #if RE4DC_UI_HANDLES
@@ -6006,6 +6032,14 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fxCoreTextureAcquired(s->image,e);
 #endif
     if(!e){++fx_missing;return 0;}
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    {const unsigned i=unsigned(e-entries);
+     if(i<kTextureCount && !fx_pool_pin[i] && e->valid){
+         const unsigned b=e->package.vram_bytes();
+         if(fx_pool_bytes+b<=unsigned(RE4DC_FX_TEX_POOL)*1024U){fx_pool_pin[i]=true;fx_pool_size[i]=b;fx_pool_bytes+=b;++fx_pool_pins;}
+         else fx_pool_full=1;
+     }}
+#endif
 #if RE4DC_FX_SPRITE_TRIM || RE4DC_FX_SPRITE_TRIM_DIAG
     Re4dcEffectSprite trimmed;    // FX_SPRITE_TRIM: the quad over its texture's alpha box or octagon (fxtrim.mk)
     float fx_oct_p[8],fx_oct_q[8];

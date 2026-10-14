@@ -252,6 +252,15 @@ FX_FLIPBOOK_MIN ?= 8
 ifneq ($(filter-out 0 2 3 4,$(FX_FLIPBOOK)),)
 $(error FX_FLIPBOOK is 0, 2, 3 or 4)
 endif
+# FX_TEX_POOL=<KB> (test 12 fx lane, render only, default 0; needs EFFECT_SPRITES=1 and EFFECT_ROOM): a resident effect
+#                    texture pool in native_ui.cpp. Effect sprite textures are pinned until the pool holds <KB> KB, so
+#                    the room's effect set loads once and stays out of the LRU eviction; pins end at room retirement.
+FX_TEX_POOL ?= 0
+ifneq ($(FX_TEX_POOL),0)
+ifneq ($(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),11)
+$(error FX_TEX_POOL needs EFFECT_SPRITES=1 and EFFECT_ROOM)
+endif
+endif
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
@@ -400,6 +409,9 @@ ifneq ($(FX_LEVEL),)
 endif
 ifneq ($(EFFECT_TORCH),0)
 	@printf '#define RE4DC_EFFECT_TORCH %s\n' '$(EFFECT_TORCH)' >> $@.tmp
+endif
+ifneq ($(FX_TEX_POOL),0)
+	@printf '#define RE4DC_FX_TEX_POOL %s\n' '$(FX_TEX_POOL)' >> $@.tmp
 endif
 ifneq ($(FX_FLIPBOOK),0)
 	@printf '#define RE4DC_FX_FLIP_PTN(p, n) ((n) >= %s ? (p) - (p) %% %s : (p))\n' '$(FX_FLIPBOOK_MIN)' '$(FX_FLIPBOOK)' >> $@.tmp
