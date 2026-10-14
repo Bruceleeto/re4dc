@@ -89,7 +89,9 @@ extern "C" int re4dc_actor_plan_pl08(cModel* m,Re4dcActorPlan* out) {
 #if RE4DC_LEON_HAND_ANY
     const LeonHandPick hand5=leon_hand_pick(5,pl08_infos[5],leon4k::chunks[5],RE4DC_LEON_STD_INPUT(5));
     const LeonHandPick hand6=leon_hand_pick(6,pl08_infos[6],leon4k::chunks[6],RE4DC_LEON_STD_INPUT(6));
+#if RE4DC_LEON_HAND_PACK
     if(!hand5.chunk || !hand6.chunk)return 0;
+#endif
     RE4DC_PL08_OWN(0,r0,0);RE4DC_PL08_OWN(1,r1,1);RE4DC_PL08_SHARED(2,i2);RE4DC_PL08_SHARED(3,i3);RE4DC_PL08_SHARED(4,i4);
     re4dc_actor::plan_chunk(p,5,pl08_infos[5],*hand5.chunk,hand5.input);re4dc_actor::plan_chunk(p,6,pl08_infos[6],*hand6.chunk,hand6.input);
     RE4DC_PL08_SHARED(7,i7);RE4DC_PL08_OWN(8,r8,2);

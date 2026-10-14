@@ -203,7 +203,9 @@ extern "C" int re4dc_actor_plan_leon(cModel* m,Re4dcActorPlan* out) {
     // LEON_HAND_DIR: roles 5 / 6 draw the PS2 hand of the current pose (leon_hand_pick); the plan bytes follow.
     const LeonHandPick hand5=leon_hand_pick(5,infos[5],leon4k::chunks[5],RE4DC_LEON_STD_INPUT(5));
     const LeonHandPick hand6=leon_hand_pick(6,infos[6],leon4k::chunks[6],RE4DC_LEON_STD_INPUT(6));
+#if RE4DC_LEON_HAND_PACK
     if(!hand5.chunk || !hand6.chunk)return 0;
+#endif
     RE4DC_LEON_OWNER(4,i4);re4dc_actor::plan_chunk(p,5,infos[5],*hand5.chunk,hand5.input);
     re4dc_actor::plan_chunk(p,6,infos[6],*hand6.chunk,hand6.input);RE4DC_LEON_OWNER(7,i7);
     leon_cur[5]=hand5.chunk;leon_cur[6]=hand6.chunk;leon_cur_key=leon_hand_key(0,hand5.pose,hand6.pose);
