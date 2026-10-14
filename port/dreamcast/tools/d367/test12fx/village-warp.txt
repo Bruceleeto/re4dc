@@ -1,0 +1,9 @@
+name r101-village-ab
+# Village console A/B disc (test 12, 10-14): boot straight into the r101 square, the fight about to start (bell-warp.txt:
+# flags 6/7 clear, first visit done, r101 manual page read), god mode so a view can be held as long as needed.
+room 0x101
+pos -7914 0 -254
+ang 2.9600
+find 0x00002000
+inv default
+god
