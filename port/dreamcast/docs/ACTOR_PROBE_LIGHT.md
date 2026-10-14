@@ -1,7 +1,7 @@
 # Character lighting phase 2: per-actor light probe (ACTOR_PROBE_LIGHT)
 
 Lane lp2, 2026-10-14. Branch `lane/light-p2` (local), commits `7ac3635b` (probe) and `ad45bdd1` (shared record).
-Option branch `lane/light-p2-extra` (`a6496bef`, unmerged): `ACTOR_PROBE_LIGHT_EXTRA`. All knobs default 0.
+Then `d44c3059` (LEON_LIGHT_HEADROOM + LEON_LIGHT_TOGGLE). Option branch `lane/light-p2-extra` (`a6496bef`, unmerged): `ACTOR_PROBE_LIGHT_EXTRA`. All knobs default 0.
 Evidence: `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014` (cost projections `hwmodel-*`, `cost-table.json`, gates under
 `gates\`, stills sheet `lighting-sheet.png`).
 
@@ -249,8 +249,102 @@ The ms figures are modelled where marked; the rest are estimates.
 | F. Per-vertex world relight | Full GC-like world lights | Not costed: the PS2 world has no normals | Large (converter + kernel) | High; rejected |
 | G. One-direction asm kernel | None (speed only) | Estimate −0.4 ms for Leon | New SH-4 asm | Medium; not justified now |
 
+## Leon headroom (LEON_LIGHT_HEADROOM) and the lab toggle (LEON_LIGHT_TOGGLE)
+
+Commit `d44c3059`. Both knobs default 0.
+
+**Problem.** PVR MODULATE maps vertex colour 255 to 1.0x of the texel. A lit Leon (D36 or the probe) could therefore
+only get darker than the flat Leon (white 255). The GameCube TEV multiplies Leon's lit colour by x2 in r100, x1 in r101
+and x4 in r10b. The PS2 GS treats 0x80 as 1.0, which allows 2x. (Brightness study:
+`C:\Game Dev\Emulators\BRIGHTNESS-GAP-20261014.md`.)
+
+**Fix, `LEON_LIGHT_HEADROOM=1`.** It has two halves, and the knob only works when both are in place.
+- **Data.** `tools/d367/charbake/cb_headroom.py` writes Leon's textures to `tex.pak` at 2x. It covers every Leon atlas
+  and hair key in `charbake_variants.h`, plus the pl08 atlas: 15 packages in `tex-gcatlas.pak`.
+  - The tool doubles the integer levels (RGB565 / ARGB4444 RGB; VQ codebooks). Keys, sizes and formats stay the same,
+    so VRAM is unchanged.
+  - Clipped texels: 2.2% in the play atlas and the pl08 atlas, 0-0.02% in the play hair.
+- **Code.** Every Leon vertex colour is halved.
+  - The flat record is 128: `leon_flat_light` in `coarse_actor.cpp`, used by the transaction owner and the coarse
+    paths.
+  - The lit records (the LEON_SOURCE_LIGHT marker) take x0.5 *after* the fast fold's caps check: `build_lights`,
+    `probe_lights`, and the exact evaluator. The folds and kernels are unchanged; only the colour matrix differs.
+  - Result: flat Leon looks as it did in test 10, and lit vertices can reach 2.0x of the texel.
+- **The pair must ship together.**
+  - A headroom binary with a normal pak draws Leon at half brightness.
+  - A knob-off binary with the 2x pak draws Leon at 2x.
+  - Fixture tool: `t10s-fix.py --pak gchr`.
+  - The 2x pak is private: `/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak`, sha256 `1eb18ec4...`.
+- **Known difference from GC.** The GX channel clamp min(light sum, 1) before the TEV scale is reproduced exactly when
+  TEV is x2 or more (r100, r10b). Where TEV is x1 (r101), the lit side can go up to the light sum (about 1.2-1.3)
+  instead of stopping at 1.0.
+
+**Lab toggle, `LEON_LIGHT_TOGGLE=1`** (debug only; make requires `DBG_WARP=1 LOOK_TOGGLE=1` plus headroom and the
+probe).
+- The combo is hold X + D-pad right + START. The mode name shows on screen for 3 s, and each change logs
+  `LEON_LIGHT_MODE`. A warp line `leonlight <n>` sets the mode at load.
+- Modes:
+  - 0 FLAT (test 10)
+  - 1 PROBE: full scale, then halved per vertex. This gives test 10's 1.0x cap.
+  - 2 PROBE + HEADROOM (the boot mode)
+  - 3 FLAT WARM: one colour per part, with the hue of the room's GameCube light set (ambient + Leon's
+    LightSetModel lights, live), brightest channel 128.
+- The probe modes already use each room's GameCube light colours, so mode 3 gives flat Leon the per-room warm hue.
+- Build for the lighting lab: `C:\Game Dev\Emulators\LIGHTING-LAB-20261014\FLYCAST-BUILD.txt`.
+- Check of the toggle: modes 0 and 1 reproduce the test 10 flat and probe stills to within 1% of jacket luma
+  (house 35.9 vs 35.5 and 24.1 vs 24.1; r101F 42.7 vs 42.2 and 23.8 vs 23.7).
+
+**Gates on `d44c3059`** (evidence `...\lp2-20261014\gates\`):
+- **Knob-off identity:** hkP vs t10stP, IDENTITY PASS.
+- **H2 STRICT.**
+  - Arms: hgT (knob-off, `IMAGE_PAD_BYTES=4448`, gc pak) vs h1T (`ACTOR_PROBE_LIGHT=1 LEON_SOURCE_LIGHT=1
+    LEON_LIGHT_HEADROOM=1`, 2x pak).
+  - Both arms: `_end` 8c40a33c, stop tick 4700, trace_lock, 0 overruns.
+  - Result: STRICT, no divergence.
+- **Decisions:** MUST-IDENTICAL over 4701 ticks, drift 0.
+- **s30:** 340/340 shown, 0 dropped, in both arms.
+- **MCHECK_LEONGC + TEX_CHECK=2** (h1M, 2x pak): LEON-GC PASS on h2, boat and square; TEXCHK PASS 3/3.
+- **VRAM:** identical between the arms. Both make 404 uploads totalling 4,994,296 bytes.
+- **Host test:** headroom x0.5 and the four toggle modes.
+- **Cost:** not run separately. Headroom adds 3 multiplies per part and no per-vertex work, so the modelled ms is the
+  probe =1 row.
+
+**Look and jacket luma.** Sheet: `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\headroom-sheet.png`; numbers in
+`headroom-sheet.json`.
+- Each cell is the jacket patch's Y mean / p90, using the same patches as the brightness study.
+- DC values are Flycast framebuffer. The console column is a MODEL: 480i flicker filter, S-Video bandwidth, CRT gamma
+  2.4.
+
+| Jacket Y mean / p90 / top-10% mean (B/G) | Flat (test 10) | Probe =1 | Probe =1 + headroom | + console model (est.) | Flat warm (mode 3) | GameCube | PS2 |
+|---|---|---|---|---|---|---|---|
+| r100 house | 35.5 / 51 / 58 (0.91) | 24.1 / 45 / 52 (0.87) | 27.2 / 58 / 73 (0.85) | 22.7 / 50 / 64 (0.84) | 35.5 / 52 / 58 (0.86) | 48.3 / 76 / 84 (0.80) | 37.6 / 65 / 73 (0.87) |
+| r101 F | 42.2 / 56 / 63 (0.90) | 23.7 / 42 / 52 (0.85) | 23.9 / 42 / 53 (0.85) | 19.5 / 35 / 45 (0.84) | 42.2 / 57 / 63 (0.85) | 45.1 / 70 / 81 (0.77) | 52.8 / 76 / 82 (0.79) |
+| r101 wide | 38.7 / 53 / 69 (0.90) | 20.8 / 44 / 62 (0.86) | 21.7 / 48 / 67 (0.85) | 17.8 / 42 / 58 (0.84) | 38.7 / 53 / 69 (0.85) | 27.6 / 43 / 51 (0.78) | 44.5 / 70 / 79 (0.78) |
+| r10b start | 32.1 / 43 / 50 (0.95) | 21.6 / 37 / 46 (0.94) | 22.8 / 43 / 52 (0.93) | 18.5 / 35 / 43 (0.93) | 32.1 / 43 / 49 (0.91) | 36.4 / 69 / 83 (0.92) | 25.8 / 56 / 67 (0.89) (jacket, not comparable) |
+
+The GC r100 house shot has approximate framing.
+
+What this shows:
+- **Headroom brings back the highlights.** The p90 rises from 45 to 58 in the house, 37 to 43 in r10b, and 44 to 48 in
+  the wide shot. In r101F (TEV x1, Leon in his own shadow) it does not change.
+- **It does not bring back the mean.** Probe + headroom is still 25-45% below the flat test 10 Leon:
+  - house: 27 vs 36
+  - r101F: 24 vs 42
+  - wide: 22 vs 39
+  - r10b: 23 vs 32
+- GC and PS2 are above flat in most rows. In r101, GC's brightness is Filter00 (x1.41); see the brightness study.
+- The modelled console makes every DC column about 15% darker again (CRT gamma).
+- The remaining mean gap is the light intensity on Leon's camera-facing (back) side. Only the ambient and the folded
+  residual light it, and D36's exact GC lights give the same result. It is not the 1.0x cap.
+- Mode 3 (FLAT WARM) keeps flat's luma and warms the hue. The jacket's B/G goes from 0.90-0.95 to 0.85-0.91; GC is
+  0.77-0.92.
+
 ## Recommendation
 
+- **Leon, update of 2026-10-14: if the probe ships, ship it with `LEON_LIGHT_HEADROOM=1` and the 2x pak.** Without
+  headroom the probe only darkens Leon. With it, the highlights come back (p90 up to flat or above), but the mean stays
+  25-45% below the flat test 10 Leon. Judge it live with the lab toggle against Dolphin before making it the default
+  look. The cheapest warm-up for flat Leon is mode 3 (0 ms).
 - **Leon: ship `ACTOR_PROBE_LIGHT=1`.** It costs about +1.3..1.9 ms modelled (lighting 1.6..1.8 ms on its own) in
   every scene, looks like D36, and carries the dynamic lights. D36 on its own is unsafe: +21.9 ms when Leon is under
   more than 3 lights.
