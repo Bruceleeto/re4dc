@@ -52,6 +52,20 @@ $(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/esp.o $(OBJDIR)/src/game/esp_sub.o
 endif
 EFFECT_SPRITE_MAX ?= 64
 EFFECT_ROOM ?= 0
+# FX_CORE_TEX_PREP=1: prepare the one current core 0x1d sprite texture from
+# accepted r11c callbacks before scene submission. Potential draw only; source
+# callbacks/RNG and the ordinary loader/four-open FX cap are unchanged.
+FX_CORE_TEX_PREP ?= 0
+ifneq ($(FX_CORE_TEX_PREP),0)
+ifneq ($(FX_CORE_TEX_PREP)$(EFFECT_SPRITES)$(UI_HANDLES)$(TEX_RESIDENT)$(UI_VRAM)$(D349_RENDERER_STACK),111111)
+$(error FX_CORE_TEX_PREP must be 0 or 1 and needs EFFECT_SPRITES=1 UI_HANDLES=1 TEX_RESIDENT=1 UI_VRAM=1 D349_RENDERER_STACK=1)
+endif
+ifeq ($(filter 1 2 3 4 5 6 7,$(EFFECT_ROOM)),)
+$(error FX_CORE_TEX_PREP needs EFFECT_ROOM in 1..7 for the existing four-open FX cap)
+endif
+$(OBJDIR)/src/game/esp_sub.o $(OBJDIR)/src/game/esp0a.o $(OBJDIR)/src/game/esp0e.o: GAME_CPPFLAGS += -DRE4DC_FX_CORE_TEX_PREP=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_FX_CORE_TEX_PREP=1
+endif
 #   ESP_SPRITE_FAST=1 (needs EFFECT_LEAN=1 and EFFECT_SPRITES=1; lane fx 2026-10-04): the effect sprite pass without
 #                    work nothing reads. EspCommonTrans returns at once for a sprite the native path does not take
 #                    (under EFFECT_LEAN nothing draws it: only m_Mat and GX state were written), and after the native
