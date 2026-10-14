@@ -140,6 +140,27 @@ PS2_ENEMY_RULES ?= 0
 ifneq ($(PS2_ENEMY_RULES),0)
 $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r107.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=$(PS2_ENEMY_RULES)
 endif
+# PS2_ENEMY_ROOMS=<mask> (lane ps2enemy 2026-10-14, default 0: no effect; needs PS2_ENEMY_RULES=1; changes gameplay
+# by design): more PS2 USA room-code enemy rules (st1_0..2.rel, decoded per room), one bit per room:
+#   0x01 r100: the after-state trap 0x7A is not set; list entries 3 / 4 take the PS2 flags (swapped)
+#   0x02 r101: the house event (s21) sends 9 Ganados (not 0x3E / 0x44) and removes the dog 0x34 and entry 0x4F
+#   0x04 r104: 7 Ganados at the start (not 12), 6 patrols (the dash-in drops two, sends two), dash-in 0xFC/0xFD,
+#        waves only after the dash, by area while fewer than 7 are alive, at most twice each; area 0x15 far-deletes
+#        down to 7 then sends 0xF8/0xF9; areas 0x16/0x17 send 0xF2/0xFE while fewer than 8; entry 0xF1 PS2 flags;
+#        the merchant 0x5E is drawn / moved only in PS2 area 0x18 after s20
+#   0x08 r108: the bell reinforcements come from the half of the village Leon stands in (x > 13500: 6 entries,
+#        else 5), up to 3 never-sent entries
+#   0x10 r11a: list-1 entries 0x16/0x18/0x1C/0x1D held back: 2 at entry by side, the rest one at a time from PS2
+#        areas (flags 64/65) while fewer than 9 are alive (the ROUTE_CH22 r11a code, now also in chapter 2-1)
+#   0x20 r11b: the shore ambush leaves 0x3E/0x3F for later (PS2 area 0x0B, fewer than 2 em22 alive); the 8 fish
+#        are drawn / moved only while Leon is in PS2 area 0x0A
+PS2_ENEMY_ROOMS ?= 0
+ifneq ($(PS2_ENEMY_ROOMS),0)
+ifneq ($(PS2_ENEMY_RULES),1)
+$(error PS2_ENEMY_ROOMS needs PS2_ENEMY_RULES=1)
+endif
+$(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r108.o $(OBJDIR)/mod/st1_3/src/st1/r108.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o $(OBJDIR)/mod/st1_2/src/st1/r11b.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_ROOMS=$(PS2_ENEMY_ROOMS)
+endif
 # em27ObaHitCk scans enemy slots through the sparse backing (workAt) instead of raw slot math, which read an
 # unbacked slot's 0xFF filler as a NaN position and dragged the fish to NaN (r10b dock / boss collision storm).
 $(OBJDIR)/mod/em27/src/em27/em27.o: GAME_CPPFLAGS += -DRE4DC_EM27_SLOT_FIX=1

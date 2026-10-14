@@ -7,8 +7,10 @@
 #include "player.h"
 #include "esp.h"
 
-#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22 && \
-    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+// PS2_ENEMY_ROOMS bit 0x10 (lane ps2enemy 2026-10-14) runs the same PS2 r11a rules in chapter 2-1 (no ROUTE_CH22).
+#if defined(RE4DC_GAME) && !defined(__PPC__) && \
+    ((RE4DC_ROUTE_CH22 && defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES) || \
+     (defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x10)))
 #define CH22_PS2_ROOM 1
 #include "libgpu.h"
 #include "sce_at.h"
@@ -23,6 +25,12 @@ extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
 
 #if CH22_PS2_ROOM
 #include "em_wrap.h"
+#endif
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x10)
+#include "dbg_tool.h"
+#define R11A_PS2_LOG(no) OSReport("ps2en: r11a sends 0x%02x (alive %d)\n", no, SceCountEmAlive(0x10, 0x20))
+#else
+#define R11A_PS2_LOG(no)
 #endif
 
 // Room 1-1a (D:/Bio4/Prog/r11a.cpp): the lake shore path. R11aInit attaches the water ripple / splash
@@ -51,18 +59,22 @@ static void r11a_ps2EmSet()
                 if (RsfCheck(G_ROOM_ID, 0) == 0) {
                     RsfSet(G_ROOM_ID, 0);
                     setEm(0x16, -1, 0, 1, 1);
+                    R11A_PS2_LOG(0x16);
                 } else if (RsfCheck(G_ROOM_ID, 1) == 0) {
                     RsfSet(G_ROOM_ID, 1);
                     setEm(0x18, -1, 0, 1, 1);
+                    R11A_PS2_LOG(0x18);
                 }
             }
             if (pG->Room_flg[2] & 0x80000000) {
                 if (RsfCheck(G_ROOM_ID, 2) == 0) {
                     RsfSet(G_ROOM_ID, 2);
                     setEm(0x1C, -1, 0, 1, 1);
+                    R11A_PS2_LOG(0x1C);
                 } else if (RsfCheck(G_ROOM_ID, 3) == 0) {
                     RsfSet(G_ROOM_ID, 3);
                     setEm(0x1D, -1, 0, 1, 1);
+                    R11A_PS2_LOG(0x1D);
                 }
             }
         }
@@ -129,6 +141,7 @@ static void r11a_ps2Init()
         setEm(0x16, -1, 0, 1, 1);
         setEm(0x18, -1, 0, 1, 1);
     }
+    R11A_PS2_LOG(pG->room_id_prev == 0x119 ? 0x1C1D : 0x1618);
     SceExec(0x12, (TaskFunc) r11a_ps2EmSet, 0, 0, SCE_PRIO_DEF_2, 0);
 }
 #endif

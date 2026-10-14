@@ -23,6 +23,11 @@
 #include "cam_ctrl.h"
 #include "sscrn.h"
 #include "math_sub.h"
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x08)
+#include "em_set.h"
+#include "player.h"
+#include "dbg_tool.h"
+#endif
 
 // Room 1-08 (D:/Bio4/Prog/r108.cpp, in st1_1 and st1_3): the church; the symbol puzzle on the
 // balcony, the bell, the doors and the battle streams.
@@ -179,6 +184,37 @@ cEm* setEmI(int no, int list, int errOn, int chkDead, int setAlive) asm("setEm__
 // three of the eleven listed ESL entries as reinforcements.
 extern "C" void r108_checkEmReset()
 {
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x08)
+    // PS2_ENEMY_ROOMS r108 (PS2 st1_1 0xfc28): at 7 or fewer Ganados, up to three never-sent entries of the half
+    // of the village Leon stands in (x > 13500: the first table, else the second); each send counts.
+    {
+        static const u8 east[6] = {1, 2, 0x2D, 0x33, 0x35, 0x3B};
+        static const u8 west[5] = {0x47, 0x4B, 0x4D, 0x67, 0x6A};
+        const u8* t;
+        u32 n, i, sent = 0;
+
+        if ((u32) SceCountEmAlive(0x10, 0x20) >= 8) {
+            return;
+        }
+        if (pPL->pos.x > 13500.0f) {
+            t = east;
+            n = 6;
+        } else {
+            t = west;
+            n = 5;
+        }
+        for (i = 0; i < n && sent < 3; i++) {
+            if (EM_LIST(t[i])->be_flag & 1) {
+                continue;
+            }
+            setEm(t[i], -1, 0, 1, 1);
+            sent++;
+        }
+        if (sent != 0)
+            OSReport("ps2en: r108 bell reinforcements: %u from the %s half\n", sent, n == 6 ? "x>13500" : "x<=13500");
+        return;
+    }
+#endif
     int list[11] = {1, 2, 0x2D, 0x47, 0x4B, 0x4D, 0x33, 0x35, 0x3B, 0x67, 0x6A};
     int* tbl = list;
     u32 n;

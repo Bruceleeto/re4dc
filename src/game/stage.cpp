@@ -261,15 +261,42 @@ void StageSet()
 // code (r101 0x1A/0x1B, r107 0xA5..0xA9 / 0xED..0xEF: see those rooms) or simply not on the PS2 (r101's
 // chicken, three cows and three chickens of r103, two snakes of r10a). The emleon01 rooms (r10f..r11d)
 // are not converted until their PS2 room code is ported.
+// PS2_ENEMY_ROOMS list rows (lane ps2enemy): with ROUTE_CH22 the qualified chapter 2-2 full-record adapter
+// (ps2_enemy_ch22.cpp, applied after this) writes the PS2 rows of r100 / r104 (list 0) and r11a (list 1) itself and
+// checks their baseline bytes, so these patches stand aside there (the room code rules stay).
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && !(defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22)
+#define RE4DC_PS2_ROOMS_LIST RE4DC_PS2_ENEMY_ROOMS
+#else
+#define RE4DC_PS2_ROOMS_LIST 0
+#endif
 static void re4dc_ps2EnemyList(int no)
 {
     static const u8 dead00[] = {0x1A, 0x1B, 0x4E, 0x50, 0x54, 0x55, 0x57, 0x58, 0x5C,
                                 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xED, 0xEE, 0xEF, 0xC2, 0xC3};
     u32 i;
 
+#if RE4DC_PS2_ROOMS_LIST & 0x10
+    // PS2_ENEMY_ROOMS r11a: the PS2 emleon01 holds 0x16/0x18/0x1C/0x1D back (st1_2 R11aInit and its task send them).
+    if (no == 1) {
+        EM_LIST(0x16)->be_flag &= ~1;
+        EM_LIST(0x18)->be_flag &= ~1;
+        EM_LIST(0x1C)->be_flag &= ~1;
+        EM_LIST(0x1D)->be_flag &= ~1;
+    }
+#endif
     if (no != 0) {
         return;
     }
+#if RE4DC_PS2_ROOMS_LIST & 0x01
+    // PS2_ENEMY_ROOMS r100: the PS2 list swaps the flags of the ambush Ganados 3 and 4.
+    EM_LIST(3)->flag = 0x8000003C;
+    EM_LIST(4)->flag = 0x2000003C;
+#endif
+#if RE4DC_PS2_ROOMS_LIST & 0x04
+    // PS2_ENEMY_ROOMS r104: entry 0xF1 (a patrol that joins at the dash-in) has the PS2 flags and Character 1.
+    EM_LIST(0xF1)->flag = 0x01032400;
+    EM_LIST(0xF1)->Character = 1;
+#endif
     for (i = 0; i < sizeof(dead00); i++) {
         EM_LIST(dead00[i])->be_flag &= ~1;
     }

@@ -812,6 +812,36 @@ static void r101_Event20()
         }
     }
     r101_work->evt21->setCommand(CMND_DEL_DATA, 0, 0);
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x02)
+    // PS2_ENEMY_ROOMS r101 (PS2 st1_1 0x4ee0..0x4ff4): the dog 0x34 and entry 0x4F are removed (cEmWrap setPtr +
+    // destroy: the list entry is cleared either way), and the house event sends 9 Ganados, not 0x3E / 0x44.
+    {
+        static const u8 gone[2] = {0x34, 0x4F};
+
+        for (int g = 0; g < 2; g++) {
+            cEm* e = GetEmPtrFromList(gone[g]);
+
+            if (e != 0) {
+                cEmWrap w;
+
+                w.setPtr(e, 0);
+                w.destroy();
+            } else {
+                EmListSetAlive(gone[g], 0);
+            }
+        }
+    }
+    setEm(0x3C, -1, 1, 1, 1);
+    setEm(0x3D, -1, 1, 1, 1);
+    setEm(0x3F, -1, 1, 1, 1);
+    setEm(0x40, -1, 1, 1, 1);
+    setEm(0x41, -1, 1, 1, 1);
+    setEm(0x42, -1, 1, 1, 1);
+    setEm(0x43, -1, 1, 1, 1);
+    setEm(0x45, -1, 1, 1, 1);
+    setEm(0x46, -1, 1, 1, 1);
+    OSReport("ps2en: r101 s21 sends 9 (alive %d)\n", SceCountEmAlive(0x10, 0x20));
+#else
     setEm(0x3C, -1, 1, 1, 1);
     setEm(0x3D, -1, 1, 1, 1);
     setEm(0x3E, -1, 1, 1, 1);
@@ -823,6 +853,7 @@ static void r101_Event20()
     setEm(0x44, -1, 1, 1, 1);
     setEm(0x45, -1, 1, 1, 1);
     setEm(0x46, -1, 1, 1, 1);
+#endif
     r101_work->emNum = diff + SceCountEmAlive(0x10, 0x20);
     if (getRoomEtcWindow(0, &win, 1)) {
         ((cEmWindow*) win)->SetBreakModel();

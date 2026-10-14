@@ -32,11 +32,24 @@
 // Room 1-1B (D:/Bio4/Prog/r11b.cpp): the lake; the boat, the floating islands, the lake water
 // rendered to texture, the Ganado ambush on the shore and the s00 event (Del Lago).
 
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x20)
+// PS2_ENEMY_ROOMS r11b: the PS2 USA room code (st1_2.rel R11bInit 0xa988, R11bEmSet 0xb2b8).
+#define R11B_PS2 1
+#include "area.h"
+#include "em_wrap.h"
+#include "dbg_tool.h"
+#else
+#define R11B_PS2 0
+#endif
+
 struct R11bWork {
     cEm* em[9];           // 0x00  the shore Ganado (7 in the event, 9 after EmSetChange)
     cEm* boat;            // 0x24  the boat (list entry 0x3C)
     TexRenderMng* tex[2]; // 0x28  water render targets
     u8 texTbl[2][0x80];   // 0x30  their blend tables (TexRenderModSet)
+#if R11B_PS2
+    cEmWrap fish[8];      // list entries 0x53..0x5A (PS2 work +0x130)
+#endif
 };
 
 // The work pointer is a struct member: every store through the work reloads it.
@@ -76,6 +89,67 @@ static void R11b_Event();
 static void r11b_str_check();
 extern "C" void Evt_R11BS00_Func(Event* e);
 static void r11b_bort_pos_chk();
+
+#if R11B_PS2
+// PS2 r11b.dat AEV flag areas the GameCube AEV lacks: 0x0A (flag 65, the lake by the start pier) and 0x0B (flag
+// 66, the shore of the ambush). Tested directly on the player's position.
+static AreaData r11bPs2Area[2] = {
+    {1, AREA_TYPE_XZ4, 0, {{-10773.5586f, 21041.5762f, 750.0f, {{92482.7969f, 135709.25f}, {158312.6875f, 96881.2422f}, {149027.75f, 167600.2344f}, {102011.9844f, 171835.3438f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-3512.2932f, 12075.8838f, 750.0f, {{-71126.8906f, -11814.8271f}, {-38261.582f, -3077.5796f}, {-48665.0391f, 38227.2578f}, {-87323.375f, 30889.9531f}}}}},
+};
+
+// PS2 R11bEmSet: the 8 fish are drawn and moved only while Leon is in area 0x0A (room save flags 7..14 mark the
+// dead ones); after the ambush (flag 6) the two shore Ganados 0x3E / 0x3F come one at a time while Leon is in
+// area 0x0B and fewer than 2 em22 are alive (flags 3 / 4, 5 = both sent).
+static void r11b_ps2EmSet()
+{
+    int i;
+
+    int last = -1;
+
+    SceSleep(2);
+    for (;;) {
+        int inLake = AreaHitCheck(&r11bPs2Area[0], &pPL->pos) != 0;
+
+        if (inLake != last) {
+            int n = 0;
+
+            for (i = 0; i < 8; i++) {
+                n += r11b_work.p->fish[i].isAlive() == 1;
+            }
+            OSReport("ps2en: r11b fish %s (%d alive)\n", inLake ? "drawn and moving" : "hidden and frozen", n);
+            last = inLake;
+        }
+
+        for (i = 0; i < 8; i++) {
+            cEmWrap* f = &r11b_work.p->fish[i];
+
+            if (RsfCheck(G_ROOM_ID, 7 + i) || f->isAlive() == 0) {
+                continue;
+            }
+            f->setMove(inLake);
+            f->setTrans(inLake);
+            if (f->getHp() <= 0) {
+                RsfSet(G_ROOM_ID, 7 + i);
+            }
+        }
+        if (RsfCheck(G_ROOM_ID, 6) && RsfCheck(G_ROOM_ID, 5) == 0 && AreaHitCheck(&r11bPs2Area[1], &pPL->pos) != 0 &&
+            SceCountEmAlive(0x22, 0x22) < 2) {
+            if (RsfCheck(G_ROOM_ID, 3) == 0) {
+                RsfSet(G_ROOM_ID, 3);
+                r11b_work.p->em[7] = EmSetFromList2(0x3E, 1);
+                OSReport("ps2en: r11b sends 0x3E\n");
+            } else if (RsfCheck(G_ROOM_ID, 4) == 0) {
+                RsfSet(G_ROOM_ID, 4);
+                RsfSet(G_ROOM_ID, 5);
+                r11b_work.p->em[8] = EmSetFromList2(0x3F, 1);
+                OSReport("ps2en: r11b sends 0x3F\n");
+            }
+        }
+        SceSleep(1);
+    }
+}
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH21
 // Route cutscene (ROUTE_CH21, chapter 2-1's start): r11bs00 (Del Lago takes the two Ganados' victim) is
 // presented by its PS2 movie (docs/ROUTE_CUTSCENES.md). The handler's begin / end modes run (object 0x7C
@@ -166,6 +240,9 @@ void R11bInit()
     }
     if (pG->room_id_prev == 0x11A) {
         RsfSet(G_ROOM_ID, 1);
+#if R11B_PS2
+        RsfSet(G_ROOM_ID, 6);
+#endif
         EmSetChange();
     }
     if (RsfCheck(G_ROOM_ID, 1) == 0) {
@@ -235,6 +312,16 @@ void R11bInit()
     TexRenderInit(&r11b_work.p->tex[0], 0xE0, 2);
     TexRenderInit(&r11b_work.p->tex[1], 0xE0, 2);
     FlrAtSetDefVal(0, 0, 3);
+#if R11B_PS2
+    {
+        int i;
+
+        for (i = 0; i < 8; i++) {
+            r11b_work.p->fish[i].setPtr((s16) (0x53 + i), -1, 0);
+        }
+    }
+    SceExec(0x12, (TaskFunc) r11b_ps2EmSet, 0, 0, SCE_PRIO_DEF_2, 0);
+#endif
 }
 
 // Per-frame room main: nothing.
@@ -338,11 +425,19 @@ static void r11b_EmEvent_exit()
     EmMgr.destroy(r11b_work.p->em[6]);
     r11b_work.p->em[0] = EmSetFromList2(0x40, 1);
     r11b_work.p->em[1] = EmSetFromList2(0x41, 1);
+#if R11B_PS2
+    // PS2 (st1_2 0xb9bc): 0x3E / 0x3F are left to r11b_ps2EmSet (flag 6 = the ambush is over).
+    EffectEspDelete(1, 2, 0, 0);
+    EffectEspgenDelete(1, 2, 0);
+    EffectEfmDelete(1, 2, 0);
+    RsfSet(G_ROOM_ID, 6);
+#else
     r11b_work.p->em[7] = EmSetFromList2(0x3E, 1);
     r11b_work.p->em[8] = EmSetFromList2(0x3F, 1);
     EffectEspDelete(1, 2, 0, 0);
     EffectEspgenDelete(1, 2, 0);
     EffectEfmDelete(1, 2, 0);
+#endif
     CamCtrl.Comeback(0);
     SceEventEnd(0);
 }

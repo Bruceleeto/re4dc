@@ -33,6 +33,9 @@
 #include "snd.h"
 #include "fade.h"
 #include "pad.h"
+#if defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x01)
+#include "dbg_tool.h"
+#endif
 #include "math_sub.h"
 #include "motion.h"
 #include "TexRender.h"
@@ -1256,7 +1259,12 @@ extern "C" void r100_trap_set()
     EmSetFromList2(0xD, 1);
     EmSetFromList2(0xE, 1);
     EmSetFromList2(0x1D, 1);
+#if !(defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x01))
     EmSetFromList2(0x7A, 1);
+#else
+    // PS2_ENEMY_ROOMS r100: the PS2 (st1_0 0x5b8c) never sets trap 0x7A.
+    OSReport("ps2en: r100 after-state traps set without 0x7A\n");
+#endif
     if (pG->game_cnt == 0) {
         em = EmSetFromList2(6, 1);
         if (em != errEm) {
