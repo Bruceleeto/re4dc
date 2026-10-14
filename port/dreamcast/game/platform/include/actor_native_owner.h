@@ -80,25 +80,30 @@ namespace re4dc_actor {
 // Reservation reduces only transient-conversion capacity. Existing skin table
 // allocations still use the high end and reuse it per info as before.
 class WorkspaceReservations {
+public:
+    // Every actual actor skin acquisition already holds one of these leases.
+    // The isolated skin pool derives its maximum from this existing bound.
+    static constexpr unsigned MaxOwners=64;
+private:
     struct Slot { unsigned serial=0,bytes=0; };
-    Slot slots_[64]{};
+    Slot slots_[MaxOwners]{};
     unsigned serial_=0,maximum_=0;
 public:
     unsigned maximum()const{return maximum_;}
     bool acquire(unsigned bytes,unsigned epoch,Re4dcActorWorkspaceLease& out){
         if(!bytes || (bytes&31) || out.serial || out.slot || serial_==UINT32_MAX)return false;
-        for(unsigned i=0;i<64;++i)if(!slots_[i].serial){
+        for(unsigned i=0;i<MaxOwners;++i)if(!slots_[i].serial){
             slots_[i]={++serial_,bytes};out={i+1,serial_,epoch,bytes};
             if(bytes>maximum_)maximum_=bytes;return true;
         }
         return false;
     }
     bool valid(const Re4dcActorWorkspaceLease& t,unsigned epoch)const{
-        return t.slot && t.slot<=64 && t.serial && t.epoch==epoch &&
+        return t.slot && t.slot<=MaxOwners && t.serial && t.epoch==epoch &&
             slots_[t.slot-1].serial==t.serial && slots_[t.slot-1].bytes==t.bytes;
     }
     void release(Re4dcActorWorkspaceLease& t){
-        if(t.slot && t.slot<=64 && t.serial && slots_[t.slot-1].serial==t.serial){
+        if(t.slot && t.slot<=MaxOwners && t.serial && slots_[t.slot-1].serial==t.serial){
             slots_[t.slot-1]={};maximum_=0;
             for(const auto& s:slots_)if(s.serial && s.bytes>maximum_)maximum_=s.bytes;
         }

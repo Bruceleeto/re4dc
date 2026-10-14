@@ -28,6 +28,12 @@
 //     first materializes them with the source's own CalcSk1_x.
 #include "re4dc_screen.h"
 #include "native_actor.hpp"
+#ifndef RE4DC_ACTOR_SKIN_OWNER_POOL
+#define RE4DC_ACTOR_SKIN_OWNER_POOL 0
+#endif
+#if RE4DC_ACTOR_SKIN_OWNER_POOL && !RE4DC_ACTOR_TRANSACTION
+#error "ACTOR_SKIN_OWNER_POOL requires ACTOR_TRANSACTION"
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 #include "actor_native_owner.h"
 #endif
@@ -1305,17 +1311,36 @@ constexpr unsigned kSkins = 64;
 #endif
 SkinEntry skins[kSkins];
 unsigned skin_count = 0, skin_frame = ~0U;
+#if RE4DC_ACTOR_SKIN_OWNER_POOL
+SkinEntry* find_owned_skin(const void* info);
+SkinEntry* find_ordinary_skin(const void* info, const void* positions) {
+    for (unsigned i = 0; i < skin_count; ++i)
+        if (skins[i].info == info && skins[i].positions == positions) return &skins[i];
+    return nullptr;
+}
+SkinEntry* find_skin(const void* info, const void* positions) {
+    // A materialized owned entry still shadows its ordinary lazy entry. Its
+    // lease must fail; a lookup must not silently switch back to source data.
+    if (!positions) if (SkinEntry* e = find_owned_skin(info)) return e;
+    return find_ordinary_skin(info, positions);
+}
+#else
 SkinEntry* find_skin(const void* info, const void* positions) {
     for (unsigned i = 0; i < skin_count; ++i)
         if (skins[i].info == info && skins[i].positions == positions) return &skins[i];
     return nullptr;
 }
+#endif
 
 
 #if RE4DC_ACTOR_TRANSACTION
+#if RE4DC_ACTOR_SKIN_OWNER_POOL
+#include "include/native_actor_owner_pool.inc"
+#else
 #include "include/native_actor_owner_registry.inc"
 #if RE4DC_ACTOR_SKIN_RESERVE
 #include "include/native_actor_skin_reserve.inc"
+#endif
 #endif
 #endif
 
@@ -3987,18 +4012,32 @@ extern "C" int re4dc_actor_skin_register(unsigned frame, const void* info, const
     }
     if (!palette || !entries) return 0;
 #if RE4DC_ACTOR_TRANSACTION
+#if RE4DC_ACTOR_SKIN_OWNER_POOL
+    if(find_owned_skin(info))return 0;
+#else
     for(unsigned i=0;i<skin_count;++i)if(owned_skins[i].serial && owned_skins[i].info==info)return 0;
+#endif
 #endif
     // Lazy (no arrays): the info's latest Trans() wins, as its pPosBuf would.
     if (!position_buffer)
-        if (SkinEntry* e = find_skin(info, nullptr)) {
-#if RE4DC_ACTOR_TRANSACTION
+        if (SkinEntry* e =
+#if RE4DC_ACTOR_SKIN_OWNER_POOL
+            find_ordinary_skin(info, nullptr)
+#else
+            find_skin(info, nullptr)
+#endif
+        ) {
+#if RE4DC_ACTOR_TRANSACTION && !RE4DC_ACTOR_SKIN_OWNER_POOL
             if(owned_skins[unsigned(e-skins)].serial)return 0;
 #endif
             *e = {info, nullptr, palette, entries, 0}; ++stats.skin_registered; return 1;
         }
 #if RE4DC_ACTOR_TRANSACTION
-    for(unsigned i=0;i<skin_count;++i)if(!skins[i].info && !owned_skins[i].serial){
+    for(unsigned i=0;i<skin_count;++i)if(!skins[i].info
+#if !RE4DC_ACTOR_SKIN_OWNER_POOL
+        && !owned_skins[i].serial
+#endif
+    ){
         skins[i]={info,position_buffer,palette,entries,0};++stats.skin_registered;return 1;
     }
 #endif

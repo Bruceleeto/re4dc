@@ -16,6 +16,9 @@
 namespace {
 // The lease's registry entry and owned source of info (what one_qualifies finds for a lease-registered info).
 bool leon_skin_of(const Re4dcActorSkinLease* lease, const void* info, const SkinEntry*& se, Re4dcActorSource& src) {
+#if RE4DC_ACTOR_SKIN_OWNER_POOL
+    return owned_skin_from_lease(lease, info, se, src);
+#else
     for (unsigned k = 0; k < lease->count; ++k) {
         const unsigned i = lease->old[k].index;
         if (i < skin_count && skins[i].info == info && owned_skins[i].serial == lease->serial) {
@@ -25,6 +28,7 @@ bool leon_skin_of(const Re4dcActorSkinLease* lease, const void* info, const Skin
         }
     }
     return false;
+#endif
 }
 // one_chunk's store-queue bound of the loaded part (6 slots per triangle of its meshlets; 0 without a blob).
 unsigned leon_bound(const Re4dcModelPart& p) {
