@@ -465,6 +465,9 @@ $(error LEON_LIGHT_HEADROOM=1 needs ACTOR_TRANSACTION=1)
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_LIGHT_HEADROOM=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_HEADROOM=1
+# Every other draw of Leon's 2x textures (radio-call portrait, source fallback) is halved in re4dc_model_submit.
+$(OBJDIR)/platform/native_model.o $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_HEADROOM=1
+$(OBJDIR)/platform/native_model.o $(OBJDIR)/platform/native_ui.o: charbake_variants.h
 endif
 ifeq ($(LEON_LIGHT_TOGGLE),1)
 ifneq ($(LEON_LIGHT_HEADROOM)$(LOOK_TOGGLE)$(DBG_WARP),111)

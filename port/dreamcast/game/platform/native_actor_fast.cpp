@@ -1591,6 +1591,10 @@ struct Lights {
 #if RE4DC_ACTOR_PROBE_LIGHT
     bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
 #endif
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+    bool half_post = false;  // LEON_LIGHT_HEADROOM: a 2x-texture part outside the owner path, folded at full scale and
+                             // halved per vertex after the pass (the 1x look: the fast kernel's cap stays 1.0x)
+#endif
 };
 // The fold's start state. MEMSET_LEAN=1 (crowd.mk; render only): every field but `prepared` is reset; prepared is
 // read only by pass_lights_exact (a fold that returned false), and the callers assign it on that return.
@@ -1691,11 +1695,23 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
     constexpr float k = 1.0f / 255.0f;
     float scale[3], ambient[3];
     bool caps255 = true;
+#if RE4DC_LEON_LIGHT_HEADROOM
+    // re4dc_model_submit's x0.5 record (normal_matrix[7] marker; tev_scale already halved): a draw of Leon's 2x textures
+    // outside his owner path. The constant colour uses the halved scale; the fast fold runs at full scale and the
+    // vertices are halved after the pass (half_post), so it keeps the fast kernel and draws exactly the 1x look.
+    const bool hr_half = S.normal_matrix[7] == 1.0e30f;
+    for (unsigned c = 0; c < 3; ++c) {
+        scale[c] = S.material[c] * k * S.tev_scale * 255.0f;
+        ambient[c] = S.enable ? S.ambient[c] * k : 1.0f;
+        caps255 &= (hr_half ? 2.0f * scale[c] : scale[c]) >= 255.0f;
+    }
+#else
     for (unsigned c = 0; c < 3; ++c) {
         scale[c] = S.material[c] * k * S.tev_scale * 255.0f;
         ambient[c] = S.enable ? S.ambient[c] * k : 1.0f;
         caps255 &= scale[c] >= 255.0f;
     }
+#endif
     if (S.ambient_vertex || S.material_vertex) return false;  // per-vertex colour: slow path
     if (!S.enable) {
         L.constant = true;
@@ -1706,6 +1722,7 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
     if (S.diffuse != 2 || !caps255) return false;
 #if RE4DC_LEON_LIGHT_HEADROOM
     { const float g = leon_gain(S); for (unsigned c = 0; c < 3; ++c) scale[c] *= g; }
+    if (hr_half) { for (unsigned c = 0; c < 3; ++c) scale[c] *= 2.0f; L.half_post = true; }
 #endif
     const float* m = p.modelview;
     const float px = m[0] * center[0] + m[1] * center[1] + m[2] * center[2] + m[3];
@@ -4841,6 +4858,14 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
                 e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);
             }
 #endif
+#if RE4DC_LEON_LIGHT_HEADROOM
+        // LEON_LIGHT_HEADROOM: a 2x-texture part outside the owner path (build_lights half_post): the 1x look
+        if (lights.half_post)
+            for (unsigned i = 0; i < nv; ++i) {
+                const u32 c = e.cache.v[i].argb;
+                e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);
+            }
+#endif
         if (bake == kBakeNone) stats.normals_lit += nv;
         if (any & kOcNear) ++stats.meshlets_clipped;
         if (!(any & (kOcCull | kOcNear)) && e.fits(ni)) { ++stats.meshlets_whole; ok = e.whole(index, ni, nt); }
@@ -5391,6 +5416,14 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
 #if RE4DC_LEON_LIGHT_TOGGLE
         // LEON_LIGHT_TOGGLE mode 1 (PROBE): test 10's 1.0x cap on the 2x textures (the pass ran at full scale)
         if (re4dc_leon_light_mode == 1 && !lights.constant && leon_record(*p.lighting))
+            for (unsigned i = 0; i < nv; ++i) {
+                const u32 c = e.cache.v[i].argb;
+                e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);
+            }
+#endif
+#if RE4DC_LEON_LIGHT_HEADROOM
+        // LEON_LIGHT_HEADROOM: a 2x-texture part outside the owner path (build_lights half_post): the 1x look
+        if (lights.half_post)
             for (unsigned i = 0; i < nv; ++i) {
                 const u32 c = e.cache.v[i].argb;
                 e.cache.v[i].argb = (c & 0xFF000000U) | ((c >> 1) & 0x007F7F7FU);

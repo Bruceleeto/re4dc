@@ -7699,3 +7699,24 @@ void movie_draw(){
 }
 }
 #endif // RE4DC_ROUTE_MOVIES
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+#include "../charbake_variants.h"
+// LEON_LIGHT_HEADROOM (crowd.mk): 1 when `image` samples one of Leon's 2x packages, the key set
+// tools/d367/charbake/cb_headroom.py doubles (every Leon atlas, hair colour and hair pair key of charbake_variants.h,
+// plus the pl08 atlas). Used by re4dc_model_submit (native_model.cpp) for draws outside Leon's owner path. Only the
+// two sizes those packages have reach the key lookup (image_key's identity cache), so other parts cost one compare.
+extern "C" int re4dc_leon_hr_image(const Re4dcUiImage* image){
+    if(!image || !image->pixels)return 0;
+    if(!((image->width==512 && image->height==512) || (image->width==64 && image->height==128)))return 0;
+    Key k{};
+    if(!image_key(*image,k))return 0;
+    if(k.crc==0x7506e95fU && k.fnv==0x68cf2211U)return 1;  // the pl08 atlas
+    for(const auto& v:re4dc_charbake::variants){
+        if(k.crc==v.leon_crc && k.fnv==v.leon_fnv)return 1;
+        for(unsigned i=0;i<2;++i)
+            if((k.crc==v.hair_colour_crc[i] && k.fnv==v.hair_colour_fnv[i]) || (k.crc==v.hair_pair_crc[i] && k.fnv==v.hair_pair_fnv[i]))
+                return 1;
+    }
+    return 0;
+}
+#endif

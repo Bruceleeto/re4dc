@@ -653,9 +653,30 @@ struct Builder {
     }
 };
 }
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+extern "C" int re4dc_leon_hr_image(const Re4dcUiImage* image);  // native_ui.cpp: one of Leon's 2x packages
+unsigned leon_hr_parts;  // parts drawn at x0.5 here (log census)
+#endif
 extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
     RE4DC_PROFILE_SCOPE(ModelSetup);
     if(!re4dc_model_diagnostic_enabled())return;
+#if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+    // LEON_LIGHT_HEADROOM: Leon's textures are 2x on the disc and only his owner path halves its colours. Any other
+    // draw of them (the radio-call portrait, a source fallback, any later path) arrives here: its lighting record
+    // takes tev_scale x0.5, so GX lighting, the exact evaluator and the constant colour all draw it as with the 1x
+    // textures. Records already halved are skipped: the owner's lit record (LEON_SOURCE_LIGHT marker
+    // normal_matrix[3]) and every x0.5 record (marker normal_matrix[7], also on the owner's flat record), so a
+    // deferred part re-submitted at the drain is not halved twice. normal_matrix[3]/[7] are unused translation words.
+    Re4dcModelPart hr_view;
+    re4dc::render::SourceLighting hr_lighting;
+    if(p && p->lighting && p->lighting->normal_matrix[3]!=1.0e30f && p->lighting->normal_matrix[7]!=1.0e30f &&
+       re4dc_leon_hr_image(&p->image)){
+        hr_view=*p;hr_lighting=*p->lighting;hr_lighting.tev_scale*=0.5f;hr_lighting.normal_matrix[7]=1.0e30f;
+        hr_view.lighting=&hr_lighting;p=&hr_view;
+        if(leon_hr_parts++<4 || !(leon_hr_parts&1023U))
+            re4dc_log("LEON_HR source part %ux%u fmt=%u x0.5 n=%u\n",p->image.width,p->image.height,p->image.format,leon_hr_parts);
+    }
+#endif
 #if RE4DC_NATIVE_STATIC
     // A bound scroll part draws its prelit package batches instead (or defers,
     // or is covered by an earlier part with the same material key).

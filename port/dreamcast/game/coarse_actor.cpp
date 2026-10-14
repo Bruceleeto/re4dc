@@ -88,7 +88,9 @@ alignas(32) float palette[256][12]; // one synchronous opaque info at a time
 re4dc::render::SourceLighting light; // constant texture colour for this proof
 #if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
 // LEON_LIGHT_HEADROOM (crowd.mk): Leon's textures are 2x on the disc (cb_headroom.py), so his constant colour is 128.
-const re4dc::render::SourceLighting leon_flat_light=[]{re4dc::render::SourceLighting s;s.material[0]=s.material[1]=s.material[2]=128;return s;}();
+// normal_matrix[7] = 1e30: "already x0.5" (native_model.cpp re4dc_model_submit skips it when a deferred part drains).
+const re4dc::render::SourceLighting leon_flat_light=[]{re4dc::render::SourceLighting s;s.material[0]=s.material[1]=s.material[2]=128;
+    s.normal_matrix[7]=1.0e30f;return s;}();
 #define RE4DC_LEON_FLAT_LIGHT (&leon_flat_light)
 #else
 #define RE4DC_LEON_FLAT_LIGHT (&light)

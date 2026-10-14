@@ -152,6 +152,20 @@ int main() {
         for (unsigned i = 0; i < 3; ++i) assert(ready_a[i] == 1 && ready_b[i] == 1);
         for (unsigned k = 0; k < 36; ++k) assert(near(all[k], each[k], 1e-7f));
     }
+#if RE4DC_LEON_LIGHT_HEADROOM
+    {   // a 2x-texture part outside the owner path (re4dc_model_submit's x0.5 record: tev_scale halved, marker [7]):
+        // the fast fold runs at full scale with half_post; disabled lighting gives the halved constant
+        SourceLighting s = base(1); s.normal_matrix[7] = 1.0e30f; s.tev_scale = 0.5f;
+        s.lights[0].position[0] = 1100; s.lights[0].color[0] = 200; s.lights[0].color[1] = 150; s.lights[0].color[2] = 90;
+        Re4dcModelPart p = part(s, &model_b, I);
+        Lights L{};
+        assert(build_lights(p, f, centre, L) && L.fast && L.half_post && near(L.color[12], 20.0f, 1e-3f));
+        s.enable = 0;
+        Lights c{};
+        assert(build_lights(p, f, centre, c) && c.constant && !c.half_post && c.constant_rgb == 0x7F7F7FU);
+        std::printf("PASS LEON_LIGHT_HEADROOM: source-path x0.5 record keeps the fast fold (half_post), constant 127\n");
+    }
+#endif
 #if RE4DC_LEON_LIGHT_TOGGLE
     {   // LEON_LIGHT_TOGGLE: the four live modes on a Leon record
         SourceLighting s = base(1); s.normal_matrix[3] = 1.0e30f;
