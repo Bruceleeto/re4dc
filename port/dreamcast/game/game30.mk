@@ -1943,11 +1943,19 @@ ACT_CAP_LOG ?= 0
 # instead of ACT_CAP / ACT_CAP_ROOM. A room not in the table has no cap; a table room flagged scripted (set fights)
 # has none either. Bosses and specials are never parked (only ids 0x10..0x20 are). ACT_CAP is ignored when on.
 ACT_CAP_TABLE ?= 0
+# ACT_CAP_FAR_M=D (lane crowd12 2026-10-14; CHANGES GAMEPLAY when it parks; default 0 = off): in a capped room an in-view
+#   Ganado farther than D metres from Leon (horizontal; D below ACT_CAP_RANGE_M acts as ACT_CAP_RANGE_M) is no longer kept
+#   active by the view rule, so the cap may park it: it then runs one emMove every ACT_CAP_CREEP ticks (staggered) and is
+#   drawn in its held pose in between - the far ones "almost frozen". Every other never-park rule (threat routines,
+#   damage, lock-on, hp, the engagement radius, the hold time) is unchanged. With BENCH_LEVERS=1 it acts only when the
+#   warp fixture's `lever far` is set. A level-1 logic approximation: gate with decisions (decision_cmp), not STRICT.
+ACT_CAP_FAR_M ?= 0
 .PHONY: act-cap-force
 $(OBJDIR)/act-cap.h: act-cap-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_ACT_CAP %s\n#define RE4DC_ACT_CAP_ROOM %s\n#define RE4DC_ACT_CAP_RANGE_M %s\n#define RE4DC_ACT_CAP_VIEW_M %s\n#define RE4DC_ACT_CAP_CREEP %s\n#define RE4DC_ACT_CAP_LOG %s\n' '$(ACT_CAP)' '$(ACT_CAP_ROOM)' '$(ACT_CAP_RANGE_M)' '$(ACT_CAP_VIEW_M)' '$(ACT_CAP_CREEP)' '$(ACT_CAP_LOG)' > $@.tmp
 	@if [ '$(ACT_CAP_TABLE)' != 0 ]; then printf '#define RE4DC_ACT_CAP_TABLE %s\n' '$(ACT_CAP_TABLE)' >> $@.tmp; fi
+	@if [ '$(ACT_CAP_FAR_M)' != 0 ]; then printf '#define RE4DC_ACT_CAP_FAR_M %s\n' '$(ACT_CAP_FAR_M)' >> $@.tmp; fi
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 $(OBJDIR)/src/game/em.o: $(OBJDIR)/act-cap.h
