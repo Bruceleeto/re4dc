@@ -2408,6 +2408,29 @@ endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_PARTS=1
 $(OBJDIR)/src/game/scroll.o $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_PARTS=1
 endif
+# PS2_WORLD_SOURCE_OWNER=1: bounded r200 noncoarse event-image ownership at
+# original model callbacks. Source OTs, callbacks and model postludes remain.
+# SOURCE_TEX_PREP prepares only the reviewed current R4PW late-pass descriptor.
+PS2_WORLD_SOURCE_OWNER ?= 0
+PS2_WORLD_SOURCE_TEX_PREP ?= 0
+ifneq ($(filter-out 0 1,$(PS2_WORLD_SOURCE_OWNER) $(PS2_WORLD_SOURCE_TEX_PREP)),)
+$(error PS2_WORLD_SOURCE_OWNER and PS2_WORLD_SOURCE_TEX_PREP must be 0 or 1)
+endif
+ifneq ($(PS2_WORLD_SOURCE_TEX_PREP),0)
+ifneq ($(PS2_WORLD_SOURCE_OWNER),1)
+$(error PS2_WORLD_SOURCE_TEX_PREP needs PS2_WORLD_SOURCE_OWNER=1)
+endif
+endif
+ifneq ($(PS2_WORLD_SOURCE_OWNER),0)
+ifneq ($(PS2_WORLD_ROOMS)$(PS2_WORLD_DYNAMIC)$(PS2_WORLD_PARTS),211)
+$(error PS2_WORLD_SOURCE_OWNER needs PS2_WORLD_ROOMS=2 DYNAMIC=1 PARTS=1)
+endif
+ifneq ($(COARSE)$(GAME_ATCHK_LIST),11)
+$(error PS2_WORLD_SOURCE_OWNER needs COARSE=1 GAME_ATCHK_LIST=1)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/src/game/scroll.o: GAME_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1 -DRE4DC_PS2_WORLD_SOURCE_TEX_PREP=$(PS2_WORLD_SOURCE_TEX_PREP)
+$(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_SOURCE_OWNER=1 -DRE4DC_PS2_WORLD_SOURCE_TEX_PREP=$(PS2_WORLD_SOURCE_TEX_PREP)
+endif
 # ITEM_UI_ORDER=1: item pickup uses the same source-ordered UI/model stream
 # as inventory examination, without claiming that the subscreen heap is swapped.
 ITEM_UI_ORDER ?= 0
