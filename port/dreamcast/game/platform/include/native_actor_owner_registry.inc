@@ -14,6 +14,11 @@ void owned_skin_clear() {
 }
 void owned_skin_invalidate_frames(); // definition after the Frame cache
 
+#if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC && defined(RE4DC_ACTOR_SKIN_DIAG) && RE4DC_ACTOR_SKIN_DIAG
+// cx-integrate: D51 (Codex 3b1798a7/8027fcd7) instruments the plain acquisition below; MCHECK_LEONGC has its own
+// SKINACQ fail why=1..5 copy (same refusal codes). Use one or the other.
+#error "ACTOR_SKIN_DIAG=1 and MCHECK_LEONGC=1 both instrument re4dc_actor_skin_acquire; build one"
+#endif
 #if defined(RE4DC_MCHECK_LEONGC) && RE4DC_MCHECK_LEONGC
 static int skin_acquire_inner(unsigned& why_,unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
     if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX){why_=1;return 0;}
@@ -54,14 +59,25 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
     return rv;
 }
 #else
+#if RE4DC_ACTOR_SKIN_DIAG
+unsigned owned_skin_diag_reports;
+void owned_skin_diag(unsigned why,unsigned source_frame,unsigned n,unsigned role,unsigned value) {
+    if(owned_skin_diag_reports++<32)
+        re4dc_log("SKINACQ why=%u source=%u registry=%u count=%u serial=%u roles=%u role=%u value=%u\n",
+            why,source_frame,skin_frame,skin_count,owned_skin_serial,n,role,value);
+}
+#define SKINACQ_REFUSE(why,role,value) do { owned_skin_diag(why,source_frame,n,role,value);return 0; } while(0)
+#else
+#define SKINACQ_REFUSE(why,role,value) return 0
+#endif
 extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSkinBinding* in,unsigned n,Re4dcActorSkinLease* out) {
-    if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)return 0;
+    if(!out || out->serial || out->count || !in || !n || n>kRe4dcActorRoles || source_frame!=skin_frame || owned_skin_serial==UINT32_MAX)SKINACQ_REFUSE(1,0,source_frame!=skin_frame);
     unsigned index[kRe4dcActorRoles],high=skin_count;
     for(unsigned k=0;k<n;++k){
         const auto& b=in[k];
         if(!b.info || !b.palette || !b.entries || b.entries>256 || !b.source.positions || !b.source.normals ||
-           b.source.palette_entries!=b.entries || !b.source.position_count || !b.source.normal_count)return 0;
-        for(unsigned j=0;j<k;++j)if(in[j].info==b.info)return 0;
+           b.source.palette_entries!=b.entries || !b.source.position_count || !b.source.normal_count)SKINACQ_REFUSE(2,k,b.entries);
+        for(unsigned j=0;j<k;++j)if(in[j].info==b.info)SKINACQ_REFUSE(3,k,j);
         unsigned at=kSkins;
         for(unsigned i=0;i<skin_count;++i)if(skins[i].info==b.info && !skins[i].positions){at=i;break;}
         if(at==kSkins){
@@ -69,9 +85,9 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
                 bool chosen=false;for(unsigned j=0;j<k;++j)chosen|=index[j]==i;
                 if(!chosen && !skins[i].info && !owned_skins[i].serial){at=i;break;}
             }
-            if(at==kSkins){if(high==kSkins)return 0;at=high++;}
+            if(at==kSkins){if(high==kSkins)SKINACQ_REFUSE(4,k,high);at=high++;}
         }
-        if(owned_skins[at].serial)return 0;
+        if(owned_skins[at].serial)SKINACQ_REFUSE(5,k,at);
         index[k]=at;
     }
     // No registry mutation occurred before every slot and source span qualified.
@@ -85,6 +101,7 @@ extern "C" int re4dc_actor_skin_acquire(unsigned source_frame,const Re4dcActorSk
     skin_count=high;out->frame=source_frame;out->count=n;out->serial=serial;
     owned_skin_invalidate_frames();return 1;
 }
+#undef SKINACQ_REFUSE
 #endif
 extern "C" int re4dc_actor_skin_validate(const Re4dcActorSkinLease* lease) {
     if(!lease || !lease->serial || !lease->count || lease->count>kRe4dcActorRoles || lease->frame!=skin_frame)return 0;
