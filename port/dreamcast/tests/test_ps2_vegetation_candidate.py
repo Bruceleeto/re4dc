@@ -200,5 +200,158 @@ class CandidateTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
 
+    def loose_entry(self, key, blob, name="loose.re4tex"):
+        key_text = v.key_string(key)
+        return {"key": key_text, "disc_path": f"dc/tex/{key_text[0]}/{key_text}.re4tex",
+                **self.write_pin(name, blob)}
+
+    def write_policy(self, policy=None):
+        path = self.root / "loose-policy.json"
+        path.write_text(json.dumps(policy or self.policy))
+        return path
+
+    def test_loose_fallback_preserves_shared_opaque_key_and_source(self):
+        pack, _ = v.texpack.build({self.other_key: self.packages[self.other_key]})
+        self.policy["tex_pak"] = self.write_pin("without-selected.pak", pack)
+        self.policy["loose_textures"] = [self.loose_entry(self.key, self.packages[self.key])]
+        out = self.root / "loose-candidate"
+        report = v.build_policy(self.write_policy(), out, ["r101"], "/private/candidate")
+        after = v.parse_pack((out / "tex.pak").read_bytes())
+        self.assertNotIn(self.key, after)  # baseline loose files must not become packed
+        self.assertEqual(after[self.other_key], self.packages[self.other_key])
+        key_text = v.key_string(self.key)
+        self.assertEqual((out / "baseline-loose" / (key_text + ".re4tex")).read_bytes(),
+                         self.packages[self.key])
+        proof = report["rooms"]["r101"]
+        sources = {r["key"]: r for r in proof["baseline_texture_sources"]}
+        self.assertEqual(set(sources), {v.key_string(k) for k in self.packages})
+        chosen = sources[key_text]
+        self.assertEqual(chosen["kind"], "loose_file")
+        self.assertEqual(chosen["blob_sha256"], v.sha(self.packages[self.key]))
+        self.assertTrue(chosen["used_before"] and chosen["used_after"])
+        self.assertEqual(sources[v.key_string(self.other_key)]["kind"], "tex_pak")
+        fixture = json.loads((out / "fixture-replace.json").read_text())["replace"]
+        self.assertEqual(fixture[chosen["disc_path"]],
+                         f"/private/candidate/baseline-loose/{key_text}.re4tex")
+        oldp = v.parse_sidecar(self.side)[1]
+        newp = v.parse_sidecar((out / "rooms/r101/ps2-world.r4pw").read_bytes())[1]
+        self.assertEqual(oldp[1:], newp[1:])
+        self.assertEqual(report["winning_loose_texture_count"], 1)
+
+    def test_unselected_loose_material_is_preserved_and_required(self):
+        pack, _ = v.texpack.build({self.key: self.packages[self.key]})
+        self.policy["tex_pak"] = self.write_pin("without-soft.pak", pack)
+        self.policy["loose_textures"] = [self.loose_entry(self.other_key, self.packages[self.other_key])]
+        out = self.root / "soft-loose"
+        report = v.build_policy(self.write_policy(), out, ["r101"])
+        row = next(r for r in report["rooms"]["r101"]["baseline_texture_sources"]
+                   if r["key"] == v.key_string(self.other_key))
+        self.assertTrue(row["used_before"] and row["used_after"])
+        self.assertEqual(row["kind"], "loose_file")
+        self.policy.pop("loose_textures")
+        bad_out = self.root / "missing-soft"
+        with self.assertRaisesRegex(v.CandidateError, "baseline texture coverage incomplete"):
+            v.build_policy(self.write_policy(), bad_out, ["r101"])
+        self.assertFalse(bad_out.exists())
+
+    def test_packed_alias_wins_over_explicit_loose_descriptor(self):
+        original = self.packages[self.key]
+        alias = bytearray(original)
+        alias[48:112] = b"different loose descriptor".ljust(64, b"\x00")
+        struct.pack_into("<I", alias, 36, zlib.crc32(alias[48:]))
+        self.assertNotEqual(bytes(alias), original)
+        self.assertEqual(v.texture_info(bytes(alias), self.key)["format"], 2)
+        self.policy["loose_textures"] = [self.loose_entry(self.key, bytes(alias))]
+        pack = (self.root / "tex.pak").read_bytes()
+        packed, resolved, sources = v.resolve_baseline(self.policy, pack, self.root / "tex.pak", self.root)
+        self.assertEqual(resolved[self.key], original)
+        self.assertEqual(packed, self.packages)
+        source = sources[self.key]
+        self.assertEqual(source["kind"], "tex_pak")
+        self.assertEqual(source["shadowed_loose"]["blob_sha256"], v.sha(bytes(alias)))
+        self.assertEqual(pack[source["offset"]:source["offset"] + source["size"]], original)
+        out = self.root / "pack-wins"
+        report = v.build_policy(self.write_policy(), out, ["r101"])
+        self.assertEqual(report["winning_loose_texture_count"], 0)
+        self.assertFalse((out / "baseline-loose").exists())
+        expected_files, expected_added, _ = self.run_room()
+        self.assertEqual((out / "tex.pak").read_bytes(), v.texpack.build(self.packages | expected_added)[0])
+        for name, data in expected_files.items():
+            self.assertEqual((out / "rooms/r101" / name).read_bytes(), data)
+
+    def test_reject_ambiguous_mispinned_or_wrong_key_loose_declarations(self):
+        entry = self.loose_entry(self.key, self.packages[self.key])
+        cases = [
+            ([entry, copy.deepcopy(entry)], "duplicate loose"),
+            ([{**entry, "disc_path": "dc/tex/wrong.re4tex"}], "disc path/key mismatch"),
+            ([{**entry, "sha256": "0" * 64}], "SHA mismatch"),
+            ([{**entry, **self.write_pin("wrong-key.re4tex", self.packages[self.other_key])}], "payload CRC/FNV"),
+            ({entry["key"]: entry}, "explicit list"),
+        ]
+        for i, (loose, message) in enumerate(cases):
+            with self.subTest(message=message):
+                policy = copy.deepcopy(self.policy)
+                policy["loose_textures"] = loose
+                out = self.root / f"bad-loose-{i}"
+                with self.assertRaisesRegex(v.CandidateError, message):
+                    v.build_policy(self.write_policy(policy), out, ["r101"])
+                self.assertFalse(out.exists())
+
+    def test_reject_packed_loose_metadata_conflict_even_with_same_payload(self):
+        alias = bytearray(self.packages[self.key])
+        struct.pack_into("<I", alias, 120, 1)  # identical words, conflicting declared format
+        struct.pack_into("<I", alias, 36, zlib.crc32(alias[48:]))
+        self.policy["loose_textures"] = [self.loose_entry(self.key, bytes(alias))]
+        out = self.root / "metadata-conflict"
+        with self.assertRaisesRegex(v.CandidateError, "incompatible metadata"):
+            v.build_policy(self.write_policy(), out, ["r101"])
+        self.assertFalse(out.exists())
+
+    def test_missing_loose_file_rejects_before_output(self):
+        entry = self.loose_entry(self.key, self.packages[self.key])
+        (self.root / entry["path"]).unlink()
+        self.policy["loose_textures"] = [entry]
+        out = self.root / "missing-file"
+        with self.assertRaises(FileNotFoundError):
+            v.build_policy(self.write_policy(), out, ["r101"])
+        self.assertFalse(out.exists())
+
+    def test_candidate_reuses_existing_loose_alias_without_packing_it(self):
+        new_key, new_blob, _ = v.make_texture(self.material, self.packages[self.key], self.root)
+        self.policy["loose_textures"] = [self.loose_entry(new_key, new_blob, "existing-candidate.re4tex")]
+        out = self.root / "reuse-loose"
+        report = v.build_policy(self.write_policy(), out, ["r101"])
+        self.assertEqual(report["new_texture_count"], 0)
+        self.assertEqual((out / "tex.pak").read_bytes(), (self.root / "tex.pak").read_bytes())
+        row = next(r for r in report["rooms"]["r101"]["baseline_texture_sources"]
+                   if r["key"] == v.key_string(new_key))
+        self.assertFalse(row["used_before"])
+        self.assertTrue(row["used_after"])
+        self.assertEqual(row["kind"], "loose_file")
+        self.assertEqual((out / "baseline-loose" / (row["key"] + ".re4tex")).read_bytes(), new_blob)
+
+    def test_previous_room_candidate_cannot_fill_a_missing_baseline_key(self):
+        new_key, _, _ = v.make_texture(self.material, self.packages[self.key], self.root)
+        side = bytearray(self.side)
+        struct.pack_into("<II", side, 32 + 2 * 16, *new_key)
+        crc = zlib.crc32(side[32:])
+        struct.pack_into("<I", side, 20, crc)
+        ids = bytearray(self.ids)
+        struct.pack_into("<I", ids, 12, crc)
+        second = copy.deepcopy(self.room)
+        second.update(room="r103", r4pw=self.write_pin("second.r4pw", side),
+                      ids=self.write_pin("second.ids", ids))
+        self.policy["rooms"].append(second)
+        out = self.root / "cross-room-missing"
+        with self.assertRaisesRegex(v.CandidateError, "baseline texture coverage incomplete"):
+            v.build_policy(self.write_policy(), out, ["r101", "r103"])
+        self.assertFalse(out.exists())
+
+    def test_baseline_source_record_rejects_incorrect_blob_provenance(self):
+        sources = {k: {"kind": "tex_pak", "blob_sha256": "0" * 64} for k in self.packages}
+        with self.assertRaisesRegex(v.CandidateError, "provenance/blob mismatch"):
+            v.build_room(self.room, self.packages, self.root, sources)
+
+
 if __name__ == "__main__":
     unittest.main()

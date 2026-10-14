@@ -3,6 +3,13 @@
 
 No geometry is converted. Only allowlisted TR parts acquire new content-keyed
 ARGB1555 textures and PT pass tags. Existing tex.pak entries are retained.
+Optional policy.loose_textures is a list of {key, disc_path, path, sha256}.
+Each disc_path must be dc/tex/<key first hex digit>/<key>.re4tex. Native
+pack-first resolution wins; a declared loose copy must be pinned and compatible
+with a packed alias. Duplicate declarations, bad keys/hashes and conflicting
+metadata are rejected. Only referenced winning loose files are copied unchanged
+to baseline-loose/ and included in the fixture overlay. Baseline provenance is
+recorded for every world key, including packed keys and shadowed loose aliases.
 Requires numpy/Pillow; see docs/PS2_VEGETATION_CANDIDATES.md.
 """
 from __future__ import annotations
@@ -110,6 +117,66 @@ def parse_pack(blob):
         c, f, off, size = struct.unpack_from("<4I", blob, 2048 + 16 * i)
         result[c, f] = blob[off:off + size]
     return result
+
+
+def resolve_baseline(policy, pack_bytes, pack_path, base):
+    """Resolve explicit fixture inputs using the native pack-first lookup order."""
+    packed = parse_pack(pack_bytes)
+    packages, sources = dict(packed), {}
+    pack_sha = sha(pack_bytes)
+    for i, key in enumerate(packed):
+        _, _, offset, size = struct.unpack_from("<4I", pack_bytes, 2048 + 16 * i)
+        sources[key] = {"kind": "tex_pak", "path": str(pack_path),
+                        "disc_path": "dc/tex.pak", "file_sha256": pack_sha,
+                        "offset": offset, "size": size, "blob_sha256": sha(packed[key])}
+    entries = policy.get("loose_textures", [])
+    require(isinstance(entries, list), "loose_textures must be an explicit list")
+    seen = set()
+    for entry in entries:
+        require(isinstance(entry, dict), "loose texture declaration must be an object")
+        key = parse_key(entry.get("key"))
+        require(key not in seen, "duplicate loose texture key is ambiguous")
+        seen.add(key)
+        name = key_string(key)
+        expected_disc = f"dc/tex/{name[0]}/{name}.re4tex"
+        require(entry.get("disc_path") == expected_disc, "loose texture disc path/key mismatch")
+        blob, path = read_pinned(entry, base)
+        info = texture_info(blob, key)
+        source = {"kind": "loose_file", "path": str(path), "disc_path": expected_disc,
+                  "file_sha256": sha(blob), "blob_sha256": sha(blob), "size": len(blob)}
+        if key in packed:
+            winner = texture_info(packed[key], key)
+            require(all(winner[k] == info[k] for k in
+                        ("width", "height", "format", "flags", "payload")) and
+                    packed[key][144:] == blob[144:],
+                    "packed/loose alias has incompatible metadata or payload")
+            # A descriptor/CRC-style difference is legal; the packed bytes still win.
+            sources[key]["shadowed_loose"] = source
+        else:
+            packages[key], sources[key] = blob, source
+    return packed, packages, sources
+
+
+def baseline_source_records(before_parts, after_parts, packages, sources=None):
+    before = {p[:2] for p in before_parts}
+    after = {p[:2] for p in after_parts}
+    require(before <= packages.keys(), "world baseline texture coverage incomplete")
+    records = []
+    for key in sorted((before | after) & packages.keys()):
+        blob = packages[key]
+        info = texture_info(blob, key)
+        require(all((p[2], p[3]) == (info["width"], info["height"])
+                    for p in before_parts + after_parts if p[:2] == key),
+                "baseline sidecar/texture dimensions differ")
+        if sources is None:
+            source = {"kind": "provided_package_mapping", "blob_sha256": sha(blob), "size": len(blob)}
+        else:
+            require(key in sources, "baseline provenance missing")
+            source = dict(sources[key])
+            require(source["blob_sha256"] == sha(blob), "baseline provenance/blob mismatch")
+        records.append({"key": key_string(key), **source,
+                        "used_before": key in before, "used_after": key in after})
+    return records
 
 
 def parse_sidecar(data):
@@ -252,7 +319,7 @@ def prove_sidecar_edit(before, after, changed):
             "changed_parts": sorted(changed)}
 
 
-def build_room(room_spec, packages, base):
+def build_room(room_spec, packages, base, baseline_sources=None, previous_additions=None):
     room = room_spec["room"]
     require(re.fullmatch(r"r[0-9a-f]{3}", room) is not None, "room must be rNNN")
     side, _ = read_pinned(room_spec["r4pw"], base)
@@ -275,7 +342,7 @@ def build_room(room_spec, packages, base):
         require(all(parts[i][7] == 0 for i in selected), "vertex-alpha marked parts must remain TR")
         require(old_key in packages, "selected baseline texture is missing")
         new_key, new_blob, report = make_texture(material, packages[old_key], base)
-        target_pool = packages | added
+        target_pool = packages | (previous_additions or {}) | added
         if new_key in target_pool:
             existing = target_pool[new_key]
             ex = texture_info(existing, new_key)
@@ -314,7 +381,8 @@ def build_room(room_spec, packages, base):
         proof["interior_cell_geometry_sha256"] = sha(cell[32:])
         proof["required_kPcSidecarUse"] = f"0x{new_crc:08x}"
     new_parts = parse_sidecar(bytes(output))[1]
-    merged = packages | added
+    merged = packages | (previous_additions or {}) | added
+    proof["baseline_texture_sources"] = baseline_source_records(parts, new_parts, packages, baseline_sources)
     for label, part_set, pool in (("before", parts, packages), ("after", new_parts, merged)):
         keys = {p[:2] for p in part_set}
         require(all(k in pool for k in keys), "world texture coverage incomplete")
@@ -331,7 +399,7 @@ def build_policy(policy_path, output, selected_rooms, fixture_prefix=None):
     require(policy.get("schema") == POLICY_SCHEMA, "unsupported policy schema")
     base = policy_path.parent
     pack_bytes, pack_path = read_pinned(policy["tex_pak"], base)
-    packages = parse_pack(pack_bytes)
+    packed, packages, sources = resolve_baseline(policy, pack_bytes, pack_path, base)
     rooms = policy["rooms"]
     require(len({r["room"] for r in rooms}) == len(rooms), "duplicate room in policy")
     require(set(selected_rooms) and set(selected_rooms) <= {r["room"] for r in rooms},
@@ -341,21 +409,27 @@ def build_policy(policy_path, output, selected_rooms, fixture_prefix=None):
     for room_spec in rooms:
         if room_spec["room"] not in selected_rooms:
             continue
-        files, new, proof = build_room(room_spec, packages | additions, base)
+        files, new, proof = build_room(room_spec, packages, base, sources, additions)
         room_files[room_spec["room"]] = files
         proofs[room_spec["room"]] = proof
         for key, value in new.items():
             texpack.add(additions, key, value, room_spec["room"])
-    merged = packages | additions
+    # Preserve baseline loose resolution. Do not silently fold existing loose files into the pack.
+    loose_keys = {parse_key(r["key"]) for proof in proofs.values()
+                  for r in proof["baseline_texture_sources"] if r["kind"] == "loose_file"}
+    merged = packed | additions
     new_pack, count = texpack.build(merged)
     texpack.verify(new_pack)
     reread = parse_pack(new_pack)
-    require(all(reread[k] == v for k, v in packages.items()), "baseline tex.pak entry changed")
+    require(all(reread[k] == v for k, v in packed.items()), "baseline tex.pak entry changed")
     report = {"schema": "re4dc-ps2-vegetation-candidate/1", "status": "OFFLINE_CANDIDATE_NOT_ACCEPTED",
               "policy_sha256": sha(raw), "baseline_tex_pak": str(pack_path),
               "baseline_tex_pak_sha256": sha(pack_bytes), "candidate_tex_pak_sha256": sha(new_pack),
               "baseline_pack_entries_byte_identical": True, "pack_entries": count,
               "new_texture_count": len(additions), "rooms": proofs,
+              "baseline_resolution": "native_pack_first_then_explicit_pinned_loose",
+              "winning_loose_texture_count": len(loose_keys),
+              "winning_loose_files_byte_identical": True,
               "runtime_gates_pending": ["matched frame/scene/enemy evidence", "render-only STRICT",
                  "TEX_CHECK", "MCHECK_PT SRCALPHA/INVSRCALPHA", "zero GC fallback",
                  "heap4/VRAM", "r100 PCCULL when applicable", "user approval of matched stills"]}
@@ -369,12 +443,20 @@ def build_policy(policy_path, output, selected_rooms, fixture_prefix=None):
     (output / "textures").mkdir()
     for key, blob in additions.items():
         (output / "textures" / (key_string(key) + ".re4tex")).write_bytes(blob)
+    if loose_keys:
+        (output / "baseline-loose").mkdir()
+        for key in sorted(loose_keys):
+            p = output / "baseline-loose" / (key_string(key) + ".re4tex")
+            p.write_bytes(packages[key])
+            require(p.read_bytes() == packages[key], "baseline loose readback mismatch")
     (output / "tex.pak").write_bytes(new_pack)
     require(sha((output / "tex.pak").read_bytes()) == report["candidate_tex_pak_sha256"],
             "candidate tex.pak readback mismatch")
     (output / "policy.json").write_bytes(raw)
     root = fixture_prefix.rstrip("/") if fixture_prefix else output.as_posix()
     replace = {"dc/tex.pak": root + "/tex.pak"}
+    for key in sorted(loose_keys):
+        replace[sources[key]["disc_path"]] = f"{root}/baseline-loose/{key_string(key)}.re4tex"
     for room, files in room_files.items():
         for name in files:
             replace[f"dc/native/{room}/{name}"] = f"{root}/rooms/{room}/{name}"
