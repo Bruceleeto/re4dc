@@ -867,6 +867,15 @@ endif
 # D39: original cabin source events with independently qualified movie output.
 # Default zero preserves prior objects/assets; exact carrier staging is a separate reviewed gate.
 CABIN_SOURCE ?= 0
+CABIN_HANDOFF_DIAG ?= 0
+ifneq ($(filter-out 0 1,$(CABIN_HANDOFF_DIAG)),)
+$(error CABIN_HANDOFF_DIAG must be 0 or 1)
+endif
+ifeq ($(CABIN_HANDOFF_DIAG),1)
+ifneq ($(CABIN_SOURCE),1)
+$(error CABIN_HANDOFF_DIAG requires CABIN_SOURCE=1)
+endif
+endif
 ifneq ($(filter-out 0 1,$(CABIN_SOURCE)),)
 $(error CABIN_SOURCE must be 0 or 1)
 endif
@@ -880,7 +889,7 @@ endif
 .PHONY: cabin-source-force
 $(OBJDIR)/cabin-source.h: cabin-source-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_CABIN_SOURCE %s\n' '$(CABIN_SOURCE)' > $@.tmp
+	@printf '#define RE4DC_CABIN_SOURCE %s\n#define RE4DC_CABIN_HANDOFF_DIAG %s\n' '$(CABIN_SOURCE)' '$(CABIN_HANDOFF_DIAG)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 CABIN_SOURCE_PLATFORM = $(OBJDIR)/platform/native_event_file.o $(OBJDIR)/platform/native_cabin.o $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/audio_aica.o
