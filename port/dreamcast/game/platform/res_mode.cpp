@@ -36,6 +36,19 @@
 // alternating modes both parities, rendered into the buffer the held picture does not use. The alternating write
 // address is chosen right before each render starts (pvr_begin_queued_render, link-time wrap: KOS state only, before
 // the render's own register writes), never during a render.
+// RENDER_FSAA=1 (game30.mk; console FSAA test, 2026-10-14; RES_MODES 13 = modes 0, 2, 3): the FSAA modes without the
+// 240-line display. Mode 2 as built above shows 240 lines doubled on a 480i TV (FB_R_SIZE modulus 1, odd-field start =
+// even-field start), so both fields scan the same rows and the interlace puts field 2 one scan line lower: every
+// horizontal edge moves one line up and down 30 times a second (the flicker seen on a console, aa trial 98143f5b).
+// Under RENDER_FSAA:
+//   mode 2 "FSAA LITE": 1280x240 rendered, SCALER_CFG horizontal halving + vertical scale factor 512 (x2), so the tile
+//     write-out itself writes 640x480 (FB_X/Y_CLIP are in written coordinates: rows 480..511 of the 8th tile row are
+//     clipped) and the display is Quality's (480 lines, the odd field one line down). Fill as Quality. Whether the
+//     scaler interpolates the doubled lines (stable) or repeats them (the old twitter) needs the console.
+//   mode 3 "FSAA": 1280x480, horizontal halving, the vertical filter kept (scale factor as Quality: 1025 on a 480i
+//     TV), Quality's display. Twice Quality's fill. KOS still allocates 300 tiles (no 600-tile allocation: the
+//     texture pool does not shrink, s30); the 600-tile blocks come from kFsaaPools more overflow pools per bank,
+//     paid for by the vertex buffer (apply re-cuts the region; the tile matrix sits at its end).
 #if defined(RE4DC_RES_MODES) && RE4DC_RES_MODES
 #include <kos.h>
 #include <dc/pvr.h>
@@ -57,6 +70,9 @@ extern "C" unsigned re4dc_vi_retrace_count(void);
 #ifndef RE4DC_RES_ALTERNATE
 #define RE4DC_RES_ALTERNATE 0
 #endif
+#ifndef RE4DC_RENDER_FSAA
+#define RE4DC_RENDER_FSAA 0
+#endif
 static_assert((RE4DC_RES_MODES & ~31) == 0 && (RE4DC_RES_MODES >> RE4DC_RES_MODE & 1), "RES_MODES 1..31, RES_MODE in it");
 
 extern "C" {
@@ -75,11 +91,26 @@ struct Mode {
     unsigned char fsaa;
     const char* name;
 };
+#if RE4DC_RENDER_FSAA
+const Mode kModes[kModeCount] = {{640, 480, 0, "R0 640x480"},
+                                 {640, 240, 0, "R1 640x240"},
+                                 {1280, 240, 1, "R2 FSAA LITE"},
+                                 {1280, 480, 1, "R3 FSAA"},
+                                 {320, 240, 0, "R4 320x240"}};
+// RENDER_FSAA: mode 2 writes its 240 rendered lines as 480 (scaler vertical scale factor 1024 / 512 = 2).
+constexpr unsigned kVupMode = 2, kVupFactor = 512;
+// Extra KOS overflow pools per bank (300-tile pools, 48,000 B each with 40 words per tile) for mode 3's 600 tiles:
+// region 9 x 48,000 = 432,000 B = 96,000 B initial blocks + 14.5 KB tile matrix + 3 overflow pools of 96,000 B.
+constexpr unsigned kFsaaPools = 4;
+unsigned out_lines(unsigned m) { return m == kVupMode ? 480U : kModes[m].lines; }
+uint32_t vscale_keep = ~0U;  // the vertical scale factor before mode 2 (restored when leaving it)
+#else
 const Mode kModes[kModeCount] = {{640, 480, 0, "R0 640x480"},
                                  {640, 240, 0, "R1 640x240"},
                                  {1280, 240, 1, "R2 640x240 FSAA"},
                                  {1280, 480, 1, "R3 640x480 FSAA"},
                                  {320, 240, 0, "R4 320x240"}};
+#endif
 constexpr unsigned kTileMatrixHeader = 0x48;  // KOS PVR_TILE_MATRIX_HEADER_SIZE
 unsigned tiles_of(unsigned m) { return (kModes[m].w / 32U) * ((kModes[m].lines + 31U) / 32U); }
 unsigned max_tiles()
@@ -205,7 +236,11 @@ void write_matrix_head(uint32_t tm)
 // The picture on screen now, as one buffer: the display while a new mode gets its first complete picture.
 Display current_single(int* buf)
 {
+#if RE4DC_RENDER_FSAA
+    if (cur == ~0U || (!alt && out_lines(cur) == 480)) {
+#else
     if (cur == ~0U || (!alt && kModes[cur].lines == 480)) {
+#endif
         const int b = buf_of(PVR_GET(PVR_FB_ADDR));
         *buf = b;
         return Display{0, 640, fb_base[b], fb_base[b] + 640U * 2U};
@@ -282,10 +317,29 @@ void apply(unsigned m)
     pvr_state.pclip_x = ((w_write - 1U) << 16) | (pvr_state.pclip_x & 0xffffU);
     // A 240-line mode's last line drew noise on the Flycast stills (c6-f-* runs: rows 478/479 of Standard, line 239
     // of Fast; Quality's row 479 is the black letterbox): it is clipped off and kept black (cleared below).
+#if RE4DC_RENDER_FSAA
+    // Clip in written (after scaler) coordinates: mode 2 writes 480 lines.
+    const unsigned ol = out_lines(m);
+    pvr_state.pclip_bottom = ol == 480 ? 479U : M.lines - 2U;
+    pvr_state.pclip_y = (pvr_state.pclip_bottom << 16) | pvr_state.pclip_top;
+    uint32_t scaler = (PVR_GET(PVR_SCALER_CFG) & ~PVR_SCALER_CFG_FSAA) | (M.fsaa ? PVR_SCALER_CFG_FSAA : 0U);
+    const uint32_t vnow = scaler & PVR_SCALER_CFG_VSCALE_FACTOR;
+    uint32_t vset = vnow;
+    if (m == kVupMode) {
+        if (vscale_keep == ~0U) vscale_keep = vnow;
+        vset = kVupFactor;
+    } else if (vscale_keep != ~0U) {
+        vset = vscale_keep;  // Quality's factor back (1025 on a 480i TV: the vertical filter)
+        vscale_keep = ~0U;
+    }
+    scaler = (scaler & ~PVR_SCALER_CFG_VSCALE_FACTOR) | vset;
+    PVR_SET(PVR_SCALER_CFG, scaler);
+#else
     pvr_state.pclip_bottom = M.lines == 480 ? 479U : M.lines - 2U;
     pvr_state.pclip_y = (pvr_state.pclip_bottom << 16) | pvr_state.pclip_top;
     const uint32_t scaler = (PVR_GET(PVR_SCALER_CFG) & ~PVR_SCALER_CFG_FSAA) | (M.fsaa ? PVR_SCALER_CFG_FSAA : 0U);
     PVR_SET(PVR_SCALER_CFG, scaler);
+#endif
     pvr_sync_reg_buffer();  // the TA of the current target bank with the new tile count and blocks
     re4dc_screen_w = M.w;
     re4dc_screen_h = M.lines;
@@ -309,7 +363,11 @@ void apply(unsigned m)
         pvr_state.frame_buffers[v ^ 1].frame = fb_base[held_buf ^ 1];
     }
     alt = to_alt;
+#if RE4DC_RENDER_FSAA
+    last_line = ol == 240 ? (to_alt ? 2U * lb : lb) : 0U;
+#else
     last_line = M.lines == 240 ? (to_alt ? 2U * lb : lb) : 0U;
+#endif
     clear_last();
     if (to_alt) {
         fill_buf = boot ? 1U : unsigned(held_buf ^ 1);
@@ -320,23 +378,41 @@ void apply(unsigned m)
         live = alt_display(M.w);
     } else {
         fill_mask = 3U;
+#if RE4DC_RENDER_FSAA
+        live = ol == 480 ? Display{0, 640, fb_base[0], fb_base[0] + 640U * 2U} : Display{1, w_write, fb_base[0], fb_base[0]};
+#else
         live = M.lines == 480 ? Display{0, 640, fb_base[0], fb_base[0] + 640U * 2U} : Display{1, w_write, fb_base[0], fb_base[0]};
+#endif
         wait_view = boot ? -1 : v;
         hold = !boot;
     }
     cur = m;
     ++applied;
     osd_until = re4dc_vi_retrace_count() + 180U;
+#if RE4DC_RENDER_FSAA
+    re4dc_log("res: mode %u %s applied (scaler %08x, %s, %s, clip y %u, %ux%u tiles)\n", m, M.name,
+              unsigned(PVR_GET(PVR_SCALER_CFG)), vga ? "VGA" : interlaced ? "TV 480i" : "TV",
+              to_alt ? "alternating lines" : ol == 240 ? "doubled" : m == kVupMode ? "full, scaler x2 vertical" : "full",
+              unsigned(pvr_state.pclip_bottom), tw, th);
+#else
     re4dc_log("res: mode %u %s applied (scaler %08x, %s, %s)\n", m, M.name, unsigned(PVR_GET(PVR_SCALER_CFG)),
               vga ? "VGA" : interlaced ? "TV 480i" : "TV", to_alt ? "alternating lines" : M.lines == 240 ? "doubled" : "full");
+#endif
 }
 // Non-alternating display of the current mode after its first flip (KOS's pvr_sync_view sets the start address).
 void live_kind_display()
 {
     if (alt || hold) return;
     const Mode& M = kModes[cur];
+#if RE4DC_RENDER_FSAA
+    const unsigned ol = out_lines(cur);
+    (void)M;
+    PVR_SET(PVR_FB_SIZE, fb_size_of(ol == 480 ? 0U : 1U, fb_w(cur)));
+    PVR_SET(PVR_FB_CFG_1, (vga && ol == 240) ? (boot_fb_cfg1 | 2U) : boot_fb_cfg1);
+#else
     PVR_SET(PVR_FB_SIZE, fb_size_of(M.lines == 480 ? 0U : 1U, fb_w(cur)));
     PVR_SET(PVR_FB_CFG_1, (vga && M.lines == 240) ? (boot_fb_cfg1 | 2U) : boot_fb_cfg1);
+#endif
     PVR_SET(PVR_VIDEO_CFG, fb_w(cur) == 320 ? (boot_video_cfg | 0x100U) : (boot_video_cfg & ~0x100U));
 }
 }  // namespace
@@ -363,6 +439,17 @@ extern "C" unsigned re4dc_res_params(pvr_init_params_t* p)
 {
     const unsigned mt = max_tiles();
     unsigned shrink = 0;
+#if RE4DC_RENDER_FSAA
+    if (mt > 320) {  // mode 3 from the 300-tile allocation: kFsaaPools more overflow pools, paid by the vertex buffer
+        unsigned words = 0;
+        for (unsigned l = 0; l < PVR_OPB_COUNT; ++l) words += unsigned(p->opb_sizes[l]);
+        shrink = (words * 4U * 300U * kFsaaPools + 1023U) & ~1023U;
+        p->opb_overflow_count += int(kFsaaPools);
+        p->vertex_buf_size -= int(shrink);
+        re4dc_log("res: RENDER_FSAA: KOS allocation of 300 tiles + %u overflow pools per bank for 600 tiles (-%u B vertex buffer)\n",
+                  kFsaaPools, shrink);
+    } else
+#endif
     if (mt > 320) {
         p->fsaa_enabled = 1;  // KOS allocates 1280x480 (600 tiles); the boot mode is applied after pvr_init
     } else if (mt > 300) {

@@ -1,0 +1,42 @@
+RE4 Dreamcast - edge smoothing (FSAA) test disc, 2026-10-14
+Private test, not a release. Test 10 plus one change: the Rendering row is back in Options.
+
+Disc: gdemu\ folder (disc.gdi, track01.bin, track02.raw, track03.bin). Checksums are in SHA256SUMS.txt.
+
+HOW TO SWITCH
+Options (title screen or pause menu) > RENDERING: QUALITY / FSAA / FSAA LITE.
+Left/right changes it at once. The level is NOT saved: every boot starts in QUALITY.
+The level name shows at the top of the screen for 3 seconds after a switch.
+Please don't press X + START (the old look toggle) while testing. It can undo FSAA LITE's setting.
+
+THE THREE LEVELS
+QUALITY    The test 10 picture. Use it as the reference.
+FSAA       Renders twice as wide and halves it, with the normal TV flicker filter left on.
+           Edges should be smoother with no more flicker than QUALITY.
+           Costs twice the pixel work, so it may be slower outdoors (fog, mist).
+FSAA LITE  Renders twice as wide but half as tall, then the Dreamcast scales it back up to full height.
+           Same pixel work as QUALITY. Nobody knows yet how the real hardware does the 2x height
+           scale. It may look smooth, it may flicker like the old trial, or the picture may be wrong.
+           That is what this test is for.
+
+The old trial disc (aa-trial, "640x240 FSAA") flickered because it showed 240 lines, one on each
+TV field. Each field starts half a line lower, so every horizontal edge moved up and down
+30 times a second. Both new levels send a full 480-line picture, the same way QUALITY does.
+
+WHERE TO LOOK (same spot, switch levels, compare)
+1. Thin horizontal edges: roof edges, window frames, door tops, the wooden beams in the
+   village square (r101). Do they flicker or twitch compared with QUALITY?
+2. Fences and thin poles: the fence along the path to the village and the poles in the square.
+   Are the stair-step edges smoother? Do they crawl when the camera turns?
+3. Menus and text: Options, the inventory, subtitles. Does the text shimmer?
+4. Leon's outline and hair against the sky.
+5. Speed: R + START cycles the speed display (VMU / screen). Note the fps in the square
+   with villagers around, in the house fight, and outdoors in mist, for each level.
+
+PLEASE REPORT
+For FSAA and FSAA LITE: flicker (less / same / more than QUALITY), edge smoothness,
+anything broken (black or squashed picture, stripes, a garbage line at the bottom), and the
+fps compared with QUALITY. A phone video of a still scene after you switch levels helps a lot.
+If FSAA LITE looks broken, switch back to QUALITY. That should restore the picture.
+Switching levels has crashed once before (test 8, issue #26), so please note any crash a few
+seconds after a switch.

@@ -159,3 +159,31 @@ C6 follow-up (2026-10-12):
   (fin2), Fast vs Quality STRICT over 7052 (fin, one display-register edit earlier), base vs Quality STRICT 0..740
   and 1233..; s30 340/340, codec released once, 0 FAIL / HALT / MISALIGN. Sheets c6-stillsiew-{sq,house,lake}.png
   refreshed from the final views (route-c6-fv-*).
+
+## FSAA console test: RENDER_FSAA (2026-10-14; lane/fsaa, not pushed)
+
+User report: the aa trial disc (98143f5b + RES_MODES=7, mode 2 "640x240 FSAA") flickered a lot on a 480i TV (S-Video).
+Cause (register level, res_mode.cpp at 98143f5b and today): the 240-line modes 1 and 2 are shown doubled on a 480i TV:
+FB_R_SIZE = 319 | 239 << 10 | 1 << 20 (modulus 1: no line skipped) and FB_R_SOF2 = FB_R_SOF1 (the vblank handler
+rewrites it after KOS's flip), so both fields scan the same 240 rows; the interlace places field 2 one scan line lower,
+so every horizontal edge moves one line up and down at 30 Hz. Quality instead reads FB_R_SIZE 319 | 239 << 10 |
+321 << 20 (skip one line) with SOF2 = SOF1 + 1280 (the odd rows) and SCALER_CFG 0x401 (vertical scale 1025: the
+3-tap 1/4, 1/2, 1/4 filter, Y_COEFF 0x8040). Mode 2 kept 0x10401, but the filter runs on 240-row data and cannot
+remove the field offset. The FSAA bit itself (2:1 horizontal) has no temporal effect. Flycast cannot show this: it
+reads neither Y_COEFF nor SCALER_CTL interlace / field select, and presents the rendered frame without the field scan.
+
+RENDER_FSAA=1 (game30.mk, needs RENDER_OPTION=1; replaces RENDER_QUALITY_ONLY; RES_MODES=13; default 0, knob-off play
+image byte-identical to the test 10 recipe from the same tree, objcopy image + all overlays): Rendering = QUALITY /
+FSAA / FSAA LITE for this boot only (RE4DCCFG untouched; quality.txt render=quality|fsaa|lite).
+- FSAA = mode 3, 1280x480, SCALER_CFG 0x10401: Quality's display and vertical filter. Twice Quality's fill (modelled:
+  614,400 vs 307,200 samples). 600 tiles from the KOS 300-tile allocation plus 4 overflow pools per bank paid by the
+  vertex buffer (2,049,024 -> 1,856,512 B per bank; worst TA parameter use seen 1,657,012 B, i9d): texture pool
+  2,568,192 B (test 10 2,567,168; the old 600-tile KOS allocation left 2,072,576 and starved s30). OPB overflow pool:
+  288,000 B (FSAA), 358,400 (LITE), 384,000 (Quality; was 192,000).
+- FSAA LITE = mode 2, 1280x240, SCALER_CFG 0x10200 (vertical scale x2): the write-out writes 640x480, FB_Y_CLIP 479
+  (written coordinates) clips the 8th tile row's overhang, Quality's display. Quality's fill. Whether the console's
+  scaler interpolates a x2 enlargement (stable) or repeats lines (the old twitter) is unknown: console test.
+Flycast (evidence C:\Flycast-Evidence\re4-dreamcast\fsaa-20261014): h2 warp + tour in FSAA and LITE, s30 340/340,
+TEX_CHECK=2 fails 0, LEONGC 0, 0 HALT / FAULT; RES_CYCLE_FRAMES=450 over h2: 14 switches 0 -> 2 -> 3 -> 0, scaler
+values restored (0x401 after LITE), s30 340/340. The st-square warp stops at ui frame ~909 in every arm, test 10's
+own msq run included (Flycast fixture problem, not this knob). Console disc: RE4DC-FSAA-Test-20261014.

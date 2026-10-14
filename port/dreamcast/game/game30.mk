@@ -217,14 +217,34 @@ endif
 ifeq ($(PACE_CATCHUP),0)
 $(error RENDER_OPTION needs PACE_CATCHUP (the Frame pacing row))
 endif
+# RENDER_FSAA=1 (console FSAA test, 2026-10-14; default 0 = no code; render only): the Rendering row offers
+#   "Quality / FSAA / FSAA LITE" (res_mode.cpp modes 0, 3, 2; RES_MODES=13) instead of Standard / Fast, for this boot
+#   only (every boot starts in Quality; quality.txt render=quality|fsaa|lite picks the boot level; RE4DCCFG is never
+#   rewritten). It replaces RENDER_QUALITY_ONLY's behaviour when both are set. FSAA = 1280x480 with the vertical
+#   filter (twice Quality's fill; the 600-tile blocks come out of the vertex buffer, -192,000 B per bank, the texture
+#   pool is unchanged); FSAA LITE = 1280x240 written as 640x480 by the scaler (vertical scale x2; Quality's fill).
+#   Both use Quality's 480-line interlaced display: the old 240-line doubled display made horizontal edges twitter
+#   on a 480i TV (res_mode.cpp header).
+RENDER_FSAA ?= 0
+ifneq ($(filter-out 0 1,$(RENDER_FSAA)),)
+$(error RENDER_FSAA must be 0 or 1)
+endif
+ifeq ($(RENDER_FSAA),1)
+override RES_MODES := 13
+GAME_CPPFLAGS += -DRE4DC_RENDER_FSAA=1
+PLATFORM_CPPFLAGS += -DRE4DC_RENDER_FSAA=1
+else
 override RES_MODES := 19
+endif
 # RENDER_QUALITY_ONLY=1 (test 9, user 2026-10-13, issue #26: switching Rendering on a console crashed a few seconds
 #   later, sometimes): Options loses the Rendering row and the game always shows Quality (mode 0). The stored
 #   RE4DCCFG Rendering field and quality.txt render= are ignored, never rewritten; the LOOK_TOGGLE resolution chord
 #   is inert. The Frame pacing row and the speed display stay. Default 0: unchanged.
 ifeq ($(RENDER_QUALITY_ONLY),1)
+ifneq ($(RENDER_FSAA),1)
 GAME_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
+endif
 endif
 GAME_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
@@ -238,6 +258,11 @@ endif
 $(OBJDIR)/option_rows.o: option_rows.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
+ifneq ($(RENDER_OPTION),1)
+ifneq ($(filter-out 0,$(RENDER_FSAA)),)
+$(error RENDER_FSAA needs RENDER_OPTION=1 (the Rendering row))
+endif
+endif
 RES_CYCLE_FRAMES ?= 0
 ifeq ($(RES_MODES),0)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/res_mode.o,$(PLATFORM_OBJS))
