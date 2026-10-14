@@ -2514,7 +2514,13 @@ void Render()
 #endif
     ExecOt(OT_TYPE_ID_MODEL);
     ExecOt(OT_TYPE_MESSAGE);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    // ModelTrans ot_type 5 registers into this table; camera/scissor are still
+    // the source world context (the item camera is installed only at 0x14).
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_AFTER_RENDER); }
+#else
     ExecOt(OT_TYPE_AFTER_RENDER);
+#endif
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     // Actual source model registration table 0x11; preserve every callback.
     { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_DEBUG); }

@@ -8,26 +8,33 @@
 #include <cstring>
 #include <array>
 #include <algorithm>
+#include <vector>
+#include <cmath>
 #include <sys/mman.h>
 #include "re4dc_platform.h"
 #define RE4DC_PS2_WORLD_SOURCE_OWNER 1
 #define RE4DC_PS2_WORLD_SOURCE_TEX_PREP 1
 #define RE4DC_PRIMITIVE_BUFFERS 2
-using u32=std::uint32_t;using u8=unsigned char;
+using u32=std::uint32_t;using u8=unsigned char;using u16=unsigned short;using f32=float;
+using Mtx=float[3][4];
 template<class T> struct cManager;
 struct Vec { float x=0,y=0,z=0; };
+struct Camera {struct {Vec pos{};} param;Mtx v_mat{};};
+struct Scissor {u32 x=0,y=0,width=640,height=448;bool operator==(const Scissor& b)const{return x==b.x&&y==b.y&&width==b.width&&height==b.height;}}scissor,native_scissor;
+Camera native_camera;
+struct cLightInfo {Vec Size{1,1,1},Offset{};unsigned PartsNo=1;};
 struct ModelDataHead { unsigned char partsNo=0,parentNo=255,x2=0,x3=0;Vec center{}; };
 struct ModelData { unsigned nParts=1,shapeOfs=0;ModelDataHead* pHead=nullptr; };
 struct cModelInfo { unsigned be_flag=9;float invisible_factor=1;unsigned char color[4]{255,255,255,255};cModelInfo* pList=nullptr;ModelData* pData=nullptr; };
 class cModel;
 struct cParts { unsigned be_flag=1;cParts* pList=nullptr;cModel* pParent=nullptr;Vec pos{},ang{},scale{1,1,1}; };
-class cModel { public:unsigned serial=1,kindid=2,be_flag=3,nParts=1;float invisible_factor=1,invisible_factor2=1;Vec pos{},ang{},scale{1,1,1};cModelInfo* pModelInfo=nullptr;cParts* pList=nullptr;static cManager<cModelInfo>* mm;static cManager<cParts>* pm; };
+class cModel { public:unsigned serial=1,kindid=2,be_flag=7,nParts=1,ot_type=4,z_mode=0;float invisible_factor=1,invisible_factor2=1;Vec pos{},ang{},scale{1,1,1},world{};Mtx mat{};cLightInfo LightInfo;void* pParts=nullptr;cModelInfo* pModelInfo=nullptr;cParts* pList=nullptr;static cManager<cModelInfo>* mm;static cManager<cParts>* pm;cModel* getPartsPtr(int){return this;}void drawAllBoundingBox(cModelInfo*){} };
 class cObj:public cModel { public:int blk=-1; };
 class cEm:public cModel {};
 struct SmdWork { Vec pos{},rot{},scale{1,1,1};unsigned char binNo=0,tplNo=0,motNo=255,id=0;unsigned char pad[28]{};unsigned flags=0; };
 static_assert(sizeof(SmdWork)==72);
 struct cSmd { unsigned char Version=64,Flag=0;unsigned short nModel=90;unsigned BinTblOfs=0,TplTblOfs=0,MotTblOfs=0;SmdWork work[90]; };
-struct Global { unsigned Rno0=3,stage_no=2,room_no=0,System_flg=0x400,Status_flg[4]{},Frame_cnt=300;unsigned long prim_cnt=0;unsigned nPrim=65536,vtx_buf_no=0; } global,*pG=&global;
+struct Global { unsigned Rno0=3,stage_no=2,room_no=0,System_flg=0x400,Status_flg[4]{},Debug_flg[4]{},Frame_cnt=300;unsigned long prim_cnt=0;unsigned nPrim=65536,vtx_buf_no=0;Camera Cam{}; } global,*pG=&global;
 #define G_ROOM_ID ((pG->stage_no<<8)|pG->room_no)
 cSmd* pSmd=nullptr;cObj** scrTbl=nullptr;int nScrWork=90;
 unsigned room_generation=10,frame=200,re4dc_alive_gen[4]{1,2,3,4};bool room_live=true,movie=false,subscreen=false;
@@ -79,19 +86,17 @@ struct Counts {unsigned native=1,fallback=0,aborts=0;};
 PartMeta world_parts[152];unsigned sourceWorldPackageGeneration=2,sourceWorldSidecarCrc=4040448078U;
 struct Ps2World {void* storage=archive;PartMeta* parts=world_parts;void* placements=archive;void* lut=archive;void* gather=archive;unsigned room=0x200,want=0x200,nplacements=90;WorldPackage package{};Counts count[3]{};}ps2w;
 namespace dyn { const unsigned char* ids=archive;unsigned nids=90; }
-extern "C" int re4dc_coarse_source_camera(float*,float*,float*){++camera_calls;return 1;}
-extern "C" void re4dc_ps2_mesh_camera(const float*,const float*,const float*){}
+extern "C" int re4dc_coarse_source_camera(float* v,float* p,float* port){++camera_calls;std::memcpy(v,pG->Cam.v_mat,sizeof(Mtx));std::fill_n(p,7,1.f);std::fill_n(port,6,1.f);return 1;}
+extern "C" void re4dc_ps2_mesh_camera(const float* view,const float*,const float*){std::memcpy(native_camera.v_mat,view,sizeof(Mtx));native_scissor=scissor;}
 extern "C" int re4dc_ps2_world_source_draw(){++draw_calls;return 1;}
 #include "native_source_world.inc"
-void ModelRender(cModel*){}
-struct OtData {void* data=nullptr;void(*func)(void*)=nullptr;OtData* next=nullptr;unsigned short kind=0;};
-struct OtPrim {OtData ot;void* data=nullptr;};
-struct Ot {OtData* list=nullptr;unsigned max=0;};
+void ModelRender(cModel*);
 // Real enum values are extracted from include/trans_ot.h by the host runner.
 #include "source_world_actual_ot.inc"
-Ot g_OtWork[OT_MAX]{};OtData* nodes=nullptr;
+OtWork g_OtWork[OT_MAX]{};OtData* nodes=nullptr;
 struct Gx {unsigned char* prim=nullptr;} gx;
-#define GXWORK() (&gx)
+using GxWork=Gx;
+#define GXWORK() (&::gx)
 #include "source_world_frame.inc"
 struct Key {unsigned crc=0,fnv=0;bool operator==(const Key& b)const{return crc==b.crc&&fnv==b.fnv;}};
 struct Tex {unsigned width=256,height=256;};struct TexHeader {unsigned texture_count=1;};
@@ -103,6 +108,51 @@ Entry* load(const Re4dcUiImage& image,bool pin,const Key* key){++loads;loaded_pi
  if(load_case==1)return nullptr;if(load_case==2)++sourceWorldPackageGeneration;if(load_case==3)++room_generation;if(load_case==4)++global.Frame_cnt;return &cache_entry;}
 #define RE4DC_TEXCHK_FAIL(key,why) (++texfails)
 #include "native_ui_source_world.inc"
+// Instrumented external geometry/GX services around exact production bodies.
+struct GeoSphere {Vec pos;float r;};struct GeoHexahedron{};
+struct Logger {template<class... A>void warn(A...){assert(false);}template<class... A>void err(A...){assert(false);}} logger,*pLog=&logger;
+void* CameraViewFrustumPtr(Camera*){static GeoHexahedron h;return &h;}
+bool collision_sphere_hexahedron(GeoSphere*,GeoHexahedron*){return true;}
+void CameraGetLookVecInverse(Camera*,Vec* out){*out={0,0,1};}
+float PSVECDotProduct(Vec* a,Vec* b){return a->x*b->x+a->y*b->y+a->z*b->z;}
+void PSMTXMultVecSR(Mtx,Vec* a,Vec* out){*out=*a;}
+void PSVECAdd(Vec* a,Vec* b,Vec* out){*out={a->x+b->x,a->y+b->y,a->z+b->z};}
+bool isBit(unsigned a,unsigned b){return (a&b)!=0;}
+#define SQRTF(x) std::sqrt(x)
+#define ENCV_TRANS_NOTE(m,n) ((void)0)
+#define OT_MARK(w,f) ((void)0)
+#define RE4_MEM_LO 1U
+#define RE4_MEM_HI 0xffffffffU
+#define PTR_INVALID(p) (reinterpret_cast<std::uintptr_t>(p)<RE4_MEM_LO)
+void U32Set(u32& value,u32 next){value=next;}
+int g_NowExecOtType=OT_MAX;float OT_MUL=.05f;
+unsigned screen_prepares,light_prepares,callback_postludes,source_geometry,shader_resets,draw_syncs,mixed_callbacks;
+std::vector<int> callback_tables;
+std::vector<Scissor> callback_scissors;std::vector<Camera> callback_cameras;
+int commonScreenMat(cModel*){++screen_prepares;return 1;}
+void lightSetEm(cModel*){++light_prepares;}void lightSetObj(cModel*){++light_prepares;}
+void GXSetAlphaCompare(int,int,int,int,int){}
+void GXSetZMode(int,int,int){}
+void CameraCurrentProjection(){}
+void GXSetNumChans(int){}
+void GXSetChanCtrl(int,int,int,int,int,int,int){}
+struct GXColor {u8 r,g,b,a;};
+void GXSetChanAmbColor(int,GXColor){}void GXSetChanMatColor(int,GXColor){}
+void LightSetModel(cModel*){}
+void GXSetAlphaUpdate(int){}void GXSetDstAlpha(int,int){}
+void shaderReset(){++shader_resets;}
+void* g_prev_tpl_addr=nullptr;void* g_prev_add_tpl_addr=nullptr;
+void GXSetCurrentGXThread(){}
+struct {void setFog(){}} LightMgr;
+void SetDrawTmpBufType(int){}void bio4_AddBgColor(){}void drawGround(int){}void ClearZbuf(){}
+Camera itemCamera{};
+void GXSetFog(int,float,float,float,float,GXColor){}
+#define FRef(x) 1.f
+int Filter09GetbUse(){return 0;}void Filter09Render(int){}
+void GXSetDrawSync(int){++draw_syncs;}void Render_DrawSyncCallback(u16){}void GXSetDrawSyncCallback(void(*)(u16)){}
+struct {float x=0,y=0,width=640,height=448;}Screen;
+void GXSetScissor(u32 x,u32 y,u32 w,u32 h){scissor={x,y,w,h};}
+#include "source_world_actual_registration.inc"
 #define objects (*objects_storage)
 #define infos (*infos_storage)
 #define source_parts (*parts_storage)
@@ -112,9 +162,11 @@ struct GuardPage {
  void* p=mmap(nullptr,4096,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
  GuardPage(){assert(p!=MAP_FAILED);}~GuardPage(){munmap(p,4096);}
 };
-void NonModelCallback(void*){}
+void NonModelCallback(void*){++mixed_callbacks;}
 void reset(unsigned n=3){
  global=Global{};pG=&global;room_generation=10;frame=200;room_live=archive_live=true;movie=subscreen=false;re4dc_coarse_image=re4dc_pace_skipping=0;
+ screen_prepares=light_prepares=callback_postludes=source_geometry=shader_resets=draw_syncs=mixed_callbacks=0;
+ callback_tables.clear();callback_scissors.clear();callback_cameras.clear();scissor=Scissor{};native_scissor=Scissor{};native_camera=Camera{};
  for(auto& h:Heap)h=MemHeap{};std::memset(heap_memory,0,sizeof(heap_memory));heap_descriptors=reinterpret_cast<OSHeapDescriptor*>(heap_memory);
  heap_cursor=(sizeof(OSHeapDescriptor)*MEM_HEAP_NUM+31)&~31U;
  re4dc_mem.heap=reinterpret_cast<unsigned long>(heap_memory);re4dc_mem.heap_end=re4dc_mem.heap+sizeof(heap_memory);
@@ -143,7 +195,36 @@ void reset(unsigned n=3){
  if(n)g_OtWork[0x0b]={nodes,n};world_parts[13]={0xfa6fe38cU,0x1a02365fU,256,256,2,0,17,0};
 }
 int main(){
+ // Real ModelTrans -> AddOt* -> accepted reader -> real Render/ExecOt -> real
+ // ModelRender postludes. Raw0x10 has exactly source id06, as in staged r200.
+ for(unsigned mixed=0;mixed<2;++mixed){reset(0);unsigned generation=0;
+  for(unsigned table=0;table<OT_MAX;++table){auto& ot=g_OtWork[table];ot.max=Ot_max_tbl[table];ot.list=static_cast<OtData*>(host_alloc(ot.max*sizeof(OtData)));clearOtWork(&ot);}
+  global.System_flg=0x0c40;global.Cam.v_mat[0][0]=1;global.Cam.v_mat[1][1]=2;global.Cam.v_mat[2][2]=3;itemCamera.v_mat[0][0]=99;
+  for(unsigned i=0;i<21;++i){auto& m=objects[i];m.ot_type=i==6?5:i<7?4:i<14?0:1;m.pos.z=pSmd->work[i].pos.z=100;ModelTrans(&m);}
+  GuardPage ignored;AddOtDirect(0x10,ignored.p,reinterpret_cast<void(*)()>(NonModelCallback),0,0,nullptr,0);
+  if(mixed){auto* enemy=work_at(&EmMgr,0);enemy->kindid=0;enemy->ot_type=0;enemy->pos.z=100;enemy->pModelInfo=&infos[50];ModelTrans(enemy);}
+  check(screen_prepares==21+mixed&&light_prepares==21+mixed);
+  check(re4dc_source_world_prepare(frame,&generation)&&sourceWorldFrame.count==21);
+  unsigned after=0;for(auto* p=&g_OtWork[OT_TYPE_AFTER_RENDER].list[g_OtWork[OT_TYPE_AFTER_RENDER].max-1];p;p=p->next)
+   if(p->data&&p->func==reinterpret_cast<void(*)(void*)>(ModelRender)){++after;check(p->data==&objects[6]);}
+  check(after==1);sourceWorldTexturePrepare();check(sourceWorldFrame.ready&&loads==1);
+  Render();
+  check(draw_calls==1&&camera_calls==1&&aborts==0&&source_geometry==mixed);
+  check(callback_postludes==21+mixed&&shader_resets==21+mixed&&mixed_callbacks==1&&draw_syncs==1);
+  check(!sourceWorldRenderActive&&g_NowExecOtType==OT_MAX);
+  check(std::count(callback_tables.begin(),callback_tables.end(),OT_TYPE_AFTER_RENDER)==1);
+  check(std::is_sorted(callback_tables.begin(),callback_tables.end()));
+  for(unsigned i=0;i<callback_tables.size();++i){check(callback_scissors[i]==native_scissor);check(std::memcmp(callback_cameras[i].v_mat,native_camera.v_mat,sizeof(Mtx))==0);}
+  check(native_scissor.y==56&&native_scissor.height==337&&scissor.y==0&&scissor.height==448);
+  check(global.Cam.v_mat[0][0]==1&&!(global.Status_flg[3]&0x10000000));
+ }
  reset();unsigned work=999,gen=0;check(re4dc_scroll_source_member(&objects[0],100,&work)&&work==0);
+ reset();sourceWorldTexturePrepare();const auto prim_before=global.prim_cnt;const auto buffer_before=global.vtx_buf_no;
+ SetPrimBuffPtr();SetPrimBuffPtr();check(global.prim_cnt==prim_before&&global.vtx_buf_no==buffer_before);
+ check(!re4dc_source_world_current(frame,2));{SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[0])==0);}check(aborts==0);
+ reset();sourceWorldTexturePrepare();{SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[0])==1);
+ SetPrimBuffPtr();SetPrimBuffPtr();check(sourceWorldDraw(&objects[1])==-1);}check(aborts==1);
+ reset();
  for(unsigned i=0;i<90;++i){check(re4dc_scroll_source_member(&objects[i],100+i,&work)&&work==i);}
  reset();sourceWorldTexturePrepare();check(loads==1&&loaded_pin&&sourceWorldPreparedFrame==frame);check(re4dc_source_world_current(frame,2));
  check(!sourceWorldCandidate(&objects[0]));{SourceWorldRenderScope scope;check(sourceWorldCandidate(&objects[0]));check(sourceWorldDraw(&objects[2])==1);check(sourceWorldDraw(&objects[1])==1);}check(draw_calls==1&&camera_calls==1&&!sourceWorldRenderActive);
@@ -161,7 +242,7 @@ int main(){
  case 6:global.Status_flg[1]=0x100;break;case 7:global.Status_flg[2]=0x04000000;break;}
  sourceWorldTexturePrepare();check(loads==0&&!sourceWorldFrame.ready);}
  // Each real ModelTrans target is accepted, descriptive aliases are not.
- for(unsigned table:{0x0bU,0x0dU,0x11U}){reset();g_OtWork[0x0b]={};g_OtWork[table]={nodes,3};
+ for(unsigned table:{0x0bU,0x0dU,0x10U,0x11U}){reset();g_OtWork[0x0b]={};g_OtWork[table]={nodes,3};
  sourceWorldTexturePrepare();check(sourceWorldFrame.count==3&&sourceWorldFrame.ready);
  {SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[2])==1);}check(draw_calls==1&&aborts==0);}
  for(unsigned table:{unsigned(OT_TYPE_SCROLL),unsigned(OT_TYPE_MODEL)}){reset();g_OtWork[0x0b]={};g_OtWork[table]={nodes,3};
@@ -198,6 +279,9 @@ int main(){
   reset();sourceWorldTexturePrepare();{SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[2])==1);
    objects[1].pModelInfo=static_cast<cModelInfo*>(guard.p);check(sourceWorldDraw(&objects[1])==-1);
    check(!sourceWorldCandidate(static_cast<cModel*>(guard.p)));}check(aborts==1);
+  reset();sourceWorldTexturePrepare();{SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[2])==1);
+   ++objects[1].serial;objects[1].pModelInfo=static_cast<cModelInfo*>(guard.p);
+   check(sourceWorldDraw(&objects[1])==-1);}check(aborts==1);
  }
  // Exact current slot publication is required, including reused addresses,
  // withdrawn chunks, frozen managers, offsets within a valid allocated cell.
@@ -215,6 +299,13 @@ int main(){
   case 10:objects[1].serial++;break;
   case 11:Heap[4].status=1;break;}
   check(!re4dc_source_world_prepare(frame,&gen));check(draw_calls==0&&aborts==0);
+ }
+ // An old slot value is insufficient when its owning allocation is withdrawn.
+ for(unsigned type=0;type<3;++type){reset();const void* chunk=type==0?static_cast<void*>(pool(&ObjMgr)->chunks):
+   type==1?static_cast<void*>(pool(&ModInfoMgr)->chunks):static_cast<void*>(pool(&PartsMgr)->chunks);
+  auto* cell=reinterpret_cast<const OSHeapCell*>(chunk)-1;
+  for(auto** link=&heap_descriptors[4].allocated;*link;link=&(*link)->next)if(*link==cell){*link=(*link)->next;break;}
+  check(!re4dc_source_world_prepare(frame,&gen));check(!draw_calls&&!aborts);
  }
  // A real OtPrim must be fully below the captured allocation cursor. Allocated
  // but unused capacity, the previous buffer and misaligned addresses all fail.
