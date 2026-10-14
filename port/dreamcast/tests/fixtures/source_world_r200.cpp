@@ -91,6 +91,18 @@ int main(){
  reset();sourceWorldTexturePrepare();check(loads==1&&loaded_pin&&sourceWorldPreparedFrame==frame);check(re4dc_source_world_current(frame,2));
  check(!sourceWorldCandidate(&objects[0]));{SourceWorldRenderScope scope;check(sourceWorldCandidate(&objects[0]));check(sourceWorldDraw(&objects[2])==1);check(sourceWorldDraw(&objects[1])==1);}check(draw_calls==1&&camera_calls==1&&!sourceWorldRenderActive);
  sourceWorldTextureAcquired(cache_entry.key);check(sourceWorldAcquired==1);check(re4dc_ps2_source_passes_complete());ps2w.count[2].fallback=1;re4dc_source_world_flush_result(frame,re4dc_ps2_source_passes_complete());check(aborts==1&&!sourceWorldFrame.active);
+ // The actual event-transition mask still executes Render's source OTs.
+ reset();global.System_flg=0x0c40;sourceWorldTexturePrepare();
+ check(loads==1&&sourceWorldFrame.ready);{SourceWorldRenderScope scope;
+ check(sourceWorldDraw(&objects[2])==1);check(sourceWorldDraw(&objects[1])==1);}
+ check(draw_calls==1&&aborts==0&&global.System_flg==0x0c40);
+ // The event bit alone never bypasses movie, source-OT or render exclusions.
+ for(unsigned mutation=0;mutation<8;++mutation){reset();global.System_flg=0x0c40;
+ switch(mutation){case 0:movie=true;break;case 1:subscreen=true;break;
+ case 2:global.System_flg&=~0x400;break;case 3:re4dc_coarse_image=1;break;
+ case 4:re4dc_pace_skipping=1;break;case 5:global.System_flg|=0x100000;break;
+ case 6:global.Status_flg[1]=0x100;break;case 7:global.Status_flg[2]=0x04000000;break;}
+ sourceWorldTexturePrepare();check(loads==0&&!sourceWorldFrame.ready);}
  // Publication serial, current source owner and room generation fail before a stale info dereference.
  reset();objects[0].serial++;objects[0].pModelInfo=reinterpret_cast<cModelInfo*>(mmap(nullptr,4096,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));check(!re4dc_scroll_source_member(&objects[0],101,&work));munmap(objects[0].pModelInfo,4096);
  reset();archive_live=false;check(!re4dc_scroll_source_member(&objects[0],100,&work));reset();room_generation++;check(!re4dc_scroll_source_member(&objects[0],100,&work));
@@ -100,7 +112,7 @@ int main(){
   check(!re4dc_scroll_source_member(&m,100,&work));check(bool(re4dc_source_world_prepare(frame,&gen))==(mutation==1));
  }
  // Context exclusions and exact source/package/primitive epochs.
- for(unsigned mutation=0;mutation<10;++mutation){reset();switch(mutation){case 0:movie=true;break;case 1:subscreen=true;break;case 2:global.System_flg=0;break;case 3:global.room_no=1;break;case 4:global.Rno0=2;break;case 5:re4dc_pace_skipping=1;break;case 6:re4dc_coarse_image=1;break;case 7:global.System_flg|=0x800;break;case 8:global.Status_flg[2]=0x04000000;break;case 9:global.Status_flg[1]=0x100;break;}check(!re4dc_source_world_prepare(frame,&gen));check(loads==0);}
+ for(unsigned mutation=0;mutation<10;++mutation){reset();switch(mutation){case 0:movie=true;break;case 1:subscreen=true;break;case 2:global.System_flg=0;break;case 3:global.room_no=1;break;case 4:global.Rno0=2;break;case 5:re4dc_pace_skipping=1;break;case 6:re4dc_coarse_image=1;break;case 7:global.System_flg|=0x100000;break;case 8:global.Status_flg[2]=0x04000000;break;case 9:global.Status_flg[1]=0x100;break;}check(!re4dc_source_world_prepare(frame,&gen));check(loads==0);}
  for(unsigned mutation=0;mutation<8;++mutation){reset();sourceWorldTexturePrepare();switch(mutation){case 0:++room_generation;break;case 1:++sourceWorldPackageGeneration;break;case 2:++re4dc_alive_gen[2];break;case 3:++re4dc_alive_gen[0];break;case 4:++global.Frame_cnt;break;case 5:++global.prim_cnt;break;case 6:++global.nPrim;break;case 7:++global.vtx_buf_no;break;}check(!re4dc_source_world_current(frame,2));}
  reset();nodes[0].data=nodes[1].data;check(!re4dc_source_world_prepare(frame,&gen));reset(91);check(!re4dc_source_world_prepare(frame,&gen));reset(0);check(!re4dc_source_world_prepare(frame,&gen));
  reset();sourceWorldTexturePrepare();nodes[0].data=&objects[4];{SourceWorldRenderScope scope;check(sourceWorldDraw(&objects[2])==0);}check(draw_calls==0);

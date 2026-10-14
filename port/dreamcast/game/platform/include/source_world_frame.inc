@@ -17,7 +17,10 @@ bool sourceWorldRenderActive;
 unsigned sourceWorldReports,sourceWorldFailures;
 bool sourceWorldContext() {
     return pG && pG->Rno0==3 && G_ROOM_ID==0x200 && (pG->System_flg&0x400) &&
-        !(pG->System_flg&(0x800|0x100000)) && !(pG->Status_flg[2]&0x04000000) &&
+        // SceEventStart sets 0x800; Render still runs the source OTs and
+        // temporarily applies its scissor state. It is not a movie exclusion.
+        // D29 measured r200's pre-movie draw at System_flg 0x0c40.
+        !(pG->System_flg&0x100000) && !(pG->Status_flg[2]&0x04000000) &&
         !(pG->Status_flg[1]&0x100) && !re4dc_coarse_image && !re4dc_pace_skipping &&
         !re4dc_ui_movie_texture() && !re4dc_ss_ui_order();
 }
