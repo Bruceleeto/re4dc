@@ -331,6 +331,18 @@ endif
 # off adds no compiler flags, preserving the existing disabled program bytes.
 ACTOR_TEX_PREP ?= 0
 ACTOR_TEX_PREP_DIAG ?= 0
+# Standard Leon joins the existing player-first pre-scene atlas preparation.
+ACTOR_TEX_PREP_LEON ?= 0
+ifeq ($(filter $(ACTOR_TEX_PREP_LEON),0 1),)
+$(error ACTOR_TEX_PREP_LEON must be 0 or 1)
+endif
+ifeq ($(ACTOR_TEX_PREP_LEON),1)
+ifneq ($(ACTOR_TEX_PREP)$(ACTOR_PL08)$(PS2_LEON)$(LEON_HAND_POSES),1111)
+$(error ACTOR_TEX_PREP_LEON needs ACTOR_TEX_PREP=1 ACTOR_PL08=1 PS2_LEON=1 LEON_HAND_POSES=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP_LEON=1
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_TEX_PREP_LEON=1
+endif
 ifeq ($(filter $(ACTOR_TEX_PREP),0 1),)
 $(error ACTOR_TEX_PREP must be 0 or 1)
 endif
