@@ -810,22 +810,11 @@ struct FxLevel {
     u8 rain;        // r11b PS2 rain lines per 100
     u16 owners;     // EFFECT_OWNERS_ALL: admitted-owner sprites per frame (0: none)
 };
-// The owners budget applies at level 0 too (test 12): the admitted owners share the EFFECT_SPRITE_MAX (64) per-frame
-// sprite cap with the base owners (muzzle flash, shot, Ganado blood, lamps) and the room tables, so 48 keeps 16 slots
-// for those in a break-heavy frame. Leon's own effects (PL00 0x03: hurt blood, splashes) are opted out (kFxOwnerExempt).
 static const FxLevel kFxLevel[3] = {
     {8, 1.0f, 1.0f, 0.0f, 0, 100, 48},          // 0: PS2 as-is
     {6, 0.9f, 1.15f, 40000.0f, 48, 70, 32},     // 1: reduced
     {4, 0.8f, 1.3f, 25000.0f, 32, 50, 16},      // 2: low
 };
-#if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
-// Per-recipe opt-outs of the owners budget: drawn whatever the level (still under the sprite cap). The base owners
-// (muzzle flash WEP 0x34..0x4f, shot 0, Ganado blood EM10 0x10, lamps 0x5e) are never admitted, so never budgeted.
-static int FxOwnerExempt(u32 owner)
-{
-    return owner == 0x03;   // PL00: Leon's hurt blood and splashes (damage feedback)
-}
-#endif
 enum { FXL_THIN = 1, FXL_SIZE = 2, FXL_ALPHA = 4, FXL_FAR = 8, FXL_BUDGET = 16, FXL_ALL = 31 };
 // Per-recipe overrides: the dial parts a matching sprite keeps out of (room 0, id / tex 0xff: any).
 struct FxLevelOverride { u16 room; u8 id, tex, skip; };
@@ -887,10 +876,7 @@ static void FxLevelScale(Re4dcEffectSprite* s, f32 size, f32 alpha)
 static int FxLevelSprite(const cEsp* esp, Re4dcEffectSprite* s)
 {
 #if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
-    if (EspOwnerAdmitted(esp->info.owner)) {
-        if (FxOwnerExempt(esp->info.owner) || !kFxLevel[re4dc_fx_level].owners) {
-            return 1;
-        }
+    if (EspOwnerAdmitted(esp->info.owner)) { if (esp->info.owner == 0x03 || !kFxLevel[re4dc_fx_level].owners) return 1;   // PL00 opt-out
         static u32 s_owner_frame, s_owner_used;   // admitted owners: the per-frame budget only
         if (s_owner_frame != pG->Frame_cnt) {
             s_owner_frame = pG->Frame_cnt;

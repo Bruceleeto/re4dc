@@ -41,7 +41,7 @@ for a in "$@"; do
           got=$(endof $lab); [ -n "$want" ] || { echo "$lab end=$got (no pad target)"; break; }
           d=$(( 0x$want - 0x$got )); echo "$lab pad=$pad end=$got want=$want diff=$d"
           [ $d = 0 ] && break; [ $d -lt 0 ] && { echo "$lab is larger than the pad target: rebuild the target padded"; break; }
-          pad=$(( pad + d ))
+          if [ $pad = 0 ] && [ $d -ge 32 ]; then pad=$(( d - 32 )); else pad=$(( pad + d )); fi   # a pad of N adds N + 32
         done ;;
     *) echo "kind? $a"; exit 1 ;;
   esac
