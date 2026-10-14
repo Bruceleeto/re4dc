@@ -26,6 +26,7 @@
 #include "native_ui.h"
 #include "native_io.h"
 #include "native_movie.h"
+#include "include/native_cabin.h"
 #include "../../room/room_storage.hpp"
 #if RE4DC_MOVIE_DISC_QUIET
 // MOVIE_DISC_QUIET: 1 while a route movie is open (it owns the GD drive); audio_aica.cpp's disc stream reader
@@ -81,6 +82,9 @@ extern "C" unsigned re4dc_ui_movie_presented();
 extern "C" uint64_t re4dc_ui_movie_first_picture_us();
 extern "C" int re4dc_ui_movie_last_presented();
 extern "C" void* re4dc_ui_movie_texture();
+#if RE4DC_CABIN_SOURCE
+extern "C" void re4dc_ui_movie_background(int);
+#endif
 namespace {
 // Hard caps: every write is checked against them, nothing grows.
 // snd_stream_fill asks for half the 8 KiB ring per channel: 8 KiB interleaved.
@@ -140,6 +144,27 @@ struct Movie {
     const char* why=nullptr; unsigned reads=0,iter=0; unsigned long long read_us=0;
 #endif
 } m;
+#if RE4DC_CABIN_SOURCE
+// CABIN_MOVIE_STATE_BEGIN
+struct CabinMovie {
+    unsigned generation=0, readers=0, ui_generation=0, final_upload=0;
+    unsigned video_records=0, video_bytes=0, audio_bytes=0, fast_passes=0;
+    unsigned long long final_wait=0;
+    plm_frame_t* final_frame=nullptr;
+    void* codec_control[2]{};bool codec_taken[2]{};
+    bool finishing=false, retiring=false, skip=false, checked=false, transport_retired=false;
+    int terminal=RE4DC_MOVIE_RUNNING;
+} cabin_movie;
+unsigned cabin_movie_epoch=0;
+struct CabinMovieRead {
+    CabinMovieRead(){++cabin_movie.readers;}
+    ~CabinMovieRead(){--cabin_movie.readers;}
+};
+int cabin_movie_finish(int status);
+bool cabin_movie_content();
+bool cabin_movie_identity();
+// CABIN_MOVIE_STATE_END
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
 static_assert(sizeof(plm_buffer_t)==52 && sizeof(plm_video_t)==716,"review movie arena decoder ABI");
 unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;
@@ -234,6 +259,15 @@ void* stage_alloc(size_t n){
     return p;
 }
 void* plm_alloc(size_t n){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation && (n==sizeof(plm_buffer_t) || n==sizeof(plm_video_t))){
+        const unsigned i=n==sizeof(plm_buffer_t)?0:1;
+        if(!cabin_movie.codec_control[i] || cabin_movie.codec_taken[i]){
+            re4dc_missing("cabin codec control allocation protocol");return nullptr;
+        }
+        cabin_movie.codec_taken[i]=true;return cabin_movie.codec_control[i];
+    }
+#endif
     if(m.nallocs==MaxAllocs)return nullptr;
 #if RE4DC_MOVIE_STAGE_ORDER
     for(unsigned i=0;i<m.nreserve;++i)if(m.reserve[i]&&m.reserve_bytes[i]==n){
@@ -320,6 +354,12 @@ bool record(){
     plm_buffer_discard_read_bytes(m.input);
     if(nv>VideoCap-m.input->length||na>AudioCap-m.pcm_used)return false;
     if(!transport(m.input->bytes+m.input->length,nv)||!transport(m.pcm+m.pcm_used,na))return false;
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation){
+        if(nv)++cabin_movie.video_records;
+        cabin_movie.video_bytes+=nv;cabin_movie.audio_bytes+=na;
+    }
+#endif
     m.input->length+=nv;m.input->has_ended=0;m.pcm_used+=na;m.video_left-=nv;m.audio_left-=na;
     if(!m.video_left)plm_buffer_signal_end(m.input);
     return true;
@@ -360,6 +400,9 @@ void memory(const char* phase){
         re4dc_movie_stream_initialized(),re4dc_movie_stream_active());
 }
 int finish(int status){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)return cabin_movie_finish(status);
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     // snd_stream_destroy may yield while DMA owns the separator. Keep one
     // teardown owner across that yield and every subsequent cleanup step.
@@ -459,6 +502,10 @@ bool open(unsigned id){
     if(m.file<0)return false;
     {Re4dcIoScope owner;if(!header(m.file,&m.video_left,&m.audio_left,&m.expected_frames,&m.width,&m.height,&m.full))return false;}
     m.audio_bytes=m.audio_left;
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation && (m.expected_frames!=(id==0x11c00?2296u:id==0x11c10?761u:526u) ||
+       m.width!=288 || m.height!=192 || !m.full))return false;
+#endif
     auto size=fs_total(m.file);if(size<2048||size>40000000)return false;
     m.transport_left=size-2048;
     {Re4dcIoScope owner;if(fs_seek(m.file,2048,SEEK_SET)!=2048)return false;}
@@ -478,6 +525,19 @@ bool open(unsigned id){
 #endif
     if(!reserve_largest_first(RE4DC_ROUTE_MOVIE_YUV&&m.full,!re4dc_movie_stream_initialized()))return false;
 #endif
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation){
+        // The pinned codec dereferences its control allocations immediately.
+        // Admit both through the same source allocator before its constructors.
+        const unsigned sizes[2]={sizeof(plm_buffer_t),sizeof(plm_video_t)};
+        for(unsigned i=0;i<2;++i){
+            if(m.nallocs==MaxAllocs)return false;
+            void* control=stage_alloc(sizes[i]);if(!control)return false;
+            cabin_movie.codec_control[i]=control;
+            m.allocs[m.nallocs++]=control;m.staged+=sizes[i];
+        }
+    }
+#endif
     unsigned char* rb=(unsigned char*)plm_alloc(ReadCap+32);
     m.readbuf=rb?(unsigned char*)(((uintptr_t)rb+31)&~(uintptr_t)31):nullptr;
     m.pcm=(unsigned char*)plm_alloc(AudioCap);m.callback=(unsigned char*)plm_alloc(CallbackCap);
@@ -493,6 +553,9 @@ bool open(unsigned id){
     if(!re4dc_ui_movie_open(m.width,m.height))return false;
     m.texture=true;
     m.tex=re4dc_ui_movie_texture();
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)cabin_movie.ui_generation=re4dc_ui_movie_cabin_generation();
+#endif
     m.hw=want_hw&&m.tex;
     if(want_hw&&!m.hw)return false;
     m.owns_service=!re4dc_movie_stream_initialized();
@@ -515,7 +578,12 @@ bool open(unsigned id){
     re4dc_leon_hands_yield();  // the stream takes the whole AICA movie reserve: Leon's hand cache refills after the movie
 #endif
     if(snd_stream_init_ex(2,Ring)<0)return false;
-    m.stream=snd_stream_alloc(audio,Ring);if(m.stream<0)return false;
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)m.stream=re4dc_movie_stream_cabin_alloc(audio,Ring);
+    else
+#endif
+    m.stream=snd_stream_alloc(audio,Ring);
+    if(m.stream<0)return false;
     m.staged+=re4dc_movie_stream_staged;
     m.heap_active=re4dc_ui_heap_free();
     memory("active");
@@ -624,7 +692,11 @@ plm_frame_t* decode_next(){
     if(!m.video_left)plm_buffer_signal_end(m.input);
     auto t=timer_us_gettime64();plm_frame_t* f=plm_video_decode(m.decoder);
     auto dt=timer_us_gettime64()-t;
-    if(f){m.sum_decode+=dt;if(dt>m.max_decode)m.max_decode=dt;++m.frames;}
+    if(f){m.sum_decode+=dt;if(dt>m.max_decode)m.max_decode=dt;++m.frames;
+#if RE4DC_CABIN_SOURCE
+        if(cabin_movie.generation && m.frames==m.expected_frames)cabin_movie.final_frame=f;
+#endif
+    }
     return f;
 }
 // Upload picture `index` and submit it one field before its flip vblank.
@@ -650,6 +722,10 @@ bool show(plm_frame_t* f,unsigned index,unsigned now,RouteMoviePictureTick tick,
         re4dc_log("route movie first picture: id=%05x latency_us=%llu\n",m.id,timer_us_gettime64()-m.entered);}
 #if RE4DC_MOVIE_WORLD_ARENA
     const unsigned epoch=movie_epoch;
+#endif
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation && index+1==m.expected_frames)
+        cabin_movie.final_upload=re4dc_ui_movie_cabin_upload();
 #endif
     if(tick)tick(index);
 #if RE4DC_MOVIE_WORLD_ARENA
@@ -680,7 +756,14 @@ int start(unsigned id,unsigned mask){
     while(m.pcm_used<AudioStart&&m.audio_left)if(!feed()||m.failed)return finish(RE4DC_MOVIE_ERROR);
     m.pending=decode_next();
     if(!m.pending||!feed())return finish(RE4DC_MOVIE_ERROR);
-    m.start=timer_us_gettime64();snd_stream_start(m.stream,32000,1);m.started=true;
+    m.start=timer_us_gettime64();
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation){
+        if(!re4dc_movie_stream_cabin_start(m.stream,cabin_movie.generation))return finish(RE4DC_MOVIE_ERROR);
+    }else
+#endif
+    snd_stream_start(m.stream,32000,1);
+    m.started=true;
     m.v0=re4dc_vi_retrace_count()+1;
     m.k=0;
     return RE4DC_MOVIE_RUNNING;
@@ -704,7 +787,21 @@ int iterate(RouteMoviePictureTick tick,bool stepped){
     const unsigned long long d0=timer_us_gettime64();const unsigned r0=m.reads;const unsigned long long ru0=m.read_us;
 #endif
     if(!feed()){MOVIE_WHY(m.why?m.why:"feed");return finish(RE4DC_MOVIE_ERROR);}
+#if RE4DC_CABIN_SOURCE
+    int cabin_audio=2;
+    if(cabin_movie.generation){
+        cabin_audio=re4dc_movie_stream_cabin_progress(m.stream,cabin_movie.generation,!m.audio_left&&!m.pcm_used);
+        if(cabin_audio<0)return finish(RE4DC_MOVIE_ERROR);
+    }
+    if(cabin_audio)
+#endif
     if(poll_audio()<0){MOVIE_WHY("poll_audio");return finish(RE4DC_MOVIE_ERROR);}
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation && cabin_audio){
+        cabin_audio=re4dc_movie_stream_cabin_progress(m.stream,cabin_movie.generation,!m.audio_left&&!m.pcm_used);
+        if(cabin_audio<0)return finish(RE4DC_MOVIE_ERROR);
+    }
+#endif
     if(m.failed){MOVIE_WHY("audio_failed");return finish(RE4DC_MOVIE_ERROR);}
     const unsigned now=re4dc_vi_retrace_count(),due=m.v0+2*m.k;
 #if RE4DC_ROUTE_MOVIE_DIAG
@@ -740,7 +837,28 @@ int iterate(RouteMoviePictureTick tick,bool stepped){
         else if(t-m.starve_since>2000000ULL){MOVIE_WHY("starved");return finish(RE4DC_MOVIE_ERROR);}
         return RE4DC_MOVIE_RUNNING;
     }
-    if(!m.pending&&!m.audio_left&&!m.pcm_used&&m.samples>=m.last_real_sample+4096&&now>=m.v0+2*m.k){
+#if RE4DC_CABIN_SOURCE
+    const bool audio_complete=cabin_movie.generation?cabin_audio==1:m.samples>=m.last_real_sample+4096;
+    if(!m.pending&&!m.audio_left&&!m.pcm_used&&audio_complete&&now>=m.v0+2*m.k)
+#else
+    if(!m.pending&&!m.audio_left&&!m.pcm_used&&m.samples>=m.last_real_sample+4096&&now>=m.v0+2*m.k)
+#endif
+    {
+#if RE4DC_CABIN_SOURCE
+        if(cabin_movie.generation){
+            if(!cabin_movie_content())return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+            if(!cabin_movie.final_upload)cabin_movie.final_upload=re4dc_ui_movie_cabin_upload();
+            if(!cabin_movie.final_upload || !cabin_movie_identity() ||
+               re4dc_ui_movie_cabin_upload()!=cabin_movie.final_upload)
+                return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+            if(re4dc_ui_movie_cabin_shown()!=cabin_movie.final_upload){
+                const auto now_us=timer_us_gettime64();
+                if(!cabin_movie.final_wait)cabin_movie.final_wait=now_us;
+                if(now_us-cabin_movie.final_wait>10000000ULL)return finish(RE4DC_MOVIE_ERROR);
+                return RE4DC_MOVIE_RUNNING;
+            }
+        }
+#endif
         if(stepped){m.held_end=true;return RE4DC_MOVIE_EOF;}  // last picture held until re4dc_movie_end
         return finish(RE4DC_MOVIE_EOF);
     }
@@ -766,6 +884,189 @@ int iterate(RouteMoviePictureTick tick,bool stepped){
     return RE4DC_MOVIE_RUNNING;
 }
 }
+#if RE4DC_CABIN_SOURCE
+namespace {
+// CABIN_MOVIE_FUNCTIONS_BEGIN
+bool cabin_movie_identity(){
+    return cabin_movie.ui_generation && m.texture && m.tex==re4dc_ui_movie_texture() &&
+           cabin_movie.ui_generation==re4dc_ui_movie_cabin_generation();
+}
+// Validate BEFORE asking the decoder to search for another picture: that search
+// could otherwise consume arbitrary trailing compressed data and hide a defect.
+bool cabin_movie_content(){
+    if(cabin_movie.checked)return true;
+    if(m.frames!=m.expected_frames || m.video_left || m.audio_left ||
+       m.transport_left || m.read_at!=m.read_used ||
+       cabin_movie.video_records!=m.expected_frames ||
+       cabin_movie.audio_bytes!=m.audio_bytes || !m.input || !m.decoder)return false;
+    if(m.input->bit_index>m.input->length*8u)return false;
+    const size_t residual=m.input->length*8u-m.input->bit_index;
+    if(residual>7u || (residual &&
+       (m.input->bytes[m.input->length-1]&((1u<<residual)-1u))))return false;
+    if(plm_video_decode(m.decoder)!=nullptr ||
+       m.input->bit_index!=m.input->length*8u)return false;
+    cabin_movie.checked=true;
+    return true;
+}
+// Only CPU/audio transport is retired here. The matching texture generation is
+// held independently until its last scene is fenced by the existing UI owner.
+int cabin_movie_finish(int status){
+    if(cabin_movie.finishing)return RE4DC_MOVIE_ERROR;
+    cabin_movie.finishing=true;
+    if(cabin_movie.terminal==RE4DC_MOVIE_RUNNING)cabin_movie.terminal=status;
+    if(!cabin_movie.transport_retired){
+        if(m.stream>=0){snd_stream_stop(m.stream);snd_stream_destroy(m.stream);m.stream=-1;}
+        m.started=false;
+        if(m.owns_service){
+            if(re4dc_movie_stream_active()){
+                cabin_movie.terminal=RE4DC_MOVIE_ERROR;
+                cabin_movie.finishing=false;return RE4DC_MOVIE_ERROR;
+            }
+            snd_stream_shutdown();m.owns_service=false;
+        }
+        if(m.file>=0){Re4dcIoScope owner;fs_close(m.file);m.file=-1;}
+        for(unsigned i=0;i<m.nallocs;++i)re4dc_ui_stage_free(m.allocs[i]);
+        m.nallocs=0;m.input=nullptr;m.decoder=nullptr;m.pending=nullptr;
+        m.pcm=m.callback=m.readbuf=m.rows=nullptr;m.pcm_used=0;cabin_movie.final_frame=nullptr;
+        cabin_movie.codec_control[0]=cabin_movie.codec_control[1]=nullptr;
+#if RE4DC_MOVIE_STAGE_ORDER
+        release_reserved(0);
+#endif
+#if RE4DC_MOVIE_HEAP_EVICT
+        {unsigned bytes=0,requests=0;
+         if(re4dc_model_return_retained)re4dc_model_return_retained(&bytes,&requests);}
+#endif
+#if RE4DC_MOVIE_DISC_QUIET
+        re4dc_movie_disc_owner=0;
+#endif
+        cabin_movie.transport_retired=true;
+    }
+    m.terminal=cabin_movie.terminal;
+    cabin_movie.finishing=false;
+    return cabin_movie.terminal;
+}
+int cabin_movie_fast_final(){
+    // Called only after the source's accepted RunEvtCancel hook. No pad reads.
+    if(m.started){snd_stream_stop(m.stream);m.started=false;}
+    for(unsigned i=0;i<16 && !cabin_movie.checked;++i){
+        if(++cabin_movie.fast_passes>12000)return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+        m.pcm_used=0;
+        if(!feed())return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+        if(m.frames<m.expected_frames){
+            auto* frame=decode_next();
+            if(frame)m.pending=frame;
+            else if(!m.video_left)return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+        }
+        if(m.frames==m.expected_frames && !m.video_left && !m.audio_left){
+            if(!cabin_movie.final_frame || !cabin_movie_content())return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+            if(!cabin_movie.final_upload && !show(cabin_movie.final_frame,m.expected_frames-1,re4dc_vi_retrace_count(),nullptr,false))
+                return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+            m.pending=nullptr;m.k=m.expected_frames;
+            cabin_movie.final_upload=re4dc_ui_movie_cabin_upload();
+        }
+    }
+    if(cabin_movie.checked){
+        const auto now_us=timer_us_gettime64();
+        if(!cabin_movie.final_wait)cabin_movie.final_wait=now_us;
+        if(now_us-cabin_movie.final_wait>10000000ULL)return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+    }
+    if(cabin_movie.checked && cabin_movie.final_upload && cabin_movie_identity() &&
+       re4dc_ui_movie_cabin_upload()==cabin_movie.final_upload &&
+       re4dc_ui_movie_cabin_shown()==cabin_movie.final_upload)
+        return cabin_movie_finish(RE4DC_MOVIE_SKIP);
+    return RE4DC_MOVIE_RUNNING;
+}
+// CABIN_MOVIE_FUNCTIONS_END
+}
+// CABIN_MOVIE_API_BEGIN
+bool cabin_movie_header(unsigned id,unsigned video,unsigned audio,unsigned frames,unsigned width,unsigned height,bool full,unsigned size){
+    const unsigned wanted_frames=id==0x11c00?2296:id==0x11c10?761:id==0x11c20?526:0;
+    const unsigned wanted_video=id==0x11c00?6271092:id==0x11c10?2120385:1446405;
+    const unsigned wanted_audio=id==0x11c00?9809152:id==0x11c10?3456088:2244352;
+    const unsigned wanted_size=id==0x11c00?16100668:id==0x11c10?5584817:3697013;
+    return wanted_frames && frames==wanted_frames && video==wanted_video && audio==wanted_audio &&
+           width==288 && height==192 && full && size==wanted_size;
+}
+extern "C" int re4dc_movie_cabin_available(unsigned id){
+    char path[40];path_for(id,path,sizeof(path));Re4dcIoScope owner;
+    file_t file=fs_open(path,O_RDONLY);if(file<0)return 0;
+    unsigned v=0,a=0,n=0,w=0,h=0;bool full=false;
+    bool ok=header(file,&v,&a,&n,&w,&h,&full) && cabin_movie_header(id,v,a,n,w,h,full,fs_total(file));
+    fs_close(file);return ok;
+}
+extern "C" unsigned re4dc_movie_cabin_open(unsigned id){
+    if((id!=0x11c00 && id!=0x11c10 && id!=0x11c20) || cabin_movie.generation ||
+       m.entered || cabin_movie_epoch==~0u)return 0;
+#if RE4DC_MOVIE_WORLD_ARENA
+    if(movie_world_token || movie_full_call)return 0;
+#endif
+    cabin_movie=CabinMovie{};cabin_movie.generation=++cabin_movie_epoch;
+    int result;
+    {CabinMovieRead reader;
+     if(!re4dc_movie_cabin_available(id))result=cabin_movie_finish(RE4DC_MOVIE_ERROR);
+     else result=start(id,0);}
+    if(result==RE4DC_MOVIE_RUNNING){
+        cabin_movie.ui_generation=re4dc_ui_movie_cabin_generation();
+        if(!cabin_movie_identity())cabin_movie_finish(RE4DC_MOVIE_ERROR);
+        else re4dc_ui_movie_background(1);
+    }
+    return cabin_movie.generation;
+}
+extern "C" int re4dc_movie_cabin_skip(unsigned generation){
+    if(!generation || generation!=cabin_movie.generation || cabin_movie.finishing ||
+       cabin_movie.retiring || cabin_movie.terminal!=RE4DC_MOVIE_RUNNING)return 0;
+    cabin_movie.skip=true;return 1;
+}
+extern "C" int re4dc_movie_cabin_step(unsigned generation){
+    if(!generation || generation!=cabin_movie.generation || cabin_movie.finishing ||
+       cabin_movie.retiring || cabin_movie.readers)return RE4DC_MOVIE_ERROR;
+    if(m.texture && !cabin_movie_identity()){
+        cabin_movie.terminal=RE4DC_MOVIE_ERROR;
+        return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+    }
+    if(cabin_movie.terminal!=RE4DC_MOVIE_RUNNING)return cabin_movie.terminal;
+    CabinMovieRead reader;
+    if(!cabin_movie_identity())return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+    if(cabin_movie.skip)return cabin_movie_fast_final();
+    int status=RE4DC_MOVIE_RUNNING;
+    for(unsigned i=0;i<4 && status==RE4DC_MOVIE_RUNNING;++i){
+        const unsigned k=m.k;
+        status=iterate(nullptr,true);
+        if(status==RE4DC_MOVIE_RUNNING && m.k==k && m.pending)break;
+    }
+    if(status==RE4DC_MOVIE_EOF)return cabin_movie_finish(RE4DC_MOVIE_EOF);
+    return status;
+}
+extern "C" int re4dc_movie_cabin_abort(unsigned generation){
+    if(!generation || generation!=cabin_movie.generation || cabin_movie.readers ||
+       cabin_movie.finishing || cabin_movie.retiring)return RE4DC_MOVIE_ERROR;
+    cabin_movie.terminal=RE4DC_MOVIE_ERROR;
+    return cabin_movie_finish(RE4DC_MOVIE_ERROR);
+}
+extern "C" int re4dc_movie_cabin_status(unsigned generation){
+    return generation && generation==cabin_movie.generation?cabin_movie.terminal:RE4DC_MOVIE_CANCEL;
+}
+extern "C" int re4dc_movie_cabin_close(unsigned generation){
+    // Refuse stale/reentrant ownership before touching any pointer. try_close is
+    // nonblocking and checks the UI generation in the same protected operation.
+    if(!generation || generation!=cabin_movie.generation)return 0;
+    if(cabin_movie.readers || cabin_movie.finishing || cabin_movie.retiring)return 0;
+    cabin_movie.retiring=true;
+    if(m.texture){
+        if(!cabin_movie_identity() || !re4dc_ui_movie_cabin_try_close(cabin_movie.ui_generation)){
+            cabin_movie.retiring=false;return 0;
+        }
+        m.texture=false;m.tex=nullptr;
+    }
+    const int result=cabin_movie_finish(RE4DC_MOVIE_CANCEL);
+    if(!cabin_movie.transport_retired){cabin_movie.retiring=false;return 0;}
+    re4dc_log("cabin movie retired: generation=%u id=%05x terminal=%d final_upload=%u\n",
+               generation,m.id,result,cabin_movie.final_upload);
+    m=Movie{};cabin_movie=CabinMovie{};
+    return 1;
+}
+// CABIN_MOVIE_API_END
+#endif
 // Movie-owned presentation: the caller's game frame is not run while the
 // picture plays (the world is hidden; the caller is a source task that simply
 // does not sleep). Picture k flips at vblank v0 + 2k: 29.97 fps on NTSC,
@@ -786,6 +1087,9 @@ extern "C" int re4dc_movie_play(unsigned id,unsigned mask,RouteMoviePictureTick 
 // movie open, its sound playing, for re4dc_movie_step / re4dc_movie_end (route lane: r104s00's
 // QTE cut runs as game frames over the rest of the movie, the PS2 pattern).
 extern "C" int re4dc_movie_play_until(unsigned id,unsigned mask,RouteMoviePictureTick tick,unsigned stop_at){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)return RE4DC_MOVIE_ERROR;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(m.entered || movie_world_token)return RE4DC_MOVIE_ERROR;
     int st;
@@ -819,6 +1123,9 @@ extern "C" int re4dc_movie_play_stepped(unsigned id){
 // Once per game frame of the caller: feeds the open movie and uploads its due picture.
 // RUNNING while pictures remain, EOF once the last one is up (held), else the terminal.
 extern "C" int re4dc_movie_step(RouteMoviePictureTick tick){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)return RE4DC_MOVIE_ERROR;
+#endif
     if(!m.entered)return m.terminal?m.terminal:RE4DC_MOVIE_ERROR;
     if(m.held_end)return RE4DC_MOVIE_EOF;
     int st=RE4DC_MOVIE_RUNNING;
@@ -832,6 +1139,9 @@ extern "C" int re4dc_movie_step(RouteMoviePictureTick tick){
 }
 // Retires an open (handed-off or stepped) movie.
 extern "C" int re4dc_movie_end(void){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)return RE4DC_MOVIE_ERROR;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(movie_world_token && movie_readers){re4dc_missing("movie arena end while reader active");return RE4DC_MOVIE_ERROR;}
 #endif
@@ -839,6 +1149,9 @@ extern "C" int re4dc_movie_end(void){
     return finish(m.held_end?RE4DC_MOVIE_EOF:RE4DC_MOVIE_CANCEL);
 }
 extern "C" int re4dc_movie_cancel(){
+#if RE4DC_CABIN_SOURCE
+    if(cabin_movie.generation)return RE4DC_MOVIE_ERROR;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(movie_world_token && movie_readers){re4dc_missing("movie arena cancel while reader active");return RE4DC_MOVIE_ERROR;}
 #endif

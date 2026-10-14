@@ -62,6 +62,10 @@
 #include "math_sub.h"
 #include "eprintf.h"
 #include "foot_shadow.h"
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+#include "native_cabin.h"
+#endif
+
 
 extern "C" {
 void OSReport(const char* fmt, ...);
@@ -628,6 +632,9 @@ int Event::RunEvtCancel()
         }
     }
     BitOn(StatusFlag, 0x04000000);
+#if RE4DC_CABIN_SOURCE
+    re4dc_cabin_cancel_accepted(this);
+#endif
     pG->Status_flg[3] |= 0x01000000;
     EvtMesDeleteAll();
     FadeSetW(1, 1, 0, 0);
@@ -1913,6 +1920,9 @@ void Event::SetDiedemoExec()
         EvtFadeSetW(0x80000001, 0xA, 0, 0);
     }
     DiedemoExec(0, 1);
+#if RE4DC_CABIN_SOURCE
+    re4dc_cabin_death_committed(this);
+#endif
 }
 
 // Enables the action-button prompt `no` for the event (button mash counting).
@@ -2692,6 +2702,9 @@ int EventMgr::SetEvt(char* nm, Event** out)
         return 0;
     }
     evt->StatusFlag |= 0x01000000;
+#if RE4DC_CABIN_SOURCE
+    re4dc_cabin_event_bound(evt,nm);
+#endif
     {
         EventMgr* m = &EvtMgr;
         strcpy(m->NowExeEvtName, nm);
@@ -2739,6 +2752,9 @@ int EventMgr::DelEvt(void* evt_, int flag)
     {
         char* p = nm;
         strcpy(p, evt->Name);
+#if RE4DC_CABIN_SOURCE
+        re4dc_cabin_event_deleted(evt);
+#endif
         destroyNow(evt);
         DelEvd(p);
     }
@@ -3089,7 +3105,13 @@ void EventMgr::EvtSndStrPlay(u32* key, int blk, int no, int mode, f32 vol)
         } else if (mode == 0) {
             SndStrReq(blk, no, 0x80000003, 0, 0, 0.0f);
         } else {
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+            const unsigned cabin_request = re4dc_cabin_audio_request_begin(evt, (const char*)key, blk, no);
+#endif
             id = SndStrReq(blk, no, 1, 0, 0, vol);
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+            re4dc_cabin_audio_request_end(cabin_request);
+#endif
             if (id != 0) {
                 cnt = 0;
                 for (;;) {

@@ -408,7 +408,11 @@ void R11cMain()
 // read at their own size instead of being sized for the evd swaps. The handlers' begin / end modes run; the rest of
 // the source (flags, waves, Ashley, ladders, windows, merchant, chapter end) is unchanged. All three movies must exist.
 #include "route_movie.h"
+#if RE4DC_CABIN_SOURCE
+#define R11C_ROUTE_MOVIES 0
+#else
 #define R11C_ROUTE_MOVIES 1
+#endif
 #define R11C_MOVIES_OWN() (re4dc_movie_available(0x11c00) && re4dc_movie_available(0x11c10) && re4dc_movie_available(0x11c20))
 #else
 #define R11C_ROUTE_MOVIES 0
@@ -418,8 +422,28 @@ void R11cMain()
 // Before the siege: pre-load evd r11cs00 to ARAM and register r11cs10, pre-read enemy modules 0x13 and 3
 // (Luis), mark Ashley as following (Status_flg[3] 0x04000000), init the partner at Leon's position in
 // chase mode, and keep module 3 for the event-data swap.
+#if RE4DC_CABIN_SOURCE
+#include "native_cabin.h"
+#include "re4dc_platform.h"
+#endif
+#if RE4DC_CABIN_SOURCE
+static void r11c_cabin_begin(unsigned id){
+    const unsigned heap=MemGetCurrentHeap();
+    if(heap>=MEM_HEAP_NUM || Heap[heap].handle<0 || Heap[4].handle<0 ||
+       !re4dc_cabin_begin(id,(void*)Heap[heap].start,Heap[heap].end-Heap[heap].start,
+                         (void*)Heap[4].start,Heap[4].end-Heap[4].start))
+        re4dc_missing("cabin source entry");
+}
+static void r11c_cabin_done(unsigned id,int keep){
+    re4dc_cabin_source_done(id,keep);
+    if(!keep)while(!re4dc_cabin_aftermath(id))SceSleep(1);
+}
+#endif
 extern "C" void r11c_eventInit()
 {
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_preflight(pG->game_costume))re4dc_missing("cabin preflight");
+#endif
 #if R11C_ROUTE_MOVIES
     if (R11C_MOVIES_OWN()) {
         EmReadSearch(0x13, 0, 0);
@@ -508,6 +532,9 @@ static void r11c_EventBesiegedStart()
         }
     } else {
         MemorySwap(mod->pArc, (u32) W->evd0->m_addr, W->evd0->m_size);
+#if RE4DC_CABIN_SOURCE
+        r11c_cabin_begin(0x11c00);
+#endif
         EvtMgr.SetEvt(mod->pArc, (u32*) 0);
         SceSleep(2);
         SceSleep(2);
@@ -579,6 +606,9 @@ static void r11c_EventBesiegedStart()
     SceSleep(2);
     pG->System_flg &= ~0x400;
     SceEventEnd(0);
+#if RE4DC_CABIN_SOURCE
+    r11c_cabin_done(0x11c00,0);
+#endif
     CamCtrl.AreaOnOff(1, 0, 1);
     SndRoomStrStart(1, 3, 1);
 #if R11C_ROUTE_MOVIES
@@ -684,8 +714,14 @@ static void r11c_EventBesiegedStart()
                 RouteMoviePlay(0x11c20, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS20_Func, 0);
             } else
 #endif
+#if RE4DC_CABIN_SOURCE
+            r11c_cabin_begin(0x11c20);
+#endif
             EvtMgr.EvtReadExec("event/evd/r11cs20.evd", 0, 2);
             SceEventEnd(0);
+#if RE4DC_CABIN_SOURCE
+            r11c_cabin_done(0x11c20,1);
+#endif
             SceExit();
         }
         if (SceCountEmAlive(0x10, 0x20) < 5) {
@@ -723,8 +759,14 @@ static void r11c_EventBesiegedStart()
                     RouteMoviePlay(0x11c20, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11CS20_Func, 0);
                 } else
 #endif
+#if RE4DC_CABIN_SOURCE
+                r11c_cabin_begin(0x11c20);
+#endif
                 EvtMgr.EvtReadExec("event/evd/r11cs20.evd", 0, 2);
                 SceEventEnd(0);
+#if RE4DC_CABIN_SOURCE
+                r11c_cabin_done(0x11c20,1);
+#endif
                 SceExit();
             }
             e = em[i];
@@ -817,6 +859,9 @@ static void r11c_EventBesiegedStart()
             pLog->err(0, 0, "r11c_Event10 exec error");
         } else {
             MemorySwap(mod2->pArc, (u32) W->evd1->m_addr, W->evd1->m_size);
+#if RE4DC_CABIN_SOURCE
+            r11c_cabin_begin(0x11c10);
+#endif
             if (EvtMgr.SetEvt(mod2->pArc, (u32*) &ev)) {
                 ev->StatusFlag |= 0x400;
             }
@@ -832,6 +877,9 @@ static void r11c_EventBesiegedStart()
     W->evd1->setCommand(CMND_DEL_DATA, 0, 0);
     pG->System_flg &= ~0x400;
     SceEventEnd(0);
+#if RE4DC_CABIN_SOURCE
+    r11c_cabin_done(0x11c10,0);
+#endif
     r11c_initGate();
     BitOn(pG->Status_flg[3], 0x04000000);
     SubCharInit(1, &pPL->pos, pPL->ang.y);

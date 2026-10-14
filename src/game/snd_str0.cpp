@@ -4,6 +4,10 @@
 // block sizes, loop points, AX voices), then driven by request bits (1 ready, 2 play, 4 fade, 8
 // stop, 0x10 volume) that the audio frame executes (snd_str1..4).
 #include "snd_drv.h"
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+#include "native_cabin.h"
+#endif
+
 
 // Prepares stream `req_no` of stream block `blk_no` from file `name` in slot `no` (-1 = the RIT's
 // default slot). Returns the sound id, 0 when the slot is busy or no voice is free.
@@ -15,7 +19,13 @@ u32 Snd_str_prepare(u16 blk_no, u16 req_no, char* name, s8 no)
 
     rit = Snd_get_rit_adrs(blk_no, req_no);
     shd = Snd_get_shd_adrs(blk_no, req_no);
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+    const unsigned cabin_prepare = re4dc_cabin_audio_prepare_begin(blk_no, req_no, shd);
+#endif
     ret = Snd_str_init(shd, rit, shd->offset, name, no);
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+    re4dc_cabin_audio_prepare_end(cabin_prepare);
+#endif
     return ret;
 }
 
@@ -123,7 +133,13 @@ u32 Snd_str_init(SND_SHD* shd, SND_RIT* rit, u32 aram, char* name, s8 no)
     }
     str->state = 0;
     str->prev_state = 0;
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+    const unsigned cabin_publish = re4dc_cabin_audio_publish_begin(str);
+#endif
     str->status = 1;
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+    re4dc_cabin_audio_publish_end(cabin_publish);
+#endif
     return str->snd_id;
 }
 

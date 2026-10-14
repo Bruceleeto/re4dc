@@ -45,6 +45,10 @@
 #if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
 extern "C" void re4dc_leon_hands_yield();  // coarse_actor_leon_hands.inc: Leon's AICA hand cache gives way to sound
 #endif
+#if defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE
+#include "native_cabin.h"
+#endif
+
 
 #ifndef RE4DC_AICA_VERIFY
 #define RE4DC_AICA_VERIFY 0   // 1: log an FNV of every block as it sits in AICA RAM (debug)
@@ -125,7 +129,13 @@ typedef void (*AXCallback)(void);
 // Snd_str_work[4], 0x14C bytes), only the fields read here, at their offsets.
 struct Re4dcStrWorkView {
     u16 status;                  // 0x00  bit 0 open
+#if RE4DC_CABIN_SOURCE
+    u16 no;                     // 0x02
+    u32 snd_id;                 // 0x04 real source request identity
+    u8 pad0[4];
+#else
     u8 pad0[0x0A];
+#endif
     const u32* shd;              // 0x0C  SND_SHD: [0] flag (1 stereo), [7] .sbb offset
     u8 pad1[0x0C];
     u32 flag;                    // 0x1C  shd->flag
@@ -135,6 +145,10 @@ struct Re4dcStrWorkView {
     u8 pad3[0x14C - 0xD0];
 };
 static_assert(sizeof(Re4dcStrWorkView) == 0x14C, "SND_STR_WORK size");
+#if RE4DC_CABIN_SOURCE
+static_assert(__builtin_offsetof(Re4dcStrWorkView, snd_id) == 0x04, "SND_STR_WORK snd_id");
+static_assert(__builtin_offsetof(Re4dcStrWorkView, shd) == 0x0C, "SND_STR_WORK shd");
+#endif
 static_assert(__builtin_offsetof(Re4dcStrWorkView, flag) == 0x1C, "SND_STR_WORK flag");
 static_assert(__builtin_offsetof(Re4dcStrWorkView, voiceL) == 0xC8, "SND_STR_WORK voiceL");
 extern "C" {
@@ -1207,6 +1221,108 @@ void flush()
 namespace {
 
 mutex_t g_lock = MUTEX_INITIALIZER;   // blocks (map) vs the audio step
+#if RE4DC_CABIN_SOURCE
+// CABIN_AUDIO_STATE_BEGIN: fixed output-only ownership; all access holds g_lock
+// (or borrows that lock from this exact audio-step thread).
+struct CabinAudioOwner {
+    const void* event;
+    const char* key;
+    unsigned generation, number, errors;
+    bool active;
+};
+struct CabinAudioScope {
+    const void* thread;
+    const u32* shd;
+    unsigned token, generation;
+    bool consumed;
+};
+struct CabinAudioPrepare {
+    const void* thread;
+    const u32* shd;
+    unsigned token, generation;
+};
+struct CabinAudioTag {
+    const u32* shd;
+    void* left;
+    void* right;
+    u32 sound_id, flag;
+    unsigned generation;
+    u8 state;                  // 0 free, 1 unpublished under lock, 2 committed
+};
+CabinAudioOwner g_cabin_audio_owner{};
+CabinAudioScope g_cabin_audio_scope[8]{};
+CabinAudioPrepare g_cabin_audio_prepare[8]{};
+CabinAudioTag g_cabin_audio_tag[4]{};
+unsigned g_cabin_audio_generation, g_cabin_audio_token;
+const void* g_cabin_audio_step_thread;
+const void* g_cabin_audio_publish_thread;
+unsigned g_cabin_audio_publish_slot;
+
+bool cabin_audio_borrowed_lock()
+{
+    return thd_current && g_cabin_audio_step_thread == thd_current;
+}
+
+void cabin_audio_fault(unsigned bit)
+{
+    g_cabin_audio_owner.errors |= bit;
+}
+
+int cabin_audio_slot(const void* work)
+{
+    for (int i = 0; i < 4; ++i) if (work == &Snd_str_work[i]) return i;
+    return -1;
+}
+
+int cabin_audio_scope_top(const void* thread)
+{
+    int top = -1;
+    for (int i = 0; i < 8; ++i)
+        if (g_cabin_audio_scope[i].thread == thread && g_cabin_audio_scope[i].token &&
+            (top < 0 || g_cabin_audio_scope[i].token > g_cabin_audio_scope[top].token)) top = i;
+    return top;
+}
+
+int cabin_audio_prepare_top(const void* thread)
+{
+    int top = -1;
+    for (int i = 0; i < 8; ++i)
+        if (g_cabin_audio_prepare[i].thread == thread && g_cabin_audio_prepare[i].token &&
+            (top < 0 || g_cabin_audio_prepare[i].token > g_cabin_audio_prepare[top].token)) top = i;
+    return top;
+}
+
+void cabin_audio_disarm_thread()
+{
+    for (auto& s : g_cabin_audio_scope) if (s.thread == thd_current) s.generation = 0;
+    for (auto& p : g_cabin_audio_prepare) if (p.thread == thd_current) p.generation = 0;
+}
+
+bool cabin_audio_tag_matches(int slot)
+{
+    const CabinAudioTag& t = g_cabin_audio_tag[slot];
+    const Re4dcStrWorkView& w = Snd_str_work[slot];
+    return t.state == 2 && (w.status & 1) && t.sound_id == w.snd_id &&
+        t.shd == w.shd && t.left == w.voiceL && t.right == w.voiceR && t.flag == w.flag;
+}
+
+void cabin_audio_sweep()
+{
+    for (int i = 0; i < 4; ++i)
+        if (g_cabin_audio_tag[i].state == 2 && !cabin_audio_tag_matches(i))
+            g_cabin_audio_tag[i] = CabinAudioTag{};
+}
+
+bool cabin_audio_suppress_claim(int slot)
+{
+    cabin_audio_sweep();
+    // An ended movie/event does not release this tag: the live source work
+    // must never become newly audible from the beginning after movie EOF.
+    return cabin_audio_tag_matches(slot);
+}
+// CABIN_AUDIO_STATE_END
+#endif
+
 u8 g_thread_stack[12 * 1024] __attribute__((aligned(8)));
 kthread_t* g_thread;
 
@@ -1228,6 +1344,9 @@ void audio_step()
     if ((int) ticks > re4dc_audio_max_ticks) { ticks = re4dc_audio_max_ticks; g_lastTickUs = now; }
     else g_lastTickUs += ticks * 5000ull;
     mutex_lock(&g_lock);
+#if RE4DC_CABIN_SOURCE
+    g_cabin_audio_step_thread = thd_current;
+#endif
     re4dc_audio_pend_run();
     for (u32 i = 0; i < ticks; i++) g_axCallback();
     u64 t1 = timer_us_gettime64();
@@ -1261,6 +1380,9 @@ void audio_step()
     u32 notes = 0;
     for (int i = 0; i < kNotes; i++) notes += g_notes[i].used;
     flush();
+#if RE4DC_CABIN_SOURCE
+    g_cabin_audio_step_thread = nullptr;
+#endif
     mutex_unlock(&g_lock);
     u64 t2 = timer_us_gettime64();
 
@@ -1362,6 +1484,12 @@ void str_scan()
         const Re4dcStrWorkView& w = Snd_str_work[i];
         if (!(w.status & 1) || !w.shd) continue;
         u32 nch = (w.flag & 1) ? 2 : 1;
+#if RE4DC_CABIN_SOURCE
+        const u32 scanned_id = w.snd_id, scanned_flag = w.flag;
+        const u32* scanned_shd = w.shd;
+        void* const scanned_left = w.voiceL;
+        void* const scanned_right = w.voiceR;
+#endif
         AXVPBView* vl = vpb_of(w.voiceL);
         AXVPBView* vr = nch == 2 ? vpb_of(w.voiceR) : vl;
         if (!vl || !vr || vl->vs.strm != 1 || vr->vs.strm != 1) continue;
@@ -1379,6 +1507,20 @@ void str_scan()
             continue;
         }
         mutex_lock(&g_lock);   // the driver frees voices inside the audio step
+#if RE4DC_CABIN_SOURCE
+        const Re4dcStrWorkView& live = Snd_str_work[i];
+        if (g_str.state != kStrIdle || !(live.status & 1) || live.snd_id != scanned_id ||
+            live.shd != scanned_shd || live.flag != scanned_flag || live.voiceL != scanned_left ||
+            live.voiceR != scanned_right || live.voiceL != (void*)vl ||
+            ((nch == 2) && live.voiceR != (void*)vr) || vl->vs.strm != 1 || vr->vs.strm != 1) {
+            mutex_unlock(&g_lock);
+            continue;
+        }
+        if (cabin_audio_suppress_claim(i)) {
+            mutex_unlock(&g_lock);
+            continue;           // unrelated later slots remain claimable
+        }
+#endif
         if (Snd_str_work[i].voiceL == (void*) vl && vl->vs.strm == 1 && vr->vs.strm == 1) {
             Stream& s = g_str;
             s.slot = i;
@@ -1552,6 +1694,204 @@ void start_thread()
 }  // namespace
 
 extern "C" {
+
+#if RE4DC_CABIN_SOURCE
+// CABIN_AUDIO_API_BEGIN: private synchronous request/publication adapters.
+unsigned re4dc_cabin_audio_owner_open(const void* event, unsigned movie_id)
+{
+    const char* key = nullptr;
+    unsigned number = 0;
+    switch (movie_id) {
+    case 0x11c00: key = "event/evd/r11cs00.evd"; number = 0x21; break;
+    case 0x11c10: key = "event/evd/r11cs10.evd"; number = 0x44; break;
+    case 0x11c20: key = "event/evd/r11cs20.evd"; number = 0x28; break;
+    default: return 0;
+    }
+    if (!event || !thd_current || cabin_audio_borrowed_lock()) return 0;
+    mutex_lock(&g_lock);
+    cabin_audio_sweep();
+    bool busy = g_cabin_audio_owner.active || g_cabin_audio_generation == ~0u;
+    for (const auto& s : g_cabin_audio_scope) if (s.token) busy = true;
+    for (const auto& p : g_cabin_audio_prepare) if (p.token) busy = true;
+    if (busy) { mutex_unlock(&g_lock); return 0; }
+    unsigned generation = ++g_cabin_audio_generation;
+    g_cabin_audio_owner = CabinAudioOwner{event, key, generation, number, 0, true};
+    mutex_unlock(&g_lock);
+    return generation;
+}
+
+int re4dc_cabin_audio_owner_close(unsigned generation)
+{
+    if (!generation || cabin_audio_borrowed_lock()) return 0;
+    mutex_lock(&g_lock);
+    bool ok = g_cabin_audio_owner.generation == generation;
+    for (const auto& s : g_cabin_audio_scope) if (s.token && s.generation == generation) ok = false;
+    for (const auto& p : g_cabin_audio_prepare) if (p.token && p.generation == generation) ok = false;
+    if (ok) g_cabin_audio_owner.active = false;
+    else cabin_audio_fault(1);
+    cabin_audio_sweep();
+    mutex_unlock(&g_lock);
+    return ok ? 1 : 0;
+}
+
+unsigned re4dc_cabin_audio_error(unsigned generation)
+{
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    unsigned result = generation && g_cabin_audio_owner.generation == generation ?
+        g_cabin_audio_owner.errors : ~0u;
+    if (!borrowed) mutex_unlock(&g_lock);
+    return result;
+}
+
+unsigned re4dc_cabin_audio_request_begin(const void* event, const char* event_key,
+                                        int block, int number)
+{
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    const CabinAudioOwner& o = g_cabin_audio_owner;
+    const bool matching = o.active && event == o.event && event_key && !strcmp(event_key, o.key) &&
+        block == 1 && number == (int)o.number;
+    unsigned token = 0;
+    // An unrelated nested source event pushes an inert scope. Returning zero
+    // here would let its synchronous prepare inherit the outer event's tag.
+    if (matching || cabin_audio_scope_top(thd_current) >= 0) {
+        int free = -1;
+        for (int i = 0; i < 8; ++i) if (!g_cabin_audio_scope[i].token) { free = i; break; }
+        if (borrowed || !thd_current || free < 0 || g_cabin_audio_token == ~0u) {
+            cabin_audio_fault(2); cabin_audio_disarm_thread();
+        }
+        else {
+            const u32* shd = matching ? Snd_get_shd_adrs((u16)block, (u16)number) : nullptr;
+            if (matching && !shd) { cabin_audio_fault(2); cabin_audio_disarm_thread(); }
+            else {
+                token = ++g_cabin_audio_token;
+                g_cabin_audio_scope[free] = CabinAudioScope{thd_current, shd, token, matching ? o.generation : 0, false};
+            }
+        }
+    }
+    if (!borrowed) mutex_unlock(&g_lock);
+    return token;
+}
+
+void re4dc_cabin_audio_request_end(unsigned token)
+{
+    if (!token) return;
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    int top = cabin_audio_scope_top(thd_current);
+    if (borrowed || top < 0 || g_cabin_audio_scope[top].token != token) {
+        cabin_audio_fault(4);
+        cabin_audio_disarm_thread();
+        for (auto& s : g_cabin_audio_scope) if (s.thread == thd_current) s = CabinAudioScope{};
+    } else g_cabin_audio_scope[top] = CabinAudioScope{};
+    if (!borrowed) mutex_unlock(&g_lock);
+}
+
+unsigned re4dc_cabin_audio_prepare_begin(unsigned block, unsigned number, const void* header)
+{
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    int top = cabin_audio_scope_top(thd_current);
+    unsigned token = 0;
+    if (top >= 0 || cabin_audio_prepare_top(thd_current) >= 0) {
+        int free = -1;
+        for (int i = 0; i < 8; ++i) if (!g_cabin_audio_prepare[i].token) { free = i; break; }
+        if (borrowed || !thd_current || free < 0 || g_cabin_audio_token == ~0u) {
+            cabin_audio_fault(32); cabin_audio_disarm_thread();
+        } else {
+            unsigned generation = 0;
+            if (top >= 0) {
+                CabinAudioScope& s = g_cabin_audio_scope[top];
+                if (!s.consumed && s.generation && g_cabin_audio_owner.active &&
+                    s.generation == g_cabin_audio_owner.generation && block == 1 &&
+                    number == g_cabin_audio_owner.number && header == s.shd) generation = s.generation;
+                // One synchronous source request authorizes at most its own
+                // first prepare. Recursive/competing prepares get inert scopes.
+                s.consumed = true;
+            }
+            token = ++g_cabin_audio_token;
+            g_cabin_audio_prepare[free] = CabinAudioPrepare{thd_current, (const u32*)header, token, generation};
+        }
+    }
+    if (!borrowed) mutex_unlock(&g_lock);
+    return token;
+}
+
+void re4dc_cabin_audio_prepare_end(unsigned token)
+{
+    if (!token) return;
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    int top = cabin_audio_prepare_top(thd_current);
+    if (borrowed || top < 0 || g_cabin_audio_prepare[top].token != token) {
+        cabin_audio_fault(64); cabin_audio_disarm_thread();
+        for (auto& p : g_cabin_audio_prepare) if (p.thread == thd_current) p = CabinAudioPrepare{};
+    } else g_cabin_audio_prepare[top] = CabinAudioPrepare{};
+    if (!borrowed) mutex_unlock(&g_lock);
+}
+
+unsigned re4dc_cabin_audio_publish_begin(void* stream_work)
+{
+    const bool borrowed = cabin_audio_borrowed_lock();
+    if (!borrowed) mutex_lock(&g_lock);
+    int slot = cabin_audio_slot(stream_work);
+    int top = cabin_audio_prepare_top(thd_current);
+    unsigned token = 0;
+    if (slot < 0 || g_cabin_audio_publish_slot) cabin_audio_fault(8);
+    else {
+        // Every successful source initialization invalidates the preceding
+        // identity, even after snd_id wrap or an unobserved status0 interval.
+        g_cabin_audio_tag[slot] = CabinAudioTag{};
+        const Re4dcStrWorkView& w = Snd_str_work[slot];
+        if (top >= 0 && g_cabin_audio_prepare[top].generation) {
+            const CabinAudioPrepare& s = g_cabin_audio_prepare[top];
+            const CabinAudioOwner& o = g_cabin_audio_owner;
+            if (borrowed || !o.active || s.generation != o.generation || s.shd != w.shd ||
+                !w.snd_id || !w.voiceL || ((w.flag & 1) && !w.voiceR) || w.status) cabin_audio_fault(8);
+            else {
+                g_cabin_audio_tag[slot] = CabinAudioTag{w.shd, w.voiceL, w.voiceR, w.snd_id,
+                    w.flag, s.generation, 1};
+                g_cabin_audio_publish_thread = thd_current;
+                token = g_cabin_audio_publish_slot = (unsigned)slot + 1;
+            }
+        }
+    }
+    // A valid tag keeps g_lock held across the ORIGINAL source status=1 store.
+    // No allocation/I/O/callback/yield lies between this return and publish_end.
+    if (!token && !borrowed) mutex_unlock(&g_lock);
+    return token;
+}
+
+void re4dc_cabin_audio_publish_end(unsigned token)
+{
+    if (!token) return;
+    // Only the synchronous original source store calls this, on the lock owner.
+    if (g_cabin_audio_publish_thread != thd_current) {
+        // An invalid cross-thread call must not mutate the private error state
+        // without its lock. The valid synchronous source path never enters.
+        const bool borrowed = cabin_audio_borrowed_lock();
+        if (!borrowed) mutex_lock(&g_lock);
+        cabin_audio_fault(16);
+        if (!borrowed) mutex_unlock(&g_lock);
+        return;
+    }
+    unsigned slot = g_cabin_audio_publish_slot;
+    if (slot != token || !slot || slot > 4) cabin_audio_fault(16);
+    else {
+        CabinAudioTag& t = g_cabin_audio_tag[slot - 1];
+        const Re4dcStrWorkView& w = Snd_str_work[slot - 1];
+        if (t.state != 1 || w.status != 1 || w.snd_id != t.sound_id || w.shd != t.shd ||
+            w.voiceL != t.left || w.voiceR != t.right || w.flag != t.flag) {
+            cabin_audio_fault(16); t = CabinAudioTag{};
+        } else t.state = 2;
+    }
+    g_cabin_audio_publish_slot = 0;
+    g_cabin_audio_publish_thread = nullptr;
+    mutex_unlock(&g_lock);
+}
+// CABIN_AUDIO_API_END
+#endif
 
 // AICA RAM held by the backend (layout + runtime-converted blocks). Movie audio
 // computes free AICA RAM as 1900544 - this - its own stream buffers (KOS

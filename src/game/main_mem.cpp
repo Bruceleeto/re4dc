@@ -18,7 +18,7 @@
 #include "libgpu.h"
 #if !defined(__PPC__)
 #include "re4dc_platform.h"
-#if defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA
+#if (defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA) || (defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE)
 #include "movie_world_arena.h"
 #endif
 #endif
@@ -379,7 +379,7 @@ int MemDestroyHeap(int no)
     }
     OSReport("-- MemDestroyHeap %d  ", no);
     if (Heap[no].handle >= 0) {
-#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA
+#if defined(RE4DC_GAME) && !defined(__PPC__) && ((defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA) || (defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE))
         if (!re4dc_movie_world_before_heap_change((void*)Heap[no].start, Heap[no].end-Heap[no].start)) {
             re4dc_missing("movie arena reader before heap destruction");
             return 0;
@@ -464,7 +464,7 @@ int MemReplaceHeap(int from, int to)
     if (start == 0) {
         return 0;
     }
-#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA
+#if defined(RE4DC_GAME) && !defined(__PPC__) && ((defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA) || (defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE))
     if (!re4dc_movie_world_before_heap_change((void*)start, end-start)) {
         re4dc_missing("movie arena reader before heap replacement");
         return 0;
@@ -487,7 +487,7 @@ void MemClearAllHeap()
 #endif
     u32 i;
 
-#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA
+#if defined(RE4DC_GAME) && !defined(__PPC__) && ((defined(RE4DC_MOVIE_WORLD_ARENA) && RE4DC_MOVIE_WORLD_ARENA) || (defined(RE4DC_CABIN_SOURCE) && RE4DC_CABIN_SOURCE))
     // Ancestor heaps are destroyed first. Retire the overlapping native owner
     // while all descriptors are intact, before any iteration changes a heap.
     for (i = 0; i < MEM_HEAP_NUM; i++) {

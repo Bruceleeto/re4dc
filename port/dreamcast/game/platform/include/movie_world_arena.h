@@ -3,6 +3,16 @@
 #ifndef RE4DC_MOVIE_WORLD_ARENA
 #define RE4DC_MOVIE_WORLD_ARENA 0
 #endif
+#if RE4DC_MOVIE_WORLD_ARENA || RE4DC_CABIN_SOURCE
+#ifdef __cplusplus
+extern "C" {
+#endif
+int re4dc_movie_world_before_heap_change(const void* start, unsigned bytes);
+int re4dc_ui_movie_try_close(void);
+#ifdef __cplusplus
+}
+#endif
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
 #ifdef __cplusplus
 extern "C" {
@@ -10,8 +20,6 @@ extern "C" {
 int re4dc_room4_cell_valid(const void*, unsigned bytes, unsigned generation);
 int re4dc_room4_live_generation(unsigned* generation);
 int re4dc_ui_movie_handoff_ready(void);
-int re4dc_ui_movie_try_close(void);
-int re4dc_movie_world_before_heap_change(const void* start, unsigned bytes);
 void re4dc_ps2_world_movie_discard(void);
 int re4dc_ps2_mesh_movie_blocked(void);
 unsigned re4dc_ps2_mesh_movie_borrow(unsigned id);

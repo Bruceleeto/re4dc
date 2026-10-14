@@ -9,6 +9,7 @@
 #if RE4DC_UI_POLY_ORDER && (!RE4DC_SS_UI_ORDER || !RE4DC_D349_RENDERER_STACK || !RE4DC_PVR_STREAM)
 #error UI_POLY_ORDER requires SS_UI_ORDER, D349_RENDERER_STACK and PVR_STREAM
 #endif
+#include "include/native_cabin.h"
 #ifndef RE4DC_PT_BLEND_FIX
 #define RE4DC_PT_BLEND_FIX 0
 #endif
@@ -565,6 +566,20 @@ extern "C" int re4dc_vi_black();
 pvr_ptr_t movie_texture; bool movie_picture; unsigned movie_width,movie_height;
 bool movie_background;  // re4dc_ui_movie_background: the frame draws the picture behind its UI
 unsigned movie_upload_serial,movie_shown_serial,movie_presentations;
+#if RE4DC_CABIN_SOURCE
+// CABIN_UI_STATE_BEGIN
+unsigned movie_cabin_ui_epoch;
+bool movie_cabin_ui_busy;
+// Reserve the owner across the existing allocation/free/claim paths, which can
+// yield. Interrupts are masked only for this flag, never for a fence or free.
+struct MovieCabinUiScope {
+    bool held;
+    MovieCabinUiScope(){unsigned old=irq_disable();held=!movie_cabin_ui_busy;
+        if(held)movie_cabin_ui_busy=true;irq_restore(old);}
+    ~MovieCabinUiScope(){if(held){unsigned old=irq_disable();movie_cabin_ui_busy=false;irq_restore(old);}}
+};
+// CABIN_UI_STATE_END
+#endif
 uint64_t movie_first_picture_us;
 void movie_draw();
 #endif
@@ -6699,8 +6714,12 @@ extern "C" void* re4dc_model_deferred_storage(unsigned* bytes){
     return *bytes?reinterpret_cast<unsigned char*>(model_packets)+kModelPacketBytes+kModelPreparationBytes+kModelStaticLightBytes:nullptr;
 }
 
-#if RE4DC_MOVIE_WORLD_ARENA
+#if RE4DC_MOVIE_WORLD_ARENA || RE4DC_CABIN_SOURCE
+#if RE4DC_CABIN_SOURCE
+static int movie_cabin_ui_try_close_body(){
+#else
 extern "C" int re4dc_ui_movie_try_close(){
+#endif
     // This path runs before source heap destruction: all checks are nonblocking.
     if(direct_open || stream_scene || pvr_state.ta_busy || pvr_state.render_busy)return 0;
 #if RE4DC_D349_RENDERER_STACK
@@ -6722,6 +6741,22 @@ extern "C" int re4dc_ui_movie_try_close(){
     }
     return 1;
 }
+#if RE4DC_CABIN_SOURCE
+// CABIN_UI_API_BEGIN
+extern "C" int re4dc_ui_movie_try_close(){
+    MovieCabinUiScope owner;if(!owner.held)return 0;
+    return movie_cabin_ui_try_close_body();
+}
+extern "C" int re4dc_ui_movie_cabin_try_close(unsigned generation){
+    MovieCabinUiScope owner;
+    if(!owner.held || !movie_texture || !generation || generation!=movie_cabin_ui_epoch)return 0;
+    return movie_cabin_ui_try_close_body();
+}
+extern "C" unsigned re4dc_ui_movie_cabin_generation(){return movie_texture?movie_cabin_ui_epoch:0;}
+extern "C" unsigned re4dc_ui_movie_cabin_upload(){return movie_upload_serial;}
+extern "C" unsigned re4dc_ui_movie_cabin_shown(){return movie_shown_serial;}
+// CABIN_UI_API_END
+#endif
 extern "C" int re4dc_ui_movie_handoff_ready(){
     if(!ready || movie_texture || direct_open)return 0;
 #if RE4DC_D349_RENDERER_STACK
@@ -6752,8 +6787,14 @@ extern "C" int re4dc_ui_movie_handoff_ready(){
 #endif
 #if RE4DC_ROUTE_MOVIES
 extern "C" int re4dc_ui_movie_open(unsigned width,unsigned height){
+#if RE4DC_CABIN_SOURCE
+    MovieCabinUiScope owner;if(!owner.held || movie_cabin_ui_epoch==~0u)return 0;
+#endif
     // Macroblock sizes inside the 512x256 texture; rows load as 32-byte blocks.
     if(movie_texture || !ready || !width || !height || width>512 || height>256 || (width&15))return 0;
+#if RE4DC_CABIN_SOURCE
+    ++movie_cabin_ui_epoch; // Failed attempts consume a generation too; never reuse one.
+#endif
 #if RE4DC_MOVIE_WINDOW
     // Only the picture's rows are allocated (1024-byte rows; v is clamped inside them, rows below are
     // never sampled): 288x192 needs 192 KiB of the 512x256 texture's 256 KiB.
@@ -6856,6 +6897,9 @@ extern "C" int re4dc_ui_movie_present_now(){
 // own frames, under their UI quads (the action prompt), until switched off.
 extern "C" void re4dc_ui_movie_background(int on){movie_background=on!=0;}
 extern "C" int re4dc_ui_movie_close(){
+#if RE4DC_CABIN_SOURCE
+    MovieCabinUiScope owner;if(!owner.held)return 0;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(re4dc_movie_world_active()){
         if(direct_open)return 0;

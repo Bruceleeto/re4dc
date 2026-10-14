@@ -1,3 +1,6 @@
+#if RE4DC_CABIN_SOURCE
+#include "native_cabin.h"
+#endif
 #include "types.h"
 #include "event.h"
 #include "atari.h"
@@ -154,7 +157,13 @@ void ScenarioMove()
             RoomData.execMainFunc(pG->room_id);
         }
         if (!(pG->Stop_flg & 0x400) || (pG->Debug_flg[3] & 0x80)) {
+#if RE4DC_CABIN_SOURCE
+            re4dc_cabin_before_events();
+#endif
             EvtMgr.Run();
+#if RE4DC_CABIN_SOURCE
+            re4dc_cabin_after_events();
+#endif
         }
     }
     SceSys.scheduler();

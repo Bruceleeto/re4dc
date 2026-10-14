@@ -1,4 +1,5 @@
 #include "include/movie_world_arena.h"
+#include "include/native_cabin.h"
 #if RE4DC_MOVIE_WORLD_ARENA
 #include "native_io.h"
 #endif
@@ -3818,8 +3819,12 @@ int ps2_pass(unsigned pass,float zfar){
     return c.fallback?0:1;
 }
 }
-#if RE4DC_MOVIE_WORLD_ARENA
+#if RE4DC_MOVIE_WORLD_ARENA || RE4DC_CABIN_SOURCE
 extern "C" int re4dc_movie_world_before_heap_change(const void* start,unsigned bytes){
+#if RE4DC_CABIN_SOURCE
+    if(!re4dc_cabin_before_heap_change(start,bytes))return 0;
+#endif
+#if RE4DC_MOVIE_WORLD_ARENA
     if(!ps2_movie.base || !bytes)return 1;
     const auto lo=reinterpret_cast<std::uintptr_t>(start),hi=lo+bytes;
     const auto base=reinterpret_cast<std::uintptr_t>(ps2_movie.base);
@@ -3836,7 +3841,12 @@ extern "C" int re4dc_movie_world_before_heap_change(const void* start,unsigned b
     // cancelled borrow both reach this same existing owner boundary exactly once.
     re4dc_ps2_mesh_retire();
     return !ps2w.storage;
+#else
+    return 1;
+#endif
 }
+#endif
+#if RE4DC_MOVIE_WORLD_ARENA
 extern "C" int re4dc_ps2_mesh_movie_blocked(){return ps2_movie_blocked();}
 extern "C" unsigned re4dc_ps2_mesh_movie_borrow(unsigned id){
     if((id!=0x11f10 && id!=0x11f11) || ps2w.room!=0x11f || ps2w.want!=0x11f ||
