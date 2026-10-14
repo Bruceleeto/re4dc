@@ -1644,6 +1644,9 @@ inline float leon_gain(const SourceLighting& S) {
 #ifndef RE4DC_GIGANTE_LIGHTS
 #define RE4DC_GIGANTE_LIGHTS 0
 #endif
+#ifndef RE4DC_LEON_LIGHT_FILL
+#define RE4DC_LEON_LIGHT_FILL 0
+#endif
 #ifndef RE4DC_ACTOR_PROBE_LIGHT
 #define RE4DC_ACTOR_PROBE_LIGHT 0
 #endif
@@ -1945,6 +1948,26 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
         L.color[c] = 0.5f * e.dcol[c] * scale[c];
         L.color[12 + c] = e.amb[c] * scale[c];
     }
+#if RE4DC_LEON_LIGHT_FILL
+    // LEON_LIGHT_FILL=F (crowd.mk; Leon only; render only; default 0): the fast kernel's spare second direction becomes a
+    // camera-side fill, from the part's origin toward the camera (view space -t / |t|), coloured F% of the probe's
+    // total (directional + ambient), at the probe's scale (headroom x0.5 included). The probe record, its direction and
+    // the shared actor_light_probe.h record are unchanged (the shadows lane reads those).
+    if (leon) {
+        const float tx = p.modelview[3], ty = p.modelview[7], tz = p.modelview[11];
+        const float t2 = tx * tx + ty * ty + tz * tz;
+        if (t2 > 0.0f && re4dc::render::is_finite(t2)) {
+            const float r = -1.0f / std::sqrt(t2), cx = tx * r, cy = ty * r, cz = tz * r;
+            L.dir[1][0] = (N[0] * cx + N[4] * cy + N[8] * cz) * f.nq;
+            L.dir[1][1] = (N[1] * cx + N[5] * cy + N[9] * cz) * f.nq;
+            L.dir[1][2] = (N[2] * cx + N[6] * cy + N[10] * cz) * f.nq;
+            L.view_dot[1] = 1.0f;
+            L.count = 2;
+            constexpr float kFill = 0.5f * float(RE4DC_LEON_LIGHT_FILL) / 100.0f;
+            for (unsigned c = 0; c < 3; ++c) L.color[4 + c] = kFill * (e.dcol[c] + e.amb[c]) * scale[c];
+        }
+    }
+#endif
     L.fast = true;
     ++stats.light_sets;
     ++probe_stats.parts;
@@ -2051,6 +2074,20 @@ void probe_dirs_all(Frame& f, const Lights& L) {
     const float l0 = L.dir[0][0], l1 = L.dir[0][1], l2 = L.dir[0][2];
     const float* P = f.palette;
     float* out = f.skin_dirs;
+#if RE4DC_LEON_LIGHT_FILL
+    if (L.count == 2) {  // LEON_LIGHT_FILL: direction 1 is the camera fill
+        const float m0 = L.dir[1][0], m1 = L.dir[1][1], m2 = L.dir[1][2];
+        for (unsigned i = 0; i < f.palette_entries; ++i, P += 12, out += 12) {
+            for (unsigned c = 0; c < 3; ++c) out[c] = P[c * 3] * l0 + P[c * 3 + 1] * l1 + P[c * 3 + 2] * l2;
+            out[3] = 0.0f;
+            for (unsigned c = 0; c < 3; ++c) out[4 + c] = P[c * 3] * m0 + P[c * 3 + 1] * m1 + P[c * 3 + 2] * m2;
+            out[7] = 0.0f;
+            for (unsigned k = 8; k < 12; ++k) out[k] = 0.0f;
+        }
+        std::memset(f.dirs_ready, 1, f.palette_entries);
+        return;
+    }
+#endif
     for (unsigned i = 0; i < f.palette_entries; ++i, P += 12, out += 12) {
         for (unsigned c = 0; c < 3; ++c) out[c] = P[c * 3] * l0 + P[c * 3 + 1] * l1 + P[c * 3 + 2] * l2;
         out[3] = 0.0f;

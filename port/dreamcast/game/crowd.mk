@@ -479,6 +479,20 @@ endif
 GAME_CPPFLAGS += -DRE4DC_LEON_LIGHT_TOGGLE=1
 PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_TOGGLE=1
 endif
+# LEON_LIGHT_FILL=F (lane lp2; Leon only; render only; default 0: nothing changes): a camera-side fill light on Leon,
+#              F% (0..100) of his probe's total colour (directional + ambient), in the fast kernel's spare second
+#              direction (native_actor_fast.cpp probe_lights): lifts the side of Leon facing the camera that the one-
+#              direction probe leaves at ambient. No new pass, no shared-record change. Needs ACTOR_PROBE_LIGHT=1/2.
+LEON_LIGHT_FILL ?= 0
+ifneq ($(shell [ "$(LEON_LIGHT_FILL)" -ge 0 ] 2>/dev/null && [ "$(LEON_LIGHT_FILL)" -le 100 ] 2>/dev/null && echo ok),ok)
+$(error LEON_LIGHT_FILL must be an integer 0..100)
+endif
+ifneq ($(LEON_LIGHT_FILL),0)
+ifeq ($(ACTOR_PROBE_LIGHT),0)
+$(error LEON_LIGHT_FILL needs ACTOR_PROBE_LIGHT=1 or 2)
+endif
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_FILL=$(LEON_LIGHT_FILL)
+endif
 
 # Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.
 # Default off keeps the original registry and adds no compiler flags. The pool

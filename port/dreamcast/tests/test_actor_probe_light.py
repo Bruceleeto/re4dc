@@ -4,7 +4,8 @@ Checks, for ACTOR_PROBE_LIGHT=1 and =2: one light reproduces build_lights' fold 
 lights on one side fold into one direction with the residual in the ambient; opposite equal lights give ambient only;
 the probe is built once per (model, record, frame) and reused by the actor's other parts; Leon's per-part normal basis
 is applied; Ganado ids are taken only at =2; unsupported records (tinted material, disabled lighting, per-vertex colour)
-decline to build_lights; the source record is never written. A Make parse test checks the knob's requirements.
+decline to build_lights; the source record is never written. LEON_LIGHT_FILL: Leon's camera fill in the second direction.
+A Make parse test checks the knobs' requirements.
 """
 from pathlib import Path
 import shutil, subprocess, tempfile, unittest
@@ -59,7 +60,12 @@ int main() {
         assert(took == leon);  // =1: Leon only
 #endif
         if (!took) continue;
-        assert(build_lights(p, f, centre, b) && b.count == 1 && a.count == 1 && a.fast && a.probe && !a.constant);
+#if RE4DC_LEON_LIGHT_FILL
+        const unsigned probe_count = leon ? 2U : 1U;  // LEON_LIGHT_FILL: Leon's second direction is the camera fill
+#else
+        const unsigned probe_count = 1U;
+#endif
+        assert(build_lights(p, f, centre, b) && b.count == 1 && a.count == probe_count && a.fast && a.probe && !a.constant);
         for (unsigned c = 0; c < 3; ++c) {
             assert(near(a.dir[0][c], b.dir[0][c], 1e-6f));
             assert(near(a.color[c], b.color[c], 1e-3f));
@@ -166,6 +172,47 @@ int main() {
         std::printf("PASS LEON_LIGHT_HEADROOM: source-path x0.5 record keeps the fast fold (half_post), constant 127\n");
     }
 #endif
+#if RE4DC_LEON_LIGHT_FILL
+    {   // LEON_LIGHT_FILL=F: Leon's second direction points from the part origin to the camera, coloured F% of the
+        // probe total (directional + ambient) at the probe's scale; Ganados (=2) and the probe direction are unchanged.
+        constexpr float kF = RE4DC_LEON_LIGHT_FILL / 100.0f;
+        SourceLighting s = base(1); s.normal_matrix[3] = 1.0e30f;
+        s.lights[0].position[0] = 5100; s.lights[0].position[1] = -50; s.lights[0].position[2] = -900;  // +x, unit colour
+        s.lights[0].color[0] = s.lights[0].color[1] = s.lights[0].color[2] = 220;
+        ++frame_serial;
+        Re4dcModelPart p = part(s, &model_a, I);
+        Lights L{}; assert(probe_lights(p, f, L) && L.count == 2 && L.fast && L.probe);
+        const float t = std::sqrt(100.0f * 100 + 50.0f * 50 + 900.0f * 900);
+        const float cam[3] = {-100 / t, 50 / t, 900 / t};
+        for (unsigned c = 0; c < 3; ++c) assert(near(L.dir[1][c], cam[c] * f.nq, 1e-6f));
+        assert(near(L.dir[0][0], f.nq, 1e-6f) && near(L.dir[2][0], 0, 0) && near(L.view_dot[1], 1, 0));
+        for (unsigned c = 0; c < 3; ++c) {
+            const float expect = 0.5f * kF * (220.0f + s.ambient[c]) * kLeonGain;
+            assert(near(L.color[4 + c], expect, 1e-3f) && near(L.color[8 + c], 0, 0));
+            assert(near(L.color[c], 0.5f * 220.0f * kLeonGain, 1e-3f));             // the probe colour is unchanged
+            assert(near(L.color[12 + c], s.ambient[c] * kLeonGain, 1e-3f));         // and its ambient
+        }
+        // the shared record keeps the probe's direction (the shadows lane), not the fill
+        Re4dcLightProbe rec{};
+        assert(re4dc_actor_light_probe(&model_a, &rec) == 1 && near(rec.dir[0], 1, 1e-6f) && near(rec.dir[2], 0, 1e-6f));
+        // skinned parts: probe_dirs_all builds direction 1 per palette entry exactly as skin_light_dirs
+        float palette[2 * 12] = {0,0,1, 0,1,0, -1,0,0, 5,6,7,  .5f,.5f,0, -.5f,.5f,0, 0,0,1, 1,1,1};
+        float all[2 * 12], each[2 * 12]; u8 ready_a[2]{}, ready_b[2]{};
+        Frame g = f; g.mode = kSkin; g.palette = palette; g.palette_entries = 2;
+        g.skin_dirs = all; g.dirs_ready = ready_a; probe_dirs_all(g, L);
+        Frame h = g; h.skin_dirs = each; h.dirs_ready = ready_b;
+        for (unsigned i = 0; i < 2; ++i) skin_light_dirs(h, L, i, nullptr);
+        for (unsigned k = 0; k < 24; ++k) assert(near(all[k], each[k], 1e-7f));
+        assert(!near(all[4], 0, 1e-6f) || !near(all[5], 0, 1e-6f) || !near(all[6], 0, 1e-6f));
+#if RE4DC_ACTOR_PROBE_LIGHT >= 2
+        SourceLighting gs = base(1);  // a Ganado (model id 0x12): one direction, no fill
+        gs.lights[0].position[0] = 5100; gs.lights[0].color[0] = 220;
+        Re4dcModelPart gp = part(gs, &model_b, I);
+        Lights G{}; assert(probe_lights(gp, f, G) && G.count == 1 && near(G.color[4], 0, 0) && near(G.dir[1][0], 0, 0));
+#endif
+        std::printf("PASS LEON_LIGHT_FILL=%d: camera fill in direction 1 (Leon only), colour F%% of probe total, probe and shared record unchanged, palette directions\n", RE4DC_LEON_LIGHT_FILL);
+    }
+#endif
 #if RE4DC_LEON_LIGHT_TOGGLE
     {   // LEON_LIGHT_TOGGLE: the four live modes on a Leon record
         SourceLighting s = base(1); s.normal_matrix[3] = 1.0e30f;
@@ -196,9 +243,11 @@ class ActorProbeLight(unittest.TestCase):
             (t / 'dc/pvr.h').write_text('#pragma once\n#include <cstddef>\n#include <cstdint>\nstruct pvr_vertex_t{std::uint32_t flags;float x,y,z,u,v;std::uint32_t argb,oargb;};\nstruct pvr_poly_hdr_t{std::uint32_t words[8];};\n#define PVR_CMD_VERTEX 0xe0000000U\n#define PVR_CMD_VERTEX_EOL 0xf0000000U\nint pvr_prim(const void*,std::size_t);\n')
             (t / 'fixture.cpp').write_text(FIXTURE.replace('ACTOR_IMPLEMENTATION', str(ROOT / 'port/dreamcast/game/platform/native_actor_fast.cpp')))
             # (level, extra defines): the probe alone, and with LEON_LIGHT_HEADROOM / LEON_LIGHT_TOGGLE
-            for level, extra in ((1, []), (2, []), (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1']),
-                                 (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_TOGGLE=1'])):
-                exe = t / f'probe-{level}-{len(extra)}'
+            for n, (level, extra) in enumerate(((1, []), (2, []), (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1']),
+                                 (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_TOGGLE=1']),
+                                 (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_FILL=45']),
+                                 (2, ['-DRE4DC_LEON_LIGHT_FILL=30']))):
+                exe = t / f'probe-{n}'
                 cmd = ['g++', '-std=c++20', '-O2', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
                        '-DRE4DC_LEON_SOURCE_LIGHT=1', f'-DRE4DC_ACTOR_PROBE_LIGHT={level}', *extra, '-I' + str(t),
                        '-I' + str(ROOT / 'port/dreamcast/game/platform/include'), str(t / 'fixture.cpp'),
@@ -229,6 +278,13 @@ class ActorProbeLightKnobs(unittest.TestCase):
                  'LEON_LIGHT_TOGGLE=1 needs ACTOR_PROBE_LIGHT=1 or 2'),
                 ({'LEON_LIGHT_TOGGLE': '1', 'LEON_LIGHT_HEADROOM': '1', 'LOOK_TOGGLE': '1', 'DBG_WARP': '1',
                   'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, None),
+                ({'LEON_LIGHT_FILL': '0'}, None),
+                ({'LEON_LIGHT_FILL': '45'}, 'LEON_LIGHT_FILL needs ACTOR_PROBE_LIGHT=1 or 2'),
+                ({'LEON_LIGHT_FILL': '101', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'},
+                 'LEON_LIGHT_FILL must be an integer 0..100'),
+                ({'LEON_LIGHT_FILL': 'x', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'},
+                 'LEON_LIGHT_FILL must be an integer 0..100'),
+                ({'LEON_LIGHT_FILL': '45', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, None),
             ]
             for knobs, err in cases:
                 args = ['make', '-f', str(mk), '--dry-run', '--no-print-directory', 'all', 'ACTOR_TRANSACTION=1', 'LEON_NATIVE_PIPE=0']
