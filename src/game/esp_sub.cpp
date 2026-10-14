@@ -643,6 +643,52 @@ static const Ps2fxSheetCut kPs2SheetCut[] = {
     {0x11c, 0xf6, 1}, // 19 room EST 0a records
 };
 #endif
+#if defined(RE4DC_PS2_FX_ROOMS_EXT) && RE4DC_PS2_FX_ROOMS_EXT
+#if !RE4DC_PS2_FX_ROOMS
+#error PS2_FX_ROOMS_EXT needs PS2_FX_ROOMS=1
+#endif
+// PS2_FX_ROOMS_EXT (effects30.mk; test 11 lane fx): the GC effects the PS2 rNNN.dat EFF deleted in the other chapter 1 /
+// 2-1 rooms (decoded GC / PS2 records, tools/audit_ps2_fx_recipes.py --scope inventory): 1 = not drawn. Draw-time only.
+//   - room-table mist sheets (Esp48, owner 0xd0 SST / 0x01 EST): no PS2 Esp48 record in r101..r10b, r117..r11b;
+//   - r109 SST 2 backdrop sprites (id 0, tex 1f; the PS2 r109 EFF keeps only SST 0 lights and the SST 1 haze);
+//   - r101 Esp0a window streak copies (SST 5 #6: tex 32, Del 35/10; SST 7 #13/#14 and SST 12 #0: tex 32, Del 25/4).
+//     Their static id-0 copies keep the record's tex and dels (x10); the room's plain id-0 tex 32 records are
+//     subtractive (blend type 3) and stay.
+extern "C" void re4dc_log(const char* fmt, ...);
+static int Ps2fxExtCut(cEsp* esp)
+{
+    const u16 room = G_ROOM_ID;
+    int kind = 0;
+    if ((re4dc_ps2fx & PS2FX_HAZE) && esp->m_Id == 0x48 && (esp->info.owner == 0xD0 || esp->info.owner == 0x01) &&
+        ((room >= 0x101 && room <= 0x10b) || (room >= 0x117 && room <= 0x11b))) {
+        kind = 1;
+    } else if ((re4dc_ps2fx & PS2FX_HAZE) && room == 0x109 && esp->info.owner == 0xD0 && esp->m_Id == 0 &&
+               esp->m_Tex_id == 0x1f) {
+        kind = 2;
+    } else if ((re4dc_ps2fx & PS2FX_STREAK) && room == 0x101 && esp->info.owner == 0xD0 && esp->m_Id == 0 &&
+               esp->m_Life_max == 0 && esp->m_Tex_id == 0x32 && esp->m_Blend_type != 3 &&
+               ((esp->m_Del_far == 350 && esp->m_Del_near == 100) || (esp->m_Del_far == 250 && esp->m_Del_near == 40))) {
+        kind = 3;
+    }
+    if (kind) {
+        // One log line per room, kind and texture (the evidence of what the knob removes in each room).
+        static u16 s_room;
+        static u32 s_seen[4][8];
+        if (s_room != room) {
+            s_room = room;
+            for (int i = 0; i < 4; ++i) for (int j = 0; j < 8; ++j) s_seen[i][j] = 0;
+        }
+        const u32 t = esp->m_Tex_id;
+        if (!(s_seen[kind][t >> 5] & (1U << (t & 31)))) {
+            s_seen[kind][t >> 5] |= 1U << (t & 31);
+            re4dc_log("ps2fx ext: r%03x %s tex %02x owner %02x blend %u del %u/%u not drawn\n", (unsigned) room,
+                      kind == 1 ? "sheet" : kind == 2 ? "backdrop" : "streak", (unsigned) t, (unsigned) esp->info.owner,
+                      (unsigned) esp->m_Blend_type, (unsigned) esp->m_Del_far, (unsigned) esp->m_Del_near);
+        }
+    }
+    return kind != 0;
+}
+#endif
 // 0: draw as usual; 1: not drawn (a haze sprite outside the PS2 subset / box, a streak copy); 2: a streak
 // anchor (=2: draws the PS2 shafts in its place).
 #if RE4DC_PS2_FX_ADDITIONS
@@ -693,6 +739,11 @@ static int Ps2fxClass(cEsp* esp)
                 return 1;
             }
         }
+    }
+#endif
+#if defined(RE4DC_PS2_FX_ROOMS_EXT) && RE4DC_PS2_FX_ROOMS_EXT
+    if (Ps2fxExtCut(esp)) {
+        return 1;
     }
 #endif
     if (esp->info.owner != 0xD0) {

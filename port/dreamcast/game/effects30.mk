@@ -178,6 +178,20 @@ $(error PS2_FX_COMMON_HAZE needs COARSE_FX_SPRITES=1 or 2)
 endif
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_FX_COMMON_HAZE=1
 endif
+# PS2_FX_ROOMS_EXT=1 (test 11 lane fx 2026-10-14; needs PS2_FX_ROOMS=1; render only, default 0): the effects the PS2
+#                    release deleted in the other chapter 1 / 2-1 rooms, from the decoded GC / PS2 rNNN EFF records
+#                    (tools/audit_ps2_fx_recipes.py --scope inventory over /root/probe/worldfx-cache). Not drawn: every
+#                    room-table mist sheet (id 0x48, owner 0xd0 SST / 0x01 EST) in r101-r10b, r117-r11b (the PS2 has
+#                    no Esp48 record in any of them; r100 keeps its small d9 sparks and is left out), r109's SST 2
+#                    backdrop sprites (id 0, tex 1f: the PS2 dropped the whole SST 2), and r101's four Esp0a window
+#                    streak records' static copies (SST 5 / 7 / 12, tex 32, Del 35/10 and 25/4: the PS2 has no Esp0a
+#                    there). As EFFECT_PS2_HAZE: generators, Rnd() draws, the pool and every effect's motion run as before.
+PS2_FX_ROOMS_EXT ?= 0
+ifneq ($(PS2_FX_ROOMS_EXT),0)
+ifneq ($(PS2_FX_ROOMS_EXT)$(PS2_FX_ROOMS),11)
+$(error PS2_FX_ROOMS_EXT must be 0 or 1 and needs PS2_FX_ROOMS=1)
+endif
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -275,6 +289,9 @@ ifneq ($(PS2_FX_ADDITIONS),0)
 endif
 ifneq ($(PS2_FX_COMMON_HAZE),0)
 	@printf '#define RE4DC_PS2_FX_COMMON_HAZE %s\n' '$(PS2_FX_COMMON_HAZE)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_ROOMS_EXT),0)
+	@printf '#define RE4DC_PS2_FX_ROOMS_EXT %s\n' '$(PS2_FX_ROOMS_EXT)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
