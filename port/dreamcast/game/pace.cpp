@@ -51,6 +51,9 @@
 #ifndef RE4DC_PACE_VMU_GPU
 #define RE4DC_PACE_VMU_GPU 0
 #endif
+#ifndef RE4DC_SPEED_VMU_OFF
+#define RE4DC_SPEED_VMU_OFF 0
+#endif
 #if RE4DC_PACE_VMU
 #include <dc/maple.h>
 #include <dc/maple/vmu.h>
@@ -302,6 +305,12 @@ void vmu_try()
 
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
 unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;  // the last one-second window (on-screen counter)
+#if RE4DC_SPEED_VMU_OFF
+// SPEED_VMU_OFF (pace.mk, issue #29): Off or Screen only; a stored VMU or Both setting shows on screen.
+int speed_setting() { return re4dc_quality_speed() != RE4DC_SPEED_OFF ? RE4DC_SPEED_SCREEN : RE4DC_SPEED_OFF; }
+#else
+int speed_setting() { return re4dc_quality_speed(); }
+#endif
 #endif
 void vmu_window(unsigned cost, u32 now)
 {
@@ -317,7 +326,9 @@ void vmu_window(unsigned cost, u32 now)
     const unsigned cpu = unsigned((v_cost_us * 100ULL / v_ticks + 16683) / 33367);
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
     speed_fps10 = fps10; speed_pct = speed; speed_cpu = cpu; speed_valid = 1;
-#if RE4DC_VMU_CONTEXT
+#if RE4DC_SPEED_VMU_OFF
+    const bool lcd = false;   // SPEED_VMU_OFF: never the VMU (VMU_CONTEXT: the context pages stay)
+#elif RE4DC_VMU_CONTEXT
     // VMU_CONTEXT (user 2026-10-12): the speed page only in VMU mode; whenever the on-screen counter shows (Screen,
     // or a stored Both) and in Off the VMU shows the context pages.
     const bool lcd = re4dc_quality_speed() == RE4DC_SPEED_VMU;
@@ -449,7 +460,10 @@ u32 speed_note_until;
 }
 extern "C" void re4dc_speed_cycle(void)
 {
-#if RE4DC_VMU_CONTEXT
+#if RE4DC_SPEED_VMU_OFF
+    // SPEED_VMU_OFF: Off -> Screen -> Off (a stored VMU or Both shows on screen, so it cycles to Off).
+    re4dc_quality_set_speed(speed_setting() == RE4DC_SPEED_OFF ? RE4DC_SPEED_SCREEN : RE4DC_SPEED_OFF);
+#elif RE4DC_VMU_CONTEXT
     // VMU_CONTEXT: Off -> VMU -> Screen -> Off (Both would equal Screen; a stored Both cycles to Off).
     const int s = re4dc_quality_speed();
     re4dc_quality_set_speed(s == RE4DC_SPEED_OFF ? RE4DC_SPEED_VMU : s == RE4DC_SPEED_VMU ? RE4DC_SPEED_SCREEN
@@ -461,16 +475,20 @@ extern "C" void re4dc_speed_cycle(void)
 }
 extern "C" int re4dc_speed_note(int* speed)
 {
+#if RE4DC_SPEED_VMU_OFF
+    *speed = speed_setting() == RE4DC_SPEED_OFF ? 0 : 1;   // two boxes: Off, Screen
+#else
     *speed = re4dc_quality_speed();
 #if RE4DC_VMU_CONTEXT
     if (*speed == RE4DC_SPEED_BOTH) *speed = RE4DC_SPEED_SCREEN;   // three boxes: Off, VMU, Screen
+#endif
 #endif
     return speed_note_until && (int) (speed_note_until - re4dc_vi_retrace_count()) > 0;
 }
 // 1 while the counter shows: v[0] drawn fps x10, v[1] game speed %, v[2] CPU % of a tick.
 extern "C" int re4dc_speed_screen(unsigned v[3])
 {
-    if (!(re4dc_quality_speed() & RE4DC_SPEED_SCREEN) || !speed_valid || !context_ok()) return 0;
+    if (!(speed_setting() & RE4DC_SPEED_SCREEN) || !speed_valid || !context_ok()) return 0;
     v[0] = speed_fps10; v[1] = speed_pct; v[2] = speed_cpu;
     return 1;
 }

@@ -41,6 +41,10 @@
 #                    game speed (% of 30 ticks/s) and CPU load (work per tick before the vblank wait, % of a
 #                    33.4 ms tick; >100 = saturated). One
 #                    queued maple LCD write a second (vmu_draw_lcd does not wait); reads pace state only.
+#   SPEED_VMU_OFF=1 (default 0; RENDER_OPTION builds, issue #29, user 2026-10-14) the speed display never writes the
+#                    VMU: R + START cycles Off -> Screen -> Off (two boxes in the note), a stored VMU or Both setting
+#                    shows on screen, and the VMU keeps showing what it shows when the display is off (VMU_CONTEXT:
+#                    the context pages). The one-second window, its log lines and the on-screen counter are unchanged.
 #   PACE_VMU_GPU=1  (default 0; test builds, needs PACE_VMU=1) a fourth line "GPU <mean>/<max>" on the speed page
 #                    (FPS / SPD / CPU / GPU / MODE: the 4x6 font fits five lines): the graphics chip's render time
 #                    per scene in ms (rounded), mean and max over the renders that completed in the same window
@@ -81,6 +85,7 @@ PACE_CHECK ?= 0
 PACE_TEST_TOGGLE_S ?= 0
 PACE_VMU ?= 0
 PACE_VMU_GPU ?= 0
+SPEED_VMU_OFF ?= 0
 PACE_DEBUG ?= $(or $(QUALITY_DEBUG),0)
 PACE_MODE ?= $(if $(filter 0,$(PACE_FLOOR_FPS)),fast,smooth)
 ifneq ($(PACE_CATCHUP),0)
@@ -98,6 +103,11 @@ endif
 # pace.cpp __wrap_pvr_sync_stats: KOS's PVR statistics hook, its render start / render done stamped for every render.
 GAME_LDFLAGS += -Wl,--wrap=pvr_sync_stats
 endif
+ifneq ($(SPEED_VMU_OFF),0)
+ifneq ($(RENDER_OPTION),1)
+$(error SPEED_VMU_OFF=1 changes the RENDER_OPTION speed display and needs RENDER_OPTION=1)
+endif
+endif
 ifneq ($(PACE_CHECK),0)
 ifneq ($(LOGIC_TRACE),1)
 $(error PACE_CHECK=2 hashes the logic-trace fields and needs LOGIC_TRACE=1)
@@ -109,7 +119,7 @@ endif
 .PHONY: pace-force
 $(OBJDIR)/pace.h: pace-force
 	@mkdir -p $(dir $@)
-	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n#define RE4DC_PACE_CAP2_SPEED %s\n#define RE4DC_PACE_VMU_GPU %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' '$(PACE_CAP2_SPEED)' '$(PACE_VMU_GPU)' > $@.tmp
+	@printf '#define RE4DC_PACE_CATCHUP %s\n#define RE4DC_PACE_CAP %s\n#define RE4DC_PACE_FLOOR_FPS %s\n#define RE4DC_PACE_LOG %s\n#define RE4DC_PACE_FORCE %s\n#define RE4DC_PACE_SEED %s\n#define RE4DC_PACE_TEST_DRAW_US %s\n#define RE4DC_PACE_TEST_TICK_US %s\n#define RE4DC_PACE_CHECK %s\n#define RE4DC_PACE_TEST_TOGGLE_S %s\n#define RE4DC_PACE_DEBUG %s\n#define RE4DC_PACE_MODE %s\n#define RE4DC_PACE_VMU %s\n#define RE4DC_PACE_CAP2_SPEED %s\n#define RE4DC_PACE_VMU_GPU %s\n#define RE4DC_SPEED_VMU_OFF %s\n' '$(PACE_CATCHUP)' '$(PACE_CAP)' '$(PACE_FLOOR_FPS)' '$(PACE_LOG)' '$(PACE_FORCE_NUM)' '$(PACE_SEED)' '$(PACE_TEST_DRAW_US)' '$(PACE_TEST_TICK_US)' '$(PACE_CHECK)' '$(PACE_TEST_TOGGLE_S)' '$(PACE_DEBUG)' '$(PACE_MODE_NUM)' '$(PACE_VMU)' '$(PACE_CAP2_SPEED)' '$(PACE_VMU_GPU)' '$(SPEED_VMU_OFF)' > $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 PLATFORM_OBJS += $(OBJDIR)/pace.o

@@ -2037,7 +2037,9 @@ void speed_draw(){
         hud_number(b,566,SY+36,v[2],false,0xe0a0d0ffU);
 #endif
     }
-#if defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT
+#if defined(RE4DC_SPEED_VMU_OFF) && RE4DC_SPEED_VMU_OFF
+    const int boxes=2;   // SPEED_VMU_OFF (pace.mk, issue #29): Off, Screen
+#elif defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT
     const int boxes=3;   // VMU_CONTEXT: Off, VMU, Screen (no Both)
 #else
     const int boxes=4;
