@@ -231,6 +231,32 @@ def canonical_locations(identity: Identity) -> tuple[list[tuple[int, int]], int]
     return locations, local_bytes
 
 
+
+def folded_sample_digest(samples: Iterable[tuple[int, bytes]]) -> bytes:
+    """Ordered bounded-loader proof: no per-sample hash array on the target."""
+    records = tuple(samples)
+    h = hashlib.sha256(b'AIC2-SAMPLE-FOLD-v1' + struct.pack('<I', len(records)))
+    for index, (encoded_bytes, sample_sha) in enumerate(records):
+        require(encoded_bytes > 0 and len(sample_sha) == 32, 'folded sample fields')
+        h.update(struct.pack('<II', index, u32(encoded_bytes, 'folded sample bytes')))
+        h.update(sample_sha)
+    return h.digest()
+
+
+def profile_record(bank: Bank, cap_hz: int) -> bytes:
+    """Generate the immutable 128-byte receiver profile; never infer a new cap."""
+    bank.validate()
+    require(cap_hz in (8000, 11025, 16000, 22050, 32000), 'frozen profile cap')
+    for sample, rate in zip(bank.identity.samples, bank.rates):
+        shift = 0
+        while shift < 3 and ((rate >> shift) > cap_hz + cap_hz // 64 or (sample.length >> shift) > 65534):
+            shift += 1
+        require(shift == sample.shift, 'profile changes sample shift')
+    i = bank.identity
+    policy = {'bgm/bio4midi.dat#5': 1, 'bgm/bio4midi.dat#8': 2, 'bgm/bio4midi.dat#9': 3}.get(i.name, 0)
+    return struct.pack('<8I', i.source_class, i.profile, cap_hz, i.gc_bytes,
+                       len(bank.mram), len(i.samples), len(bank.logical), policy) + i.mram_sha + i.table_sha + i.logical_sha
+
 def generate(bank: Bank) -> bytes:
     bank.validate()
     identity = bank.identity

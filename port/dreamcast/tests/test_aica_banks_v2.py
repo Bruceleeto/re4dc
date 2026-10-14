@@ -141,6 +141,22 @@ class FormatTests(unittest.TestCase):
             self.assertFalse(V.same_shared_bytes(a, b, forced))
         self.assertFalse(V.same_shared_bytes(a, a[:-1], forced))
 
+    def test_frozen_receiver_profile_and_ordered_fold(self):
+        b = bank()
+        profile = V.profile_record(b, 32000)
+        self.assertEqual(len(profile), 128)
+        self.assertEqual(struct.unpack_from('<8I', profile), (3, 1, 32000, 513, len(b.mram), 2, 16, 0))
+        self.assertEqual(profile[32:], b.identity.mram_sha + b.identity.table_sha + b.identity.logical_sha)
+        with self.assertRaisesRegex(V.FormatError, 'changes sample shift'):
+            V.profile_record(b, 8000)
+        records = [(8, V.digest(b.logical[:8])), (8, V.digest(b.logical[8:]))]
+        expected = V.digest(b'AIC2-SAMPLE-FOLD-v1' + struct.pack('<I', 2) +
+                            b''.join(struct.pack('<II', i, n) + sha for i, (n, sha) in enumerate(records)))
+        self.assertEqual(V.folded_sample_digest(records), expected)
+        self.assertNotEqual(V.folded_sample_digest(reversed(records)), expected)
+        self.assertNotEqual(V.folded_sample_digest(records[:1]), expected)
+
+
 
 class ChunkTests(unittest.TestCase):
     def test_every_split_and_one_byte_feed(self):

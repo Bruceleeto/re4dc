@@ -138,17 +138,17 @@ bool full_byte_equal(const uint8_t* a,const uint8_t* b,uint32_t bytes) {
     return a && b && bytes && memcmp(a,b,bytes)==0;
 }
 
-Core::Core(uint32_t bytes,Counter epoch,uint32_t boot_serial) : pool_(bytes), epoch_(epoch),
-    generation_counter_{0,0},lease_counter_{0,0},boot_serial_(boot_serial),faulted_(0),shared_index_(kInvalid) {
+Core::Core(uint32_t bytes,Counter epoch,uint32_t boot_serial,uint32_t physical_base) : pool_(bytes), epoch_(epoch),
+    generation_counter_{0,0},lease_counter_{0,0},extent_counter_{0,0},boot_serial_(boot_serial),faulted_(0),shared_index_(kInvalid),physical_base_(physical_base) {
     clear_metadata();
-    if (!nonzero(epoch) || !boot_serial || !pool_.capacity || bytes > kMixedBytes) faulted_=1;
+    if (!nonzero(epoch) || !boot_serial || !pool_.capacity || bytes > kMixedBytes || (physical_base&31) || physical_base>0xffffffu-kArenaBytes) faulted_=1;
 }
 void Core::clear_metadata() {
     memset(generations_,0,sizeof(generations_)); memset(owners_,0,sizeof(owners_));
     memset(extents_,0,sizeof(extents_)); memset(channels_,0,sizeof(channels_));
     memset(maps_,0,sizeof(maps_)); memset(map_owners_,0,sizeof(map_owners_)); memset(map_valid_,0,sizeof(map_valid_));
     for (uint32_t& slot:slots_) slot=kInvalid;
-    shared_index_=kInvalid;
+    shared_index_=kInvalid;memset(wire_sequences_,0,sizeof(wire_sequences_));
 }
 uint32_t Core::find(Token token) const {
     if (!equal(token.epoch,epoch_) || !nonzero(token.serial)) return kInvalid;
@@ -183,7 +183,7 @@ void Core::release_extent(uint32_t index) {
     if (index==kInvalid) return;
     Extent& e=extents_[index];
     if (--e.refs==0) {
-        if (pool_.release({e.base,e.bytes})!=Result::Ok) { faulted_=1; return; }
+        if (e.kind!=3 && pool_.release({e.base-kFixedBytes,e.bytes})!=Result::Ok) { faulted_=1; return; }
         if (index==shared_index_) shared_index_=kInvalid;
         memset(&e,0,sizeof(e));
     }
@@ -216,41 +216,51 @@ Result Core::begin(uint32_t owner,uint32_t slot,uint32_t bytes,Token& token) {
     owners_[oi]={1,owner,gi,bytes,0,g.serial}; token=token_for(gi);
     return Result::Ok;
 }
-Result Core::reserve(Token token,uint32_t count,uint32_t local,const SharedInput* shared) {
-    if (faulted_)return Result::Faulted;
+Result Core::reserve(Token token,uint32_t count,uint32_t local,const SharedSpec* shared) {
+    if(faulted_)return Result::Faulted;
     uint32_t gi=find(token);if(gi==kInvalid)return Result::Stale;
     Generation& g=generations_[gi];if(g.state!=Receiving)return Result::State;
     if(!count || count>512)return Result::Capacity;
     uint32_t first=map_range(count);if(first==kInvalid)return Result::Capacity;
     uint32_t aligned_local;Result r=aligned(local,aligned_local);if(r!=Result::Ok)return r;
-    uint32_t si=kInvalid; bool created_shared=false;
-    if(shared) {
-        if(g.source_slot!=3 && g.source_slot!=4)return Result::Invalid;
-        if(shared->bytes!=kSharedBytes || memcmp(shared->sha,kSharedSha,32)!=0 || !shared->incoming)return Result::Invalid;
+    // Fixed extents occupy the prefix, never enter the mixed allocator, and
+    // cannot be replaced while any generation/copy/channel still references it.
+    uint32_t fixed_base=0,fixed_size=0;
+    switch(g.source_slot){
+    case 0:fixed_base=0;fixed_size=127936;break;
+    case 1:fixed_base=127936;fixed_size=253856;break;
+    case 2:fixed_base=381792;fixed_size=72544;break;
+    case 7:fixed_base=454336;fixed_size=32736;break;
+    default:break;
+    }
+    if(fixed_size){
+        if(shared || aligned_local>fixed_size)return Result::Invalid;
+        for(const Extent& e:extents_)if(e.used && e.kind==3 && e.base==fixed_base)return Result::Busy;
+    }
+    uint32_t si=kInvalid;bool made_shared=false;
+    if(shared){
+        if((g.source_slot!=3 && g.source_slot!=4) || shared->bytes!=kSharedBytes || memcmp(shared->sha,kSharedSha,32))return Result::Invalid;
         si=shared_index_;
-        if(si!=kInvalid) {
+        if(si!=kInvalid){
             Extent& e=extents_[si];
-            if(e.payload_bytes!=shared->bytes || memcmp(e.sha,shared->sha,32)!=0)return Result::Collision;
-            if(!full_byte_equal(shared->incoming,shared->resident_readback,shared->bytes))return Result::Collision;
+            if(e.payload_bytes!=shared->bytes || memcmp(e.sha,shared->sha,32))return Result::Collision;
+            if(!e.verified)return Result::Busy;
             if(e.refs==kU32)return Result::Overflow;
-        } else {
+        }else{
             si=free_extent();if(si==kInvalid)return Result::Capacity;
+            if(next_counter(extent_counter_)!=Result::Ok)return Result::Overflow;
             Interval block;r=pool_.allocate(shared->bytes,true,block);if(r!=Result::Ok)return r;
-            Extent& e=extents_[si]; memset(&e,0,sizeof(e));e.used=1;e.kind=2;e.base=block.base;e.bytes=block.bytes;
-            e.payload_bytes=shared->bytes;e.refs=0;memcpy(e.sha,shared->sha,32);created_shared=true;
+            Extent& e=extents_[si];memset(&e,0,sizeof(e));e.used=1;e.kind=2;e.base=kFixedBytes+block.base;
+            e.bytes=block.bytes;e.payload_bytes=shared->bytes;e.incarnation=extent_counter_;memcpy(e.sha,shared->sha,32);made_shared=true;
         }
     }
-    uint32_t li=free_extent();
-    if(li==kInvalid) {
-        if(created_shared){pool_.release({extents_[si].base,extents_[si].bytes});memset(&extents_[si],0,sizeof(Extent));}
-        return Result::Capacity;
-    }
-    Interval block;r=pool_.allocate(local,g.source_slot==3||g.source_slot==4,block);
-    if(r!=Result::Ok) {
-        if(created_shared){pool_.release({extents_[si].base,extents_[si].bytes});memset(&extents_[si],0,sizeof(Extent));}
-        return r;
-    }
-    Extent& e=extents_[li];memset(&e,0,sizeof(e));e.used=1;e.kind=1;e.base=block.base;e.bytes=block.bytes;e.payload_bytes=local;e.refs=1;
+    auto undo_shared=[&](){if(made_shared){pool_.release({extents_[si].base-kFixedBytes,extents_[si].bytes});memset(&extents_[si],0,sizeof(Extent));}};
+    uint32_t li=free_extent();if(li==kInvalid){undo_shared();return Result::Capacity;}
+    if(next_counter(extent_counter_)!=Result::Ok){undo_shared();return Result::Overflow;}
+    Interval block={fixed_base,fixed_size};
+    if(!fixed_size){r=pool_.allocate(local,g.source_slot==3||g.source_slot==4,block);if(r!=Result::Ok){undo_shared();return r;}block.base+=kFixedBytes;}
+    Extent& e=extents_[li];memset(&e,0,sizeof(e));e.used=1;e.kind=fixed_size?3:1;e.base=block.base;
+    e.bytes=block.bytes;e.payload_bytes=local;e.refs=1;e.incarnation=extent_counter_;
     if(shared){++extents_[si].refs;shared_index_=si;}
     g.local_extent=li;g.shared_extent=si;g.first_map=first;g.map_count=count;g.state=Reserved;
     for(uint32_t j=0;j<count;++j)map_owners_[first+j]=static_cast<uint8_t>(gi+1);
@@ -264,25 +274,37 @@ Result Core::feed(uint32_t owner,Token token,uint32_t offset,uint32_t bytes) {
     if(!bytes || offset!=o.received_bytes || !span(offset,bytes,o.expected_bytes))return Result::Invalid;
     o.received_bytes+=bytes;return Result::Ok;
 }
-Result Core::copy_begin(Token token) {
-    if(faulted_)return Result::Faulted;
+Result Core::copy_begin(Token token,uint32_t ei,uint32_t offset,uint32_t bytes,bool write,CopyTicket& ticket){
+    ticket=CopyTicket();if(faulted_)return Result::Faulted;
     uint32_t gi=find(token);if(gi==kInvalid)return Result::Stale;
     Generation& g=generations_[gi];if(g.state!=Reserved)return Result::State;
-    if(g.copies==kU32)return Result::Overflow;
-    ++g.copies;return Result::Ok;
+    if(g.copies)return Result::Busy;
+    if(ei>=kExtents || (ei!=g.local_extent && ei!=g.shared_extent))return Result::Invalid;
+    const Extent& e=extents_[ei];
+    if(!bytes || bytes>4096 || (offset&3) || (bytes&3) || !span(offset,bytes,(e.payload_bytes+31)&~31u))return Result::Invalid;
+    if(write && e.verified)return Result::State;
+    if(g.copy_nonce==kU32)return Result::Overflow;
+    ++g.copy_nonce;g.copies=1;ticket.token_=token;ticket.extent_=ei;ticket.incarnation_=e.incarnation;
+    ticket.base_=physical_base_+e.base;ticket.offset_=offset;ticket.bytes_=bytes;ticket.access_=write?1:0;ticket.nonce_=g.copy_nonce;
+    return Result::Ok;
 }
-Result Core::copy_end(Token token) {
-    uint32_t gi=find(token);if(gi==kInvalid)return Result::Stale;
-    Generation& g=generations_[gi];if(!g.copies)return Result::State;
-    --g.copies;collect(gi);return Result::Ok;
+Result Core::copy_end(CopyTicket& ticket,uint32_t actual_address,uint32_t actual_bytes,uint32_t actual_access){
+    uint32_t gi=find(ticket.token_);if(gi==kInvalid)return Result::Stale;
+    Generation& g=generations_[gi];
+    if(!g.copies || ticket.nonce_!=g.copy_nonce || ticket.extent_>=kExtents)return Result::Stale;
+    const Extent& e=extents_[ticket.extent_];
+    if(!e.used || !equal(e.incarnation,ticket.incarnation_) || physical_base_+e.base!=ticket.base_)return Result::Stale;
+    bool valid=actual_address==ticket.base_+ticket.offset_ && actual_bytes==ticket.bytes_ && actual_access==ticket.access_;
+    g.copies=0;ticket=CopyTicket();bool aborted=g.state==Aborted;collect(gi);
+    return aborted?Result::Cancelled:valid?Result::Ok:Result::Invalid;
 }
-Result Core::verify(uint32_t owner,Token token,bool ok) {
+Result Core::verify(const VerificationReceipt& receipt){
     if(faulted_)return Result::Faulted;
-    uint32_t oi=owner_for(owner,token);if(oi==kInvalid)return Result::Stale;
+    uint32_t oi=owner_for(receipt.owner_,receipt.token_);if(oi==kInvalid)return Result::Stale;
     Owner& o=owners_[oi];Generation& g=generations_[o.generation];
     if(g.state!=Reserved)return Result::State;
     if(o.received_bytes!=o.expected_bytes || g.copies)return Result::Busy;
-    if(!ok){cancel(owner,token);return Result::Invalid;}
+    if(!receipt.nonce_ || receipt.nonce_!=g.copy_nonce)return Result::Invalid;
     for(uint32_t i=0;i<g.map_count;++i)if(!map_valid_[g.first_map+i])return Result::Invalid;
     g.state=Verified;return Result::Ok;
 }
@@ -292,6 +314,7 @@ Result Core::publish(uint32_t owner,Token token) {
     uint32_t gi=owners_[oi].generation;Generation& g=generations_[gi];
     if(g.state!=Verified || g.copies)return Result::State;
     if(slots_[g.source_slot]!=kInvalid)return Result::Busy;
+    extents_[g.local_extent].verified=1;if(g.shared_extent!=kInvalid)extents_[g.shared_extent].verified=1;
     g.resident_ref=1;g.upload_ref=0;slots_[g.source_slot]=gi;g.state=Published;detach_owner(gi);
     return Result::Ok;
 }
@@ -327,7 +350,7 @@ Result Core::start_channel(uint32_t ch,Token token,uint32_t address,Token& lease
     Generation& g=generations_[gi];if(!g.pending_refs || (g.state!=Published && g.state!=Retired))return Result::State;
     bool owned=false;
     for(uint32_t ei:{g.local_extent,g.shared_extent}) {
-        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=e.base && address-e.base<e.payload_bytes)owned=true;}
+        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=physical_base_+e.base && address-physical_base_-e.base<e.payload_bytes)owned=true;}
     }
     if(!owned)return Result::Invalid;
     Channel& c=channels_[ch];
@@ -344,11 +367,11 @@ Result Core::reuse_same_generation(uint32_t ch,Token previous,Token token,uint32
     uint32_t gi=find(token);if(gi==kInvalid)return Result::Stale;
     Channel& c=channels_[ch];Generation& g=generations_[gi];
     if(c.state==ChannelFree || !equal(previous.epoch,epoch_) || !equal(previous.serial,c.lease))return Result::Stale;
-    if(c.generation!=gi || !equal(c.generation_serial,g.serial))return Result::Busy;
+    if(c.state==ChannelRetiring || c.generation!=gi || !equal(c.generation_serial,g.serial))return Result::Busy;
     if(!g.pending_refs || (g.state!=Published && g.state!=Retired))return Result::State;
     bool owned=false;
     for(uint32_t ei:{g.local_extent,g.shared_extent}) {
-        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=e.base && address-e.base<e.payload_bytes)owned=true;}
+        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=physical_base_+e.base && address-physical_base_-e.base<e.payload_bytes)owned=true;}
     }
     if(!owned)return Result::Invalid;
     Result r=next_counter(lease_counter_);if(r!=Result::Ok)return r;
@@ -356,14 +379,14 @@ Result Core::reuse_same_generation(uint32_t ch,Token previous,Token token,uint32
     c.state=ChannelActive;c.lease=lease_counter_;c.request={0,epoch_,c.lease,0,address,0};
     --g.pending_refs;lease={epoch_,c.lease};return Result::Ok;
 }
-Result Core::retire_channel(uint32_t ch,Token lease,Request& request) {
+Result Core::retire_channel(uint32_t ch,Token lease,uint32_t wire_sequence,Request& request) {
     if(faulted_)return Result::Faulted;
     if(ch>=kChannels)return Result::Invalid;
     Channel& c=channels_[ch];
     if(!equal(lease.epoch,epoch_) || !equal(c.lease,lease.serial) || c.state==ChannelFree)return Result::Stale;
-    if(c.state==ChannelRetiring){request=c.request;return Result::Ok;}
-    if(c.request.sequence>kU32-2)return Result::Overflow;
-    c.request.sequence+=2;c.request.opcode=1;c.state=ChannelRetiring;request=c.request;return Result::Ok;
+    if(c.state==ChannelRetiring){if(wire_sequence!=c.request.sequence)return Result::Busy;request=c.request;return Result::Ok;}
+    if(!wire_sequence || (wire_sequence&1) || wire_sequence<=wire_sequences_[ch])return Result::Invalid;
+    wire_sequences_[ch]=wire_sequence;c.request.sequence=wire_sequence;c.request.opcode=1;c.state=ChannelRetiring;request=c.request;return Result::Ok;
 }
 Result Core::acknowledge(uint32_t ch,const Ack& ack) {
     if(faulted_)return Result::Faulted;
@@ -383,10 +406,17 @@ Result Core::observe_boot(uint32_t serial) {
 }
 Result Core::controlled_reset(Counter next,uint32_t boot,bool qualified) {
     if(!qualified || !nonzero(next) || !greater(next,epoch_) || !boot)return Result::Invalid;
-    for(const Generation& g:generations_)if(g.copies || g.pending_refs)return Result::Busy;
+    // A hardware-idle assertion cannot destroy a live source receiver. Its
+    // owner must explicitly cancel/drain before the epoch can be replaced.
+    for(const Generation& g:generations_)if(g.upload_ref || g.copies || g.pending_refs)return Result::Busy;
     // External all-channel quiescence is an explicit assumption of this call.
-    uint32_t capacity=pool_.capacity;pool_=Pool(capacity);clear_metadata();epoch_=next;boot_serial_=boot;
-    generation_counter_={0,0};lease_counter_={0,0};faulted_=0;return Result::Ok;
+    // Reset in place: assigning Pool(capacity) materialized a 1052-byte
+    // temporary on SH4 and exceeded the bounded call-stack budget.
+    memset(pool_.free_ranges,0,sizeof(pool_.free_ranges));
+    memset(pool_.allocated,0,sizeof(pool_.allocated));
+    pool_.free_ranges[0]={0,pool_.capacity};pool_.free_count=1;pool_.allocated_count=0;
+    clear_metadata();epoch_=next;boot_serial_=boot;
+    generation_counter_={0,0};lease_counter_={0,0};extent_counter_={0,0};faulted_=0;return Result::Ok;
 }
 Result Core::set_map(Token token,uint32_t index,LogicalMap map) {
     if(faulted_)return Result::Faulted;
@@ -401,10 +431,16 @@ Result Core::set_map(Token token,uint32_t index,LogicalMap map) {
     if(need>kU32)return Result::Overflow;
     bool owned=false;
     for(uint32_t ei:{g.local_extent,g.shared_extent}) {
-        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=e.base && span(address-e.base,static_cast<uint32_t>(need),e.payload_bytes))owned=true;}
+        if(ei!=kInvalid){const Extent& e=extents_[ei];if(address>=physical_base_+e.base && span(address-physical_base_-e.base,static_cast<uint32_t>(need),e.payload_bytes))owned=true;}
     }
     if(!owned)return Result::Invalid;
     maps_[g.first_map+index]=map;map_valid_[g.first_map+index]=1;return Result::Ok;
+}
+Result Core::prepared_map(Token token,uint32_t index,LogicalMap& out)const{
+    uint32_t gi=find(token);if(gi==kInvalid)return Result::Stale;
+    const Generation& g=generations_[gi];
+    if(g.state!=Reserved || index>=g.map_count || !map_valid_[g.first_map+index])return Result::State;
+    out=maps_[g.first_map+index];return Result::Ok;
 }
 Result Core::resolve(Token token,uint32_t index,LogicalMap& out) const {
     if(faulted_)return Result::Faulted;
@@ -453,10 +489,14 @@ bool Core::invariant() const {
     for(uint32_t i=0;i<kExtents;++i) {
         const Extent& e=extents_[i];if(!e.used){if(refs[i])return false;continue;}
         if(!refs[i] || refs[i]!=e.refs || !e.payload_bytes || e.payload_bytes>e.bytes)return false;
-        bool found=false;for(uint32_t j=0;j<pool_.allocated_count;++j)
-            if(pool_.allocated[j].base==e.base && pool_.allocated[j].bytes==e.bytes)found=true;
-        if(!found)return false;
-        ++es;
+        if(!nonzero(e.incarnation))return false;
+        if(e.kind==3){if(!span(e.base,e.bytes,kFixedBytes))return false;}
+        else{
+            bool found=false;for(uint32_t j=0;j<pool_.allocated_count;++j)
+                if(kFixedBytes+pool_.allocated[j].base==e.base && pool_.allocated[j].bytes==e.bytes)found=true;
+            if(!found)return false;
+            ++es;
+        }
     }
     if(es!=pool_.allocated_count)return false;
     if(shared_index_!=kInvalid && (!extents_[shared_index_].used || extents_[shared_index_].kind!=2))return false;

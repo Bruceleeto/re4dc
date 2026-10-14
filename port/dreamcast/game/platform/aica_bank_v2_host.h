@@ -7,11 +7,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Phase 1: platform-only metadata core. No KOS, MMIO, source loader or locks.
+// Phase 2: platform-only metadata and opaque physical-copy core. No KOS, MMIO, source loader or locks.
 // The caller serializes mutations. Hardware acknowledgements are external
 // inputs, not a hardware predicate implemented or qualified by this module.
 namespace re4dc_aic2 {
 constexpr uint32_t kMixedBytes = 1298784;
+constexpr uint32_t kFixedBytes = 487072;
+constexpr uint32_t kArenaBytes = kFixedBytes + kMixedBytes;
 constexpr uint32_t kMaps = 640;
 constexpr uint32_t kGenerations = 32;
 constexpr uint32_t kOwners = 16;
@@ -61,15 +63,30 @@ struct Ack {
 static_assert(sizeof(Request) == 32 && sizeof(Ack) == 32, "mailbox ABI");
 static_assert(alignof(Request) == 4 && alignof(Ack) == 4, "mailbox alignment");
 
-// The parser must validate the incoming digest and whitelist before reserve().
-// This metadata-only core compares full bytes on a hit; it does not perform
-// transfers or prove that a readback buffer came from physical AICA memory.
-struct SharedInput {
-    uint32_t bytes;
-    uint8_t sha[32];
-    const uint8_t* incoming;
-    // Required for a registry hit: complete independently read-back bytes.
-    const uint8_t* resident_readback;
+class Engine;
+struct SharedSpec { uint32_t bytes; uint8_t sha[32]; };
+// Default tickets/receipts are invalid. Only Core and the bounded Engine can
+// create proofs. The adapter reports the actual physical origin of each copy.
+class CopyTicket {
+public:
+    CopyTicket() : token_{}, extent_(kInvalid), incarnation_{}, base_(0),
+        offset_(0), bytes_(0), access_(0), nonce_(0) {}
+private:
+    Token token_;
+    uint32_t extent_;
+    Counter incarnation_;
+    uint32_t base_, offset_, bytes_, access_, nonce_;
+    friend class Core;
+    friend class Engine;
+};
+class VerificationReceipt {
+public:
+    VerificationReceipt() : token_{}, owner_(0), nonce_(0) {}
+private:
+    Token token_;
+    uint32_t owner_, nonce_;
+    friend class Core;
+    friend class Engine;
 };
 bool full_byte_equal(const uint8_t* a, const uint8_t* b, uint32_t bytes);
 
@@ -78,14 +95,15 @@ struct Generation {
     Counter serial;
     uint32_t state, source_slot, first_map, map_count;
     uint32_t upload_ref, copies, resident_ref, pending_refs, hardware_refs;
-    uint32_t local_extent, shared_extent;
+    uint32_t local_extent, shared_extent, copy_nonce;
 };
 struct Owner {
     uint32_t used, cookie, generation, expected_bytes, received_bytes;
     Counter serial;
 };
 struct Extent {
-    uint32_t used, kind, base, bytes, payload_bytes, refs;
+    uint32_t used, kind, base, bytes, payload_bytes, refs, verified;
+    Counter incarnation;
     uint8_t sha[32];
 };
 struct Channel {
@@ -96,13 +114,11 @@ struct Channel {
 
 class Core {
 public:
-    explicit Core(uint32_t bytes = kMixedBytes, Counter epoch = {1, 0}, uint32_t boot_serial = 1);
+    explicit Core(uint32_t bytes = kMixedBytes, Counter epoch = {1, 0}, uint32_t boot_serial = 1, uint32_t physical_arena_base = 0);
     Result begin(uint32_t owner, uint32_t source_slot, uint32_t expected_bytes, Token& token);
-    Result reserve(Token token, uint32_t map_count, uint32_t local_bytes, const SharedInput* shared = nullptr);
+    Result reserve(Token token, uint32_t map_count, uint32_t local_bytes, const SharedSpec* shared = nullptr);
     Result feed(uint32_t owner, Token token, uint32_t offset, uint32_t bytes);
-    Result copy_begin(Token token);
-    Result copy_end(Token token);
-    Result verify(uint32_t owner, Token token, bool full_logical_readback_ok);
+    Result verify(const VerificationReceipt& receipt);
     Result publish(uint32_t owner, Token token);
     Result cancel(uint32_t owner, Token token);
     Result retire_bank(Token token);
@@ -110,7 +126,7 @@ public:
     Result drop_pending(Token token);
     Result start_channel(uint32_t channel, Token bank, uint32_t sample_address, Token& lease);
     Result reuse_same_generation(uint32_t channel, Token previous, Token bank, uint32_t sample_address, Token& lease);
-    Result retire_channel(uint32_t channel, Token lease, Request& request);
+    Result retire_channel(uint32_t channel, Token lease, uint32_t actual_wire_sequence, Request& request);
     // Ack flags VALID|INACTIVE must be supplied by a qualified external source.
     // observed_eg is diagnostic ONLY: this host core never decides inactivity.
     Result acknowledge(uint32_t channel, const Ack& injected_ack);
@@ -131,8 +147,16 @@ public:
     uint32_t active_channels() const;
     Counter epoch() const { return epoch_; }
     uint32_t boot_serial() const { return boot_serial_; }
+    uint32_t physical_base() const { return physical_base_; }
     static size_t metadata_bytes() { return sizeof(Core); }
 private:
+    friend class Engine;
+    Result prepared_map(Token token, uint32_t index, LogicalMap& out) const;
+    // Transfers are at most 4096 bytes and word aligned. Tickets pin the exact
+    // extent until completion even when cancellation occurs inside an adapter.
+    Result copy_begin(Token token, uint32_t extent, uint32_t offset,
+                      uint32_t bytes, bool write, CopyTicket& ticket);
+    Result copy_end(CopyTicket& ticket, uint32_t actual_address, uint32_t actual_bytes, uint32_t actual_access);
     enum : uint32_t { Empty, Receiving, Reserved, Verified, Published, Retired, Aborted };
     enum : uint32_t { ChannelFree, ChannelActive, ChannelRetiring };
     Pool pool_;
@@ -144,8 +168,9 @@ private:
     uint8_t map_owners_[kMaps];
     uint8_t map_valid_[kMaps];
     uint32_t slots_[14];
-    Counter epoch_, generation_counter_, lease_counter_;
-    uint32_t boot_serial_, faulted_, shared_index_;
+    uint32_t wire_sequences_[kChannels];
+    Counter epoch_, generation_counter_, lease_counter_, extent_counter_;
+    uint32_t boot_serial_, faulted_, shared_index_, physical_base_;
     uint32_t find(Token token) const;
     uint32_t owner_for(uint32_t owner, Token token) const;
     uint32_t free_extent() const;
@@ -162,9 +187,9 @@ private:
 // still has to confirm its ABI/BSS before integration.
 static_assert(sizeof(Counter) == 8 && sizeof(Token) == 16, "counter ABI");
 static_assert(sizeof(LogicalMap) == 12, "map ABI");
-static_assert(sizeof(Generation) == 52, "generation ABI");
+static_assert(sizeof(Generation) == 56, "generation ABI");
 static_assert(sizeof(Owner) == 28, "owner ABI");
-static_assert(sizeof(Extent) == 56, "extent ABI");
+static_assert(sizeof(Extent) == 68, "extent ABI");
 static_assert(sizeof(Channel) == 56, "channel ABI");
 static_assert(alignof(Core) == 4, "stored metadata alignment");
 } // namespace re4dc_aic2
