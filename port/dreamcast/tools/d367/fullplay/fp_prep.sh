@@ -36,7 +36,9 @@ fi
 [ "$(binsha $OUT/re4dc-game.elf)" = "$BIN" ] || { echo "fp_prep: $OUT is not the disc's binary" >&2; exit 2; }
 for o in $C/tree/dc/*.ovl; do cmp -s $o $OUT/$(basename $o) || { echo "fp_prep: overlay $(basename $o) on the disc differs from $OUT" >&2; exit 2; }; done
 echo "release build $OUT"
-bash $here/fp_twin.sh $OUT $LAB | tee $C/twin-$LAB.txt
+# FP_TWIN_EXTRA="K=V ...": extra diagnostic knobs for the twin only (e.g. WEP_TARGET_GUARD=2); the release image and
+# its identity build are unchanged. Empty by default.
+bash $here/fp_twin.sh $OUT $LAB ${FP_TWIN_EXTRA:-} | tee $C/twin-$LAB.txt
 TW=/root/probe/lanes/route/out-fp${LAB}W
 bash $here/fp_master.sh $C/tree $C/manifest.json $C/IP.BIN "$EV/_discs/twin" $TW &
 P1=$!

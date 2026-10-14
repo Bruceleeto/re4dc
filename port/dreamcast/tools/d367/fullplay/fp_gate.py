@@ -107,7 +107,8 @@ def main():
         log('FAIL: release tracks not verified'); fp_check.main([str(ev), '--known', a.known]); return 1
     tp = time.time()
     fpb = os.environ.get('FP_BUILD', '')  # WSL path of the release build's out dir, when the search finds none
-    rc, out = wsl(('export FP_BUILD=%s\n' % fpb if fpb else '') + 'set -o pipefail\nbash %s %s %s %s %s 2>&1\n' % (
+    fpx = os.environ.get('FP_TWIN_EXTRA', '')  # extra twin-only diagnostic knobs (fp_prep.sh), e.g. WEP_TARGET_GUARD=2
+    rc, out = wsl(('export FP_BUILD=%s\n' % fpb if fpb else '') + ("export FP_TWIN_EXTRA='%s'\n" % fpx if fpx else '') + 'set -o pipefail\nbash %s %s %s %s %s 2>&1\n' % (
         "'%s'" % wslpath(HERE / 'fp_prep.sh'), "'%s'" % wslpath(g), tracks['track03.bin'], label, "'%s'" % wslpath(ev)), ev, 'prep', log)
     meta['prep_wall'] = '%.0f s' % (time.time() - tp)
     if rc != 0 or 'PREP_OK' not in out:
