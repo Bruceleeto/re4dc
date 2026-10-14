@@ -167,6 +167,14 @@ def check_segment(evdir, seg, known):
     res['stopped'] = r.get('stopped')
     lines = out.read_text(errors='replace').splitlines()
     res['log_lines'] = len(lines)
+    if r.get('align'):  # crash suite (fp_run.py --align): the hwmodel logger's MISALIGN lines join the game log
+        hw = d / 'hwtrace.log'
+        if not hw.exists() or 'align=1' not in hw.read_text(errors='replace'):
+            res['failures'].append(dict(cat='harness', what='align run without an align=1 hwtrace.log', line=''))
+        else:
+            mis = [l for l in hw.read_text(errors='replace').splitlines() if 'MISALIGN' in l]
+            res['misalign_pcs'] = sorted({m.group(1) for m in (re.search(r'pc=([0-9a-f]+)', l) for l in mis) if m})
+            lines += ['hwtrace.log: ' + l for l in mis]
     if r.get('status') != 'RUN_COMPLETE':
         res['failures'].append(dict(cat='harness', what='run failed: %s' % r.get('errors'), line=''))
     if 'early_emulator_exit' in r:

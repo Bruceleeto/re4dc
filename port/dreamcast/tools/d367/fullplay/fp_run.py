@@ -84,6 +84,10 @@ def main():
     ap.add_argument('--name', default='fullplay')
     ap.add_argument('--base', help='fp_master.sh base dir instead of --disc: its track03 + this segment fixtures')
     ap.add_argument('--warp'); ap.add_argument('--pad')
+    ap.add_argument('--w11', help='/cd/dc/w11.txt fixture (W11_FIXTURE twin: die / save / file / mes)')
+    ap.add_argument('--align', action='store_true',
+                    help='hwmodel Flycast (HW_FLYCAST), interpreter + HWTRACE_ALIGN=1: misaligned guest accesses '
+                         '(an address error on a Dreamcast, performed silently by Flycast) go to hwtrace.log')
     a = ap.parse_args()
     assert 30 <= a.seconds <= 4000
     cap = Path(a.cap)
@@ -94,9 +98,11 @@ def main():
     if a.base:
         base = Path(a.base); meta = json.loads((base / 'base.json').read_text())
         t1 = bytearray((base / 'track01-template.iso').read_bytes())
-        for key, src, lba in (('warp', a.warp, meta['warp_lba']), ('pad', a.pad, meta['pad_lba'])):
+        assert not a.w11 or 'w11_lba' in meta, 'base %s has no w11.txt slot (fp_master.sh before 2026-10-14)' % base
+        for key, src, lba in (('warp', a.warp, meta['warp_lba']), ('pad', a.pad, meta['pad_lba'])) + (
+                (('w11', a.w11, meta['w11_lba']),) if 'w11_lba' in meta else ()):
             data = Path(src).read_bytes().replace(bytes([13]), b'') if src else b''
-            limit = 2047 if key == 'warp' else 4095   # dbgwarp_bridge.cpp / pad.cpp read buffers
+            limit = {'warp': 2047, 'pad': 4095, 'w11': 511}[key]   # dbgwarp_bridge / pad / sscrn_bridge buffers
             assert len(data) <= limit, '%s fixture %s is %d bytes (max %d)' % (key, src, len(data), limit)
             blob = data + bytes(meta['fixture_bytes'] - len(data))
             t1[lba * 2048:lba * 2048 + len(blob)] = blob
@@ -140,6 +146,13 @@ def main():
     cfg = (cap / 'emu.cfg').read_text()
     cfg = re.sub(r'(?m)^Debug.GDBPort = \d+', 'Debug.GDBPort = %d' % port, cfg)
     cfg = cfg.replace('rend.vsync = yes', 'rend.vsync = no')
+    env = None
+    if a.align:  # as hwready/mk-run-variant.py align (route-hw.sh): hwmodel exe, interpreter, HWTRACE_ALIGN=1
+        hw = Path(os.environ.get('HW_FLYCAST', r'C:\Game Dev\Emulators\flycast-hwmodel\build-hwtrace\flycast.exe'))
+        shutil.copyfile(hw, cap / 'flycast.exe')
+        cfg = re.sub(r'(?m)^Dynarec\.Enabled = \w+\n', '', cfg).replace('[config]\n', '[config]\nDynarec.Enabled = no\n', 1)
+        assert 'Dynarec.Enabled = no' in cfg
+        env = dict(os.environ, HWTRACE_DIR=str(cap), HWTRACE_ALIGN='1')
     (cap / 'emu.cfg').write_text(cfg)
     steps = []
     if a.keys:
@@ -152,7 +165,7 @@ def main():
             steps.append(dict(rx=re.compile(rx if rx != '-' else ''), delay=float(delay), keys=k[0].split('+'), hold=float(k[1]) if len(k) > 1 else 0.15))
     stop = re.compile(a.stop) if a.stop else None
     rep = dict(name=a.name, status='STARTING', start_utc=now(), disc=str(disc), tracks=linked, seconds=a.seconds,
-               vmu=a.vmu, keys=a.keys, stop=a.stop, fixtures=fixtures, errors=[], key_log=[])
+               vmu=a.vmu, keys=a.keys, stop=a.stop, fixtures=fixtures, errors=[], key_log=[], align=a.align)
     while count_flycasts() >= maxfc:
         time.sleep(5)
     startup = subprocess.STARTUPINFO(); startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW; startup.wShowWindow = 0
@@ -161,7 +174,7 @@ def main():
     t0 = time.monotonic(); last_growth = t0; stop_at = None; lastshot = t0; pos = 0; text = ''; ktext = ''
     try:
         proc = subprocess.Popen([str(cap / 'flycast.exe'), 'disc.gdi'], cwd=cap, stdout=serial, stderr=subprocess.STDOUT,
-                                startupinfo=startup)
+                                startupinfo=startup, env=env)
         (cap / 'flycast.pid').write_text(str(proc.pid))
         reader = subprocess.Popen([sys.executable, str(cap / 'read_log.py'), *syms, str(a.seconds)], cwd=cap, stdout=log,
                                   stderr=logerr, creationflags=subprocess.CREATE_NO_WINDOW)

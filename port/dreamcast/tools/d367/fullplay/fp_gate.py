@@ -88,7 +88,11 @@ def main():
     ap.add_argument('release'); ap.add_argument('--label'); ap.add_argument('--evidence')
     ap.add_argument('--only'); ap.add_argument('--jobs', type=int, default=int(os.environ.get('FP_JOBS', '8')))
     ap.add_argument('--known', default=str(HERE / 'known-issues.txt')); ap.add_argument('--keep-discs', action='store_true')
+    ap.add_argument('--conf', default=str(HERE / 'segments.conf'), help='segment list (crash.conf: the align crash suite)')
+    ap.add_argument('--align', action='store_true', help='every segment on the hwmodel Flycast with the align logger (fp_run.py --align)')
     a = ap.parse_args()
+    if not Path(a.conf).exists():
+        a.conf = str(HERE / a.conf)  # a bare name: the conf next to this script
     t0 = time.time()
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     label = a.label or re.sub(r'[^A-Za-z0-9]', '', Path(a.release).stem)[-12:] or 'rel'
@@ -98,13 +102,13 @@ def main():
     def log(m):
         line = '%s %s' % (datetime.datetime.now().strftime('%H:%M:%S'), m)
         print(line, flush=True); logf.write(line + '\n'); logf.flush()
-    meta = dict(input=str(a.release), label=label, start=stamp, segments=[])
+    meta = dict(input=str(a.release), label=label, start=stamp, segments=[], conf=str(a.conf), align=a.align)
     log('full-play gate %s -> %s' % (a.release, ev))
     g, tracks, ok, note = release_tracks(a.release, ev, log)
     meta.update(tracks=tracks, tracks_ok=ok, tracks_verified=note)
     (ev / 'gate.json').write_text(json.dumps(meta, indent=1))
     if not ok:
-        log('FAIL: release tracks not verified'); fp_check.main([str(ev), '--known', a.known]); return 1
+        log('FAIL: release tracks not verified'); fp_check.main([str(ev), '--known', a.known, '--conf', str(a.conf)]); return 1
     tp = time.time()
     fpb = os.environ.get('FP_BUILD', '')  # WSL path of the release build's out dir, when the search finds none
     fpx = os.environ.get('FP_TWIN_EXTRA', '')  # extra twin-only diagnostic knobs (fp_prep.sh), e.g. WEP_TARGET_GUARD=2
@@ -117,7 +121,7 @@ def main():
         (ev / 'gate.json').write_text(json.dumps(meta, indent=1))
         return 2
     prep = json.loads((ev / 'prep.json').read_text())
-    segs = fp_check.parse_conf(HERE / 'segments.conf')
+    segs = fp_check.parse_conf(a.conf)
     if a.only:
         segs = [s for s in segs if s['name'] in a.only.split(',')]
     segs.sort(key=lambda s: -s['seconds'])
@@ -127,7 +131,7 @@ def main():
     S = HERE / 'segments'
     def run(s):
         cmd = [sys.executable, str(HERE / 'fp_run.py'), '--cap', str(ev / s['name']), '--seconds', str(s['seconds']),
-               '--name', s['name'], '--grace', str(s['grace'])]
+               '--name', s['name'], '--grace', str(s['grace'])] + (['--align'] if a.align else [])
         if s['disc'] == 'real':
             cmd += ['--disc', str(g), '--syms', prep['syms_release']]
         else:
@@ -136,6 +140,9 @@ def main():
                 cmd += ['--warp', str(S / s['warp'])]
             if s['pad'] != '-':
                 cmd += ['--pad', str(S / s['pad'])]
+            w11 = S / s['warp'].replace('-warp.txt', '-w11.txt')  # W11_FIXTURE twin (FP_TWIN_EXTRA=W11_FIXTURE=1)
+            if s['warp'] != '-' and w11 != S / s['warp'] and w11.exists():
+                cmd += ['--w11', str(w11)]
         if s['keys'] != '-':
             cmd += ['--keys', str(S / s['keys'])]
         if s['vmu'] == 'save':
@@ -173,7 +180,7 @@ def main():
         rel = ev / '_release'
         if rel.exists():
             shutil.rmtree(rel)
-    rc = fp_check.main([str(ev), '--known', a.known])
+    rc = fp_check.main([str(ev), '--known', a.known, '--conf', str(a.conf)])
     log('verdict rc=%d, wall %s' % (rc, meta['wall']))
     return rc
 

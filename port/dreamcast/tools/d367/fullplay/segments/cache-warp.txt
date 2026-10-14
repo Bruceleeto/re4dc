@@ -1,0 +1,21 @@
+name fullplay-cache
+# Short memory-trend loop (2026-10-14, replaces `long` for the leak question when it shows the same trends): r100 after
+# the radio call, god mode, 8 room changes through the source's room change (WARP_JUMP=1), each after 1500 room frames
+# (~50 s): r100 -> r101 -> r100 -> r101 -> r100 -> r101 -> r100 -> r101 -> r100. Leak check: r100 x5, r101 x4 entries
+# (kos_used, heap 4, free VRAM). The r101 visits start at the r103 door (as in long), the village side.
+room 0x100
+pos -99685 -484 -1343
+ang 2.2460
+rsf 0x100 13
+scenario 0 0x00000010
+find 0x00002000
+inv default
+god
+jump 1500 0x100 0x101 39372 3201 -26667 1.6378
+jump 1500 0x101 0x100 -99685 -484 -1343 2.2460
+jump 1500 0x100 0x101 39372 3201 -26667 1.6378
+jump 1500 0x101 0x100 -99685 -484 -1343 2.2460
+jump 1500 0x100 0x101 39372 3201 -26667 1.6378
+jump 1500 0x101 0x100 -99685 -484 -1343 2.2460
+jump 1500 0x100 0x101 39372 3201 -26667 1.6378
+jump 1500 0x101 0x100 -99685 -484 -1343 2.2460

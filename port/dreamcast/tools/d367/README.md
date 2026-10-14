@@ -787,3 +787,28 @@ the chapter ends play in the game's own code once the rig has set the scene.
   release-binary `reset` (`LHPACK dir rows=0 ... why=1`) and every twin segment (`LEONGC f=... why=4`) (`nohp-a`,
   36.0 min).
 
+**Crash suite (`fullplay.sh <zip> --conf crash.conf --align`, 2026-10-14).** Console test 11 (eb4e8813) faulted
+after the first radio call (FAULT 0e0, a misaligned read in walk_signature) although the 37-minute dynarec gate
+passed: Flycast performs misaligned reads silently. `--align` runs every segment on the hwmodel Flycast
+(`HW_FLYCAST`, interpreter, `HWTRACE_ALIGN=1`, as `hwready/route-hw.sh align`); `fp_check.py` adds the capture's
+`hwtrace.log` MISALIGN lines to the segment log (category `misalign`, never a known row), and an align run without
+an `align=1` hwtrace.log fails. `crash.conf`: call (fresh r100: s40 + the first radio call closed with A), inv
+(case, command list, Examine), door103 (post-bell call + door), s03 (in-engine cutscene), ch12 (results + save),
+save (typewriter save), fight (r101), death (W11 die -> Continue -> room again), realcall (the untouched release
+disc from boot to the first call's close; host keys). save/death need the W11_FIXTURE twin
+(`FP_TWIN_EXTRA=W11_FIXTURE=1`): `<x>-w11.txt` next to `<x>-warp.txt` goes to `/cd/dc/w11.txt` (fp_master.sh
+masters a third fixture slot at LBA 440). The interpreter runs ~7-9 game fps: the twin segments take 3-6 min wall.
+Result on eb4e8813 (cr11a, cr11d): 0 MISALIGN in every segment, also realcall past the call close (to frame 4560; the
+console faulted at ui frame 2166); the console bad read
+depends on stale memory contents Flycast does not reproduce, so the suite proves alignment of the paths it plays,
+not the absence of that fault.
+
+**Short cache loop (`--only cache`).** `cache` warps r100 <-> r101 four times (1500 room frames per visit, ~8 min)
+for the leak check on r100 x5 / r101 x4 entries; it answers the memory-trend question faster than `long`.
+
+**Traps.** fp_prep picks the newest `out-*` whose binary equals the disc's 1ST_READ.BIN; another lane's knob-off build
+can match (cr11a picked out-d11ktP = b8fc59e3), and known rows keyed to the release commit then do not apply: pass
+`FP_BUILD=<the release out dir>` (from Git Bash also `MSYS2_ENV_CONV_EXCL=FP_BUILD`, or MSYS rewrites the path).
+Each gate stages ~2.5 GB on C: (`_release` + `_discs`) and fp_run aborts below 15 GB free: run gates one at a time
+when C: is tight.
+
