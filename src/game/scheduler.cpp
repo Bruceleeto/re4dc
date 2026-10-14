@@ -118,6 +118,9 @@ u32 GetStackSize(int no)
 
 // Once per frame from the main thread: runs every slot except the ISR one in order (slot 2 first
 // restores the debug menu's stop flag); debug_mode 6 prints the stack usage.
+#if defined(RE4DC_MODEL_WALK_CHECK) && RE4DC_MODEL_WALK_CHECK
+extern "C" void re4dc_ot_check_task(unsigned slot);  // model_asset_bridge.cpp (debug only)
+#endif
 void TaskScheduler()
 {
     u32 i;
@@ -133,6 +136,9 @@ void TaskScheduler()
         }
         pCTask = t;
         TaskSchedulerMain(t);
+#if defined(RE4DC_MODEL_WALK_CHECK) && RE4DC_MODEL_WALK_CHECK
+        re4dc_ot_check_task(i);
+#endif
     }
     pCTask = CTASK_MAIN;
     if (pG->debug_mode == 6) {
