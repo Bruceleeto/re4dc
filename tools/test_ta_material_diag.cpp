@@ -32,5 +32,16 @@ int main(){
     c.clear();assert(c.select(2,1,0,9999,true)==0);
     c.incomplete(false);assert(c.invalid==0);c.incomplete(true);assert(c.invalid==1);
     c.clear();assert(c.invalid==0);
+    // Actual clipping/submission over mixed row sizes: the published total
+    // must reconcile exactly, regardless of independent floating reduction.
+    c.clear();const float qx[3]={0,0.7f,0},qy[3]={0,0,1};
+    for(unsigned i=0;i<10000;++i){c.select(0,1,0,i%20,true);c.add(0,qx,qy,3,1);}
+    unsigned totals[5]{};assert(c.integer_fill(totals));unsigned sum=0;
+    for(unsigned i=0;i<c.count;++i)sum+=unsigned(c.rows[i].fill);
+    assert(totals[0]==sum && totals[2]==0 && totals[4]==0);
+    c.rows[0].fill=std::numeric_limits<float>::infinity();assert(!c.integer_fill(totals));
+    c.rows[0].fill=-1;assert(!c.integer_fill(totals));
+    c.rows[0].fill=4294967296.0f;assert(!c.integer_fill(totals));
+    c.rows[0].fill=4294967040.0f;c.rows[1].fill=1024;assert(!c.integer_fill(totals));
     std::puts("TA material diagnostic geometry, attribution, overflow and reset PASS");
 }

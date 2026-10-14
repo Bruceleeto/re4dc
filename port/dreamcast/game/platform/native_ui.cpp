@@ -1399,13 +1399,14 @@ void header(unsigned list,const std::uint32_t* q){
     }
 }
 void report(unsigned frame,bool present){
+    unsigned areas[5]{};const bool valid_area=census.integer_fill(areas);if(!valid_area)++census.invalid;
     for(unsigned i=0;i<census.count;++i){const auto& r=census.rows[i];if(!r.tris)continue;
         re4dc_log("tamat: f=%u scene=%u p=%u l=%u source=%u key=%08x-%08x tcw=%08x tsp=%08x tris=%u fill=%u resolved=%u textured=%u\n",
-            frame,scene,present?1u:0u,r.list,r.source,r.crc,r.fnv,r.tcw,r.tsp,r.tris,unsigned(r.fill),r.resolved,r.textured);
+            frame,scene,present?1u:0u,r.list,r.source,r.crc,r.fnv,r.tcw,r.tsp,r.tris,valid_area?unsigned(r.fill):0u,r.resolved,r.textured);
     }
     re4dc_log("tamat total: f=%u scene=%u p=%u rows=%u overflow=%u invalid=%u orphan=%u tris=%u/%u/%u fill=%u/%u/%u\n",
         frame,scene,present?1u:0u,census.count,census.overflow,census.invalid,census.orphans,
-        census.tris[0],census.tris[2],census.tris[4],unsigned(census.fill[0]),unsigned(census.fill[2]),unsigned(census.fill[4]));
+        census.tris[0],census.tris[2],census.tris[4],areas[0],areas[2],areas[4]);
     ++scene;census.clear();
 }
 }

@@ -25,8 +25,11 @@ numbers can repeat across scenes. Totals include zero-area scenes, overflow,
 invalid-coordinate and orphan counts. The fixed 256-row capacity refuses
 silent aliasing; any nonzero failure count invalidates that measurement.
 Rows with no triangles are omitted; the total row count includes their headers.
-Integer area output is floored from float accumulation, so retain the small
-rounding residual between total and per-material sums. A truncated last scene
+Integer row area is floored from float accumulation. Current totals sum those
+printed row integers exactly, with explicit range/overflow rejection. The
+initial W1 diagnostic used independent float totals; its r100 run exceeded
+the parser rounding allowance and is rejected as a quantitative report. This
+fix changes only diagnostics; W1 raw evidence is retained. A truncated last scene
 is incomplete and cannot be used. Preserve raw logs and explicitly document
 any lossless reconstruction of an asynchronous serial-log interleave.
 

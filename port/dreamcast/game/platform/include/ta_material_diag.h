@@ -69,6 +69,18 @@ struct Census {
         const float y[4]={sprite_y[list][0],sprite_y[list][1],f[0],f[3]};
         add(list,x,y,4,2);
     }
+    // Totals use exactly the printed row floors. Independent float reduction
+    // orders can differ by more than one pixel after thousands of triangles.
+    bool integer_fill(unsigned (&out)[5]) const {
+        for(auto& v:out)v=0;
+        for(unsigned i=0;i<count;++i){const Row& r=rows[i];if(!r.tris)continue;
+            if(!finite(r.fill) || r.fill<0 || r.fill>=4294967296.0f)return false;
+            const unsigned a=unsigned(r.fill);
+            if(a>~0u-out[r.list])return false;
+            out[r.list]+=a;
+        }
+        return true;
+    }
     void incomplete(bool pending) { if(pending)++invalid; }
     void clear() {
         count=overflow=invalid=orphans=0;
