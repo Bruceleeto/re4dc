@@ -54,7 +54,7 @@ CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut')
 # (cb_headroom.py over the test 10 GC-atlas pak; same keys, sizes, formats; sha256 1eb18ec4...). Without it Leon draws
 # at half brightness; never stage it with a knob-off binary (2x bright).
 DATA['leonhr'] = {'dc/tex.pak': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
-T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc,leonhr'  # the test 11 recipe (user 10-14: GC light bake; Leon probe + headroom)
+T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc'  # the test 11 recipe (user 10-14: GC light bake; Leon flat, leonhr only with the probe knobs)
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
