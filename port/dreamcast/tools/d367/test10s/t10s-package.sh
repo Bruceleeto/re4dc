@@ -5,7 +5,7 @@ set -e
 R=/root/probe/lanes-20261014/t10s
 L=t10stP
 O=/root/probe/lanes/route/out-$L
-SHA=$(git -C $R/tree rev-parse --short=8 HEAD)
+SHA=${SRC_SHA:-a93e8be0}   # the image source (this recipe commit adds tools only)
 DATE=20261014
 P="/mnt/c/Game Dev/Emulators/RE4DC-Test10-Release"
 Z=RE4DC-Console-Test-$SHA-$DATE-GDEMU.zip
