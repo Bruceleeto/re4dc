@@ -72,4 +72,33 @@ tools/d367/test11/t11-fix.py: `objs-<room>` (one room, unpadded), `objs` (all 16
 
 ## Gates and measurements
 
-(pending: Flycast runs held until the test 11 gate is done)
+Builds (lane/objs eb4e8813 code = the test 11 release code; test11/t11-build.sh with K/T/LP=objs): objstW (tW: warp +
+PC_SAMPLER, elf 36265277...), objstT (tT trace, 2a8cdcf3...), objsmW (mW: TEX_CHECK=2 + MCHECK_LEONGC, 7c0105ec...).
+Every arm pair below = the same image, fixtures from t11-fix.py with T11_DATA (control) vs T11_DATA + objs set (test).
+Runners: work/o-run.sh, o-trace.sh (trace_lock), o-strict.sh, o-hw.sh; queue _tools/qs3.sh + qjob3.sh (host cap 8
+Flycasts, C: floor, one staging at a time). All numbers are Flycast / SH-4 model = MODELLED, not console.
+
+### r101 (first, user priority)
+
+- Warp-in STRICT (objs-sq101 = st-square without its still freeze; stop tick 2400): sq101c-t vs sq101o-t2 STRICT 2402
+  ticks, decision_cmp MUST-IDENTICAL, 0 HALT / MISSING / FAULT / LEONGC / overrun. (The first objs run sq101o-t was
+  cut after 10 s by the harness C: capacity guard: RUN_FAILED, not a game result.)
+- Village view mcheck runs (objs-v101: Leon west of the square facing the burning stake, fight live, 150 s): objs
+  LEON-GC PASS; TEX_CHECK FAIL on one key, 9fe00ef7-6123f7d5 256x256 "PVR texture allocation failed / frag-latched"
+  (frame 1228); the test 11 control fails the same key twice (frames 517, 1224): pre-existing in test 11, not from
+  this change. Stills: the stake (now only the PS2 world copy) and the Ganados look the same; sheet
+  C:\Flycast-Evidence\re4-dreamcast\objs-20261014\sheets\r101-before-after.png.
+- hw model (hwproject, objs-v101 view, global frames 1330:1409, stride 7; 5 Ganados drawn per drawn tick), CPU work
+  per drawn tick without the wait rows (bench-split.py over proj-drawn):
+
+| arm | traced drawn ticks | CPU work ms (hw nominal) | actor/model submit | frame/TA/UI | world submit |
+|---|---:|---:|---:|---:|---:|
+| test 11 (v101c) | 6 | 85.16 | 22.69 | 8.16 | 16.74 |
+| test 11 (v101c4, stride 4) | 20 | 82.59 | 22.69 | 7.87 | 16.73 |
+| objs-r101 (v101o) | 6 | 80.98 | 19.42 | 6.85 | 16.71 |
+
+  The saving is the stake's 5,277 GC triangles plus the smaller etc models: re4dc_avk_pos_rigid_s16 2.13 -> 0.83,
+  texture hash_bytes 2.53 -> 1.44, pass_baked 0.78 -> 0, Part::whole 2.61 -> 2.01. Target 50 ms per drawn frame (20 fps):
+  CPU stays ~31 ms over it; objects are ~4 ms (5%) of the gap.
+
+(r101 GPU proxy, the crowd12 benchmark-r101 rows and the other rooms: below as they finish.)
