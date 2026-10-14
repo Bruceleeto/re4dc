@@ -13,13 +13,13 @@ db351823,40fb4deb,135fde2b | gc-fallback | * | ^LEONGC (?!armed) | KNOWN_ISSUES 
 # "Footsteps and room ambience are silent in r103 (the farm), and in later rooms" (all builds, Open).
 * | sound | * | aica: blk \d+ .*does not fit | KNOWN_ISSUES "Footsteps and room ambience are silent in r103 and later rooms" (sound banks not prebuilt)
 # "After loading a save and resetting, the first room starts with less free memory" (test 9, Open, #26).
-db351823,40fb4deb,135fde2b | reset-memory | reset | . | KNOWN_ISSUES "After loading a save and resetting, the first room starts with less free memory" (#26)
+db351823,40fb4deb,135fde2b,a93e8be0 | reset-memory | reset | . | KNOWN_ISSUES "After loading a save and resetting, the first room starts with less free memory" (#26)
 # Soft reset destroys heap 4 on purpose (RESET_HEAP_FIX): fp_check already notes drops inside the reset window.
 
 # --- Found by this gate on 2026-10-14 (test 9 and 9.1), not yet in KNOWN_ISSUES.md: add rows there. ---
 # Scoped to the test 9 / 9.1 trees only, so any later build that still has them FAILS.
-db351823,40fb4deb,135fde2b | texture | * | no contiguous block for|texchk: FAIL PVR texture allocation failed | NEW 10-14: VRAM fragmentation refuses a texture for 120+ frames (r105 UI 495x150, r10b 512x512, r119 256x256) although enough VRAM is free
-db351823,40fb4deb,135fde2b | texture | bell | re4tex 128x128 fmt=14$|FAIL (open failed|missing) [0-9a-f]{8}-[0-9a-f]{8} 128x128 fmt=14 | NEW 10-14: at the r101 bell (room frame ~8100) a 128x128 fmt=14 texture is looked up that is not on the disc; its id differs per build (9.1 8de064f0-4c53f61a, test 9 9a9c2701-99af7ea7, a93e8be0 447d46a4-89f3730b): an id hashed from changing data?
-db351823,40fb4deb,135fde2b | alloc | h2 | alloc\[[0-9a-f]+\]:free\[[0-9a-f]+\] native UI texture staging | NEW 10-14: r100 s30 start: UI texture staging (55 KB) does not fit while the movie borrows heap 4
-db351823,40fb4deb,135fde2b | texture | ch21 | fbec854a-b7656a09 | NEW 10-14: chapter 2-1 results screen texture /cd/dc/tex/f/fbec854a-b7656a09.re4tex (pair color c050cf4e-216cd784 mask ec97f64b-dab43d54) is not on the disc
+db351823,40fb4deb,135fde2b,a93e8be0 | texture | * | no contiguous block for|texchk: FAIL PVR texture allocation failed | NEW 10-14: VRAM fragmentation refuses a texture for 120+ frames (r105 UI 495x150, r10b 512x512, r119 256x256) although enough VRAM is free
+db351823,40fb4deb,135fde2b,a93e8be0 | texture | bell | re4tex 128x128 fmt=14$|FAIL (open failed|missing) [0-9a-f]{8}-[0-9a-f]{8} 128x128 fmt=14 | NEW 10-14: at the r101 bell (room frame ~8100) a 128x128 fmt=14 texture is looked up that is not on the disc; its id differs per build (9.1 8de064f0-4c53f61a, test 9 9a9c2701-99af7ea7, a93e8be0 447d46a4-89f3730b): an id hashed from changing data?
+db351823,40fb4deb,135fde2b,a93e8be0 | alloc | h2 | alloc\[[0-9a-f]+\]:free\[[0-9a-f]+\] native UI texture staging | NEW 10-14: r100 s30 start: UI texture staging (55 KB) does not fit while the movie borrows heap 4
+db351823,40fb4deb,135fde2b,a93e8be0 | texture | ch21 | fbec854a-b7656a09 | NEW 10-14: chapter 2-1 results screen texture /cd/dc/tex/f/fbec854a-b7656a09.re4tex (pair color c050cf4e-216cd784 mask ec97f64b-dab43d54) is not on the disc
 40fb4deb,135fde2b | movie | lake | route movie terminal=3 id=10b10 | NEW 10-14: test 9.1 twin: r10b s10 ends on its first picture (terminal=3, "texture retirement: open scene discarded", vram_free=21504 at start); plays whole on test 9 and a93e8be0
