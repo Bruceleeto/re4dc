@@ -1582,10 +1582,16 @@ struct Lights {
     const SourceLighting* source = nullptr;
     re4dc::render::PreparedSourceLights prepared;
     float view_dot[3]{};     // light . direction from the part centre to the camera (view space)
+#if RE4DC_ACTOR_PROBE_LIGHT
+    bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
+#endif
 };
 
 #ifndef RE4DC_GIGANTE_LIGHTS
 #define RE4DC_GIGANTE_LIGHTS 0
+#endif
+#ifndef RE4DC_ACTOR_PROBE_LIGHT
+#define RE4DC_ACTOR_PROBE_LIGHT 0
 #endif
 #ifndef RE4DC_GIGANTE_LIGHTS_TREES
 #define RE4DC_GIGANTE_LIGHTS_TREES 0
@@ -1742,6 +1748,154 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
     return true;
 }
 
+#if RE4DC_ACTOR_PROBE_LIGHT
+// ACTOR_PROBE_LIGHT=1/2 (crowd.mk; render only; default 0): one light probe per actor per frame. The GX light set that
+// LightSetModel selected for the actor (the record LEON_SOURCE_LIGHT / PS2_GANADO_LIT capture, dynamic lights
+// included) is evaluated once, at the actor's origin, into ambient + one directional light (the L0 + L1 spherical
+// harmonic fit of the clamped-cosine sum: V = sum(luma(C_i) l_i), coherence a = |V| / sum(luma(C_i)); a x sum(C_i)
+// directional along V / |V|, .25 (1 - a) sum(C_i) added to the ambient). Every part of that actor then lights with
+// that one direction in its own normal space (Leon: the part's (modelview 3x3)^-T, as LEON_SOURCE_LIGHT; Ganados: the
+// shared record's normal matrix) through the existing fast kernel: no per-part light loop, no exact evaluator.
+// =1 Leon (the marked record); =2 also the Ganado classes 0x10..0x20: near tier per vertex, mid/far one colour per
+// part from the probe (as CROWD_FLAT). The source record is never written.
+#ifndef RE4DC_ACTOR_PROBE_LIGHT_LOG
+#define RE4DC_ACTOR_PROBE_LIGHT_LOG 600
+#endif
+extern "C" int re4dc_actor_model_id(const void* model);  // model_bridge.cpp
+extern "C" void re4dc_log(const char* fmt, ...);
+struct ProbeEntry {
+    const void* model = nullptr;
+    const SourceLighting* source = nullptr;
+    unsigned serial = 0;
+    bool ok = false;
+    float v[3]{};     // view space, unit (the dominant direction toward the lights)
+    float dcol[3]{};  // directional colour (x 1/255 units, attenuated)
+    float amb[3]{};   // ambient + folded residual
+    float view_dot = 0.0f;
+};
+constexpr unsigned kProbeEntries = 8;
+ProbeEntry probe_cache[kProbeEntries];
+unsigned probe_next = 0;
+struct ProbeStats { unsigned built, reused, parts, leon, ganado, declined, last; } probe_stats{};
+bool probe_eligible(const Re4dcModelPart& p) {
+    const SourceLighting& S = *p.lighting;
+    if (!S.enable || S.ambient_vertex || S.material_vertex || S.diffuse != 2) return false;
+    if (S.normal_matrix[3] == 1.0e30f) return true;  // Leon (LEON_SOURCE_LIGHT capture)
+#if RE4DC_ACTOR_PROBE_LIGHT >= 2
+    const int id = re4dc_actor_model_id(p.model);
+    if (id >= 0x10 && id <= 0x20) return true;
+#endif
+    return false;
+}
+const ProbeEntry& probe_of(const Re4dcModelPart& p) {
+    const SourceLighting& S = *p.lighting;
+    for (unsigned i = 0; i < kProbeEntries; ++i) {
+        const ProbeEntry& e = probe_cache[i];
+        if (e.serial == frame_serial && e.model == p.model && e.source == &S) { ++probe_stats.reused; return e; }
+    }
+    ProbeEntry& e = probe_cache[probe_next];
+    probe_next = (probe_next + 1U) % kProbeEntries;
+    e = ProbeEntry{};
+    e.model = p.model; e.source = &S; e.serial = frame_serial;
+    ++probe_stats.built;
+    const float px = p.modelview[3], py = p.modelview[7], pz = p.modelview[11];  // the actor's first part's origin
+    if (!re4dc::render::is_finite(px) || !re4dc::render::is_finite(py) || !re4dc::render::is_finite(pz)) return e;
+    constexpr float k = 1.0f / 255.0f;
+    float vec[3]{}, total[3]{}, weight = 0.0f;
+    for (unsigned i = 0; i < 8; ++i) {
+        if (!(S.mask & (1U << i))) continue;
+        const SourceLight& s = S.lights[i];
+        float lx = s.position[0] - px, ly = s.position[1] - py, lz = s.position[2] - pz;
+        const float d2 = lx * lx + ly * ly + lz * lz, d = std::sqrt(d2);
+        if (d > 0.0f) { const float r = 1.0f / d; lx *= r; ly *= r; lz *= r; }
+        else { lx = 0.0f; ly = 0.0f; lz = 1.0f; }
+        float attenuation = 1.0f;
+        if (S.attenuation == 1) {
+            const float cosine = std::max(0.0f, lx * s.direction[0] + ly * s.direction[1] + lz * s.direction[2]);
+            const float angular = std::max(0.0f, s.a[0] + s.a[1] * cosine + s.a[2] * cosine * cosine);
+            const float denominator = s.k[0] + s.k[1] * d + s.k[2] * d2;
+            attenuation = denominator > 0.0f ? angular / denominator : 0.0f;
+        }
+        const float red = s.color[0] * k * attenuation, green = s.color[1] * k * attenuation,
+                    blue = s.color[2] * k * attenuation;
+        if (std::max(red, std::max(green, blue)) <= 1.0f / 1024.0f) continue;
+        const float w = .2126f * red + .7152f * green + .0722f * blue;
+        vec[0] += w * lx; vec[1] += w * ly; vec[2] += w * lz; weight += w;
+        total[0] += red; total[1] += green; total[2] += blue;
+    }
+    const float length = std::sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
+    if (!re4dc::render::is_finite(length) || !re4dc::render::is_finite(weight)) return e;
+    const float a = weight > 0.0f ? std::min(1.0f, length / weight) : 0.0f;
+    const float c2 = px * px + py * py + pz * pz, cr = c2 > 0.0f ? -1.0f / std::sqrt(c2) : 0.0f;
+    if (length > 0.0f) {
+        const float r = 1.0f / length;
+        e.v[0] = vec[0] * r; e.v[1] = vec[1] * r; e.v[2] = vec[2] * r;
+        e.view_dot = (e.v[0] * px + e.v[1] * py + e.v[2] * pz) * cr;
+    }
+    for (unsigned c = 0; c < 3; ++c) {
+        e.dcol[c] = length > 0.0f ? a * total[c] : 0.0f;
+        e.amb[c] = S.ambient[c] * k + .25f * (1.0f - a) * total[c];
+        if (!re4dc::render::is_finite(e.dcol[c]) || !re4dc::render::is_finite(e.amb[c])) return e;
+    }
+    e.ok = true;
+    return e;
+}
+// The part's Lights from its actor's probe; false: not eligible / not representable (build_lights then runs).
+bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
+    if (!probe_eligible(p)) return false;
+    const SourceLighting& S = *p.lighting;
+    float scale[3];
+    for (unsigned c = 0; c < 3; ++c) {
+        scale[c] = S.material[c] * S.tev_scale;
+        if (!(scale[c] >= 255.0f)) { ++probe_stats.declined; return false; }  // build_lights' caps255 condition
+    }
+    const float* N = S.normal_matrix;
+    float Np[12];
+    const bool leon = N[3] == 1.0e30f;
+    if (leon) {
+        if (!leon_part_normal(p.modelview, Np)) { ++probe_stats.declined; return false; }
+        N = Np;
+    }
+    const ProbeEntry& e = probe_of(p);
+    if (!e.ok) { ++probe_stats.declined; return false; }
+    L = Lights{};
+    L.source = &S;
+    L.probe = true;
+    L.dir[0][0] = (N[0] * e.v[0] + N[4] * e.v[1] + N[8] * e.v[2]) * f.nq;
+    L.dir[0][1] = (N[1] * e.v[0] + N[5] * e.v[1] + N[9] * e.v[2]) * f.nq;
+    L.dir[0][2] = (N[2] * e.v[0] + N[6] * e.v[1] + N[10] * e.v[2]) * f.nq;
+    L.count = 1;
+    L.view_dot[0] = e.view_dot;
+    for (unsigned c = 0; c < 3; ++c) {
+        L.color[c] = 0.5f * e.dcol[c] * scale[c];
+        L.color[12 + c] = e.amb[c] * scale[c];
+    }
+    L.fast = true;
+    ++stats.light_sets;
+    ++probe_stats.parts;
+    if (leon) ++probe_stats.leon; else ++probe_stats.ganado;
+#if RE4DC_ACTOR_PROBE_LIGHT_LOG
+    if (probe_stats.parts == 1 || frame_serial - probe_stats.last >= unsigned(RE4DC_ACTOR_PROBE_LIGHT_LOG)) {
+        probe_stats.last = frame_serial;
+        re4dc_log("PROBE_LIGHT f=%u built=%u reused=%u parts=%u leon=%u ganado=%u declined=%u v=%d,%d,%d dcol=%d,%d,%d "
+                  "amb=%d,%d,%d\n", frame_serial, probe_stats.built, probe_stats.reused, probe_stats.parts,
+                  probe_stats.leon, probe_stats.ganado, probe_stats.declined, int(e.v[0] * 100.0f),
+                  int(e.v[1] * 100.0f), int(e.v[2] * 100.0f), int(e.dcol[0] * 255.0f), int(e.dcol[1] * 255.0f),
+                  int(e.dcol[2] * 255.0f), int(e.amb[0] * 255.0f), int(e.amb[1] * 255.0f), int(e.amb[2] * 255.0f));
+    }
+#endif
+    return true;
+}
+// The part's light fold: the actor's probe when it applies, else build_lights.
+bool part_lights(const Re4dcModelPart& p, const Frame& f, const float center[3], Lights& L) {
+    if (probe_lights(p, f, L)) return true;
+    return build_lights(p, f, center, L);
+}
+#define RE4DC_PART_LIGHTS part_lights
+#else
+#define RE4DC_PART_LIGHTS build_lights
+#endif
+
 // Light directions of palette entry i (skinned normals): R_i^T l, w = 0,
 // cached per entry for the current part's light set.
 const float* skin_light_dirs(Frame& f, const Lights& L, unsigned i, float* fallback) {
@@ -1756,6 +1910,22 @@ const float* skin_light_dirs(Frame& f, const Lights& L, unsigned i, float* fallb
     if (f.skin_dirs) f.dirs_ready[i] = 1;
     return out;
 }
+#if RE4DC_ACTOR_PROBE_LIGHT
+// ACTOR_PROBE_LIGHT: a probe fold has one direction, so every palette entry's directions are built in one pass when the
+// fold changes (skin_light_dirs' arithmetic for direction 0, directions 1 and 2 zero) instead of the kernels' record
+// walks (avk_build_dirs*) finding unbuilt entries meshlet by meshlet.
+void probe_dirs_all(Frame& f, const Lights& L) {
+    const float l0 = L.dir[0][0], l1 = L.dir[0][1], l2 = L.dir[0][2];
+    const float* P = f.palette;
+    float* out = f.skin_dirs;
+    for (unsigned i = 0; i < f.palette_entries; ++i, P += 12, out += 12) {
+        for (unsigned c = 0; c < 3; ++c) out[c] = P[c * 3] * l0 + P[c * 3 + 1] * l1 + P[c * 3 + 2] * l2;
+        out[3] = 0.0f;
+        for (unsigned k = 4; k < 12; ++k) out[k] = 0.0f;
+    }
+    std::memset(f.dirs_ready, 1, f.palette_entries);
+}
+#endif
 
 // ----------------------------------------------------------- the meshlet --
 // Outcode bits, built MSB-first by the SH4 kernel's rotcl chain (ACTOR_VTX_KERNEL: the order of
@@ -4408,10 +4578,14 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     e.cache.oc = reinterpret_cast<u8*>(e.cache.v + kMaxVertices);
 
     Lights lights;
-    if (!build_lights(p, f, blob->center, lights)) lights.prepared = re4dc::render::prepare_actor_lights(*p.lighting);
+    if (!RE4DC_PART_LIGHTS(p, f, blob->center, lights)) lights.prepared = re4dc::render::prepare_actor_lights(*p.lighting);
     lights.source = p.lighting;
     const unsigned tier = crowd_class > 0 ? crowd_tier(p, crowd_class) : kTierFull;
-    if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant) {
+    if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant
+#if RE4DC_ACTOR_PROBE_LIGHT
+        && !(lights.probe && tier == kTierNear)  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
+#endif
+    ) {
         lights.constant = true;
         lights.constant_rgb = part_colour(lights);
     }
@@ -4425,6 +4599,9 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
             std::memset(f.dirs_ready, 0, f.palette_entries);
             std::memcpy(f.dirs_fold, &lights.dir[0][0], sizeof(f.dirs_fold));
             ++stats.skin_dir_sets;
+#if RE4DC_ACTOR_PROBE_LIGHT
+            if (lights.probe && f.palette) probe_dirs_all(f, lights);
+#endif
         }
     }
     const bool s16_uv = (p.flags & 0x80000000U) != 0;
@@ -4946,7 +5123,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     const bool constant_source = !S.enable && !S.ambient_vertex && !S.material_vertex;
     Lights* lp = constant_source ? &w.lights : &w.lit;
     if (!constant_source || !w.lights_ready || w.lights.source != p.lighting) {
-        if (!build_lights(p, f, blob->center, *lp)) lp->prepared = re4dc::render::prepare_actor_lights(*p.lighting);
+        if (!RE4DC_PART_LIGHTS(p, f, blob->center, *lp)) lp->prepared = re4dc::render::prepare_actor_lights(*p.lighting);
         lp->source = p.lighting;
         w.lights_ready = constant_source;
     }
@@ -4963,7 +5140,11 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
             w.tier_t[0] = mw[3]; w.tier_t[1] = mw[7]; w.tier_t[2] = mw[11];
         }
     }
-    if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant) {
+    if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant
+#if RE4DC_ACTOR_PROBE_LIGHT
+        && !(lights.probe && tier == kTierNear)  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
+#endif
+    ) {
         lights.constant = true;  // never the window's record: lights.fast is false for constant lighting
         lights.constant_rgb = part_colour(lights);
     }
@@ -4974,6 +5155,9 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
             std::memset(f.dirs_ready, 0, f.palette_entries);
             std::memcpy(f.dirs_fold, &lights.dir[0][0], sizeof(f.dirs_fold));
             ++stats.skin_dir_sets;
+#if RE4DC_ACTOR_PROBE_LIGHT
+            if (lights.probe && f.palette) probe_dirs_all(f, lights);
+#endif
         }
     }
     const bool s16_uv = (p.flags & 0x80000000U) != 0;

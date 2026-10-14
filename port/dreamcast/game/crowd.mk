@@ -417,6 +417,30 @@ $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_SOURCE_LIGHT=1
 endif
 
+# ACTOR_PROBE_LIGHT=1/2 (lane lp2, character lighting phase 2; render only; default 0: nothing changes): one light probe
+#              per actor per frame instead of the per-part light fold. The actor's GX light set (LightSetModel's lights,
+#              ambient, material, TEV scale: the LEON_SOURCE_LIGHT / PS2_GANADO_LIT records, dynamic lights included) is
+#              evaluated once at the actor's origin into ambient + one directional light (L0 + L1 fit); each part lights
+#              with that one direction in its own normal space through the existing fast kernel (never the exact
+#              per-vertex evaluator). =1 Leon; =2 Leon + the Ganado classes 0x10..0x20 (near tier per vertex, mid/far one
+#              colour per part from the probe, as CROWD_FLAT). Logs PROBE_LIGHT lines. Needs LEON_SOURCE_LIGHT=1 (Leon's
+#              capture) and, for =2, PS2_GANADO_LIT=1 CROWD_LOD=1. See docs/ACTOR_PROBE_LIGHT.md.
+ACTOR_PROBE_LIGHT ?= 0
+ifeq ($(filter $(ACTOR_PROBE_LIGHT),0 1 2),)
+$(error ACTOR_PROBE_LIGHT must be 0, 1 or 2)
+endif
+ifneq ($(ACTOR_PROBE_LIGHT),0)
+ifneq ($(LEON_SOURCE_LIGHT),1)
+$(error ACTOR_PROBE_LIGHT needs LEON_SOURCE_LIGHT=1 (the capture of Leon's GX light set))
+endif
+ifeq ($(ACTOR_PROBE_LIGHT),2)
+ifneq ($(PS2_GANADO_LIT)$(CROWD_LOD),11)
+$(error ACTOR_PROBE_LIGHT=2 needs PS2_GANADO_LIT=1 CROWD_LOD=1)
+endif
+endif
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_PROBE_LIGHT=$(ACTOR_PROBE_LIGHT)
+endif
+
 # Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.
 # Default off keeps the original registry and adds no compiler flags. The pool
 # is fixed at the existing workspace owner limit times the maximum plan roles.
