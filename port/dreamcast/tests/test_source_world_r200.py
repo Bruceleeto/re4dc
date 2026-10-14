@@ -57,7 +57,11 @@ if __name__=='__main__':
         light_macro=trans[trans.index('#define LIGHT_POS'):trans.index('// Registers a visible model')]
         render_marker='void ModelRender(cModel* m)\n#endif'
         model_body=function(trans,render_marker).replace(render_marker,'void ModelRender(cModel* m)',1)
-        hook=next(line for line in trans.splitlines() if 'sourceWorldDraw(m)!=0)info=nullptr' in line)
+        # The source owner now distinguishes abort from successful suppression.
+        # Execute the complete current hook, including its early-return branch.
+        common=function(trans,'void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)')
+        hook_start=common.index('#if RE4DC_PS2_WORLD_SOURCE_OWNER')
+        hook=common[hook_start:common.index('#endif',hook_start)+len('#endif')]
         sub=(ROOT/'src/game/main_sub.cpp').read_text()
         prim_bodies=function(trans,'void SetPrimBuffPtr()')+'\n'+function(trans,'void* GetPrimBuff(int size)')
         generated=maximums+'\n'+prim_bodies+'\n'+ot_bodies+'\n'+light_macro+'\n'+function(trans,'void ModelTrans(cModel* m)')+'\n'
