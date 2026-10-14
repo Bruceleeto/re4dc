@@ -21,6 +21,16 @@ struct Re4dcActorSkinBackup {
 #ifndef RE4DC_ACTOR_PL08
 #define RE4DC_ACTOR_PL08 0
 #endif
+#ifndef RE4DC_ACTOR_SKIN_RESERVE
+#define RE4DC_ACTOR_SKIN_RESERVE 0
+#endif
+#if RE4DC_ACTOR_SKIN_RESERVE && (!RE4DC_ACTOR_TRANSACTION || !RE4DC_NATIVE_ACTOR_FAST || !RE4DC_NATIVE_ACTOR_SKIN_LAZY)
+#error ACTOR_SKIN_RESERVE requires actor transactions and the fast lazy skin registry
+#endif
+#if RE4DC_ACTOR_SKIN_RESERVE
+// Shared reservation batch limit; this does not enlarge any per-owner lease.
+constexpr unsigned kRe4dcActorSkinKeys=64;
+#endif
 // Role-indexed infos per owner plan. ACTOR_PL08=1 (crowd.mk): the nine-info no-jacket Leon (pl08) is the widest
 // plan; every other appearance keeps its exact count. Its one extra (role 8) run follows the 21 Leon runs.
 constexpr unsigned kRe4dcActorRoles=RE4DC_ACTOR_PL08?9u:8u;
@@ -41,6 +51,13 @@ extern "C" {
 int re4dc_actor_workspace_acquire(unsigned,Re4dcActorWorkspaceLease*);
 int re4dc_actor_workspace_validate(const Re4dcActorWorkspaceLease*);
 void re4dc_actor_workspace_release(Re4dcActorWorkspaceLease*);
+#if RE4DC_ACTOR_SKIN_RESERVE
+// Source-plan storage priority only. Up to 64 unique nominee main-info keys
+// get inert slots in the same 64-entry table; no palette, geometry or owner is admitted.
+// A full/invalid current table declines atomically. Source registrations fill
+// their own placeholders; all other deferrals keep the usual eager fallback.
+int re4dc_actor_skin_reserve(unsigned source_frame,const void* const* infos,unsigned count);
+#endif
 int re4dc_actor_skin_acquire(unsigned,const Re4dcActorSkinBinding*,unsigned,Re4dcActorSkinLease*);
 int re4dc_actor_skin_validate(const Re4dcActorSkinLease*);
 int re4dc_actor_skin_release(Re4dcActorSkinLease*);

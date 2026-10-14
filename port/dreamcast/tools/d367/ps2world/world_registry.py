@@ -291,7 +291,7 @@ TEX_CRC_DATA_NOTE = ('payload_crc32 covers the texel data only (ps2_room_r4im.py
                      'and by stage.sh\'s staging check')
 
 
-def tex_package_error(b, width, height):
+def tex_package_error(b, width, height, *, pal4_alpha=False):
     """(None, crc rule) if the RE4DCTX bytes `b` load the way the game loads a PS2 part texture, else (reason, None).
 
     The game opens /cd/dc/tex/<c>/<crc>-<fnv>.re4tex with texture::Package::open_streamed (native_ui.cpp
@@ -302,7 +302,9 @@ def tex_package_error(b, width, height):
     ARGB4444 or PAL4; inside the data range). Then re4dc_ps2_world_direct_begin draws the part only if textures()[0]
     is exactly the part's width x height. Integrity: payload_crc32 must equal the CRC32 of every byte after the header
     (the runtime rule, crc rule 'header') or, the PS2 converter's rule, of the data range when it ends the file
-    (crc rule 'data', TEX_CRC_DATA_NOTE). Either catches a truncated or altered payload."""
+    (crc rule 'data', TEX_CRC_DATA_NOTE). Either catches a truncated or altered payload.
+    Format4 requires explicit pal4_alpha=True, corresponding to TEX_PAL4_ALPHA=1;
+    its base-level twiddled payload is w*h/2 index bytes plus 32 palette bytes."""
     if len(b) < 48:
         return 'shorter than the header', None
     magic, version, hsize, stride, count, toff, doff, dsize, pcrc, _nsrc, _flags = struct.unpack_from('<8s10I', b)
@@ -323,8 +325,9 @@ def tex_package_error(b, width, height):
         tw, th, fmt, off, size, _fl, payload, reserved = struct.unpack_from('<8I', b, toff + 96 * i + 64)
         dims = 8 <= tw <= 1024 and 8 <= th <= 1024 and not tw & (tw - 1) and not th & (th - 1)
         pal4 = fmt == 3 and payload == 2
-        expected = 2048 + tw * th // 16 + 32 if pal4 else 2048 + tw * th // 4 if payload == 2 else tw * th * 2
-        if (not dims or payload > 2 or reserved or size != expected or (fmt > 2 and not pal4) or off < doff
+        alpha4 = pal4_alpha and fmt == 4 and payload == 1 and not (_fl & 4)
+        expected = tw * th // 2 + 32 if alpha4 else 2048 + tw * th // 16 + 32 if pal4 else 2048 + tw * th // 4 if payload == 2 else tw * th * 2
+        if (not dims or payload > 2 or reserved or size != expected or (fmt > 2 and not pal4 and not alpha4) or off < doff
                 or off + size > doff + dsize or off < 48 or off + size > len(b)):
             return 'descriptor %d: dimensions, format, layout or payload size' % i, None
         if payload == 0:
@@ -335,7 +338,7 @@ def tex_package_error(b, width, height):
     return None, rule
 
 
-def check_textures(pkg_dir, keys, replace, resolver=None):
+def check_textures(pkg_dir, keys, replace, resolver=None, *, pal4_alpha=False):
     """Every part's texture (unique key + size): present, loadable (tex_package_error) and hashed. resolver(key) ->
     (bytes or None, source) replaces the package-dir lookup (a fixture-selected package: the staged bytes)."""
     uniq = sorted({(k[0], k[1], k[2], k[3]) for k in keys})
@@ -353,7 +356,7 @@ def check_textures(pkg_dir, keys, replace, resolver=None):
                 missing.append(key)
                 continue
             b = p.read_bytes()
-        why, rule = tex_package_error(b, w, h)
+        why, rule = tex_package_error(b, w, h, pal4_alpha=pal4_alpha)
         if why:
             bad.append(dict(key=key, size=[w, h], why=why))
         else:

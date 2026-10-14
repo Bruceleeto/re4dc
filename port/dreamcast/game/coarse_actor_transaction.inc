@@ -4,6 +4,7 @@
 #include "actor_palette_arena.h"
 #include "actor_transaction_diag.h"
 #include "actor_transaction_diag_impl.inc"
+#include "actor_visibility_diag_impl.inc"
 // NATIVE_MODEL_REGISTRY_SOURCE_LIGHT (native_model_registry.mk): registry plans of the selected enemy ids (bit 0: El
 // Gigante, 0x2B, set by PS2_GIGANTE; bit 1: Del Lago, 0x2F, set by PS2_DELLAGO) take the source GX lighting record
 // (actor_source_lighting below) instead of the constant colour, as ACTOR_GANADO_SOURCE_LIGHT does for every non-Leon
@@ -151,8 +152,15 @@ bool actor_semantics(cModel* m,const Re4dcActorPlan& p) {
         if(r.triangles>p.input[r.role].triangles-triangles[r.role])return false;
         triangles[r.role]+=r.triangles;
     }
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    unsigned covered=0;
+    if(!re4dc_registry_covered_roles(m,&p,&covered) ||
+       (seen|covered)!=(1u<<p.count)-1 || (seen&covered) || materials!=(1u<<p.material_count)-1)return false;
+    for(unsigned i=0;i<p.count;++i)if(triangles[i]!=((covered&(1u<<i))?0u:p.input[i].triangles))return false;
+#else
     if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return false;
     for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles)return false;
+#endif
 #if RE4DC_NATIVE_MODEL_REGISTRY_CENSUS
     actor_certificate_reached=true;  // the registry census: a decline from here on is the material certificate's
 #endif
@@ -211,8 +219,15 @@ unsigned actor_semantics_why(cModel* m,const Re4dcActorPlan& p,unsigned* detail)
         triangles[r.role]+=r.triangles;
     }
     *detail=0;
+#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+    unsigned covered=0;
+    if(!re4dc_registry_covered_roles(m,&p,&covered) ||
+       (seen|covered)!=(1u<<p.count)-1 || (seen&covered) || materials!=(1u<<p.material_count)-1)return 26;
+    for(unsigned i=0;i<p.count;++i)if(triangles[i]!=((covered&(1u<<i))?0u:p.input[i].triangles)){*detail=i;return 27;}
+#else
     if(seen!=(1u<<p.count)-1 || materials!=(1u<<p.material_count)-1)return 26;
     for(unsigned i=0;i<p.count;++i)if(triangles[i]!=p.input[i].triangles){*detail=i;return 27;}
+#endif
     if(!re4dc_actor_material_certificate(m,&p))return 28;
     return 0;
 }
@@ -655,7 +670,8 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!actor_semantics(m,p)){
             ATD(m,6,p.appearance,p.count);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
-            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);
+                if(why==3)re4dc_actor_vis_decline(m,p.appearance,p.info,p.count);}
 #endif
             NMR_CENSUS(if(plan_kind==3)registry_decline(m,&p,actor_certificate_reached?kRwCertificate:kRwSemantics);
                 scene_note(m,plan_kind,plan_kind==3?kScRegistryDeclined:kScDeclined));
@@ -692,7 +708,8 @@ extern "C" int re4dc_actor_transaction_draw(cModel* m) {
         if(!actor_semantics(m,p)){
             ATD(m,6,p.appearance,p.count);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
-            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);}
+            {unsigned d=0;const unsigned why=actor_semantics_why(m,p,&d);re4dc_actor_txdiag_why(m,"semantics",why,d);
+                if(why==3)re4dc_actor_vis_decline(m,p.appearance,p.info,p.count);}
 #endif
             return 0;
         }

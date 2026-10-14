@@ -55,6 +55,10 @@ static cObj** scrObjTbl;   // 250 entries, indexed by scroll object id
 static cObj** scrTbl;      // one entry per SMD work
 int nScrWork;
 static const u8 ScrObjIdNum = 16;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "ps2_source_world.h"
+#include "source_world_scroll.inc"
+#endif
 
 // Never called in this build; keeps ScrIdRefTbl alive (GCC 2.95 emits statics an inline body
 // mentions).
@@ -102,6 +106,9 @@ void SmdClear(int mode)
 
     switch (mode) {
     case 0:
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+        sourceWorldScrollClear();
+#endif
         memclr_asm(scrObjTbl, 250 * sizeof(cObj*));
         memclr_asm(scrTbl, nScrWork * sizeof(cObj*));
         break;
@@ -178,6 +185,9 @@ int setObj(int blk)
             obj->be_flag &= ~0x20;
         }
         obj->matUpdate();
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+        sourceWorldScrollBind(unsigned(i),obj);
+#endif
 #if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_NATIVE_STATIC
         re4dc_static_bind(obj, ((unsigned) pG->stage_no << 8) | pG->room_no, blk, i, w->binNo,
                           (w->flags & 0x10) != 0, obj->serial, &obj->mat[0][0]);
@@ -489,6 +499,10 @@ void BlockCreate(int blk, cSmd* smd)
 // Scroll block `blk` unloaded: destroys its objects (kind 2 with that blk).
 void BlockDestroy(int blk)
 {
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    // A block replacement invalidates the bounded whole-room witness.
+    sourceWorldScrollClear();
+#endif
     cObj* p = ObjMgr.pAlive;
     cObj* cur;
     cObj* next;

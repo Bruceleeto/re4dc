@@ -1,3 +1,7 @@
+#include "include/actor_visibility_diag.h"
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/ps2_source_world.h"
+#endif
 #ifndef RE4DC_PT_BLEND_FIX
 #define RE4DC_PT_BLEND_FIX 0
 #endif
@@ -38,6 +42,13 @@ extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mc
 #endif
 #if RE4DC_ACTOR_TRANSACTION
 #include "include/actor_resource_lease.h"
+#endif
+#if RE4DC_ACTOR_TEX_PREP
+// This KOS translation unit has the real <new> placement overload above.
+#ifndef PLACEMENT_NEW_DEFINED
+#define PLACEMENT_NEW_DEFINED
+#endif
+#include "include/actor_tex_prep.h"
 #endif
 #include "re4dc_pad_prompts.h"
 #include "re4dc_manual_pages.h"
@@ -505,7 +516,15 @@ unsigned deferred_top=sizeof(frame_storage),deferred_peak=0,deferred_count=0,def
 unsigned char* deferred_spill=nullptr;unsigned deferred_spill_top=0,deferred_spill_capacity=0;
 bool draining_parts=false,source_draws_finished=false;
 pvr_list_t draining_list=PVR_LIST_TR_POLY;
-void reset_deferred(){deferred_spill=nullptr;deferred_spill_top=deferred_spill_capacity=0;deferred_light_sets=nullptr;deferred_basis=nullptr;deferred_lights=nullptr;deferred_first=deferred_last=nullptr;deferred_top=sizeof(frame_storage);deferred_count=0;}
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+unsigned avd_queue_epoch;
+#endif
+void reset_deferred(){
+    AVD_EVENT(Reset,nullptr,nullptr,0); // Caller reason intentionally unknown.
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+    ++avd_queue_epoch;
+#endif
+    deferred_spill=nullptr;deferred_spill_top=deferred_spill_capacity=0;deferred_light_sets=nullptr;deferred_basis=nullptr;deferred_lights=nullptr;deferred_first=deferred_last=nullptr;deferred_top=sizeof(frame_storage);deferred_count=0;}
 pvr_list_t select_model_pass(const Re4dcModelPart* p){
     // Alpha is from source material/vertex channels, not texture file format.
     // The separately masked path is classified after its native binding qualifies.
@@ -1607,9 +1626,13 @@ void stream_open() {
 }
 #if RE4DC_D349_RENDERER_STACK
 void stream_select(pvr_list_t list){
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+    const bool avd_note=list!=stream_list || !stream_scene;
+#endif
+    AVD_IF_EVENT(avd_note,ListRequest,nullptr,nullptr,unsigned(list));
     desired_list=list;
-    if(!stream_scene){stream_open();return;}
-    if(stream_list==list)return;
+    if(!stream_scene){stream_open();AVD_IF_EVENT(avd_note,ListResult,nullptr,nullptr,unsigned(list));return;}
+    if(stream_list==list){AVD_IF_EVENT(avd_note,ListResult,nullptr,nullptr,unsigned(list));return;}
     // End the old list once. Never reopen it or replay source ModelRender.
 #if RE4DC_PS2_WORLD_DRAW
     if(stream_closed_lists&(1u<<unsigned(list))){
@@ -1620,6 +1643,7 @@ void stream_select(pvr_list_t list){
             re4dc_log("PS2PASS kept frame=%u from=%u to=%u mask=%x finished=%u ra=%p count=%u\n",frame,unsigned(stream_list),
                 unsigned(list),stream_closed_lists,unsigned(source_draws_finished),__builtin_return_address(0),kept+1);
         ++kept;
+        AVD_IF_EVENT(avd_note,ListResult,nullptr,nullptr,unsigned(list));
         return;
 #else
         re4dc_log("PS2PASS closed frame=%u from=%u to=%u mask=%x finished=%u\n",
@@ -1642,6 +1666,7 @@ void stream_select(pvr_list_t list){
     if(pvr_list_finish()<0 || pvr_list_begin(list)<0)re4dc_missing("native pass transition failed");
 #endif
     sq_unlock();stream_list=list;
+    AVD_IF_EVENT(avd_note,ListResult,nullptr,nullptr,unsigned(list));
 #if RE4DC_TA_HASH
     ta_hash_marker(list);
 #endif
@@ -2918,6 +2943,9 @@ void preload_identities(){
 #endif
 }
 #endif
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
+#include "include/native_effect_stage1_prepare.inc"
+#endif
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
 // VRAM_CENSUS (test only): texture RAM census. VRAM_PAGES reports its own lists; the KOS dlmalloc
 // heap is walked chunk by chunk (4-byte size word, PREV_INUSE in the next chunk; top chunk free).
@@ -3419,7 +3447,9 @@ void glyph_init(){
     if(!glyph_atlas){re4dc_log("native mes: glyph atlas allocation FAILED (free=%u); message text off\n",before);return;}
     alignas(32) static const unsigned char zero[512]={};
     for(unsigned n=0;n<kGlyphAtlasBytes;n+=sizeof(zero))pvr_txr_load(zero,(char*)glyph_atlas+n,sizeof(zero));
+#if !RE4DC_TEX_PAL4_ALPHA
     pvr_set_pal_format(PVR_PAL_ARGB8888);
+#endif
     re4dc_log("native mes: glyph atlas 256x%u PAL4 at %p, %u B (pool %u -> %u before the UI budget), %u cells, %u glyphs/frame\n",
         kGlyphAtlasH,glyph_atlas,kGlyphAtlasBytes,before,(unsigned)pvr_mem_available(),kGlyphCells,kGlyphCapacity);
 }
@@ -3709,6 +3739,11 @@ extern "C" void re4dc_ui_init(){
         re4dc_log("native VRAM layout: vertbuf=%u KiB x%u banks (%s) opb_bins=%u overflow=%u texture_pool_free=%u\n",
             unsigned(RE4DC_TA_VERTEX_BYTES/1024U),2U,RE4DC_TA_DOUBLEBUF?"double-buffered":"single-bank use",unsigned(RE4DC_TA_OPB_BINS),unsigned(RE4DC_TA_OPB_OVERFLOW+RE4DC_TA_HEADROOM),(unsigned)pvr_mem_available());
 #endif
+#if RE4DC_TEX_PAL4_ALPHA
+        // One global format and bank owner for message glyphs and packages.
+        if(!re4dc::texture::initialize_palettes(RE4DC_NATIVE_MES ? 0xffU : 0U))
+            re4dc_missing("native palette configuration changed");
+#endif
 #if RE4DC_NATIVE_MES
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
         census_heap_base=PVR_RAM_INT_TOP-pvr_mem_available(); // no texture RAM allocated yet
@@ -3908,6 +3943,12 @@ extern "C" void re4dc_ui_door_queue(unsigned steps){door_frame=frame;door_steps=
 // load_indicator.cpp (LOAD_INDICATOR with DOOR_FREEZE): the banner's quads start here.
 extern "C" void re4dc_ui_door_mark(){if(door_ui_mark==~0U)door_ui_mark=nquad;door_banner_frame=frame;}
 #endif
+#if RE4DC_ACTOR_TEX_PREP
+#include "include/native_ui_actor_tex_prep.inc"
+#endif
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "include/native_ui_source_world.inc"
+#endif
 extern "C" void re4dc_ui_begin(){
 #if RE4DC_KOS_HEAP_CHECK
     re4dc_heap_check();
@@ -4001,6 +4042,15 @@ extern "C" void re4dc_ui_begin(){
     if(preload_pending && frame_ready && !vram_claims)preload_identities();
 #endif
     re4dc_prepare_model_assets(); // registration/update work precedes frame submission
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_TEX_RESIDENT
+    stage1_prepare_image(); // existing guarded preload/load path; no effect submission
+#endif
+#if RE4DC_ACTOR_TEX_PREP
+    actor_texture_prepare(); // ordinary preload demotion has already finished
+#endif
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    sourceWorldTexturePrepare();
+#endif
     re4dc::profile::begin();
 #if defined(__sh__)
     re4dc_profile_source(&render_source_begin);
@@ -4981,7 +5031,12 @@ extern "C" int re4dc_actor_texture_acquire(const Re4dcUiImage* image,unsigned cr
     if(!e || !e->valid || !(e->key==key) || !e->package.upload_complete() || e->package.header().texture_count!=1 || !e->package.pvr_texture(0))return 0;
     const auto& t=e->package.textures()[0];
     if(t.width!=image->width || t.height!=image->height || t.format>re4dc::texture::kArgb4444)return 0;
+#if RE4DC_ACTOR_TEX_PREP && RE4DC_ACTOR_TEX_PREP_DIAG
+    if(!actor_texture_leases.acquire(unsigned(e-entries),frame,*out))return 0;
+    actor_tex_prep_bound(key);return 1;
+#else
     return actor_texture_leases.acquire(unsigned(e-entries),frame,*out)?1:0;
+#endif
 }
 #if RE4DC_ACTOR_EARLY_COARSE
 extern "C" int re4dc_actor_texture_acquire_next(const Re4dcUiImage* image,unsigned crc,unsigned fnv,Re4dcActorTextureLease* out){
@@ -5018,6 +5073,19 @@ extern "C" void re4dc_actor_texture_retire_all(){
     actor_texture_leases.retire_frame(); // never clears submitted Entry::frame pins
 }
 #include "include/native_ui_actor_material.inc"
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+extern "C" void re4dc_actor_vis_stream(re4dc_visdiag::Stream* out){
+    *out={frame,avd_queue_epoch,deferred_count,unsigned(stream_list),
+#if RE4DC_PS2_WORLD_DRAW
+        stream_closed_lists,
+#else
+        0,
+#endif
+        unsigned(frame_ready)|(unsigned(stream_aborted)<<1)|(unsigned(stream_scene)<<2)|
+        (unsigned(source_draws_finished)<<3)|(unsigned(draining_parts)<<4)|(unsigned(direct_open)<<5),
+        uintptr_t(deferred_first),uintptr_t(deferred_last)};
+}
+#endif
 extern "C" int re4dc_actor_stream_state(Re4dcActorStreamState* out){
     if(!out || !frame_ready || stream_aborted)return 0;
     *out={frame,model_invalid,model_resource,model_overflow};return 1;
@@ -5169,9 +5237,9 @@ namespace {
 // taken once into stack scratch (it was walked twice: size, then fill) and a
 // found lighting record supplies its own light set (no second list scan).
 int defer_part(const Re4dcModelPart* p,const SourceLighting* source){
-    if(draining_parts)return 0;
-    if(source_draws_finished){RE4DC_PROFILE_COUNT(DirectTR,1);return 0;}
-    if(select_model_pass(p)==PVR_LIST_OP_POLY){RE4DC_PROFILE_COUNT(DirectOP,1);return 0;}
+    if(draining_parts){AVD_EVENT(Direct,nullptr,p,0);return 0;}
+    if(source_draws_finished){AVD_EVENT(Direct,nullptr,p,1);RE4DC_PROFILE_COUNT(DirectTR,1);return 0;}
+    if(select_model_pass(p)==PVR_LIST_OP_POLY){AVD_EVENT(Direct,nullptr,p,2);RE4DC_PROFILE_COUNT(DirectOP,1);return 0;}
     RE4DC_PROFILE_SCOPE(TranslucentEnqueue);
     if(!frame_ready || stream_aborted)return 1;
     DeferredLighting* lighting=nullptr;
@@ -5222,6 +5290,7 @@ int defer_part(const Re4dcModelPart* p,const SourceLighting* source){
     node->lighting=lighting;
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,&view,unsigned(uintptr_t(node->lighting)));
     deferred_peak=std::max(deferred_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     RE4DC_PROFILE_HIGH(QueuePeak,frame_queue_peak);
@@ -5237,9 +5306,9 @@ extern "C" int re4dc_model_defer_part(const Re4dcModelPart* p){
 #if RE4DC_COPY_LEAN && RE4DC_D349_RENDERER_STACK
     return defer_part(p,p->lighting);
 #elif RE4DC_D349_RENDERER_STACK
-    if(draining_parts)return 0;
-    if(source_draws_finished){RE4DC_PROFILE_COUNT(DirectTR,1);return 0;}
-    if(select_model_pass(p)==PVR_LIST_OP_POLY){RE4DC_PROFILE_COUNT(DirectOP,1);return 0;}
+    if(draining_parts){AVD_EVENT(Direct,nullptr,p,0);return 0;}
+    if(source_draws_finished){AVD_EVENT(Direct,nullptr,p,1);RE4DC_PROFILE_COUNT(DirectTR,1);return 0;}
+    if(select_model_pass(p)==PVR_LIST_OP_POLY){AVD_EVENT(Direct,nullptr,p,2);RE4DC_PROFILE_COUNT(DirectOP,1);return 0;}
     RE4DC_PROFILE_SCOPE(TranslucentEnqueue);
     if(!frame_ready || stream_aborted)return 1;
     // Full current state snapshot; arrays/display-list remain source-owned.
@@ -5289,6 +5358,7 @@ extern "C" int re4dc_model_defer_part(const Re4dcModelPart* p){
     node->lighting=lighting;
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,&view,unsigned(uintptr_t(node->lighting)));
     deferred_peak=std::max(deferred_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     RE4DC_PROFILE_HIGH(QueuePeak,frame_queue_peak);
@@ -5484,7 +5554,8 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
     if((s->pad&1) && !s->screen){
         if(source_draws_finished){
-            alignas(32) unsigned char packet[kOctPacket];oct_packet(*s,e,packet);
+            AVD_EVENT(Direct,nullptr,nullptr,7);
+        alignas(32) unsigned char packet[kOctPacket];oct_packet(*s,e,packet);
             stream_select(PVR_LIST_TR_POLY);
 #if RE4DC_TA_BIN_DIAG
             tabin::skip_fill=true;stream_send(packet,kOctPacket);tabin::skip_fill=false;
@@ -5504,13 +5575,16 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
         auto* node=new(storage+*top) DeferredPart{};node->lighting=kOctTag;
         oct_packet(*s,e,storage+*top+kSpriteNode);
         if(deferred_last)deferred_last->next=node;else deferred_first=node;
-        deferred_last=node;++deferred_count;++fx_queued;++fx_count;
+        deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
+    ++fx_queued;++fx_count;
         fx_peak=std::max(fx_peak,fx_count);
         frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
         return 1;
     }
 #endif
     if(source_draws_finished){
+        AVD_EVENT(Direct,nullptr,nullptr,1);
         alignas(32) unsigned char packet[kSpritePacket];fx_packet(*s,e,packet);
         stream_select(PVR_LIST_TR_POLY);fx_send(packet,s->screen);
         ++fx_direct;++fx_count;return 1;
@@ -5527,11 +5601,19 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     auto* node=new(storage+*top) DeferredPart{};node->lighting=kSpriteTag;node->changed[0]=s->screen;
     fx_packet(*s,e,storage+*top+kSpriteNode);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
-    deferred_last=node;++deferred_count;++fx_queued;++fx_count;
+    deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
+    ++fx_queued;++fx_count;
     fx_peak=std::max(fx_peak,fx_count);
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_PS2_FX_COMMON_HAZE) && RE4DC_PS2_FX_COMMON_HAZE
+#include "include/native_effect_haze_batch.inc"
+#endif
+#if defined(RE4DC_PS2_FX_ADDITIONS) && RE4DC_PS2_FX_ADDITIONS
+#include "include/native_effect_stage1_batch.inc"
+#endif
 #if defined(RE4DC_NATIVE_LASER) && RE4DC_NATIVE_LASER
 // Esp19's source line becomes one untextured, colour-interpolated strip in
 // the same bounded OT queue as effect sprites. All packet bytes are copied
@@ -5568,6 +5650,7 @@ extern "C" int re4dc_effect_line(const Re4dcEffectLine* s){
     }
     v[3].flags=PVR_CMD_VERTEX_EOL;
     if(source_draws_finished){
+        AVD_EVENT(Direct,nullptr,nullptr,3);
         stream_select(PVR_LIST_TR_POLY);stream_send(packet,kLinePacket);++fx_direct;return 1;
     }
     const unsigned required=kSpriteNode+kLinePacket,margin=8192;
@@ -5580,7 +5663,9 @@ extern "C" int re4dc_effect_line(const Re4dcEffectLine* s){
     *top-=required;auto* node=new(storage+*top) DeferredPart{};node->lighting=kLineTag;
     std::memcpy(storage+*top+kSpriteNode,packet,kLinePacket);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
-    deferred_last=node;++deferred_count;++fx_queued;
+    deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
+    ++fx_queued;
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
@@ -5605,7 +5690,7 @@ static int subscreen_submit(const Re4dcSubscreenQuad* q,const pvr_vertex_t* vert
     pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(packet),&c);
     std::memcpy(packet+1,vertices,count*sizeof(pvr_vertex_t));
     const unsigned bytes=(count+1)*sizeof(pvr_vertex_t);
-    if(source_draws_finished){stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
+    if(source_draws_finished){AVD_EVENT(Direct,nullptr,nullptr,4);stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
     const unsigned required=kSubscreenQuadNode+bytes,margin=8192;
     unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
     if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
@@ -5618,6 +5703,7 @@ static int subscreen_submit(const Re4dcSubscreenQuad* q,const pvr_vertex_t* vert
     std::memcpy(storage+*top+kSubscreenQuadNode,packet,bytes);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
@@ -5674,7 +5760,7 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
     c.blend.src=PVR_BLEND_DESTCOLOR;c.blend.dst=PVR_BLEND_ZERO;
     pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(packet),&c);
     const unsigned bytes=(used+1)*sizeof(pvr_vertex_t);
-    if(source_draws_finished){stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
+    if(source_draws_finished){AVD_EVENT(Direct,nullptr,nullptr,4);stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
     const unsigned required=kSubscreenQuadNode+bytes,margin=8192;
     unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
     if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
@@ -5687,6 +5773,7 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
     std::memcpy(storage+*top+kSubscreenQuadNode,packet,bytes);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
@@ -5694,7 +5781,7 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
 // LAKE_RIPPLES (native_lake.cpp): a prebuilt TR packet (headers and vertices) queued like the water quad above.
 extern "C" int re4dc_ui_tr_packet(const void* packet,unsigned bytes){
     if(!frame_ready || stream_aborted || draining_parts || !bytes)return 0;
-    if(source_draws_finished){stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
+    if(source_draws_finished){AVD_EVENT(Direct,nullptr,nullptr,4);stream_select(PVR_LIST_TR_POLY);stream_send(packet,bytes);return 1;}
     const unsigned required=kSubscreenQuadNode+((bytes+31)&~31U);
     if(required+8192>deferred_top || deferred_top-required-8192<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad))))return 0;
     deferred_top-=required;auto* node=new(frame_storage+deferred_top) DeferredPart{};
@@ -5702,6 +5789,7 @@ extern "C" int re4dc_ui_tr_packet(const void* packet,unsigned bytes){
     std::memcpy(frame_storage+deferred_top+kSubscreenQuadNode,packet,bytes);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
     return 1;
 }
 #endif
@@ -5800,6 +5888,7 @@ extern "C" void re4dc_post_filter00(unsigned char rate,unsigned char type,signed
     post_diag_frame();
 #endif
     if(source_draws_finished){
+        AVD_EVENT(Direct,nullptr,nullptr,2);
         alignas(32) unsigned char packet[kPostBytes];post_packet(packet);
         stream_select(PVR_LIST_TR_POLY);post_send(packet,kPostBytes);++post_direct;return;
     }
@@ -5814,7 +5903,9 @@ extern "C" void re4dc_post_filter00(unsigned char rate,unsigned char type,signed
     auto* node=new(storage+*top) DeferredPart{};node->lighting=kPostTag;node->changed[0]=kPostBytes;
     post_packet(storage+*top+kPostNode);
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
-    deferred_last=node;++deferred_count;++post_queued;
+    deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
+    ++post_queued;
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
 }
 #endif
@@ -5892,6 +5983,7 @@ extern "C" void re4dc_look_grade_post(void){
     if(!argb && !osd)return;
     const unsigned bytes=(argb?kGradeBytes:0U)+(osd?kGradeBytes:0U);
     if(source_draws_finished){
+        AVD_EVENT(Direct,nullptr,nullptr,6);
         alignas(32) unsigned char packet[2*kGradeBytes];
         if(argb)grade_packet(packet,argb);
         if(osd)osd_packet(packet+(argb?kGradeBytes:0U));
@@ -5910,6 +6002,7 @@ extern "C" void re4dc_look_grade_post(void){
     if(osd)osd_packet(storage+*top+kGradeNode+(argb?kGradeBytes:0U));
     if(deferred_last)deferred_last->next=node;else deferred_first=node;
     deferred_last=node;++deferred_count;
+    AVD_EVENT(Enqueue,node,nullptr,unsigned(uintptr_t(node->lighting)));
     if(!(grade_queued++%1800))re4dc_log("look grade: argb=%08x queued=%u direct=%u dropped=%u\n",argb,grade_queued,grade_direct,grade_dropped);
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
 }
@@ -6198,6 +6291,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
         sq_flush(sq);
         direct_open=true;
         model_handle->frame=frame; // the header is in the TA: pinned for this scene
+#if RE4DC_PS2_WORLD_SOURCE_TEX_PREP
+        sourceWorldTextureAcquired(key);
+#endif
         ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
         out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
         out->u_scale=out->v_scale=1;
@@ -6265,6 +6361,9 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
     sq_flush(sq);
     direct_open=true;
     model_handle->frame=frame; // the header is in the TA: pinned for this scene
+#if RE4DC_PS2_WORLD_SOURCE_TEX_PREP
+        sourceWorldTextureAcquired(key);
+#endif
     ++frame_pvr_calls;frame_pvr_bytes+=32;stream_model_bytes+=32;
     out->sq=sq+8;out->scratch=model_packets+model_pending;out->scratch_capacity=kModelPacketBytes/32-model_pending;
     out->u_scale=out->v_scale=1;
@@ -6275,6 +6374,7 @@ extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* 
 }
 #endif
 extern "C" void re4dc_model_finish_source_draws(){
+    AVD_EVENT(FinishBegin,nullptr,nullptr,0);
     RE4DC_PROFILE_SCOPE(TranslucentDrain);
 #if RE4DC_TREE_IMPOSTOR
     re4dc_static_flush_impostors(); // PT list, between the OP pass and the TR drain
@@ -6286,13 +6386,14 @@ extern "C" void re4dc_model_finish_source_draws(){
     re4dc_ps2_world_flush(); // after all existing PT, before ordinary source TR
 #endif
 #if RE4DC_D349_RENDERER_STACK
-    if(!deferred_first){source_draws_finished=true;return;}
+    if(!deferred_first){source_draws_finished=true;AVD_EVENT(FinishEnd,nullptr,nullptr,1);return;}
     draining_parts=true;
     // Current PVR setup enables OP/TR only. Do not submit a dummy PT list:
     // pinned KOS compares completed-list bits to exactly the enabled-list mask.
     // A future qualified PT material must also budget/enable that list.
     stream_select(PVR_LIST_TR_POLY);draining_list=PVR_LIST_TR_POLY;
     while(deferred_first && !stream_aborted){
+        AVD_EVENT(Drain,deferred_first,nullptr,unsigned(uintptr_t(deferred_first->lighting)));
 #if RE4DC_SUBSCREEN && RE4DC_PVR_STREAM
         if(deferred_first->lighting==kSubscreenQuadTag){
             const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSubscreenQuadNode;
@@ -6343,6 +6444,7 @@ extern "C" void re4dc_model_finish_source_draws(){
         // Copy the small view before I/O can yield. Retirement clears the queue
         // and aborts this same frame; it never frees an in-flight PVR texture.
         Re4dcModelPart view=restore_view(deferred_first);
+        AVD_EVENT(DrainModel,deferred_first,&view,0);
         const auto* saved_lighting=deferred_first->lighting;
         deferred_first=deferred_first->next;
 #if RE4DC_COPY_LEAN
@@ -6356,6 +6458,7 @@ extern "C" void re4dc_model_finish_source_draws(){
         re4dc_model_submit(&view);
 #endif
     }
+    AVD_EVENT(FinishEnd,nullptr,nullptr,stream_aborted?3u:2u);
     draining_parts=false;source_draws_finished=true;reset_deferred();
 #endif
 }

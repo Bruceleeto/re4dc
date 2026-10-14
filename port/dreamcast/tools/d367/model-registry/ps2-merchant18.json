@@ -1,0 +1,20 @@
+{
+  "registry": "ps2-standalone-merchant18",
+  "about": "Standalone em18 merchant in r10d/r112. Separate exact archive, BIN/TPL identities and source info order; never aliases em13 type6. Closed/open cloth retains the source goods visibility behavior.",
+  "cast_dir": "/root/probe/codex-ch23-enemies-20261013/regcast-merchant18",
+  "revision_overlay": "ps2-overlay",
+  "level": "conservative",
+  "archive_audit": "source/archive-audit.json",
+  "descriptors": [
+    {"name": "merchant18-c0", "archive": "em18", "model_id": "0x18", "source_types": [],
+     "module": "src/em18/em18.cpp em18_R0_Init: body5/6, robe14/15, head7/8, hands18,19/6, cloth12/15, goods13/6",
+     "mask_runs": {"1": "/root/probe/codex-ch23-enemies-20261013/models/merchant18-c0-mask-robe", "5": "/root/probe/codex-ch23-enemies-20261013/models/merchant18-c0-mask-cloth"}},
+    {"name": "merchant18-o0", "archive": "em18", "model_id": "0x18", "source_types": [],
+     "module": "src/em18/em18.cpp em18ClothPartsSet(on=1): replaces source cloth info with BIN11/TPL15",
+     "mask_runs": {"1": "/root/probe/codex-ch23-enemies-20261013/models/merchant18-o0-mask-robe", "5": "/root/probe/codex-ch23-enemies-20261013/models/merchant18-o0-mask-cloth"}}
+  ],
+  "room_packages": {
+    "10d": {"descriptors": ["merchant18-c0", "merchant18-o0"], "evidence": "Standalone source em18 identity; source initialization and Trade cloth changes."},
+    "112": {"descriptors": ["merchant18-c0", "merchant18-o0"], "evidence": "Standalone source em18 identity; source initialization and Trade cloth changes."}
+  }
+}

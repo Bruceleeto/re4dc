@@ -14,6 +14,13 @@
 #include "model.h"
 #include "native_actor.hpp"
 #include "ganado_cast_runtime.h" // private generated bundle, outside the repository
+#include "actor_ganado_ps2_stump.h"
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+#include "ganado_ps2_stump_runtime.h" // private ps2_ganado_stump.py export
+#if !RE4DC_ACTOR_TRANSACTION || RE4DC_COARSE_SKIN_FTRV != 1
+#error ACTOR_GANADO_PS2_STUMP requires ACTOR_TRANSACTION and COARSE_SKIN_FTRV=1
+#endif
+#endif
 #if RE4DC_CROWD_FAR
 #include "ganado_far_runtime.h" // lane crowd far tier, private generated (tools/d367/crowd/far_header.py)
 #endif
@@ -174,12 +181,25 @@ extern "C" unsigned re4dc_model_output_count();
 // =2 (check build): nothing is skipped; each chunk the gate would skip is submitted as before and must
 // add 0 to the frame owner's emitted-triangle count (model_output): "COARSE_PREGATE" lines.
 struct GateBall { float c[3], r; };
-constexpr unsigned kGatePool = kTierApps * kBones * 2;
+#if RE4DC_ACTOR_GANADO_PS2_STUMP
+// One additional near gate uses the actual stump positions/weights. Its body
+// and hands retain app2's chunks. Stump actors never choose the far head.
+constexpr unsigned kStumpGateApp=kTierApps,kGateApps=kTierApps+1u;
+inline unsigned gate_app(unsigned a) {return a==kStumpGateApp?2u:cast_app(a);}
+inline const gc::Chunk& gate_chunk(unsigned a,unsigned role) {
+    return a==kStumpGateApp?(role==1?ganado_ps2_stump::head:gc::chunks[2][role]):cast_chunk(a,role);
+}
+#else
+constexpr unsigned kGateApps=kTierApps;
+#define gate_app cast_app
+#define gate_chunk cast_chunk
+#endif
+constexpr unsigned kGatePool = kGateApps * kBones * 2;
 constexpr float kGateQ = 1.0f / 16.0f;  // the chunks' shift 4: a position is its s16 x 2^-4 (Frame::q)
 GateBall gate_ball[kGatePool];
 unsigned char gate_bone[kGatePool];
-unsigned short gate_first[kTierApps][4];
-unsigned char gate_count[kTierApps][4], gate_state[kTierApps];  // state: 0 not built, 1 ready, 2 never culled
+unsigned short gate_first[kGateApps][4];
+unsigned char gate_count[kGateApps][4], gate_state[kGateApps];  // state: 0 not built, 1 ready, 2 never culled
 unsigned gate_next, gate_visible;
 unsigned gate_actors, gate_culled_actors, gate_chunks, gate_culled_chunks, gate_ungated;
 #if RE4DC_COARSE_PREGATE == 2
@@ -191,7 +211,7 @@ inline void gate_local(const float* B, const float x[3], float y[3]) {
 bool gate_build(unsigned a) {
     unsigned next = gate_next;
     for (unsigned i = 0; i < 4; ++i) {
-        const auto& c = cast_chunk(a, i);
+        const auto& c = gate_chunk(a, i);
         if (!c.palette_count || !c.positions) return false;
         float lo[kBones][3], hi[kBones][3], rr[kBones];
         bool use[kBones] = {};
@@ -213,7 +233,7 @@ bool gate_build(unsigned a) {
                     if (!(w.value[k] > 0.0f)) continue;
                     const unsigned b = w.bone[k];
                     float y[3];
-                    gate_local(gc::bind[cast_app(a)][b], x, y);
+                    gate_local(gc::bind[gate_app(a)][b], x, y);
                     if (pass) {
                         float d2 = 0.0f;
                         for (unsigned j = 0; j < 3; ++j) { const float d = y[j] - 0.5f * (lo[b][j] + hi[b][j]); d2 += d * d; }
@@ -243,12 +263,12 @@ bool gate_init(unsigned a) {
         gate_state[a] = gate_build(a) ? 1 : 2;
         unsigned flat = 1;  // the crowd-tier argument above: lighting off, no LOD levels / pending build / bake
         for (unsigned i = 0; i < 4; ++i) {
-            const unsigned char* h = cast_chunk(a, i).stream;
+            const unsigned char* h = gate_chunk(a, i).stream;
             if (h[0] != 0xFE || h[3] || (h[2] & 0x82)) flat = 0;
         }
         if (light.enable) flat = 0;
         re4dc_log("COARSE_PREGATE=%d %s state=%u balls=%u/%u/%u/%u pool=%u/%u flat=%u\n", RE4DC_COARSE_PREGATE,
-                  gc::appearance_names[cast_app(a)], gate_state[a], gate_count[a][0], gate_count[a][1], gate_count[a][2],
+                  gc::appearance_names[gate_app(a)], gate_state[a], gate_count[a][0], gate_count[a][1], gate_count[a][2],
                   gate_count[a][3], gate_next, kGatePool, flat);
     }
     return gate_state[a] == 1;
@@ -981,3 +1001,6 @@ extern "C" void re4dc_coarse_ganado_end(){
 extern "C" int re4dc_coarse_ganado_layout(){return stress_layout;}
 
 #include "coarse_actor_owner_ganado.inc"
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep_ganado.inc"
+#endif

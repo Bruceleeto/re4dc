@@ -14,6 +14,9 @@
 #if RE4DC_ACTOR_TRANSACTION
 #include "coarse_actor_transaction.h"
 #endif
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep.h"
+#endif
 
 #include "em.h"
 #include "obj.h"
@@ -720,6 +723,62 @@ ModelPath sourceActorPath(cModel* m) {
         ?ModelPath::Coarse:ModelPath::Source;
 #endif
 }
+#if RE4DC_ACTOR_SKIN_RESERVE
+#if RE4DC_NATIVE_MODEL_REGISTRY
+extern "C" int re4dc_registry_candidate(const cModel*);
+#endif
+// The same nomination predicate is used here and at the original OT callback.
+// This grants storage priority only; every later owner proof still applies.
+static bool sourceActorNativeOwner(cModel* m) {
+#if RE4DC_NATIVE_MODEL_REGISTRY
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+    // Keep the original OT candidate's exact cabin-Luis partner exception.
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
+        re4dc_registry_candidate(m))) || (m==(cModel*)pSUB && m->id==4 && re4dc_registry_candidate(m)));
+#else
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
+        re4dc_registry_candidate(m))));
+#endif
+#else
+    return m && (m==(cModel*)pPL || (m!=(cModel*)pSUB && m->id>=0x10 && m->id<=0x20));
+#endif
+}
+// Collect all current source-plan native nominees before ordinary callbacks.
+// Each main-info chain remains bounded by the existing per-owner role limit;
+// shared source infos occupy one key in the existing 64-slot source table.
+static int sourceActorReserveNative(const FrameIdentity& planned,const ModelIdentity& player) {
+    FrameIdentity now{};
+    if(!sourceActorActive || !pPL || !sourceActorRam(pPL) ||
+       !sourceActorIdentity(now) || !(now==planned) || !(sourceActorModel((cModel*)pPL)==player))return 0;
+    const void* infos[kRe4dcActorSkinKeys];unsigned n=0,count=0;
+    bool player_seen=false;
+    for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
+        if(!sourceActorRam(u) || count>=EmMgr.nArray || count>=sourceActorCount ||
+           count>=re4dc_source::FrameLedger::MaxEntries)return 0;
+        ++count;
+        cModel* m=(cModel*)u;ModelPath path{};
+        if(!sourceActorLedger.planned_path(now,sourceActorModel(m),path))return 0;
+        player_seen|=m==(cModel*)pPL;
+        if(path!=ModelPath::Source || !sourceActorNativeOwner(m))continue;
+        const void* chain[kRe4dcActorRoles];unsigned roles=0;
+        for(cModelInfo* info=m->pModelInfo;info;info=info->pList) {
+            if(roles==kRe4dcActorRoles)return 0;
+#if defined(__sh__)
+            const auto a=reinterpret_cast<std::uintptr_t>(info);
+            if((a&3u) || a<RE4_MEM_LO || a>RE4_MEM_HI-sizeof(cModelInfo))return 0;
+#endif
+            for(unsigned i=0;i<roles;++i)if(chain[i]==info)return 0;
+            chain[roles++]=info;
+            bool seen=false;for(unsigned i=0;i<n;++i)seen|=infos[i]==info;
+            if(!seen){if(n==kRe4dcActorSkinKeys)return 0;infos[n++]=info;}
+        }
+        if(!roles)return 0;
+    }
+    if(count!=sourceActorCount || !player_seen || !sourceActorIdentity(now) || !(now==planned) ||
+       !(sourceActorModel((cModel*)pPL)==player))return 0;
+    return n && re4dc_actor_skin_reserve(planned.frame,infos,n);
+}
+#endif
 // 1=selective plan; 0=early full-source safety image; -1=malformed source list.
 int sourceActorPlan() {
 
@@ -742,6 +801,9 @@ int sourceActorPlan() {
     void* storage=count?re4dc_prim_tail(unsigned(bytes),16*1024):nullptr;
     if(count && !storage){sourceActorFailure(5);return 0;}
     if(!sourceActorLedger.begin(storage,bytes,count,now)){sourceActorFailure(6);return 0;}
+#if RE4DC_ACTOR_SKIN_RESERVE
+    ModelIdentity reserved_player{};
+#endif
     for(cUnit* u=EmMgr.pAlive;u;u=u->pNext) {
         cModel* m=(cModel*)u;
 #if RE4DC_ACTOR_EARLY_COARSE
@@ -760,11 +822,18 @@ int sourceActorPlan() {
             sourceActorFailure(7);sourceActorLedger.retire();return -1;
         }
 #endif
+#if RE4DC_ACTOR_SKIN_RESERVE
+        if(m==(cModel*)pPL)reserved_player=sourceActorModel(m);
+#endif
     }
     if(!sourceActorLedger.seal(now)){sourceActorFailure(8);sourceActorLedger.retire();return -1;}
     sourceActorPrimBase=unsigned(pG->prim_cnt);sourceActorPrimBytes=unsigned(pG->nPrim);
     sourceActorPrimBuffer=unsigned(pG->vtx_buf_no);
     sourceActorCount=count;sourceActorActive=true;
+#if RE4DC_ACTOR_SKIN_RESERVE
+    // Failure leaves the complete original source path available.
+    sourceActorReserveNative(now,reserved_player);
+#endif
     return 1;
 }
 bool sourceActorPrepare() {
@@ -817,6 +886,9 @@ extern "C" int re4dc_coarse_source_actors_ready() {
     if(count!=sourceActorCount || !player_seen || !partner_seen){sourceActorFailure(18);return 0;}
     return 1;
 }
+#if RE4DC_ACTOR_TEX_PREP
+#include "source_actor_tex_prep.inc"
+#endif
 #if RE4DC_ACTOR_EARLY_COARSE
 extern "C" int re4dc_actor_early_proof_active(cModel* m) {
     FrameIdentity now{};
@@ -2306,6 +2378,18 @@ static int MakeWeightPalette(Weight* w0, int n)
     return cnt;
 }
 
+#if RE4DC_PS2_FX_COMMON_HAZE
+extern "C" void re4dc_ps2_fx_common_render(int coarse,int skipping);
+#endif
+#if RE4DC_PS2_FX_ADDITIONS
+extern "C" void re4dc_ps2_fx_stage1_render(int coarse,int skipping);
+#endif
+
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+#include "ps2_source_world.h"
+#include "source_world_frame.inc"
+#endif
+
 // Per frame, the draw pass: runs the ordering tables in order (render textures, shadow setup,
 // far sub screen, scroll, sub screen, models, shadow draw, near sub screen, effects, world, VU1
 // effects, screen, cockpit, id models, messages, after-render, debug, then 0x13..0x15), the
@@ -2326,6 +2410,13 @@ void Render()
     // RAII clears/restores the gate on normal completion and every early return.
     SourceActorRenderScope sourceActorRenderScope(coarse!=0);
 #endif
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE && RE4DC_PACE_CATCHUP
+    // Retire a skipped image's pending token even when Render returns early.
+    if(re4dc_pace_skipping)re4dc_ps2_fx_common_render(0,1);
+#endif
+#if RE4DC_PS2_FX_ADDITIONS && RE4DC_PACE_CATCHUP
+    if(re4dc_pace_skipping)re4dc_ps2_fx_stage1_render(0,1);
 #endif
 #if RE4DC_PACE_CATCHUP >= 2
     // Skipped whole: the letterbox bit below is set here and cleared at the end of Render().
@@ -2360,11 +2451,19 @@ void Render()
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN_FAR);
     SetDrawTmpBufType(0);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_SCROLL); }
+#else
     ExecOt(OT_TYPE_SCROLL);
+#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN);
     SetDrawTmpBufType(0);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    { SourceWorldRenderScope sourceWorldScope; ExecOt(OT_TYPE_MODEL); }
+#else
     ExecOt(OT_TYPE_MODEL);
+#endif
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SHADOW_DRAW);
     SetDrawTmpBufType(0);
@@ -2375,6 +2474,22 @@ void Render()
     ExecOt(OT_TYPE_SUBSCRN_NEAR);
 #if RE4DC_COARSE
     }
+#endif
+#if RE4DC_PS2_FX_COMMON_HAZE
+    // The prior Trans ticket has this exact source frame; native begin and
+    // opaque drawing have completed, but source effect callbacks have not.
+#if RE4DC_COARSE
+    re4dc_ps2_fx_common_render(coarse,0);
+#else
+    re4dc_ps2_fx_common_render(0,0);
+#endif
+#endif
+#if RE4DC_PS2_FX_ADDITIONS
+#if RE4DC_COARSE
+    re4dc_ps2_fx_stage1_render(coarse,0);
+#else
+    re4dc_ps2_fx_stage1_render(0,0);
+#endif
 #endif
     ClearZbuf();
     ExecOt(OT_TYPE_EFFECT);
@@ -2449,6 +2564,9 @@ void ModelRender(cModel* m)
 #endif
 #if RE4DC_FRONT_NATIVE && defined(__sh__)
     int frontNative = frontNativeOk(m);
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(sourceWorldCandidate(m))frontNative=0;
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     if(re4dc_actor_transaction_candidate(m))frontNative=0;
 #endif
@@ -2589,6 +2707,9 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
     }
     efbDone = 0;
     matSet = 0;
+#if RE4DC_PS2_WORLD_SOURCE_OWNER
+    if(!flag && sourceWorldDraw(m)!=0)info=nullptr; // source postludes still execute
+#endif
 #if RE4DC_ACTOR_TRANSACTION
     if(!flag) {
         const int owned=re4dc_actor_transaction_draw(m);

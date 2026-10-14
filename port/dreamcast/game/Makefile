@@ -162,6 +162,68 @@ $(OBJDIR)/mod/st1_3/src/st1/r117.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 ROUTE_MOVIE_GAME_CH21 = $(OBJDIR)/mod/st1_2/src/st1/r11b.o $(OBJDIR)/mod/st1_2/src/st1/r119.o $(OBJDIR)/mod/st1_3/src/st1/r117.o
 endif
 endif
+# ROUTE_CH22=1 (default 0): chapter 2-2 room adapters and Luis' cabin overlay.
+# The overlay follows the five CH21 slots; the chapter movie list remains explicit.
+ROUTE_CH22 ?= 0
+PS2_ENEMY_CH22_DIR ?=
+ifneq ($(ROUTE_CH22),0)
+ifneq ($(ROUTE_CH22)$(ROUTE_CH21)$(ROUTE_OVL),111)
+$(error ROUTE_CH22 must be 0 or 1 and needs ROUTE_CH21=1 ROUTE_OVL=1)
+endif
+MODULES += pl14:ovl
+export RE4DC_LINK_OVERLAY += .ovl_pl14
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+$(OBJDIR)/src/game/snd.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/pl14/src/pl14/pl14.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+ROUTE_CH22_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r111.o $(OBJDIR)/mod/st1_3/src/st1/r112.o \
+    $(OBJDIR)/mod/st1_3/src/st1/r113.o $(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o
+$(ROUTE_CH22_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/src/game/trans.o $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH22=1
+ifeq ($(PS2_ENEMY_RULES),1)
+ifeq ($(wildcard $(PS2_ENEMY_CH22_DIR)/ps2_enemy_ch22_data.inc),)
+$(error ROUTE_CH22 with PS2_ENEMY_RULES needs qualified PS2_ENEMY_CH22_DIR/ps2_enemy_ch22_data.inc)
+endif
+$(ROUTE_CH22_ROOM_OBJS): GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=1
+$(OBJDIR)/platform/ps2_enemy_ch22.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH22=1 -DRE4DC_PS2_ENEMY_RULES=1 -I$(PS2_ENEMY_CH22_DIR)
+$(OBJDIR)/platform/ps2_enemy_ch22.o: $(PS2_ENEMY_CH22_DIR)/ps2_enemy_ch22_data.inc
+endif
+ROUTE_MOVIE_GAME_CH22 = $(OBJDIR)/mod/st1_3/src/st1/r11c.o
+endif
+# ROUTE_CH23=1 (default 0): chapter 2-3 room code and missing vehicle/boss/stage modules.
+# The two enemy overlays append after the existing route overlays. st2_0 is resident because
+# stage modules survive room changes, whereas route overlays are released on every room reset.
+ROUTE_CH23 ?= 0
+PS2_ENEMY_CH23_DIR ?=
+# Test-only truck state and actual hit evidence; default-off code is identical.
+TRUCK_DIAG ?= 0
+ifneq ($(TRUCK_DIAG),0)
+ifneq ($(TRUCK_DIAG)$(ROUTE_CH23)$(DBG_WARP),111)
+$(error TRUCK_DIAG=1 needs ROUTE_CH23=1 DBG_WARP=1)
+endif
+$(OBJDIR)/mod/em3b/src/em3b/em3b.o: GAME_CPPFLAGS += -DRE4DC_TRUCK_DIAG=1
+endif
+ifneq ($(ROUTE_CH23),0)
+ifneq ($(ROUTE_CH23)$(ROUTE_CH21)$(ROUTE_OVL),111)
+$(error ROUTE_CH23 must be 0 or 1 and needs ROUTE_CH21=1 ROUTE_OVL=1)
+endif
+MODULES += em3b:ovl em35:ovl st2_0
+export RE4DC_LINK_OVERLAY += .ovl_em3b .ovl_em35
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+ROUTE_CH23_ROOM_OBJS = $(OBJDIR)/mod/st1_3/src/st1/r10f.o $(OBJDIR)/mod/st1_3/src/st1/r11d.o \
+    $(OBJDIR)/mod/st1_3/src/st1/r11e.o $(OBJDIR)/mod/st1_3/src/st1/r11f.o $(OBJDIR)/mod/st2_0/src/st2/r200.o
+$(ROUTE_CH23_ROOM_OBJS) $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/em3b/src/em3b/em3b.o $(OBJDIR)/mod/em35/src/em35/em35.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH23=1
+# These room-local callbacks need the same generated movie policy as earlier chapters.
+ROUTE_MOVIE_GAME_CH23 = $(OBJDIR)/mod/st1_3/src/st1/r11f.o $(OBJDIR)/mod/st2_0/src/st2/r200.o
+# Existing export alias needed by r200, without enabling the unrelated world-test module set.
+$(OBJDIR)/src/game/EtcModel.o: GAME_CPPFLAGS += -DRE4DC_WORLD_STAGE_MODULES=1
+ifeq ($(PS2_ENEMY_RULES),1)
+ifeq ($(wildcard $(PS2_ENEMY_CH23_DIR)/ps2_enemy_ch23_data.inc),)
+$(error ROUTE_CH23 with PS2_ENEMY_RULES needs qualified PS2_ENEMY_CH23_DIR/ps2_enemy_ch23_data.inc)
+endif
+$(ROUTE_CH23_ROOM_OBJS): GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_RULES=1
+$(OBJDIR)/platform/ps2_enemy_ch23.o: PLATFORM_CPPFLAGS += -DRE4DC_ROUTE_CH23=1 -DRE4DC_PS2_ENEMY_RULES=1 -I$(PS2_ENEMY_CH23_DIR)
+$(OBJDIR)/platform/ps2_enemy_ch23.o: $(PS2_ENEMY_CH23_DIR)/ps2_enemy_ch23_data.inc
+endif
+endif
 # WEAPON_MODULES=1 (issue #1 2026-10-05, default 0: no effect): Leon's other stage-1 weapons, so equipping one in the
 # inventory (SubScreenExit -> ReadWepData -> DLL_Link) finds its module instead of halting "DLL link/unlink failed":
 # wep01 (module 3, Punisher; the merchant's medallion reward), wep07 (54, shotgun; r101 house), wep09 (62, rifle; its
@@ -277,6 +339,12 @@ MODULES_MK = $(OBJDIR)/modules.mk
 GAME_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(GAME_SRCS))
 CENSUS_OBJS = $(patsubst $(ROOT)/%.cpp,$(OBJDIR)/%.o,$(CENSUS_SRCS))
 PLATFORM_OBJS = $(patsubst %.cpp,$(OBJDIR)/%.o,$(PLATFORM_SRCS))
+ifneq ($(ROUTE_CH22)$(PS2_ENEMY_RULES),11)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/ps2_enemy_ch22.o,$(PLATFORM_OBJS))
+endif
+ifneq ($(ROUTE_CH23)$(PS2_ENEMY_RULES),11)
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/ps2_enemy_ch23.o,$(PLATFORM_OBJS))
+endif
 # LAKE_RIPPLES (ROUTE_CH13 block above): native_lake.cpp is built only with the knob on (1 or 2).
 ifeq ($(filter 1 2,$(LAKE_RIPPLES)),)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/native_lake.o,$(PLATFORM_OBJS))
@@ -799,7 +867,7 @@ $(OBJDIR)/route-movies.h: route-movies-force
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 ROUTE_MOVIE_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/pad.o
-ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r102.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r105.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/mod/st1_1/src/st1/r10b.o $(OBJDIR)/route_movie_bridge.o $(ROUTE_MOVIE_GAME_CH21)
+ROUTE_MOVIE_GAME = $(OBJDIR)/src/game/game.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r102.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r105.o $(OBJDIR)/mod/st1_1/src/st1/r106.o $(OBJDIR)/mod/st1_1/src/st1/r10b.o $(OBJDIR)/route_movie_bridge.o $(ROUTE_MOVIE_GAME_CH21) $(ROUTE_MOVIE_GAME_CH22) $(ROUTE_MOVIE_GAME_CH23)
 $(ROUTE_MOVIE_PLATFORM) $(ROUTE_MOVIE_GAME): $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_PLATFORM): PLATFORM_CPPFLAGS += -include $(OBJDIR)/route-movies.h
 $(ROUTE_MOVIE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/route-movies.h
@@ -1051,8 +1119,12 @@ HEAP4_PARTS_RESERVE_ROOM ?= 0x100
 HEAP4_PARTS_RESERVE_BYTES ?= 73728
 # Direct-slot consumers reviewed for this module set. Audit any newly linked
 # module before enabling sparse enemy backing; census/reference remain usable.
+# CH23 em3b/em35: guarded default-initialization and sparse scans reviewed; stage st2_0 already audited.
+CH23_AUDITED_MODULES = $(if $(filter 1,$(ROUTE_CH23)),em3b:ovl em35:ovl)
+# Luis preserves its archive pointers and both manager scans use workAt (CH22 guarded adapter).
+CH22_AUDITED_MODULES = $(if $(filter 1,$(ROUTE_CH22)),pl14:ovl)
 ifeq ($(ENEMY_DEMAND),1)
-ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19,$(MODULES)),)
+ifneq ($(filter-out st1_0 st1_1 st1_2 st1_3 wep02 em12 em23 em15 em26 em28 em21 em2a em29 em2e em13 em27 st2_0 st4_0 pl11 st2_2 em1f em18 em17 em24 pl0f em2f pl0f:ovl em2f:ovl em22:ovl em2b:ovl pl11:ovl em11 wep01 wep07 wep09 wep11 wep13 wep19 $(CH23_AUDITED_MODULES) $(CH22_AUDITED_MODULES),$(MODULES)),)
 $(error ENEMY_DEMAND requires a direct-slot consumer audit for the selected MODULES)
 endif
 endif
@@ -1476,6 +1548,7 @@ include demo_candidate.mk
 include post30.mk
 # D367 lane crowd (CROWD_CULL, CROWD_CENSUS, CROWD_DRAW_MAX / _M; default off: no effect).
 include crowd.mk
+include actor_ganado_ps2_stump.mk
 # D367 generic native models (NATIVE_MODEL_REGISTRY; default off: no effect).
 include native_model_registry.mk
 # D367 charbake (CHARBAKE_HAIR, CHARBAKE_TOGGLE; default off: no effect).

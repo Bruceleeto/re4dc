@@ -1,3 +1,4 @@
+#include "actor_visibility_diag.h"
 // Recovered commonModelTrans -> existing native frame/packet/texture owner.
 // Diagnostic base-material connection; not full GX lighting/TEV emulation.
 #include "light.h"
@@ -333,7 +334,13 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
 #if RE4DC_FRONT_NATIVE>=2
     if(front_verify_part(&p))return;  // native replay: compared, not drawn
 #endif
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+    re4dc_actor_vis_source(m,info,&p);
+#endif
     re4dc_model_submit(&p);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+    re4dc_actor_vis_source_end();
+#endif
 #if RE4DC_FRONT_NATIVE>=2
     front_cur=~0U;  // group 8: headers built later (deferred drain) are not this part's
 #endif

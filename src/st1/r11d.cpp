@@ -34,6 +34,17 @@
 #include "flr_at.h"
 #include "rnd.h"
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH23_PS2_ROOM 1
+#include "libgpu.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
+#include "em_set.h"
+#include "read.h"
+#else
+#define CH23_PS2_ROOM 0
+#endif
+
 // Room 1-1d (D:/Bio4/Prog/r11d.cpp): the two sisters (the big one on the balcony object, the
 // little one with her own motion), the iron door key, the closet hides, the show view, the enemy
 // reset waves, the thunder and the battle stream.
@@ -49,6 +60,9 @@ struct R11dWork {
     u32 strId;            // 0x20  SndStrReq handle of the show-view stream
     cModelInfo* mi;       // 0x24  the big sister's extra model
     cEmPatrol patrol[5];  // 0x28
+#if CH23_PS2_ROOM
+    cEmWrap ps2Em[23]; // source handles 0xB48..0xC50, indexed below
+#endif
 };
 
 static R11dWork* r11d_work;
@@ -82,6 +96,13 @@ static void r11d_checkDoor();
 static void r11d_checkEmReset();
 static void r11d_ThunderMove();
 static void r11d_str_check();
+#if CH23_PS2_ROOM
+static void r11d_ps2Init();
+static void r11d_ps2FirstArea();
+static void r11d_ps2SecondArea();
+static void r11d_ps2Reinforcement();
+static void r11d_ps2RetreatArea();
+#endif
 
 // Room init (the village at night, the Bella sisters): rain on the player, Status_flg[1] 0x400; the
 // enemy waves start on area 2 the first time (Room_flg bit 0) else at once; area 1 = the locked front
@@ -101,6 +122,10 @@ void R11dInit()
     EstSet((int) pPL, -1, 0, 0, 3, 1, 0x800, 0, (u32) zero, zero);
     EstSet((int) pPL, -1, 0, 0, 1, 0, 0x800, 0, (u32) zero, zero);
     BitOn(pG->Status_flg[1], 0x400);
+#if CH23_PS2_ROOM
+    // PS2 R11dInit 0x12180: load the sisters' actor before the first trigger.
+    EmReadSearch(GetEmIdFromList(0xE6), 0, 0);
+#endif
     if (RsfCheck(G_ROOM_ID, 0) == 0) {
         SceAtDataSet_exec(2, SCE_LEVEL10, 0, (TaskFunc) r11d_checkEmReset, 0, 1);
     } else {
@@ -136,6 +161,7 @@ void R11dInit()
     } else if (pG->pEmi != 0 && ((u8*) pG->pEmi)[0xD08] == 5) {
         ((u8*) pG->pEmi)[0xD08] = 0;
     }
+#if !CH23_PS2_ROOM
     AreaGetCenterPos(&pos[0], &SceAtPtr(0xA)->area);
     AreaGetCenterPos(&pos[1], &SceAtPtr(0xB)->area);
     r11d_work->patrol[0].SetPatrol(0xE2, pos, 2, 0, 0);
@@ -151,11 +177,193 @@ void R11dInit()
     AreaGetCenterPos(&pos[0], &SceAtPtr(0x12)->area);
     AreaGetCenterPos(&pos[1], &SceAtPtr(0x13)->area);
     r11d_work->patrol[4].SetPatrol(0xE7, pos, 2, 0, 0);
+#endif
     FlrAtSetDefVal(0, 0, 3);
     if (getRoomEtcLadder(1, &ladder, 1)) {
         ((cObjLadder*) ladder)->setCamera(0xC);
     }
+#if CH23_PS2_ROOM
+    r11d_ps2Init();
+#endif
 }
+
+
+#if CH23_PS2_ROOM
+// PS2 USA st1_3.rel 0x120d8..0x12d34. The wrappers below preserve the
+// source cohort handles; their native layout is supplied by cEmWrap.
+enum R11dPs2Em {
+    PS2_E6, PS2_EC, PS2_DD, PS2_DF, PS2_E0, PS2_E1, PS2_E2, PS2_E3,
+    PS2_E4, PS2_E5, PS2_E7, PS2_E8, PS2_F5, PS2_ED, PS2_EE, PS2_EF,
+    PS2_F2, PS2_F3, PS2_F4, PS2_E9, PS2_EA, PS2_EB, PS2_DC
+};
+// Exact r11d_015.AEV areas 0x16..0x19. Area 0x18 sets event flag 64;
+// the others execute once on the player's position, with room saves 6/7/9.
+static AreaData r11dPs2Area[4] = {
+    {1, AREA_TYPE_XZ4, 0, {{2833.07349f, 1620.34985f, 750.0f, {{-18199.6992f, 5811.51709f}, {-13973.1709f, 5819.13818f}, {-13948.8125f, 9331.8125f}, {-17925.8691f, 9151.66016f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-382.328033f, 1618.40002f, 750.0f, {{-9740.55957f, 6576.90479f}, {-4970.16016f, 8084.08545f}, {-5993.97998f, 10197.0381f}, {-11609.6094f, 9289.63477f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-0.00299072266f, 1000.0f, 750.0f, {{-13631.7705f, -906.314819f}, {-11114.1875f, -12203.1338f}, {-3398.29199f, -9296.87695f}, {-5603.91943f, 2493.67993f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-1418.703f, 2912.30005f, 750.0f, {{523.061707f, -2365.8042f}, {7062.33154f, -2077.96753f}, {6671.53662f, 2588.69043f}, {373.590088f, 2649.01172f}}}}},
+};
+
+// Append a PS2-only AEV record after its authored predecessor. Keep the free
+// native number: restored item areas may already use the PS2 logical numbers.
+// Runtime creation owns allocation/cleanup; the callbacks use save/event flags.
+static SceAtWork* r11d_ps2Area(SceAtWork* prev, AreaData* area, int type)
+{
+    if (prev == 0 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11d: unexpected AEV boundary");
+        return 0;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = area->u.xz4.p[i].x;
+        corners[i].y = area->u.xz4.floor;
+        corners[i].z = area->u.xz4.p[i].z;
+    }
+    int at = SceAtCreateExecAt(pPL, corners, 0, type == 4 ? 1 : 0x81,
+                             1, area->u.xz4.height, 2, 0.0f, 0.0f,
+                             0, 0, 0, 0, 0);
+    SceAtWork* w = at >= 0 ? SceAtPtr(at) : 0;
+    if (w == 0) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11d: PS2 AEV allocation failed");
+        return 0;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) w);
+    w->area = *area;
+    w->type = type;
+    w->pParent = 0;
+    w->parentParts = 0;
+    w->angleRange = 45;
+    AddPrim((u32*) prev, (u32*) w);
+    return w;
+}
+
+static void r11d_ps2Init()
+{
+    SceAtWork* prev = SceAtPtr(0x15);
+    SceAtWork* areas[4];
+    for (int i = 0; i < 4; i++) {
+        SceAtWork* at = r11d_ps2Area(prev, &r11dPs2Area[i], i == 2 ? 4 : 2);
+        areas[i] = at;
+        prev = at;
+        if (i == 2 && at != 0) {
+            at->flg.kind = 0;
+            at->flg.off = 0;
+            at->flg.no = 64;
+        }
+    }
+    if (areas[0] != 0 && RsfCheck(G_ROOM_ID, 6) == 0) {
+        SceAtDataSet_exec(areas[0]->no, SCE_LEVEL10, 0, (TaskFunc) r11d_ps2FirstArea, 0, 1);
+    }
+    if (areas[1] != 0 && RsfCheck(G_ROOM_ID, 7) == 0) {
+        SceAtDataSet_exec(areas[1]->no, SCE_LEVEL10, 0, (TaskFunc) r11d_ps2SecondArea, 0, 1);
+    }
+    if (areas[3] != 0 && RsfCheck(G_ROOM_ID, 9) == 0) {
+        SceAtDataSet_exec(areas[3]->no, SCE_LEVEL10, 0, (TaskFunc) r11d_ps2RetreatArea, 0, 1);
+    }
+    r11d_work->ps2Em[PS2_DC].setEm(0xDC, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_DF].setEm(0xDF, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E0].setEm(0xE0, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E1].setEm(0xE1, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E3].setEm(0xE3, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E4].setEm(0xE4, -1, 0, 1, 1);
+    SceExec(0x12, (TaskFunc) r11d_ps2Reinforcement, 0, 0, SCE_PRIO_DEF_2, 0);
+}
+
+// 0x12678: replace the entry cohort with the five held patrols.
+static void r11d_ps2FirstArea()
+{
+    Vec pos[2];
+    RsfSet(G_ROOM_ID, 6);
+    r11d_work->ps2Em[PS2_DF].destroy();
+    r11d_work->ps2Em[PS2_E0].destroy();
+    r11d_work->ps2Em[PS2_E1].destroy();
+    r11d_work->ps2Em[PS2_E3].destroy();
+    r11d_work->ps2Em[PS2_E4].destroy();
+    r11d_work->ps2Em[PS2_E5].destroy();
+    r11d_work->ps2Em[PS2_DD].setEm(0xDD, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E2].setEm(0xE2, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E7].setEm(0xE7, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E8].setEm(0xE8, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_F5].setEm(0xF5, -1, 0, 1, 1);
+    AreaGetCenterPos(&pos[0], &SceAtPtr(0xA)->area);
+    AreaGetCenterPos(&pos[1], &SceAtPtr(0xB)->area);
+    r11d_work->patrol[0].SetPatrol(0xE2, pos, 2, 0, 0);
+    AreaGetCenterPos(&pos[0], &SceAtPtr(0xC)->area);
+    AreaGetCenterPos(&pos[1], &SceAtPtr(0xD)->area);
+    r11d_work->patrol[1].SetPatrol(0xDD, pos, 2, 0, 0);
+    AreaGetCenterPos(&pos[0], &SceAtPtr(0xE)->area);
+    AreaGetCenterPos(&pos[1], &SceAtPtr(0xF)->area);
+    r11d_work->patrol[2].SetPatrol(0xE8, pos, 2, 0, 0);
+    AreaGetCenterPos(&pos[0], &SceAtPtr(0x10)->area);
+    AreaGetCenterPos(&pos[1], &SceAtPtr(0x11)->area);
+    r11d_work->patrol[3].SetPatrol(0xF5, pos, 2, 0, 0);
+    AreaGetCenterPos(&pos[0], &SceAtPtr(0x12)->area);
+    AreaGetCenterPos(&pos[1], &SceAtPtr(0x13)->area);
+    r11d_work->patrol[4].SetPatrol(0xE7, pos, 2, 0, 0);
+    SceExit();
+}
+
+// 0x12928: after the sisters, replace ED/F2/F4 with EF/E9/EA/EB.
+static void r11d_ps2SecondArea()
+{
+    RsfSet(G_ROOM_ID, 7);
+    r11d_work->ps2Em[PS2_ED].setPtr(0xED, -1, 0);
+    r11d_work->ps2Em[PS2_F2].setPtr(0xF2, -1, 0);
+    r11d_work->ps2Em[PS2_F4].setPtr(0xF4, -1, 0);
+    r11d_work->ps2Em[PS2_ED].destroy();
+    r11d_work->ps2Em[PS2_F2].destroy();
+    r11d_work->ps2Em[PS2_F4].destroy();
+    r11d_work->ps2Em[PS2_EF].setEm(0xEF, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_E9].setEm(0xE9, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_EA].setEm(0xEA, -1, 0, 1, 1);
+    r11d_work->ps2Em[PS2_EB].setEm(0xEB, -1, 0, 1, 1);
+    SceExit();
+}
+
+// 0x12a68: one reinforcement after area 0x18 when any entry guard is inactive.
+static void r11d_ps2Reinforcement()
+{
+    SceSleep(2);
+    for (;;) {
+        if (RsfCheck(G_ROOM_ID, 8) == 0 && (pG->Room_flg[2] & 0x80000000)) {
+            if (!r11d_work->ps2Em[PS2_DF].isActive() ||
+                !r11d_work->ps2Em[PS2_E0].isActive() ||
+                !r11d_work->ps2Em[PS2_E1].isActive() ||
+                !r11d_work->ps2Em[PS2_E3].isActive() ||
+                !r11d_work->ps2Em[PS2_E4].isActive()) {
+                r11d_work->ps2Em[PS2_E5].setEm(0xE5, -1, 0, 1, 1);
+                RsfSet(G_ROOM_ID, 8);
+            }
+        }
+        SceSleep(1);
+    }
+}
+
+// 0x12b70: the active rear guards run to the first authored target; inactive
+// sisters are released. The PS2 copies three vectors but passes &target[0]
+// at all three setGoto sites (0x12c2c/0x12c54/0x12c7c).
+static void r11d_ps2RetreatArea()
+{
+    Vec target = {5440.0f, 3200.0f, -2220.0f};
+    RsfSet(G_ROOM_ID, 9);
+    r11d_work->ps2Em[PS2_ED].setPtr(0xED, -1, 0);
+    r11d_work->ps2Em[PS2_F2].setPtr(0xF2, -1, 0);
+    r11d_work->ps2Em[PS2_F4].setPtr(0xF4, -1, 0);
+    if (r11d_work->ps2Em[PS2_ED].isActive()) r11d_work->ps2Em[PS2_ED].setGoto(&target, 1);
+    if (r11d_work->ps2Em[PS2_F2].isActive()) r11d_work->ps2Em[PS2_F2].setGoto(&target, 1);
+    if (r11d_work->ps2Em[PS2_F4].isActive()) r11d_work->ps2Em[PS2_F4].setGoto(&target, 1);
+    r11d_work->ps2Em[PS2_E6].setPtr(0xE6, -1, 0);
+    r11d_work->ps2Em[PS2_EC].setPtr(0xEC, -1, 0);
+    if (r11d_work->ps2Em[PS2_E6].isAlive() && !r11d_work->ps2Em[PS2_E6].isActive()) {
+        r11d_work->ps2Em[PS2_E6].destroy();
+    }
+    if (r11d_work->ps2Em[PS2_EC].isAlive() && !r11d_work->ps2Em[PS2_EC].isActive()) {
+        r11d_work->ps2Em[PS2_EC].destroy();
+    }
+    SceExit();
+}
+#endif
 
 // Per-frame room main: nothing.
 void R11dMain()
@@ -272,7 +480,12 @@ static void r11d_execEmAppear_end()
     BitOff(pG->Status_flg[2], 0x02000000);
     BitOff(pG->Room_flg[0], 0x20000000);
     int list0[11] = {0xDD, 0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE7, 0xE8, 0xF5};
+#if CH23_PS2_ROOM
+    // PS2 0x1346c..0x1349c; the remaining rear cohort is sent by area 0x17.
+    int list1[3] = {0xED, 0xF2, 0xF4};
+#else
     int list1[9] = {0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xE9, 0xEA, 0xEB};
+#endif
     cEm* ladder;
     for (i = 0; i < 11; i++) {
         cEmWrap em;
@@ -281,7 +494,11 @@ static void r11d_execEmAppear_end()
             em.destroy();
         }
     }
+#if CH23_PS2_ROOM
+    for (i = 0; i < 3; i++) {
+#else
     for (i = 0; i < 9; i++) {
+#endif
         setEmI(list1[i], -1, 0, 1, 1);
     }
     if (getRoomEtcLadder(0, &ladder, 1) && ((cObjLadder*) ladder)->getStatus() == 4) {
@@ -510,8 +727,17 @@ sleep:
     do {
         SceSleep(1);
     check:;
+#if CH23_PS2_ROOM
+    } while ((u32) SceCountEmAlive(0x10, 0x20) >= 5);
+    // PS2 0x13ff0..0x14038: below five, then immediately find the player.
+    cEm* em = setEm(t[i], -1, 0, 1, 1);
+    if (em != 0) {
+        ((cEmGanado*) em)->setFindPL();
+    }
+#else
     } while ((u32) SceCountEmAlive(0x10, 0x20) > 10);
     setEm(t[i], -1, 0, 1, 1);
+#endif
     // The `do { } while (0)` puts the test's block at loop depth 2 (weighted refs of `i` 5 -> 8), so
     // global-alloc ranks `i` above `t` (r31/r30 as in the original).
     do {

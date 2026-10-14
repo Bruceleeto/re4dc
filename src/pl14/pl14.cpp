@@ -77,7 +77,11 @@ static inline void RoutineStepClear(cSubLuis* o)
 // creates his gun object.
 void LuisInit(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    cSubLuis* luis = new (em) cSubLuis;   // no value-init: () zeroes the subArc the manager set (off the GC)
+#else
     cSubLuis* luis = new (em) cSubLuis();
+#endif
     luis->modelSet();
     luis->init();
     luis->equipWeapon();
@@ -1209,7 +1213,12 @@ int doorHitCheck(Vec* a, Vec* b)
     u32 i;
 
     for (i = 0; i < EmMgr.nArray; i++) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+        // Scan: unbacked sparse slots read as absent (no allocation), as em2b.cpp's scans.
+        cEm* em = (cEm*) EmMgr.workAt(i);
+#else
         cEm* em = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         if (em && (em->be_flag & 0x201) == 1 && em->hp > 0 && (em->id == 0x41 || em->id == 0x4E) &&
             emLineAtCk(em, a, b, 1e16f, 0)) {
             return 1;
@@ -1233,7 +1242,12 @@ void cAnalysis::move()
     time++;
     // Round-robin scan from the entry after idx, until a target is found or it wraps around.
     i = idx;
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    // Scan: an unbacked sparse slot (null) is not a target, as em2b.cpp's scans (no isTarget error line).
+    while (!((em = (cEm*) EmMgr.workAt(i = (i + 1) % EmMgr.nArray)) && isTarget(owner, em))) {
+#else
     while (!isTarget(owner, em = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * (i = (i + 1) % EmMgr.nArray)))) {
+#endif
         if (i == idx) {
             found = 0;
             goto scanned;
@@ -1642,7 +1656,11 @@ int sameFloorCheck(cModel* a, cModel* b)
 // ObjInitFunc[0x1E]: placement-constructs the thrown item object.
 void luisItemInit(cObj* obj)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    new (obj) cObjLuisItem;   // no value-init (off the GC), as the enemy placements
+#else
     new (obj) cObjLuisItem();
+#endif
 }
 
 // The thrown item: the room archive's item model at his hand, a glow effect (group 0x3C), flying
@@ -1747,7 +1765,13 @@ int greThrowCheck()
 // something else in front.
 int isTarget(cSubLuis* luis, cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    // GetWepTargetList2's priority argument is not a capacity: flag-0x20 hit boxes
+    // expand it up to 20. Keep the original priority/order, with room for every result.
+    WepTarget list[20];
+#else
     WepTarget list[2];
+#endif
     Vec hit;
     Vec nrm;
     u32 attr;

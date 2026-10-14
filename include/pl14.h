@@ -16,7 +16,7 @@ class cSubLuis;
 
 // The original cEm is 0x3FC bytes; em.h's cEm folds the player / partner fields in (0xDE0), so the
 // Luis members (from 0x3FC) sit on a copy of the 0x3FC-byte view. The constructor and the enemy
-// virtuals are cEm's own (asm-labelled): this class emits nothing.
+// virtuals use the original cEm labels on PPC and explicit native forwarding on the CH22 route.
 class cEmLuisBase : public cModel {
 public:
     s16 hp;               // 0x320
@@ -40,6 +40,19 @@ public:
     u32 status;           // 0x3C4
     u8 pad_3C8[0x3E0 - 0x3C8];
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    // Off the GC the asm labels name nothing: the same calls forward to cEm's members on this work (the layout
+    // is cEm's up to 0x3E0 and the virtuals sit in cEm's slot order, so the vtable stays cEm-compatible).
+    cEmLuisBase() { ((cEm*) this)->initWork(); }
+    virtual ~cEmLuisBase() {}
+    virtual void move() { ((cEm*) this)->cEm::move(); }
+    virtual void setItem(u16 a, u16 b, u16 c, u16 d, u8 e) { ((cEm*) this)->cEm::setItem(a, b, c, d, e); }
+    virtual void setNoItem() { ((cEm*) this)->cEm::setNoItem(); }
+    virtual int checkThrow() { return ((cEm*) this)->cEm::checkThrow(); }
+    void setStatus(int bit) { ((cEm*) this)->setStatus(bit); }
+    int checkStatus(int stat) { return ((cEm*) this)->checkStatus(stat); }
+};
+#else
     cEmLuisBase() asm("__3cEm");
     virtual ~cEmLuisBase() {}
     virtual void move();
@@ -49,6 +62,7 @@ public:
     void setStatus(int bit) asm("setStatus__3cEmi");
     int checkStatus(int stat) asm("checkStatus__3cEmi");
 };
+#endif
 
 // Spoken line: the sound and the subtitle it shows.
 class cVoice {
@@ -193,6 +207,18 @@ public:
     virtual ~cSubLuis();
     virtual void move();
     virtual void endDamage();
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_CH22
+    // The native shared partner interface calls hand/face/cloth through cSubChar.
+    // Its modelSet slot is Luis's endDamage slot (the id-4 EndSubDamage dispatch);
+    // the next four slots retain cSubChar's empty base implementations. The final
+    // setEmFunc slot is Ashley-only in SetSubDamage and is unused for Luis.
+    // This preserves the original Luis work layout; it does not prove a crash fix.
+    virtual void setFace(int) {}
+    virtual void setHand(int) {}
+    virtual void initCloth() {}
+    virtual void moveCloth() {}
+    virtual void setEmFunc() {}
+#endif
     void init();
     void modelSet();
     void think();

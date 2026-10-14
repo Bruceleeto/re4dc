@@ -97,7 +97,12 @@ extern "C" void _unresolved()
 // EmInitFunc: placement-constructs the vehicle in the cEm work.
 void Em3bInit(cEm* em)
 {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    // Preserve the archive installed by cEmMgr::construct before base construction.
+    new (em) cEm3b;
+#else
     new (em) cEm3b();
+#endif
 }
 
 // Truck damage of the frame: consumes cEm::dmHit (grenades / flash / mines ignored); hp loss by
@@ -377,6 +382,20 @@ static Em3bFunc Em3b_R1_move_tbl[9] = {
 void cEm3b::move()
 {
     Em3bWork* w = EM3B_WK(this);
+
+#if defined(RE4DC_TRUCK_DIAG) && RE4DC_TRUCK_DIAG
+    // Read-only source-tick snapshot before the existing update consumes damage.
+    // Avoid the work fields until normal initialization has completed.
+    if (type == 0 && r_no_0 == 1 && ((pG->Frame_cnt % 30u) == 0 || dmg.m_Flag)) {
+        const Vec& truck = getPartsPtr(1)->world;
+        OSReport("TRUCK f=%u r=%u/%u/%u/%u motion=%d hp=%d driver=%d dmg=%08x wep=%u pos=%d,%d,%d pl=%d,%d,%d life=%u\n",
+                 (unsigned)pG->Frame_cnt, (unsigned)r_no_0, (unsigned)r_no_1,
+                 (unsigned)r_no_2, (unsigned)r_no_3, (int)(frame * 1000.0f), (int)hp,
+                 w->pDriver ? (int)w->pDriver->hp : -1, (unsigned)dmg.m_Flag,
+                 (unsigned)dmg.m_Wep, (int)truck.x, (int)truck.y, (int)truck.z,
+                 (int)pPL->pos.x, (int)pPL->pos.y, (int)pPL->pos.z, (unsigned)pG->pl_life);
+    }
+#endif
 
     if (r_no_0 != 0) {
         switch (type) {
@@ -875,7 +894,14 @@ void em3bRunDownCkTruck(cEm3b* em)
     }
     p = em->getPartsPtr(0);
     for (i = 0; i < EmMgr.nArray; i++) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+        cEm* e = EmMgr.workAt(i);
+        if (!e) {
+            continue;
+        }
+#else
         cEm* e = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         int zero = 0;
 
         if ((e->be_flag & 0x201) != 1) {
@@ -926,7 +952,14 @@ void em3bRunDownCkCart(cEm3b* em)
     }
     p = em->getPartsPtr(1);
     for (i = 0; i < EmMgr.nArray; i++) {
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+        cEm* e = EmMgr.workAt(i);
+        if (!e) {
+            continue;
+        }
+#else
         cEm* e = (cEm*) ((u8*) EmMgr.pArray + EmMgr.size * i);
+#endif
         int zero = 0;
 
         if ((e->be_flag & 0x201) != 1) {

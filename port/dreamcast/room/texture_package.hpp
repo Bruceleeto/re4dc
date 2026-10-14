@@ -16,6 +16,15 @@ inline constexpr std::uint32_t kArgb4444 = 2;
 // Game TREE_IMPOSTOR=1 only: 4bpp palettised full-codebook VQ (impostor
 // atlases); its 16 ARGB1555 palette entries follow the VQ data (32 bytes).
 inline constexpr std::uint32_t kPal4 = 3;
+// TEX_PAL4_ALPHA=1 only: native twiddled PAL4 indices followed by 16
+// little-endian ARGB4444 words. Exact colors, including partial alpha.
+inline constexpr std::uint32_t kPal4Argb4444 = 4;
+#if RE4DC_TEX_PAL4_ALPHA
+// Call after PVR initialization, before any palette upload. Configuration is
+// immutable; repeated identical calls preserve all live package ownership.
+// The native message renderer reserves banks 0..7; other builds reserve none.
+bool initialize_palettes(std::uint64_t reserved_banks);
+#endif
 inline constexpr std::uint32_t kAlpha = 1U << 0U;
 inline constexpr std::uint32_t kBinaryAlpha = 1U << 1U;
 // Game CAST_MIPMAP=1 only: a full-codebook VQ payload with the PVR mip chain
@@ -24,7 +33,8 @@ inline constexpr std::uint32_t kBinaryAlpha = 1U << 1U;
 inline constexpr std::uint32_t kMipmap = 1U << 2U;
 // Linear 16-bit payloads use the existing upload-time twiddler. Twiddled and
 // full-codebook VQ payloads are copied unchanged and sampled in their native
-// format. PAL4/PAL8, mipmaps and partial VQ codebooks are not supported here.
+// format. Indexed formats have the explicit layouts described above; PAL8 and
+// partial VQ codebooks are unsupported.
 inline constexpr std::uint32_t kPayloadLinear = 0;
 inline constexpr std::uint32_t kPayloadTwiddled = 1;
 inline constexpr std::uint32_t kPayloadVq = 2;

@@ -127,6 +127,43 @@ ifeq ($(filter 1 2,$(EFFECT_PS2_STREAK)),)
 $(error PS2_FX_ROOMS needs EFFECT_PS2_STREAK=1 or 2)
 endif
 endif
+## Stage-1 PS2 recipe extensions are draw-only and independently reversible.
+PS2_FX_STAGE1 ?= 0
+ifneq ($(PS2_FX_STAGE1),0)
+ifneq ($(PS2_FX_STAGE1)$(PS2_FX_ROOMS),11)
+$(error PS2_FX_STAGE1 must be 0 or 1 and needs PS2_FX_ROOMS=1)
+endif
+endif
+# Bounded read-only selection of exact PS2 haze draw counts. Independent default-off gate.
+PS2_FX_POPULATION ?= 0
+ifneq ($(PS2_FX_POPULATION),0)
+ifneq ($(PS2_FX_POPULATION)$(PS2_FX_STAGE1),11)
+$(error PS2_FX_POPULATION must be 0 or 1 and needs PS2_FX_STAGE1=1)
+endif
+endif
+# Added PS2-only haze remains draw-local; no effect controllers or RNG draws.
+PS2_FX_ADDITIONS ?= 0
+ifneq ($(PS2_FX_ADDITIONS),0)
+ifneq ($(PS2_FX_ADDITIONS)$(PS2_FX_POPULATION)$(ESP_SPRITE_FAST),111)
+$(error PS2_FX_ADDITIONS must be 0 or 1 and needs PS2_FX_POPULATION=1 ESP_SPRITE_FAST=1)
+endif
+ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
+$(error PS2_FX_ADDITIONS needs COARSE_FX_SPRITES=1 or 2)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_FX_ADDITIONS=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_FX_ADDITIONS=1
+endif
+# Common chapter-one haze recipe/state replacement is render-owned and optional.
+PS2_FX_COMMON_HAZE ?= 0
+ifneq ($(PS2_FX_COMMON_HAZE),0)
+ifneq ($(PS2_FX_COMMON_HAZE)$(PS2_FX_POPULATION)$(ESP_SPRITE_FAST),111)
+$(error PS2_FX_COMMON_HAZE must be 0 or 1 and needs PS2_FX_POPULATION=1 ESP_SPRITE_FAST=1)
+endif
+ifeq ($(filter 1 2,$(COARSE_FX_SPRITES)),)
+$(error PS2_FX_COMMON_HAZE needs COARSE_FX_SPRITES=1 or 2)
+endif
+$(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_PS2_FX_COMMON_HAZE=1
+endif
 EFFECT_HAZE_LEAN ?= 0
 EFFECT_HAZE_LEAN_TOGGLE ?= 0
 EFFECT_PS2_HAZE ?= 0
@@ -212,6 +249,18 @@ ifneq ($(EFFECT_HAZE_LEAN_TOGGLE),0)
 endif
 ifneq ($(PS2_FX_ROOMS),0)
 	@printf '#define RE4DC_PS2_FX_ROOMS %s\n' '$(PS2_FX_ROOMS)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_STAGE1),0)
+	@printf '#define RE4DC_PS2_FX_STAGE1 %s\n' '$(PS2_FX_STAGE1)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_POPULATION),0)
+	@printf '#define RE4DC_PS2_FX_POPULATION %s\n' '$(PS2_FX_POPULATION)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_ADDITIONS),0)
+	@printf '#define RE4DC_PS2_FX_ADDITIONS %s\n' '$(PS2_FX_ADDITIONS)' >> $@.tmp
+endif
+ifneq ($(PS2_FX_COMMON_HAZE),0)
+	@printf '#define RE4DC_PS2_FX_COMMON_HAZE %s\n' '$(PS2_FX_COMMON_HAZE)' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp

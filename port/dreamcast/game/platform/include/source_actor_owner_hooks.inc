@@ -26,16 +26,27 @@ extern "C" int re4dc_registry_candidate(const cModel*);
 extern "C" int re4dc_actor_transaction_candidate(cModel* m) {
     // Disable the FRONT_NATIVE fast return only for these source-prepared
     // reviewed classes. Their ordinary state/postlude runs via commonModelTrans.
+#if RE4DC_ACTOR_SKIN_RESERVE
+    if(!sourceActorNativeOwner(m))return 0;
+#else
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // NATIVE_MODEL_REGISTRY: also non-partner models whose id has a validated
     // runtime descriptor of the same part count (coarse_actor_owner_registry.inc,
     // O(1) id mask first). These only nominate; the ledger membership below and the transaction's
     // role / skeleton / material proofs admit, and a declined actor draws the
     // whole source path through commonModelTrans.
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+    // Cabin Luis only: his exact loaded registry descriptor nominates the
+    // prepared partner. Ownership still requires the ledger and every plan proof.
+    if(!m || !(m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
+       re4dc_registry_candidate(m))) || (m==(cModel*)pSUB && m->id==4 && re4dc_registry_candidate(m))))return 0;
+#else
     if(!m || !(m==(cModel*)pPL || (m!=(cModel*)pSUB && ((m->id>=0x10 && m->id<=0x20) ||
        re4dc_registry_candidate(m)))))return 0;
+#endif
 #else
     if(!m || !(m==(cModel*)pPL || (m!=(cModel*)pSUB && m->id>=0x10 && m->id<=0x20)))return 0;
+#endif
 #endif
     FrameIdentity frame{};ModelIdentity model{};
     return re4dc_actor_transaction_identity(m,&frame,&model)!=0;

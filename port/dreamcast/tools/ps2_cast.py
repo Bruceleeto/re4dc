@@ -72,6 +72,11 @@ PRESETS = {
     'ganado-em17-0c': dict(_ganado('em17', 0x1cd, ['r108', 'r118', 'r111', 'r113', 'r11d'], [0x0c]), model_id=0x17),
     'ganado-em13-06': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
                            tpl=0x1e8, rooms=['r104', 'r11c', 'r10f'], types=[6], category='human'),
+    # em10HeadSet's type-3 lost-head source variant. Keep all four source roles
+    # while converting so its PS2 image0 uses exactly the normal app2 atlas.
+    'ganado-em13-03-stump': dict(archive='em13',
+        sections=[(476, 'body'), (479, 'head'), (448, 'right-hand'), (453, 'left-hand')],
+        tpl=477, rooms=['r11c'], types=[3], category='human'),
     # non-Ganado models for NATIVE_MODEL_REGISTRY packs (ps2_cast.py regcast; lane ps2cast-all): src/em2b em2b.cpp
     # type 0 (TYPE_A) modelInit(ARC 5, ARC 7) + ModInfoMgr.create(ARC 6, ARC 7): body + head, one 64-bone skeleton
     'gigante-em2b-00': dict(archive='em2b', sections=[(5, 'body'), (6, 'head')], tpl=7, rooms=['r119'], types=[0],
@@ -97,7 +102,85 @@ PRESETS = {
     # lane ps2cast-4 (PS2_WOLF): the parasite dog (Colmillos) em22, src/em22 em22_R0_Init modelInit(ARC 4, ARC 5): one
     # 42-bone body BIN (the back parasites are cObj16 objects, ARC 0x39 / 0x47, not part of this model)
     'wolf-em22-00': dict(archive='em22', sections=[(4, 'body')], tpl=5, rooms=['r11b', 'r118'], types=[0], category='animal', model_id=0x22, lit=True),
+    # CH23: exact source info selections (em10ModelInit / Em13Set / em10_R1_Trade).
+    # The 61-bone merchant uses three TPLs and seven infos, including the hidden
+    # goods info. Open/closed coat changes the cloth BIN; both retain base hands.
+    'merchant13-c0': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1f0, 'robe'), (0x1ee, 'cloth'),
+                            (0x1ef, 'goods'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
+                         tpl=0x1e8, section_tpls={0x1f0: 0x1f1, 0x1ee: 0x1f1, 0x1e9: 0x1ea},
+                         rooms=['r10f'], types=[6], category='registry', model_id=0x13, lit=True),
+    'merchant13-o0': dict(archive='em13', sections=[(0x1e7, 'body'), (0x1f0, 'robe'), (0x1ed, 'cloth'),
+                            (0x1ef, 'goods'), (0x1e9, 'head'), (0x1f4, 'right-hand'), (0x1f8, 'left-hand')],
+                         tpl=0x1e8, section_tpls={0x1f0: 0x1f1, 0x1ed: 0x1f1, 0x1e9: 0x1ea},
+                         rooms=['r10f'], types=[6], category='registry', model_id=0x13, lit=True),
+    # Standalone merchant em18 uses a different archive and source info order.
+    # em18_R0_Init appends robe, head, both hands, cloth, then hidden goods.
+    'merchant18-c0': dict(archive='em18', sections=[(5, 'body'), (14, 'robe'), (7, 'head'),
+                            (18, 'right-hand'), (19, 'left-hand'), (12, 'cloth'), (13, 'goods')],
+                         tpl=6, section_tpls={14: 15, 7: 8, 12: 15},
+                         rooms=['r10d', 'r112'], types=[], category='registry', model_id=0x18, lit=True),
+    'merchant18-o0': dict(archive='em18', sections=[(5, 'body'), (14, 'robe'), (7, 'head'),
+                            (18, 'right-hand'), (19, 'left-hand'), (11, 'cloth'), (13, 'goods')],
+                         tpl=6, section_tpls={14: 15, 7: 8, 11: 15},
+                         rooms=['r10d', 'r112'], types=[], category='registry', model_id=0x18, lit=True),
+    # em3b_R0_Init: cart type 2 (r11d) and truck type 0 (r200).
+    'cart-em3b-02': dict(archive='em3b', sections=[(0xb, 'body')], tpl=0xc, rooms=['r11d'], types=[2],
+                         category='registry', model_id=0x3b, lit=True, repeat_uvs=True),
+    'truck-em3b-00': dict(archive='em3b', sections=[(4, 'body')], tpl=5, rooms=['r200'], types=[0],
+                          category='registry', model_id=0x3b, lit=True, shift=3),
+    # em35_R0_Init: whole body + extra, divided upper body, and separated legs.
+    # All use the original GC skeleton/animation; the PS2 bone tables match it.
+    'mendez35-full': dict(archive='em35', sections=[(4, 'body'), (6, 'extra')], tpl=5, rooms=['r11f'], types=[0],
+                          category='boss', model_id=0x35, shift=2, lit=True),
+    'mendez35-upper': dict(archive='em35', sections=[(7, 'body')], tpl=5, rooms=['r11f'], types=[1],
+                           category='boss', model_id=0x35, shift=2, lit=True),
+    'mendez35-legs': dict(archive='em35', sections=[(8, 'body')], tpl=5, rooms=['r11f'], types=[2],
+                          category='boss', model_id=0x35, lit=True),
 }
+
+
+def section_specs(spec):
+    """Source BIN/role/TPL selections; old single-TPL presets keep their order."""
+    overrides = spec.get('section_tpls', {})
+    bins = {arc for arc, _ in spec['sections']}
+    if set(overrides) - bins:
+        raise ValueError('section_tpls names a BIN outside the selected sections')
+    return [(arc, role, overrides.get(arc, spec['tpl'])) for arc, role in spec['sections']]
+
+
+def tpl_wrap_modes(data, image):
+    """Read the original GC TPL's wrap modes before normalizing repeated UVs."""
+    if len(data) < 12:
+        raise ValueError('truncated source TPL header')
+    magic, count, table = struct.unpack_from('>3I', data)
+    if magic != 0x20af30 or image < 0 or image >= count or table + count * 8 > len(data):
+        raise ValueError('invalid source TPL image')
+    offset = struct.unpack_from('>I', data, table + image * 8)[0]
+    if offset < 12 or offset + 20 > len(data):
+        raise ValueError('truncated source TPL sampler')
+    return struct.unpack_from('>2I', data, offset + 12)
+
+
+def repeat_triangle_uv(uvs, wrap):
+    """Shift each complete triangle by integer texture periods; never wrap corners.
+
+    This preserves interpolation and sample phase for GX_REPEAT. A triangle
+    crossing a period edge cannot be represented inside one atlas cell and is
+    refused. Existing presets do not request this transform.
+    """
+    result = [list(uv) for uv in uvs]
+    for axis in range(2):
+        lo, hi = min(uv[axis] for uv in uvs), max(uv[axis] for uv in uvs)
+        if 0 <= lo and hi <= 256:
+            continue
+        if wrap[axis] != 1:
+            raise ValueError('UV normalization needs GX_REPEAT on the shifted axis')
+        shift = -(lo // 256) * 256
+        if lo + shift < 0 or hi + shift > 256:
+            raise ValueError('repeated UV triangle crosses an atlas cell boundary')
+        for uv in result:
+            uv[axis] += shift
+    return result
 
 
 def sha(b):
@@ -269,16 +352,23 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     assert all(b['attach'] == b['id'] for b in bones), 'GC body parts with attach != index'
     id_to_index = {b['attach']: b['id'] for b in bones}
     rest = np.asarray([b['rest'] for b in bones])
-    # texture atlas: every image the sections' materials use, one 256 cell each
-    tpl = ps2_entry(ps2, spec['tpl'], 'TPL')
-    tp = ptd.parse_tpl(tpl)
-    images = []
-    for k, h in enumerate(tp['entries']):
-        w, ht, rgba, st = ptd.decode(tpl, h)
-        images.append(dict(index=k, width=w, height=ht, rgba=bytes(rgba), format=ptd.describe(h)['format'],
-                           alpha_raw=sorted(st['alpha_raw_hist'])))
+    # Texture atlas: every section keeps its own source TPL identity. Image
+    # indices from different TPLs occupy distinct atlas slots. Single-TPL
+    # presets retain their original indices, metadata, and output bytes.
+    selections = section_specs(spec)
+    tpl_arcs = list(dict.fromkeys(tpl_arc for _, _, tpl_arc in selections))
+    images, tpl_bases, tpl_records = [], {}, []
+    for tpl_arc in tpl_arcs:
+        tpl = ps2_entry(ps2, tpl_arc, 'TPL')
+        tp = ptd.parse_tpl(tpl)
+        tpl_bases[tpl_arc] = len(images)
+        tpl_records.append(dict(arc=hex(tpl_arc), bytes=len(tpl), sha256=sha(tpl)))
+        for h in tp['entries']:
+            w, ht, rgba, st = ptd.decode(tpl, h)
+            images.append(dict(index=len(images), width=w, height=ht, rgba=bytes(rgba), format=ptd.describe(h)['format'],
+                               alpha_raw=sorted(st['alpha_raw_hist'])))
     sections, used = [], []
-    for si, (arc, role) in enumerate(spec['sections']):
+    for si, (arc, role, tpl_arc) in enumerate(selections):
         assert spec['category'] != 'human' or role == ROLES[si]
         pbin = ps2_entry(ps2, arc, 'BIN')
         gbin = gc_entry(gc, arc, 'BIN')
@@ -300,9 +390,14 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
         assert id_parent and dt <= bone_tol, (role, id_parent, dt)
         tris = pb.triangles(m)
         for mat in m.materials:
-            if mat['diffuse'] not in used:
-                used.append(mat['diffuse'])
-        sections.append(dict(arc=arc, role=role, bin=m, tris=tris, gbin=gbin, gmesh=gc_mesh(gbin),
+            image_index = tpl_bases[tpl_arc] + mat['diffuse']
+            next_base = (tpl_bases[tpl_arcs[tpl_arcs.index(tpl_arc) + 1]]
+                         if tpl_arcs.index(tpl_arc) + 1 < len(tpl_arcs) else len(images))
+            assert tpl_bases[tpl_arc] <= image_index < next_base, (role, tpl_arc, mat['diffuse'])
+            if image_index not in used:
+                used.append(image_index)
+        sections.append(dict(arc=arc, role=role, tpl=tpl_arc, image_base=tpl_bases[tpl_arc],
+                             bin=m, tris=tris, gbin=gbin, gmesh=gc_mesh(gbin),
                              check=dict(arc=hex(arc), role=role, ps2_bin_bytes=len(pbin), ps2_bin_sha256=sha(pbin),
                                         gc_bin_bytes=len(gbin), gc_bin_sha256=sha(gbin), bones=len(m.bones),
                                         bone_id_parent_equal=id_parent, bone_translation_max_diff_mm=dt,
@@ -319,17 +414,28 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     opaque = all(a >= 128 for im in images for a in im['alpha_raw'] if im['index'] in used)
     atlas_rgb = atlas.convert('RGB').convert('RGBA')  # opaque: PS2 alpha 0x80 = 1.0; RGB565 VQ has no alpha
     atlas_rgb.save(out / 'atlas.png')
-    val['texture'] = dict(tpl_arc=hex(spec['tpl']), tpl_bytes=len(tpl), tpl_sha256=sha(tpl),
+    val['texture'] = dict(tpl_arc=tpl_records[0]['arc'], tpl_bytes=tpl_records[0]['bytes'], tpl_sha256=tpl_records[0]['sha256'],
                           images=[{k: v for k, v in im.items() if k != 'rgba'} for im in images], used=used,
                           atlas=[aw, ah], cells={str(k): v for k, v in cells.items()}, opaque=opaque,
                           uv_rule='PS2 s16 / 256 (ps2_room_r4im.py: JADERLINK vt x 255/256), cell offset in the atlas')
+    if len(tpl_records) > 1:
+        val['texture']['tpls'] = tpl_records
+        val['texture']['section_tpls'] = [hex(tpl_arc) for _, _, tpl_arc in selections]
+        val['texture']['image_bases'] = {hex(arc): base for arc, base in tpl_bases.items()}
     # mesh json (PS2 geometry, GC bone indices)
     vert_index, positions, weights, triangles = {}, [], [], []
     zero_normals = 0
     for si, s in enumerate(sections):
         gm = s['gmesh']
         for mat_i, corners in s['tris']:
-            cx, cy, cw, ch = cells[s['bin'].materials[mat_i]['diffuse']]
+            cx, cy, cw, ch = cells[s['image_base'] + s['bin'].materials[mat_i]['diffuse']]
+            raw_uvs = [c['raw']['uv'] for c in corners]
+            if spec.get('repeat_uvs'):
+                wrap = tpl_wrap_modes(gc_entry(gc, s['tpl'], 'TPL'), s['bin'].materials[mat_i]['diffuse'])
+                normalized = repeat_triangle_uv(raw_uvs, wrap)
+                if any(tuple(a) != tuple(b) for a, b in zip(raw_uvs, normalized)):
+                    val['repeat_uv_triangles_shifted'] = val.get('repeat_uv_triangles_shifted', 0) + 1
+                raw_uvs = normalized
             cs = []
             fa, fb, fc = (np.asarray(c['p']) for c in corners)
             face = np.cross(fb - fa, fc - fa)
@@ -337,7 +443,7 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                 val['degenerate_triangles_dropped'] = val.get('degenerate_triangles_dropped', 0) + 1
                 continue
             face = face / np.linalg.norm(face)
-            for c in corners:
+            for c, (raw_u, raw_v) in zip(corners, raw_uvs):
                 if not any(c['n']):  # a zero PS2 normal: the face normal (winding as read)
                     c = dict(c, n=tuple(face)); zero_normals += 1
                 w = [(id_to_index[b], float(v)) for b, v in c['w'] if v > 0]
@@ -349,7 +455,6 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
                     vert_index[key] = len(positions)
                     positions.append([float(x) for x in c['p']])
                     weights.append([[b, v] for b, v in w])
-                raw_u, raw_v = c['raw']['uv']
                 u = (cx + raw_u * cw / 256.0) / aw  # PS2 UVs are normalised to the image (s16 / 256)
                 v = (cy + raw_v * ch / 256.0) / ah
                 assert 0 <= u <= 1 and 0 <= v <= 1
@@ -379,7 +484,7 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     for si, s in enumerate(sections):
         gm = s['gmesh']
         infos.append(dict(id=si, address=f'{spec["archive"]}:arc:{s["arc"]:03x}', source_data_address=f'{spec["archive"]}:arc:{s["arc"]:03x}',
-                          source_bin_arc=s['arc'], source_tpl_arc=spec['tpl'], source_sha256=sha(s['gbin']), role=s['role'],
+                          source_bin_arc=s['arc'], source_tpl_arc=s['tpl'], source_sha256=sha(s['gbin']), role=s['role'],
                           gc_positions=len(gm['positions']), gc_normals=gm['normals'], gc_palettes=gm['palettes'],
                           gc_triangles=len(gm['triangles'])))
     source = dict(name=preset, schema='ps2cast-source-1', source_units='millimetres', source_archive=spec['archive'],
@@ -481,7 +586,7 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
     # cast layout files (GC signatures; texture key from the atlas identity)
     binds = []
     for s in sections:
-        binds.append(dict(bin=s['arc'], tpl=spec['tpl'], role=s['role'], **gc_signature(s['gbin']),
+        binds.append(dict(bin=s['arc'], tpl=s['tpl'], role=s['role'], **gc_signature(s['gbin']),
                           binding_scope='GC source array signature (the loaded model the PS2 mesh replaces)'))
     (out / 'source-bindings.json').write_text(json.dumps(binds, indent=2))
     key = texture_key(out / 'atlas.png')
@@ -586,7 +691,7 @@ def finish(out):
                  strip_vertices=s['corners'], strip_vertices_per_triangle=s['corners'] / s['triangles'], palettes=s['palettes'],
                  palette_runs=s['palette_runs'], meshlets=s['meshlets'], skin_stream_bytes=skin_bytes)
     man = dict(name=preset, revision='ps2-v1', source=dict(name=preset, archive=spec['archive'], rooms=spec['rooms'], types=spec['types'],
-               sections=[dict(bin=a, tpl=spec['tpl'], role=r) for a, r in spec['sections']]),
+               sections=[dict(bin=a, tpl=t, role=r) for a, r, t in section_specs(spec)]),
                status='PS2 conversion; needs user look review', bones=val['sections'][0]['bones'], sections=len(val['sections']),
                source_palette_sum=sum(x['gc_palettes'] for x in val['sections']),
                ps2_palette_sum=sum(x['ps2_palettes'] for x in val['sections']),

@@ -32,6 +32,15 @@
 #include "snd.h"
 #include "rnd.h"
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH23_PS2_ROOM 1
+#include "libgpu.h"
+extern "C" void OSPanic(const char* file, int line, const char* msg, ...);
+#else
+#define CH23_PS2_ROOM 0
+#endif
+
 // Room 1-1f (D:/Bio4/Prog/r11f.cpp): the village chief's barn; the meeting event (s00/s01/s02),
 // the boss fight (0xF8 / 0xF9) with its s10 stream and the s11 escape event.
 
@@ -82,6 +91,52 @@ static void r11f_EventS10EndProc();
 static void r11f_Eventxxx();
 static void r11f_EventS11();
 static void r11f_AshleyRunUp();
+#if CH23_PS2_ROOM
+static void r11f_ps2AreaInit();
+static void r11f_ps2Area9();
+#endif
+
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH23
+// PS2 s00 camera cuts: 0x10 starts at picture 1295 (125 pictures), then 0x11
+// lasts 45. The separately encoded s00c clip contains 170 pictures; it is not
+// pixel-identical to the full movie segment. Keep the source
+// callback's random chord and its cut-0x11/frame-20 prompt; only the movie's
+// relative frame is translated here. No shared transport or gameplay state changes.
+#include "route_movie.h"
+#define R11F_ROUTE_MOVIES 1
+#define R11F_MOVIES_OWN() (re4dc_movie_available(0x11f00) && \
+    re4dc_movie_available(0x11f00 | RE4DC_MOVIE_CANCEL_CLIP) && \
+    re4dc_movie_available(0x11f01) && re4dc_movie_available(0x11f02))
+static void r11fMovieS00Func(Event* e)
+{
+    if (e->funcMode == 3) {
+        // Source mode 3 restarts the skipped cut's event stream. The real s00c
+        // movie supplies that same sound; there is no live EVD stream to restart.
+        return;
+    }
+    if (e->funcMode == 1) {
+        const unsigned frame = e->NowFrame;
+        e->NowCut = frame < 125 ? 0x10 : 0x11;
+        e->NowFrame = frame < 125 ? frame : frame - 125;
+    }
+    Evt_R11FS00_Func(e);
+}
+static void r11fMovieS02Tick(unsigned picture)
+{
+    if (picture == 585) {
+        // PS2 cut 0xB/frame 0: persistent room fire reset, beyond movie presentation.
+        alignas(8) static u8 storage[sizeof(Event)] = {};
+        Event* e = (Event*) storage;
+        e->funcMode = 1;
+        e->NowCut = 0xB;
+        e->NowFrame = 0;
+        Evt_R11FS02_Func(e);
+    }
+}
+#else
+#define R11F_ROUTE_MOVIES 0
+#define R11F_MOVIES_OWN() 0
+#endif
 
 // Room init (the chief's barn, Mendez): before the meeting (Room_flg bit 0) pre-load evd r11fs00,
 // area 0x18 = the s00 event, the five event callbacks, the intact doors shown, Ashley initialised as the
@@ -96,6 +151,10 @@ void R11fInit()
 #line 64 "D:/Bio4/Prog/r11f.cpp"
     r11f_work = (R11fWork*) MEM_CALLOC(sizeof(R11fWork), 1, 0xD);
     if (RsfCheck(G_ROOM_ID, 0) == 0) {
+#if R11F_ROUTE_MOVIES
+        if (!R11F_MOVIES_OWN())
+#endif
+#line 66
         EvtMgr.EvtReadAram("event/evd/r11fs00.evd", 0, 0, 0, 0);
         SceAtDataSet_exec(0x18, SCE_LEVEL10, 0, r11f_EventS00, 0, 1);
         EvtMgr.SetFunc("evt_r11fs00_func", (void*) Evt_R11FS00_Func);
@@ -140,7 +199,61 @@ void R11fInit()
     if (hit) {
         hit->setBeetle(ROOM_ARC_PTR(pG->pRoom, 0x2D), ROOM_ARC_PTR(pG->pRoom, 0x2F), ROOM_ARC_PTR(pG->pRoom, 0x2E));
     }
+#if CH23_PS2_ROOM
+    r11f_ps2AreaInit();
+#endif
 }
+
+
+#if CH23_PS2_ROOM
+// PS2 USA st1_3.rel 0x163a0..0x16404 and callback 0x16660..0x166bc.
+// This extra once-only source area is independent of the event transport.
+// Preserve the allocator's native number, since restored item areas may use 9.
+static AreaData r11fPs2Area9 = {1, AREA_TYPE_XZ4, 0, {{-8000.00146f, 1000.0f, 750.0f, {{42141.8086f, -52700.2812f}, {47861.1992f, -52844.5234f}, {48293.2461f, -48839.0078f}, {42213.3789f, -48904.832f}}}}};
+
+static void r11f_ps2AreaInit()
+{
+    SceAtWork* prev = SceAtPtr(8);
+    if (prev == 0 || prev->otNo != 2) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11f: unexpected AEV boundary");
+        return;
+    }
+    Vec corners[4];
+    for (int i = 0; i < 4; i++) {
+        corners[i].x = r11fPs2Area9.u.xz4.p[i].x;
+        corners[i].y = r11fPs2Area9.u.xz4.floor;
+        corners[i].z = r11fPs2Area9.u.xz4.p[i].z;
+    }
+    int no = SceAtCreateExecAt(pPL, corners, 0, 0x81, 1,
+                             r11fPs2Area9.u.xz4.height, 2, 0.0f, 0.0f,
+                             0, 0, 0, 0, 0);
+    SceAtWork* at = no >= 0 ? SceAtPtr(no) : 0;
+    if (at == 0) {
+        OSPanic(__FILE__, __LINE__, "ch23 r11f: PS2 AEV allocation failed");
+        return;
+    }
+    DelPrim((u32*) sceAtSetOtStart(), (u32*) at);
+    at->area = r11fPs2Area9;
+    at->type = 2;
+    at->pParent = 0;
+    at->parentParts = 0;
+    at->angleRange = 45;
+    AddPrim((u32*) prev, (u32*) at);
+    if (RsfCheck(G_ROOM_ID, 1) == 0) {
+        SceAtDataSet_exec(at->no, SCE_LEVEL10, 0, r11f_ps2Area9, 0, 1);
+    }
+    SmdSetTrans(0x10, 0);
+    SmdSetTrans(0x13, 1);
+}
+
+static void r11f_ps2Area9()
+{
+    RsfSet(G_ROOM_ID, 1);
+    SmdSetTrans(0x1E, 1);
+    SmdSetTrans(0xF, 1);
+    SceExit();
+}
+#endif
 
 // Replaces the two barn doors by the four broken-door objects.
 extern "C" void r11f_DoorReplace()
@@ -185,11 +298,32 @@ static void r11f_EventS00()
     SndRoomBgmVolSet(1, 1, 600);
     SceEventStart(0);
     SubCharCtrl(SCC_KILL, 0);
+#if R11F_ROUTE_MOVIES
+    const int movie = R11F_MOVIES_OWN();
+    if (movie) {
+        RouteMoviePlayQte(0x11f00, ROUTE_MOVIE_SND_EVENT, r11fMovieS00Func, 0x10, 1295, 170);
+    } else
+#endif
+#line 209
     EvtMgr.EvtReadExec("event/evd/r11fs00.evd", 0, 0);
     r11f_DoorReplace();
     if (!(pG->Room_flg[0] & 0x80000000)) {
+#if R11F_ROUTE_MOVIES
+        if (movie) {
+            // Source flags 2: the failed dodge is a died-demo event, as in r104/r10b.
+            RouteMoviePlay(0x11f01, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11FS01_Func, 0);
+            DiedemoExec(0, 1);
+        } else
+#endif
+#line 212
         EvtMgr.EvtReadExec("event/evd/r11fs01.evd", 0, 2);
     } else {
+#if R11F_ROUTE_MOVIES
+        if (movie) {
+            RouteMoviePlay(0x11f02, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R11FS02_Func, r11fMovieS02Tick);
+        } else
+#endif
+#line 214
         EvtMgr.EvtReadExec("event/evd/r11fs02.evd", 0, 0);
         if (r11f_work->em0.setEm(0xF8, -1, 1, 1, 1)) {
             Cckpt.m_LifeMeter.flags = (u32) r11f_work->em0.getPtr();

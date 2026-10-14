@@ -69,17 +69,31 @@ KNOB_STATIC_MODULES=('em11',)
 # takes pl00's reviewed textures-only contract (route lane 2026-10-01, r104).
 LEON=('pl00.drs','pl08.drs')
 
-def prepare(source, destination, hot_slots=(), textures=None, keep_motion_resident=False, compact_effects=False):
+# New bounded profiles are explicit and exact-source qualified. They do not
+# change existing version2 assets or the global 32KiB producer policy.
+BOUNDED_PROFILES={
+    'em35-r11f': dict(name='em35.drs',module=61,cap=131072,count=82,
+        source='53b653c169d7a022407c8dd75d1a304d904709aae278f80cda5f843dc3b361a0',retain=(0x46,)),
+    'pl11-r11f': dict(name='pl11.drs',module=47,cap=32768,count=69,
+        source='f6fd174c7a02949c467f792eb08ecbd0529034a66189766dd7fd87e0ee991c58',retain=(0x40,0x43)),
+}
+
+def prepare(source, destination, hot_slots=(), textures=None, keep_motion_resident=False, compact_effects=False, bounded_profile=None):
     source,destination=map(Path,(source,destination))
     name=source.name.lower();file='em/'+name
-    if name not in GANADO+SMALL+MOTION_SMALL+LEON+('wep02.drs',) or (name not in GANADO+MOTION_SMALL and not keep_motion_resident):
+    profile=BOUNDED_PROFILES.get(bounded_profile) if bounded_profile else None
+    if bounded_profile and (profile is None or name!=profile['name']):raise ValueError('bounded profile/source mismatch')
+    if profile and (hot_slots or keep_motion_resident or compact_effects or textures is None):
+        raise ValueError('bounded profiles require all-cold motion plus audited top-level textures')
+    if not profile and (name not in GANADO+SMALL+MOTION_SMALL+LEON+('wep02.drs',) or (name not in GANADO+MOTION_SMALL and not keep_motion_resident)):
         raise ValueError('supported contracts: Ganado (em12/em15/em13) and em21/em23/em2a motion; em26/em28/em21/pl00/pl08/wep02 textures')
-    if textures is not None and name not in GANADO+SMALL+LEON+('wep02.drs',):raise ValueError('textures not audited for '+name)
+    if textures is not None and not profile and name not in GANADO+SMALL+LEON+('wep02.drs',):raise ValueError('textures not audited for '+name)
     if compact_effects and name not in GANADO+SMALL:raise ValueError('only enemy EFF slot0 effect consumers qualified')
     if keep_motion_resident and textures is None and not compact_effects:raise ValueError('no selected compaction')
     if destination.exists():raise FileExistsError(destination)
     hot_slots=set(hot_slots)
     original=source.read_bytes();converted=bytearray(original);refs=[];palettes=[];sequences=[]
+    if profile and hashlib.sha256(original).hexdigest()!=profile['source']:raise ValueError('unqualified bounded source identity')
     old=mirror.OFFSET_OBSERVER;old_tpl=mirror.TPL_OBSERVER;old_seq=mirror.SEQUENCE_OBSERVER;start=len(mirror.REPORT)
     mirror.OFFSET_OBSERVER=lambda file,field,base,value:refs.append((field,base,value))
     mirror.TPL_OBSERVER=lambda file,off,data,ctx:palettes.append((off,data,ctx))
@@ -96,7 +110,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
     if bad:raise ValueError('unqualified enemy: '+', '.join(bad))
     # Retain the already-implemented static REL policy; don't restore PPC code.
     converted=mirror.compact_static_rel(file,converted,coverage,mirror.static_module_ids(
-        tuple(m for m in ROUTE_OVL_MODULES+KNOB_STATIC_MODULES if m==source.stem.lower())))
+        ((source.stem.lower(),) if profile else tuple(m for m in ROUTE_OVL_MODULES+KNOB_STATIC_MODULES if m==source.stem.lower()))))
     slot=mirror.native_payload_slot(converted)
     size,base=struct.unpack_from('<I4xI',converted,slot+4)
     body=converted[base:base+size]
@@ -138,6 +152,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
     for off in ([] if keep_motion_resident else sorted(set(offsets))):
         if not off:continue
         slots=[i for i,o in enumerate(offsets) if o==off]
+        if profile and any(i+4 in profile['retain'] for i in slots):continue
         if tags[slots[0]]!=b'FCV\0':continue
         if any(tags[i]!=b'FCV\0' for i in slots):raise ValueError('mixed-tag alias')
         end=min([o for o in offsets if o>off]+[boundary])
@@ -147,7 +162,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
         native=codec.serialise(parsed,'<')
         if native!=body[off:end]:raise ValueError('native FCV differs from qualified archive')
         if not parsed.joints:continue # empty motion is already 32 bytes; keep ordinary
-        if len(native)>MAX_CLIP:
+        if len(native)>(profile['cap'] if profile else MAX_CLIP):
             # em21: a clip over the runtime's slot limit stays resident (ordinary FCV, exact bytes);
             # the Ganado contract keeps refusing, as before.
             if name in MOTION_SMALL:oversized.append({'source_arc_indices':[i+4 for i in slots],'bytes':len(native)});continue
@@ -165,6 +180,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
                         'resident_bytes':resident,'hot':bool(hot_slots.intersection(i+4 for i in slots)),'source_arc_indices':[i+4 for i in slots],'key':key,'crc':crc,'fnv':fnv,
                         'sha256':hashlib.sha256(native).hexdigest(),'classification':'reloadable key data; stable header retained'})
     if not entries and not keep_motion_resident:raise ValueError('no qualified motion payloads')
+    if profile and len(entries)!=profile['count']:raise ValueError('bounded profile motion count differs')
     ranges=sorted(ranges+texture_ranges+effect_ranges)
     local_refs=[(f-base,b-base,v) for f,b,v in refs if base<=f<base+boundary]
     # Existing fmt_drs_body preserves this scalar; it is also an archive-relative
@@ -190,7 +206,7 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
         tables+=native_identity_index(selected,mapped,len(body),final_bytes)
     if entries:
         new_tags.append(b'MTC\0');new_offsets.append(new_rel+len(tables))
-        header=struct.pack('<8s6I',MAGIC,2,len(entries),STRIDE,zlib.crc32(table)&0xffffffff,final_bytes,MAX_CLIP)
+        header=struct.pack('<8s6I',MAGIC,3 if profile else 2,len(entries),STRIDE,zlib.crc32(table)&0xffffffff,final_bytes,profile['cap'] if profile else MAX_CLIP)
         tables+=header+table+bytes(table_bytes-32-len(table))
     out=out[:new_rel]+tables+out[new_rel:]
     struct.pack_into('<2I',out,0,count+extra_slots,new_rel+len(tables) if rel else 0)
@@ -222,6 +238,14 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
             'retained':'all SEQ events, EFF behavior tables, CPU/palette/mip texels, models/materials/skeletons and exact FCV headers',
             'lifetime':'all motions remain source-owned; native identity views follow archive ownership' if keep_motion_resident else 'keys remain cached; pins protect source MotionSetCore, MotionMoveCore, MotionGetSpeed and MotionGetPosition; header/SEQ pointers remain source-archive-owned',
             'limits':'offline contract only until native binding, source consumer lifetimes, actual heap and visible output are qualified; motion selection also requires complete prefetch/concurrency audit'}
+    if profile:
+        report['contract']=bounded_profile+'-source-motion-cache-v3'
+        report['bounded_profile']=dict(profile=bounded_profile,module=profile['module'],version=3,clip_cap=profile['cap'],
+            count=len(entries),table_crc32=zlib.crc32(table)&0xffffffff,body_bytes=len(out),
+            body_crc32=zlib.crc32(out)&0xffffffff,body_sha256=hashlib.sha256(out).hexdigest(),
+            descriptor_sha256=hashlib.sha256(out[-64:]).hexdigest(),descriptor_words=list(struct.unpack('<16I',out[-64:])),
+            preserved_full_arcs=list(profile['retain']),policy='two reserved slabs only; zero hot flags; no spill; no heap12 cache')
+        report['cache_policy']=report['bounded_profile']['policy']
     destination.mkdir();(destination/'mot').mkdir()
     for key,data in files.items():(destination/'mot'/(key+'.fcv')).write_bytes(data)
     (destination/name).write_bytes(packaged)
@@ -236,12 +260,13 @@ if __name__=='__main__':
     p.add_argument('--textures',type=Path,help='Existing exact native texture packages; externalize reviewed upload-only enemy texels')
     p.add_argument('--keep-motion-resident',action='store_true',help='Texture-only selection retains every FCV payload; no motion cache')
     p.add_argument('--compact-effects',action='store_true',help='Selectable lossless resident em12 EST records; original heads and all effect behavior retained')
+    p.add_argument('--bounded-profile',choices=sorted(BOUNDED_PROFILES),help='Exact-source r11f version3 reserve-only profile')
     a=p.parse_args()
     if not a.keep_motion_resident and not a.hot_audit:p.error('--hot-audit is required for motion residency')
     audit=json.loads(a.hot_audit.read_text()) if a.hot_audit else {}
     if not a.keep_motion_resident and not audit.get('source_complete') and not a.diagnostic_incomplete_prefetch:
         p.error('prefetch/concurrency audit is incomplete; explicit diagnostic selection required')
-    r=prepare(a.source,a.output,audit.get('union',{}).get('source_arc_indices',()),a.textures,a.keep_motion_resident,a.compact_effects)
+    r=prepare(a.source,a.output,audit.get('union',{}).get('source_arc_indices',()),a.textures,a.keep_motion_resident,a.compact_effects,a.bounded_profile)
     report_path=a.output/'motion-residency-report.json'
     r['prefetch_audit']=audit
     r['runtime_qualified']=False

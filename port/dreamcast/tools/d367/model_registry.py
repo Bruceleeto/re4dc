@@ -1,7 +1,22 @@
 #!/usr/bin/env python3
 """model_registry.py <spec.json> <out dir> [--tree <checkout>] [--package-room <hex room>] [--source-normal-length]
-  [--wide-identity]
+  [--wide-identity] [--ch23-facts] [--ch23-mendez-budget] [--ch22-luis-coverage]
 (D367 generic native models, 2026-10-03)
+
+--ch22-luis-coverage (default off, --package-room 11c only): the exact pinned
+Luis conversion retains all six source identities while head/face share one
+draw and the complete hair uses one masked run. Requires ROUTE_CH22=1, PACK=1
+and MASK=1; allows the 83 material facts for body and gun within 192 KiB.
+Replacement hair opacity still requires separately reviewed source evidence.
+
+--ch23-facts (default off): target ROUTE_CH23=1 allows 128 source material part
+facts per room package instead of 32. Closed/open em13 needs 35 facts and all
+three em35 forms need 124. Default output remains unchanged.
+
+--ch23-mendez-budget (default off): with --ch23-facts and --package-room 11f,
+raise the aligned package + skin limit from 192 KiB to 640 KiB. The target's
+ROUTE_CH23=1 loader allows this only in r11f and allocates the actual file and
+skin size, plus 32 bytes for alignment. Other rooms retain the 192 KiB ceiling.
 
 --wide-identity (Phase 2 A5, 2026-10-11, default off: the output is byte-identical to before): the target image is
 the combined ACTOR_PL08 + NATIVE_MODEL_REGISTRY recipe, whose lifetime masks are wide (actor_material_records.inc
@@ -54,6 +69,7 @@ import hashlib, json, os, re, shutil, struct, sys, zlib
 
 MATERIAL_ROWS = 64          # actor_lifetime.inc Info::roles mask capacity
 SOURCE_BLOBS = 32           # actor_lifetime.inc Asset::templates mask capacity
+CH22_LUIS_COVERAGE = False  # explicit room11c pinned source coverage; package-only
 WIDE_IDENTITY = False       # --wide-identity: 64 / 96 and the pl08 base rows (RE4DC_ACTOR_WIDE_IDENTITY)
 ACTOR_MATERIALS = 3         # actor_native_owner.h kRe4dcActorMaterials
 ACTOR_CHUNKS = 8            # Re4dcActorPlan info[8]
@@ -410,6 +426,49 @@ def self_check(tree, archive, parse_tpl, le_mirror, audit, inputs, cast):
     return 'em12 BIN 472/474/448/453 + TPL 473 re-derived identically (model rows, normalized digests, texture rows)'
 
 
+LUIS_NORMALIZED = {
+    4: [74336, 0x1a039939, 0xf6f94446], 6: [21312, 0x112854f5, 0xbba97c84],
+    8: [29792, 0x49657759, 0xb6a55fe7], 9: [81312, 0x109e7365, 0x32a1c659],
+    10: [13312, 0xefcc04b2, 0xe438fb43], 11: [13120, 0x01e766c0, 0x671da641]}
+
+
+# Each complete source map is paired with its exact proved native header.
+# Keep the sealed first candidate reproducible; the second corrects character
+# TPL orientation without changing geometry, weights, bones, or source roles.
+LUIS_COVERAGE_HEADERS = {
+    'd994ab69fcd9ca9a28723858f8919a4d7658be4500db043cd8892706865c4488':
+        '90812064b25cc7305eb58a0c528fb020fa4ef600495b0f4b18599512460308e8',
+    '75c2655ee619f800e921850edcea9e0dffcc3af379996cfe9472f89929c36aa0':
+        '6fc181444d83b784780d2724732520e71b3c111eb7a7d7e77f35024659c92846'}
+
+
+def luis_coverage(inputs, descriptor, source, bindings, arc, archive_name):
+    """The exact offline six-info/five-draw mapping, never a generic alias option."""
+    manifest = descriptor.get('source_coverage_manifest')
+    if not manifest:
+        return None
+    if not CH22_LUIS_COVERAGE or archive_name != 'pl14' or source.get('source_model_id') != 4 or \
+       descriptor.get('name') != 'luis-actor' or source.get('source_archive_sha256') != \
+       '2b5b554d45a67f12612474a9ed0a1bbeb7cf5882d16a7c67ce7ff25018676f27':
+        raise Fail('Luis coverage requires the explicit pinned CH22 source descriptor')
+    coverage = inputs.json(manifest, 'coverage/luis-actor.json')
+    manifest_sha = sha(open(manifest, 'rb').read())
+    if manifest_sha not in LUIS_COVERAGE_HEADERS:
+        raise Fail('Luis coverage manifest differs from the reviewed source triangle map')
+    source_input = dict(source); source_input.pop('source_model_id')
+    if sha(json.dumps(source_input).encode()) != coverage['source_sha256']:
+        raise Fail('Luis source skeleton and coverage identities differ from the pinned conversion')
+    if [(b['bin'],b['tpl']) for b in bindings] != [(4,5),(6,7),(8,7),(9,5),(10,5),(11,5)]:
+        raise Fail('Luis six source BIN/TPL identities differ')
+    from motion import modelbin
+    for binding in bindings:
+        model = modelbin.parse(arc.entry(binding['bin']-4).data)
+        expected = [dict(id=p.no,parent=p.parent,attach=p.attach,translation=list(p.pos)) for p in model.parts]
+        if binding['part_bindings'] != expected:
+            raise Fail('Luis sparse part table differs from its exact source BIN')
+    return dict(coverage, reviewed_manifest_sha256=manifest_sha)
+
+
 # ---------------------------------------------------------------- main
 def main():
     args = sys.argv[1:]
@@ -427,6 +486,27 @@ def main():
         i = args.index('--pack-bones'); PACK_BONES = int(args[i + 1]); del args[i:i + 2]
         if PACK_BONES not in (48, 64, 80, 96, 128):
             sys.exit('model_registry: --pack-bones takes 48, 64, 80, 96 or 128 (NATIVE_MODEL_REGISTRY_BONES)')
+    global CH22_LUIS_COVERAGE
+    if '--ch22-luis-coverage' in args:
+        args.remove('--ch22-luis-coverage')
+        if package_room != 0x11c:
+            sys.exit('model_registry: --ch22-luis-coverage requires --package-room 11c')
+        CH22_LUIS_COVERAGE = True
+        PACK_CAPACITY['fpart'] = 83  # exact room11c Luis body + independent gun
+    if '--ch23-facts' in args:
+        args.remove('--ch23-facts')
+        PACK_CAPACITY['fpart'] = 128  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
+    if '--ch23-mendez-budget' in args:
+        global PACK_MAX_BYTES
+        args.remove('--ch23-mendez-budget')
+        if package_room != 0x11f or PACK_CAPACITY['fpart'] != 128:
+            sys.exit('model_registry: --ch23-mendez-budget requires --package-room 11f and --ch23-facts')
+        PACK_MAX_BYTES = 640 * 1024
+    immutable_arrays = '--immutable-array-alias' in args
+    if immutable_arrays:
+        args.remove('--immutable-array-alias')
+        if package_room != 0x11f or PACK_CAPACITY['fpart'] != 128:
+            sys.exit('model_registry: --immutable-array-alias requires --package-room 11f and --ch23-facts')
     source_normal_length = '--source-normal-length' in args
     if source_normal_length:
         args.remove('--source-normal-length')
@@ -442,7 +522,7 @@ def main():
     tmp = out + '.tmp-%d' % os.getpid()
     os.makedirs(tmp)
     try:
-        report = generate(spec_path, tmp, tree, package_room, source_normal_length)
+        report = generate(spec_path, tmp, tree, package_room, source_normal_length, immutable_arrays)
     except Fail as e:
         shutil.rmtree(tmp)
         sys.exit(f'model_registry: FAIL {e}')
@@ -477,7 +557,7 @@ def source_length_normals(name, c, src):
                             cast_mean_before=round(sum(cast) / len(cast), 6), mode='source BIN mean length')
 
 
-def generate(spec_path, out, tree, package_room=None, source_normal_length=False):
+def generate(spec_path, out, tree, package_room=None, source_normal_length=False, immutable_arrays=False):
     inputs = Inputs(out)
     spec = inputs.json(spec_path, 'spec.json')
     cast = spec['cast_dir']; level = spec['level']; overlay_rel = spec['revision_overlay'].strip('/')
@@ -527,13 +607,16 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                 raise Fail(f'{p}: sha256 differs from archive-audit.json')
             arcs[arcname] = archive.Archive(p)
         arc = arcs[arcname]
+        luis = luis_coverage(inputs, d, src, binds, arc, arcname)
+        if luis and L['header_sha256'] != LUIS_COVERAGE_HEADERS[luis['reviewed_manifest_sha256']]:
+            raise Fail('Luis native header differs from the proved complete source triangle set')
         # ---- skeleton (one per model; every section's bone table agrees)
         pb = binds[0]['part_bindings']
         bones = len(pb)
         if any(p['id'] != i or p['attach'] != i for i, p in enumerate(pb)):
             raise Fail(f'{name}: attach map is not the identity (a local attachment index needs its own map)')
         parents = [p['parent'] for p in pb]
-        if any([p['parent'] for p in b['part_bindings']] != parents for b in binds):
+        if not luis and any([p['parent'] for p in b['part_bindings']] != parents for b in binds):
             raise Fail(f'{name}: sections disagree on the hierarchy')
         if parents[0] != -1 or any(not (-1 <= q < i) for i, q in enumerate(parents)):
             raise Fail(f'{name}: parents are not a forest in index order')
@@ -563,7 +646,9 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             if (h[3], h[4], h[6], h[2], h[1]) != (b['positions'], b['normals'], b['palettes'], b['parts'], b['shift']) or \
                     int(b['flags'], 16) != h[0]:
                 raise Fail(f'{name} section {i}: archive BIN {b["bin"]} differs from source-bindings (counts/flags)')
-            if b['parts'] != bones:
+            if luis and f['normalized'] != LUIS_NORMALIZED[b['bin']]:
+                raise Fail(f'{name} section {i}: pinned normalized source BIN differs')
+            if not luis and b['parts'] != bones:
                 raise Fail(f'{name} section {i}: BIN has {b["parts"]} parts, the skeleton {bones}')
             # the runtime signature (coarse_ganado_cast.cpp fingerprint): FNV-1a of the first 64 bytes of the LE positions
             if '%08x' % digest(f['positions_le_first64'])[2] != b['source_vertex_fnv64_le']:
@@ -606,7 +691,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
         chunks, hbones = parse_header(hdr)
         if hbones != bones:
             raise Fail(f'{name}: header bone_count {hbones} != skeleton {bones}')
-        if [c['source_info'] for c in chunks] != list(range(len(sections))):
+        expected_roles = [0,1,3,4,5] if luis else list(range(len(sections)))
+        if [c['source_info'] for c in chunks] != expected_roles:
             raise Fail(f'{name}: header chunks {[c["source_info"] for c in chunks]} are not one per source section in order')
         if len(chunks) > ACTOR_CHUNKS:
             raise Fail(f'{name}: {len(chunks)} chunks > {ACTOR_CHUNKS}')
@@ -649,12 +735,33 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             mj = inputs.json(os.path.join(mdir, 'mask-runs.json'), f'mask/{name}/{si}/mask-runs.json')
             if mj['header_sha256'] != L['header_sha256'] or mj['section'] != si or mj['triangles']['chunk'] != c['triangles']:
                 raise Fail(f'{name} section {si}: mask runs were made from another header / section')
+            mask_only = bool(mj.get('mask_only'))
+            if mask_only and not (luis and si == 3 and mj['runs']['opaque']['triangles'] == 0 and
+                                  mj['runs']['hair']['triangles'] == c['triangles'] == 1273):
+                raise Fail('mask-only is restricted to the complete pinned Luis hair')
             rb = {}
             for k in ('opaque.blob', 'hair.blob', 'hair.uv'):
                 rb[k] = open(inputs.take(os.path.join(mdir, k), f'mask/{name}/{si}/{k}'), 'rb').read()
             if sha(rb['opaque.blob']) != mj['runs']['opaque']['sha256'] or sha(rb['hair.blob']) != mj['runs']['hair']['sha256']:
                 raise Fail(f'{name} section {si}: run blobs differ from mask-runs.json')
+            if mask_only and rb['opaque.blob']:
+                raise Fail('mask-only opaque payload must be absent')
+            if mask_only:
+                # A complete source hair run retains triangle order and every
+                # original corner; undo only its colour-atlas cell transform.
+                aw, ah = luis['atlas']['size']; x, y, cw, ch = luis['atlas']['cells']['(5, 3)']
+                expected_uv = bytearray()
+                for u, v in struct.iter_unpack('<2H', c['uv']):
+                    un, vn = u*aw-x*32768, v*ah-y*32768
+                    if un%cw or vn%ch or not (0 <= un//cw <= 32768 and 0 <= vn//ch <= 32768):
+                        raise Fail('Luis source hair UV cannot be reversed exactly')
+                    expected_uv += struct.pack('<2H', un//cw, vn//ch)
+                if rb['hair.blob'] != bytes(c['stream']) or rb['hair.uv'] != bytes(expected_uv) or \
+                   (mj['texture']['width'], mj['texture']['height']) != (cw, ch):
+                    raise Fail('Luis hair stream/UV/texture size differs from the complete source mapping')
             for k in ('opaque.blob', 'hair.blob'):
+                if mask_only and k == 'opaque.blob':
+                    continue
                 cc_ = dict(c, stream=rb[k], stream_bytes=len(rb[k]), triangles=mj['runs'][k.split('.')[0]]['triangles'])
                 if k == 'hair.blob':
                     cc_['uv'] = rb['hair.uv']
@@ -672,10 +779,18 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                 if tk not in [x[:4] for x in textures]:
                     textures.append(tk + (None, None, 'key only (pair token, ' + kk + ')'))
                 idx.append([x[:4] for x in textures].index(tk))
-            c['mask'] = dict(opaque=rb['opaque.blob'], hair=rb['hair.blob'], hair_uv=rb['hair.uv'],
+            c['mask'] = dict(mask_only=mask_only, opaque=rb['opaque.blob'], hair=rb['hair.blob'], hair_uv=rb['hair.uv'],
                              opaque_triangles=mj['runs']['opaque']['triangles'], hair_triangles=mj['runs']['hair']['triangles'],
                              colour_texture=idx[0], mask_texture=idx[1], pair=mj['keys']['pair'], pair_package=ppath)
             mask_sections.add(si)
+        if luis:
+            # Face source info keeps its own immutable source identity; its draw
+            # is covered by the complete merged head, with no duplicate run.
+            head = next(c for c in chunks if c['source_info'] == 1)
+            chunks.insert(2, dict(head, source_info=2, draw_owner=1))
+            skin += head['skin_bytes']
+            if not any(c['source_info'] == 3 and c.get('mask',{}).get('mask_only') for c in chunks):
+                raise Fail('Luis requires the complete mask-only source hair run')
         materials = sorted({c['texture'] for c in chunks} | {c['mask']['colour_texture'] for c in chunks if 'mask' in c})
         if len(materials) > ACTOR_MATERIALS:
             raise Fail(f'{name}: {len(materials)} materials > {ACTOR_MATERIALS}')
@@ -685,6 +800,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                      header=L['runtime_header'], header_sha256=L['header_sha256'], rooms=e.get('rooms', []),
                      needs=need_names(need), category=e.get('category'), status=e.get('status'), spec=d,
                      position_shift=int(e.get('position_shift', 4)))
+        if luis:
+            entry['source_coverage_manifest_sha256'] = luis['reviewed_manifest_sha256']
         if not 1 <= entry['position_shift'] <= 4:
             raise Fail(f'{name}: position_shift {entry["position_shift"]} outside 1..4')
         # "source_drops": ["bump"] (lane ps2cast-2): the source path itself never draws the bump stage (trans.cpp
@@ -762,7 +879,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             pk_tex = sorted({c['texture'] for r in pr for c in r['chunks']} |
                             {c['mask'][k] for r in pr for c in r['chunks'] if 'mask' in c for k in ('colour_texture', 'mask_texture')})
             pk_blobs = sorted({(r['archive'], s['bin']) for r in pr for s in r['sections']})
-        package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs)
+        package = write_package(out, package_room, spec, pr, textures, pk_tex, bins, tpls, pk_blobs, immutable_arrays)
         package['descriptors'] = [dict(name=r['name'], appearance='0x%x' % r['appearance'], archive=r['archive'],
                                        source_types=r['source_types'], sections=[dict(bin=s['bin'], tpl=s['tpl']) for s in r['sections']])
                                   for r in pr]
@@ -825,6 +942,8 @@ def write_outputs(out, spec, runtime, contracts, textures, used_tex, bins, tpls,
          'struct Texture { unsigned crc, fnv, width, height; };',
          'struct Descriptor { const char* name; unsigned appearance, model_id, bones, sections, first_chunk, skin_bytes; '
          'const signed char* parents; const float (*bind)[12]; };']
+    if any(r.get('source_coverage_manifest_sha256') for r in runtime):
+        L[:0] = ['#if !RE4DC_NATIVE_MODEL_REGISTRY_PACK', '#error Luis source coverage requires the room package loader', '#endif']
     tex_index = {t: i for i, t in enumerate(used_tex)}
     chunk_rows, desc_rows, first = [], [], 0
     for di, r in enumerate(runtime):
@@ -943,10 +1062,28 @@ def weights_bytes(rows):
     return b''.join(struct.pack('<3BB3f', bs[0], bs[1], bs[2], n, *v) for bs, n, v in rows)
 
 
-def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blobs):
+def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blobs, immutable_arrays=False):
+    if immutable_arrays and room != 0x11f:
+        raise Fail("immutable-array alias package is qualified only for room 11f")
     tex_index = {t: i for i, t in enumerate(used_tex)}
     geoms, gkey, refs, desc, parents, bind = [], {}, [], [], bytearray(), []
     blob = bytearray()
+
+    arrays = {}
+
+    def put_array(b, kind, count, stride, palette, bones):
+        # Exact bytes plus semantic context, never a hash-only alias. Streams always own storage.
+        key = (kind, count, stride, palette, bones, bytes(b))
+        if not immutable_arrays or kind == 3:
+            return put(b)
+        if key not in arrays:
+            arrays[key] = put(b)
+        return arrays[key]
+
+    def put_arrays(c, uv, stream, w, bones):
+        return [put_array(b, kind, count, stride, c["palette_count"], bones) for kind, b, count, stride in (
+            (0, c["positions"], c["position_count"], 8), (1, c["normals"], c["normal_count"], 8),
+            (2, uv, len(uv) // 4, 4), (3, stream, len(stream), 1), (4, w, c["palette_count"], 16))]
 
     def put(b):
         nonlocal blob
@@ -959,7 +1096,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                    bytes(c['positions']), bytes(c['normals']), bytes(c['uv']), bytes(c['stream']), w)
             if key not in gkey:
                 gkey[key] = len(geoms)
-                at = [put(c['positions']), put(c['normals']), put(c['uv']), put(c['stream']), put(w)]
+                at = put_arrays(c, c['uv'], c['stream'], w, r['bones'])
                 crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + bytes(c['uv']) + bytes(c['stream']) + w)
                 geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], c['triangles'],
                                           len(c['stream']), len(c['uv']), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
@@ -973,11 +1110,13 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                 mk_ = c['mask']; rg = []
                 for stream, uvb, tris in ((mk_['opaque'], bytes(c['uv']), mk_['opaque_triangles']),
                                           (mk_['hair'], mk_['hair_uv'], mk_['hair_triangles'])):
+                    if mk_.get('mask_only') and tris == 0:
+                        rg.append(-1);continue
                     k2 = ('run', r['bones'], c['position_count'], c['normal_count'], c['palette_count'], tris, c['skin_bytes'],
                           bytes(c['positions']), bytes(c['normals']), uvb, stream, w)
                     if k2 not in gkey:
                         gkey[k2] = len(geoms)
-                        at = [put(c['positions']), put(c['normals']), put(uvb), put(stream), put(w)]
+                        at = put_arrays(c, uvb, stream, w, r['bones'])
                         crc, fnv = pack_crc_fnv(bytes(c['positions']) + bytes(c['normals']) + uvb + stream + w)
                         geoms.append(dict(counts=(c['position_count'], c['normal_count'], c['palette_count'], tris, len(stream),
                                                   len(uvb), c['skin_bytes'], r['bones']), at=at, crc=crc, fnv=fnv,
@@ -987,7 +1126,8 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                 if max(rg) > 254 or tex_index[mk_['colour_texture']] > 255 or tex_index[mk_['mask_texture']] > 255:
                     raise Fail('mask run indices exceed ref word 12')
                 word12 = (rg[0] + 1) | ((rg[1] + 1) << 8) | (tex_index[mk_['colour_texture']] << 16) | (tex_index[mk_['mask_texture']] << 24)
-            refs.append((g, tex_index[c['texture']], c['source_info'], word12))
+            ownership = (0x80000000 | c['draw_owner']) if 'draw_owner' in c else c['source_info']
+            refs.append((g, tex_index[c['texture']], ownership, word12))
         parents += bytes(p & 0xff for p in r['parents']); bind += r['bind']
         name = r['name'].encode()
         if len(name) > 15:
@@ -1002,6 +1142,9 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     for r in runtime:
         for s in r['sections']:
             mk, tk = (r['archive'], s['bin']), (r['archive'], s['tpl'])
+            role_texture_max = 9 if room == 0x11f and PACK_CAPACITY['fpart'] == 128 else 8
+            if len(tpls[tk]['textures']) > role_texture_max:
+                raise Fail(f'package {r["name"]}: source TPL has {len(tpls[tk]["textures"])} images > {role_texture_max}')
             if mk not in fm_index:
                 m = bins[mk]; fm_index[mk] = len(fmodel)
                 fmodel.append(struct.pack('<24I', *m['header'], *m['positions'], *m['normals'], *m['weights'], *m['uv'],
@@ -1042,8 +1185,9 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     if align32(total) + skin > PACK_MAX_BYTES:
         raise Fail(f'package {total} B + skin {skin} B > {PACK_MAX_BYTES} (runtime arena capacity)')
     pcrc, pfnv = pack_crc_fnv(rest)
-    head = bytearray(PACK_MAGIC + struct.pack('<14I', PACK_VERSION, PACK_HEADER, total, len(PACK_SECTIONS), PACK_HEADER, skin, room,
-                                                pcrc, pfnv, 0, APPEARANCE0, max(r['bones'] for r in runtime), 0, 0))
+    version, flags = (2, 1) if immutable_arrays else (PACK_VERSION, 0)
+    head = bytearray(PACK_MAGIC + struct.pack('<14I', version, PACK_HEADER, total, len(PACK_SECTIONS), PACK_HEADER, skin, room,
+                                                pcrc, pfnv, 0, APPEARANCE0, max(r['bones'] for r in runtime), flags, 0))
     struct.pack_into('<I', head, 44, zlib.crc32(bytes(head)) & 0xffffffff)
     data = bytes(head) + rest
     d = os.path.join(out, 'package', 'r%x%02x' % (room >> 8, room & 255))
@@ -1052,7 +1196,7 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
     chunk_bytes = sum(len(c['positions']) + len(c['normals']) + len(c['uv']) + len(c['stream']) + len(weights_bytes(c['weights']))
                       for r in runtime for c in r['chunks'])
     return dict(path=os.path.relpath(os.path.join(d, 'registry.re4nmr'), out), disc_path='dc/native/r%x%02x/registry.re4nmr' % (room >> 8, room & 255),
-                room='%04x' % room, version=PACK_VERSION, bytes=total, sha256=sha(data), skin_arena=skin,
+                room='%04x' % room, version=version, bytes=total, sha256=sha(data), skin_arena=skin,
                 arena=align32(total) + skin, capacity=PACK_MAX_BYTES, counts=counts,
                 sections=[dict(kind=k, offset=struct.unpack_from('<4I', t)[1], bytes=struct.unpack_from('<4I', t)[2]) for k, t in zip(PACK_SECTIONS, table)],
                 geometry=dict(chunk_refs=len(refs), unique=len(geoms), chunk_bytes=chunk_bytes,

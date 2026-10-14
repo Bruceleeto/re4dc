@@ -113,6 +113,13 @@ inline bool room_colour_scale(unsigned scale,bool flat_native_look) {
     // TEV scales 0/1/2 are valid source environment states, not actor fades.
     return flat_native_look ? scale<=2 : scale==2;
 }
+#if RE4DC_NATIVE_MODEL_REGISTRY && defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+inline unsigned source_model_tev_group(const cModel* m,bool leon,bool registry) {
+    // cSubLuis::init uses group 1. pSubEm is player.h's canonical pSUB alias;
+    // registry_model and frame membership have already proved this descriptor.
+    return registry && m && m==(const cModel*)pSubEm && m->id==4 ? 1u : (leon?1u:0u);
+}
+#endif
 Error texture(const void* descriptor,const Texture& e) {
     if(!readable(descriptor,8))return Error::BadRange;
     const void* h=ptrat(descriptor,0);const void* clut=ptrat(descriptor,4);
@@ -236,6 +243,12 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
     unsigned expected=1;
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==3)expected|=2;
     if(RE4DC_LEON_LIKE(row.appearance) && row.role==7)expected|=0x40;
+#if RE4DC_NATIVE_MODEL_REGISTRY && (RE4DC_ROUTE_CH22 || RE4DC_ROUTE_CH23)
+    // The source merchant explicitly gives its robe and selected coat their own material color.
+    // Exact source-role ownership was proved before info(); all color/modifier
+    // checks immediately below and the transaction lighting check still apply.
+    if(re4dc_registry_merchant_robe(row.appearance,row.role,row.source_bin,row.source_tpl))expected|=0x20u;
+#endif
     if((i->be_flag&~8u)!=expected)return Error::PassGroup;
     if(i->invisible_factor!=1.0f || i->blend_mode || i->colorWord!=0xffffffffu ||
        i->color2[0] || i->color2[1] || i->color2[2] || i->color2[3] ||
@@ -340,7 +353,7 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
 #if RE4DC_NATIVE_MODEL_REGISTRY
     // NATIVE_MODEL_REGISTRY: a registry appearance names its descriptor's model id, bone count and section count; its
     // appearance is the exact source BIN + TPL rows every role proves below (no cModel::type table: the TPL row is
-    // the authored appearance). Model-level modifiers are the Ganado rules (TEV group 0, flat native look).
+    // the authored appearance). Registry actors retain the flat native look; CH22 Luis has source TEV group 1.
     const bool registry=re4dc_registry_sections(p->appearance)!=0;
 #if RE4DC_NMR_CROW
     crow_rows=registry && m->id==0x23;
@@ -353,7 +366,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     if(m->pTexChg || m->Shader_type || m->CullMode ||
        (!registry && !source_appearance_type(p->appearance,m->id,m->type)) ||
        m->invisible_factor!=1.0f || m->invisible_factor2!=1.0f || m->alpha_omit!=255 ||
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+       m->TevScaleGroup!=source_model_tev_group(m,leon,registry) ||
+#else
        m->TevScaleGroup!=(leon?1:0) ||
+#endif
        !room_colour_scale(gxCsScale[m->TevScaleGroup],!leon || RE4DC_ACTOR_LEON_NATIVE_LOOK) ||
        m->AddAmb_r || m->AddAmb_g || m->AddAmb_b) {out.error=Error::LiveModifier;return out;}
 #else
@@ -504,6 +521,20 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
+#if RE4DC_ROUTE_CH22
+    // Qualified Luis source rows retain the material/TPL proof; the source
+    // bump setup reaches the same unimplemented GX stage as Del Lago.
+    if(registry && m->id==4u)implemented|=Bump;
+#endif
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+    // CH23 em35: the qualified registry identities above retain every source
+    // material/TPL fact and their mask runs. PS2 atlases contain diffuse RGB,
+    // not a baked bump/specular stage. As on the existing em2f path, trans.cpp
+    // bumpSetup only reaches GXLoadTexObj / indirect GX stubs; it does not
+    // replace model_bridge's diffuse selection. This allowance covers that
+    // source-path limitation only; target visual acceptance remains separate.
+    if(registry && m->id==0x35)implemented|=Bump;
+#endif
 #endif
 #if RE4DC_NMR_CROW
     // PS2_CROW (Phase 2 A3, user decision 2026-10-11): a registry crow (em23, 0x23) draws no bump stage (as the source
@@ -563,17 +594,41 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
 }
 #endif
 }
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+// Appearance 0 may use only its two proven GC grip hands and its exact TPL.
+// Keep this check at both entry points: the lean certificate bypasses the
+// public owner lookup after resolving the current role earlier in the call.
+static bool app0_grip_source_material(unsigned role,const re4dc_material::Role* row) {
+    using namespace re4dc_material;
+    return row && row->appearance==0 && row->role==role && row->source_tpl==473 &&
+        row->textures==t_em12_473 && row->texture_count==3 &&
+        ((role==2 && row->source_bin==451 && row->model==&m_extra_451) ||
+         (role==3 && row->source_bin==456 && row->model==&m_extra_456));
+}
+#endif
 extern "C" int re4dc_actor_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,Re4dcActorOwnedMaterial* out) {
     using namespace re4dc_material;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!out || app>4 || role<2 || role>4)return 0;
+#else
     if(!out || app<1 || app>4 || role<2 || role>4)return 0;
+#endif
     const auto* row=actor_current_role(m,info,app,role);if(!row)return 0;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!app && !app0_grip_source_material(role,row))return 0;
+#endif
 #if RE4DC_ACTOR_PROOF_LEAN
     return lean_source_material(m,info,app,role,row,out);
 }
 static int lean_source_material(cModel* m,cModelInfo* info,unsigned app,unsigned role,const re4dc_material::Role* row,
                                 Re4dcActorOwnedMaterial* out) {
     using namespace re4dc_material;(void)m;
+#if RE4DC_ACTOR_GANADO_APP0_GRIP
+    if(!out || app>4 || role<2 || role>4 || !row)return 0;
+    if(!app && !app0_grip_source_material(role,row))return 0;
+#else
     if(!out || app<1 || app>4 || role<2 || role>4 || !row)return 0;
+#endif
 #endif
     const bool hand=(role==2 && row->source_bin==451) || (role==3 && row->source_bin==456);
     if(!hand && !(role==4 && (row->source_bin==467 || row->source_bin==484)))return 0;
@@ -627,3 +682,6 @@ extern "C" unsigned re4dc_actor_material_diagnose(cModel* m,const Re4dcActorPlan
     if(need)*need=r.required;if(matched)*matched=r.identity_roles;
     return unsigned(r.error);
 }
+#if RE4DC_ACTOR_TEX_PREP
+#include "actor_tex_prep_material.inc"
+#endif

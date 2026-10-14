@@ -1,0 +1,16 @@
+{
+  "registry": "ps2-r200-truck",
+  "about": "CH23 em3b type0 truck: eight-bone source skeleton and PS2 geometry; source alpha material retained as a mask run.",
+  "cast_dir": "/root/probe/codex-ch23-enemies-20261013/regcast-truck",
+  "revision_overlay": "ps2-overlay",
+  "level": "conservative",
+  "archive_audit": "source/archive-audit.json",
+  "descriptors": [
+    {"name": "truck-em3b-00", "archive": "em3b", "model_id": "0x3b", "source_types": [0],
+     "module": "src/em3b/em3b.cpp em3b_R0_Init type0: modelInit BIN4/TPL5",
+     "mask_runs": {"0": "/root/probe/codex-ch23-enemies-20261013/models/truck-em3b-00-mask"}}
+  ],
+  "room_packages": {
+    "200": {"descriptors": ["truck-em3b-00"], "evidence": "Source type0 truck BIN4/TPL5 and matching PS2/GC eight-bone table."}
+  }
+}

@@ -5,11 +5,12 @@ import struct
 HEADER = struct.Struct("<8s10I")      # room/texture_package.hpp Header (48 B)
 TEXTURE = struct.Struct("<64s8I")     # Texture (96 B)
 PAYLOADS = {0: "linear", 1: "twiddled", 2: "vq"}
-FORMATS = {0: "RGB565", 1: "ARGB1555", 2: "ARGB4444"}
+FORMATS = {0: "RGB565", 1: "ARGB1555", 2: "ARGB4444", 4: "PAL4_ARGB4444"}
 
 
 def read_re4tex(path):
-    d = open(path, "rb").read()
+    with open(path, "rb") as stream:
+        d = stream.read()
     h = HEADER.unpack_from(d, 0)
     if h[0] != b"RE4DCTX\0":
         raise ValueError("%s: not a re4tex" % path)
@@ -19,8 +20,37 @@ def read_re4tex(path):
         t = TEXTURE.unpack_from(d, toff + i * stride)
         w, hh, fmt, doff, dsize, flags, payload = t[1:8]
         out.append(dict(width=w, height=hh, format=FORMATS.get(fmt, fmt), payload=PAYLOADS.get(payload, payload),
-                        data_bytes=dsize, vram_bytes=vram_bytes(PAYLOADS.get(payload, "linear"), w, hh)))
+                        data_bytes=dsize, vram_bytes=(w * hh // 2 + 32 if fmt == 4 and payload == 1 else
+                            vram_bytes(PAYLOADS.get(payload, "linear"), w, hh))))
     return dict(file_bytes=len(d), textures=out, vram_bytes=sum(t["vram_bytes"] for t in out))
+
+
+def decode_pal4_argb4444(data, width, height):
+    """Independent pixel-coordinate decoder of native twiddled PAL4 + palette.
+
+    Returns row-major 16-bit words and RGBA bytes for a full equality proof.
+    Rectangular PVR textures are adjacent Morton-order squares.
+    """
+    if not all(8 <= n <= 1024 and not n & (n - 1) for n in (width, height)):
+        raise ValueError('invalid PAL4 dimensions')
+    if len(data) != width * height // 2 + 32:
+        raise ValueError('invalid PAL4 payload length')
+    colors = struct.unpack_from('<16H', data, len(data) - 32)
+    side = min(width, height)
+    words, rgba = [], bytearray()
+    for y in range(height):
+        for x in range(width):
+            location = ((y // side) + (x // side)) * side * side
+            bit = 1
+            while bit < side:
+                location += (bool(y & bit) + 2 * bool(x & bit)) * bit * bit
+                bit <<= 1
+            index = (data[location // 2] >> (4 * (location % 2))) & 15
+            word = colors[index]
+            words.append(word)
+            rgba.extend(((word >> 8 & 15) * 17, (word >> 4 & 15) * 17,
+                         (word & 15) * 17, (word >> 12) * 17))
+    return words, bytes(rgba)
 
 
 def pow2(n):

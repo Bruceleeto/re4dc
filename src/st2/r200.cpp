@@ -24,6 +24,13 @@
 #include "snd.h"
 #include "merchant.h"
 
+#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23 && \
+    defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#define CH23_PS2_ROOM 1
+#else
+#define CH23_PS2_ROOM 0
+#endif
+
 // Room 2-00 (D:/Bio4/Prog/r200.cpp): the castle approach (the first stage-2 room, end of chapter 2-3):
 // the show-view pan over the castle, the truck event (a Ganado drives the truck at the gate) with its
 // Ganado wave, the s00 event that ends chapter 2-3 (Leon and Ashley enter the castle; the merchant's
@@ -65,6 +72,30 @@ static void r200_execTruckEvent_end();
 static void r200_execTruckEvent();
 extern "C" void Evt_R200S00_Func(Event* e);
 
+#if defined(RE4DC_GAME) && !defined(__PPC__) && RE4DC_ROUTE_MOVIES && RE4DC_ROUTE_CH23
+// The PS2 s00 movie replaces only the castle-entry EVD. Native show-view and
+// truck scripts keep their own camera, actor and ordinary START-cancel paths.
+#include "route_movie.h"
+#include "fade.h"
+#define R200_ROUTE_MOVIES 1
+#define R200_MOVIES_OWN() re4dc_movie_available(0x20000)
+static void r200MovieS00Tick(unsigned picture)
+{
+    if (picture == 1230) {
+        // PS2 camera cut 0x14 starts at picture 1228; its frame 2 stops the room stream.
+        alignas(8) static u8 storage[sizeof(Event)] = {};
+        Event* e = (Event*) storage;
+        e->funcMode = 1;
+        e->NowCut = 0x14;
+        e->NowFrame = 2;
+        Evt_R200S00_Func(e);
+    }
+}
+#else
+#define R200_ROUTE_MOVIES 0
+#define R200_MOVIES_OWN() 0
+#endif
+
 // Room init: JumpPoint 1 skips the view and the s00 event (Room_flg bits 4/2). The show view once (bit
 // 4); until s00 (bit 2): area 4 = the event (pre-loaded, enemies 3/0x12/0x3B pre-read) and, until the
 // truck came (bit 0), area 0 = the truck event with item area 0x8A off; after s00 the gate objects 8/9
@@ -74,15 +105,23 @@ void R200Init()
 #line 51 "D:/Bio4/Prog/r200.cpp"
     R200Work*& wp = r200_work.p;   // reference: the following `lwz pG` stays below the store (r227 idiom)
     wp = (R200Work*) MEM_CALLOC(sizeof(R200Work), 1, 0xd);
+// PS2 Init (st2_0.rel 0x6308) checks saved events directly, without
+    // the recovered GC JumpPoint shortcut that marks the chapter event complete.
+#if !CH23_PS2_ROOM
     if (pG->JumpPoint == 1) {
         RsfSet(G_ROOM_ID, 4);
         RsfSet(G_ROOM_ID, 2);
     }
+#endif
     if (RsfCheck(G_ROOM_ID, 4) == 0) {
         SceExec(0x12, (TaskFunc) r200_execShowView, 0, 0, SCE_PRIO_DEF_2, 0);
     }
     if (RsfCheck(G_ROOM_ID, 2) == 0) {
         SceAtDataSet_exec(4, SCE_LEVEL10, 0, (TaskFunc) r200_execEvent00, 0, 1);
+#if R200_ROUTE_MOVIES
+        if (!R200_MOVIES_OWN())
+#endif
+#line 66
         EvtMgr.EvtReadAram("event/evd/r200s00.evd", 0, 0, 0, 0);
         EmReadSearch(3, 0, 0);
         EmReadSearch(0x12, 0, 0);
@@ -212,6 +251,15 @@ static void r200_execEvent00()
     EmMgr.destroyAll();
     SceSleep(2);
     EmReadInit();
+#if R200_ROUTE_MOVIES
+    if (R200_MOVIES_OWN()) {
+        RouteMoviePlay(0x20000, ROUTE_MOVIE_SND_EVENT, (RouteEvtFunc) Evt_R200S00_Func, r200MovieS00Tick);
+        // Source flags 0x50 keep the EVD until chapter teardown and request its
+        // automatic fade. The movie owns the picture; the caller still ends the chapter.
+        FadeSetW(2, 0x2D, 0, 0);
+    } else
+#endif
+#line 195
     EvtMgr.EvtReadExec("event/evd/r200s00.evd", 0, 0x50);
     SceEventEnd(0);
     pG->Scenario_flg[0] |= 0x00800000;
@@ -255,7 +303,11 @@ static void r200_checkEmSetEvent()
     }
 found:
     SndCall(6, 3, 0, 0, 0, 0);
+#if !CH23_PS2_ROOM
     setEm(0x69, 1, 1, 1, 1);
+#endif
+    // PS2 st2_0.rel 0x6b70..0x6c18 starts this wave at 0x6A. The
+    // unchanged ESL still retains 0x69; only source callback membership differs.
     setEm(0x6A, 1, 1, 1, 1);
     setEm(0x6B, 1, 1, 1, 1);
     setEm(0x6C, 1, 1, 1, 1);

@@ -470,6 +470,26 @@ ROOM_CONTRACTS={
     # (after BIN#27: the chandelier, R117Init SetObjSmd ROOM_ARC 0x1F / 0x20); FCV#29-36 (its swing) and EMI#37
     # byte-identical. The header ends past the first payload (328 > 320), as r104's: header_grow=32.
     'r117':dict(slots=38,smd=4,effs=(7,),itm=9,model_slots=(28,),header_grow=32),
+    # Chapter 2-2 (route lane ch22, ROUTE_CH22; slot tags of the GC disc 1 St1/<room>.das):
+    # r112: r107's 27-slot layout. r111: 29 slots, SMD#4, EFF#7, ITM#9; EVS#24 and EMI#28 byte-identical.
+    # r113 (Ashley's shoulder ride): 40 slots, SMD#4, EFF#7, ITM#9; FCV#27-28/#30-39 and EMI#29 byte-identical; its
+    # header (344 B) plus the NTR slot ends flush with the first payload (352 B), as r104's: header_grow=32.
+    # r11c (Luis' cabin, chapter 2-2's end): 31 slots, SMD#4, EFF#7, ITM#9, model TPL#28 (after BIN#27); FCV#29, EMI#30
+    # byte-identical.
+    'r112':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r111':dict(slots=29,smd=4,effs=(7,),itm=9,model_slots=()),
+    'r113':dict(slots=40,smd=4,effs=(7,),itm=9,model_slots=(),header_grow=32),
+    'r11c':dict(slots=31,smd=4,effs=(7,),itm=9,model_slots=(28,)),
+    # Chapter 2-3: standard scenery/effect/item owners; retain every script, collision and motion slot.
+    # r11d: local EFF#27 (ROOM_ARC 0x1F, owner CA), model TPL#30 (BIN#29, sisters' attachment).
+    # r11e: local EFF#30 (ROOM_ARC 0x22, owner C8), model TPL#29 (BIN#28); its 42-slot header
+    # needs 32 B for NTR. The rock model/motions and SAT/EAT pieces remain source data.
+    # r11f: four event prop model TPLs #28/#31/#34/#37 and beetle TPL#40; damage AEV stays intact.
+    # r200: 28 slots, standard owners only; EMI#27 and truck collision remain byte-identical.
+    'r11d':dict(slots=32,smd=4,effs=(7,27),itm=9,model_slots=(30,)),
+    'r11e':dict(slots=42,smd=4,effs=(7,30),itm=9,model_slots=(29,),header_grow=32),
+    'r11f':dict(slots=44,smd=4,effs=(7,),itm=9,model_slots=(28,31,34,37,40)),
+    'r200':dict(slots=28,smd=4,effs=(7,),itm=9,model_slots=()),
     # r40b (St4, st4_0 + em1f; follow-up 7): r40c's 27-slot layout (header ends at 232 of 256: no growth).
     'r40b':dict(slots=27,smd=4,effs=(7,),itm=9,model_slots=()),
 }

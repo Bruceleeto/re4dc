@@ -38,6 +38,7 @@ VERSION = 2
 FORMAT_RGB565 = 0
 FORMAT_ARGB1555 = 1
 FORMAT_ARGB4444 = 2
+FORMAT_PAL4_ARGB4444 = 4
 FLAG_ALPHA = 1
 FLAG_BINARY_ALPHA = 2
 # CAST_MIPMAP (Phase 2 A2): the VQ payload carries the PVR mip chain (codebook, then the index bytes of every level
@@ -504,6 +505,52 @@ def package_existing_vq(encoded: bytes, material: str = "source", allow_mipmaps:
                         'encoded_file_bytes':len(encoded),'vram_bytes':len(payload),
                         'uncompressed_16bit_bytes':width*height*2,
                         'candidate_only':True,'reencoded':False,**({'mipmap':True} if mip else {})}
+
+
+def package_exact_pal4_argb4444(native: bytes) -> tuple[bytes, dict]:
+    """Losslessly replace one native twiddled ARGB4444 descriptor with PAL4.
+
+    TEX_PAL4_ALPHA=1 is required. All 16-bit words must fit a 16-color exact
+    dictionary. No resampling or quantization; source label/flags/header identity
+    metadata stay unchanged. The two adjacent Morton-order indices occupy the
+    low then high nibble, matching the native glyph atlas/PVR PAL4 layout.
+    """
+    if len(native) < HEADER.size + TEXTURE.size:
+        raise ValueError('short native package')
+    h = list(HEADER.unpack_from(native))
+    if (h[0:4] != [MAGIC, VERSION, HEADER.size, TEXTURE.size] or
+            h[4] != 1 or h[5] != HEADER.size or
+            h[6] != HEADER.size + TEXTURE.size or h[6] + h[7] != len(native)):
+        raise ValueError('expected one canonical native descriptor')
+    if h[8] == zlib.crc32(native[HEADER.size:]) & 0xffffffff:
+        crc_rule = 'header'
+    elif h[8] == zlib.crc32(native[h[6]:]) & 0xffffffff:
+        # The older PS2 writer used the texel-only CRC. Its canonical shape
+        # below is still checked; the result always emits the full-body CRC.
+        crc_rule = 'data'
+    else:
+        raise ValueError('native payload CRC mismatch')
+    t = list(TEXTURE.unpack_from(native, h[5]))
+    _, w, hh, fmt, off, size, flags, layout, reserved = t
+    if (not all(8 <= n <= 1024 and not n & (n - 1) for n in (w, hh)) or
+            fmt != FORMAT_ARGB4444 or layout != PAYLOAD_TWIDDLED or reserved or
+            flags & FLAG_MIPMAP or off != h[6] or size != w * hh * 2 or size != h[7]):
+        raise ValueError('expected base-level native twiddled ARGB4444')
+    words = struct.unpack_from('<%dH' % (w * hh), native, off)
+    palette = sorted(set(words))
+    if len(palette) > 16:
+        raise ValueError('exact PAL4 needs at most 16 distinct ARGB4444 words')
+    dictionary = {word: i for i, word in enumerate(palette)}
+    indices = bytes(dictionary[words[i]] | dictionary[words[i + 1]] << 4
+                    for i in range(0, len(words), 2))
+    payload = indices + struct.pack('<16H', *(palette + [0] * (16 - len(palette))))
+    t[3], t[5] = FORMAT_PAL4_ARGB4444, len(payload)
+    body = TEXTURE.pack(*t) + payload
+    h[7], h[8] = len(payload), zlib.crc32(body) & 0xffffffff
+    return HEADER.pack(*h) + body, dict(width=w, height=hh, unique_words=len(palette),
+        format=FORMAT_PAL4_ARGB4444, payload='twiddled', vram_bytes=len(payload),
+        saved_bytes=size-len(payload), palette_ram_bytes=64, lossless=True, source_crc_rule=crc_rule,
+        required_build_knob='TEX_PAL4_ALPHA=1')
 
 
 def build_package(

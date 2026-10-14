@@ -214,6 +214,45 @@ PRESETS = {
     "r117-revisit": dict(room=0x117, pos=(80, -1000, 7800), ang=0.0, find=0x00100000,
                          door=[("a", 600, 6), ("a", 660, 6), ("a", 720, 6)],
                          notes="r117 revisit (Ashley found): em11 Ganados; --door: door 0 -> r118"),
+    # Chapter 2-2 (route lane ch22, ROUTE_CH22; stage_route.scan GC AEV door arrivals). Ashley follows: Item_find_flg
+    # 0x00100000 (rescued in r117) and Status_flg[3] 0x04000000 (sce_sys.cpp SceRoomInit: SubCharInit at sub_pos, chase).
+    # r118 after the rescue (R118Init: Ganados 0x79..0x7F, the dog 0x78, the altar view once) at r112 door 1's arrival
+    # (-44397, 157, -14419, angle 2.146), turned to face door 3 (+pi).
+    "r118-c22-door112": dict(room=0x118, pos=(-44397, 157, -14419), ang=-0.9956, find=0x00100000,
+                             status={3: 0x04000000}, door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                             notes="r118 after the rescue at the r112 door (Ashley follows)"),
+    # r112 as r118's door 3 delivers Leon (dst -5153, -8474, 52054, angle -2.459).
+    "r112-entry": dict(room=0x112, pos=(-5153, -8474, 52054), ang=-2.459, find=0x00100000, status={3: 0x04000000},
+                       notes="r112 from the r118 door 3 (chapter 2-2, Ashley follows)"),
+    # At r112's door 0 (to r111): r111 door 25's arrival (-19691, 0, -19088, angle 0.988) turned to the door.
+    "r112-door111": dict(room=0x112, pos=(-19691, 0, -19088), ang=-2.1536, find=0x00100000, status={3: 0x04000000},
+                         door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                         notes="r112 at the r111 door (Ashley follows)"),
+    # r111 as r112's door 0 delivers Leon (dst 19213, 968, 3011, angle -2.269).
+    "r111-entry": dict(room=0x111, pos=(19213, 968, 3011), ang=-2.269, find=0x00100000, status={3: 0x04000000},
+                       notes="r111 from the r112 door 0 (chapter 2-2, Ashley follows)"),
+    # At r111's door 2 (to r113): r113 door 0's arrival (39372, 3201, -26667, angle -1.504) turned to the door.
+    "r111-door113": dict(room=0x111, pos=(39372, 3201, -26667), ang=1.6376, find=0x00100000, status={3: 0x04000000},
+                         door=[("fwd", 30, 20), ("a", 60, 4), ("a", 150, 4), ("a", 240, 4)],
+                         notes="r111 at the r113 door (Ashley follows)"),
+    # r113 (Ashley's shoulder ride) as r111's door 2 delivers Leon (dst -47609, 12, 7084, angle 1.889).
+    "r113-entry": dict(room=0x113, pos=(-47609, 12, 7084), ang=1.889, find=0x00100000, status={3: 0x04000000},
+                       notes="r113 from the r111 door 2 (chapter 2-2, Ashley follows)"),
+    # r113's shoulder ride (area 3, the window; r113_EventRideShoulder puts Leon at 2574, 767, -28450 facing +x): A
+    # starts it (door_unlock[0] 0x08000000: Ashley opens the front door); then Leon goes to the front door (r11c door
+    # 0's arrival in r113: 1444, 585, -28003) and A takes door 2 to r11c.
+    "r113-ride": dict(room=0x113, pos=(2574, 767, -28450), ang=1.5708, find=0x00100000, status={3: 0x04000000},
+                      acts=[("a", 60, 4), ("a", 120, 4), ("a", 180, 4)], goto=[(900, (1444, 585, -28003), 1.6016)],
+                      door=[("fwd", 930, 10), ("a", 960, 4), ("a", 1020, 4), ("a", 1080, 4)],
+                      notes="r113 at the window: the shoulder ride, then (--door) the front door to r11c"),
+    # r11c (Luis' cabin) as r113's door 2 delivers Leon (dst 51635, 1, -70675, angle 0.88).
+    "r11c-entry": dict(room=0x11c, pos=(51635, 1, -70675), ang=0.88, find=0x00100000, status={3: 0x04000000},
+                       notes="r11c from the r113 door 2 (chapter 2-2, Ashley follows)"),
+    # r11c siege: Leon starts inside area 3 (the cabin, xz4 89458..92431 / -58301..-52810; trigger once), so the s00 event
+    # starts; `trg 0` ends the wave loop (r11c_EventBesiegedStart's DebugTrg(0) shortcut) for the s10 event and the
+    # chapter 2-2 end.
+    "r11c-siege": dict(room=0x11c, pos=(90900, 0, -55600), ang=0.0, find=0x00100000, status={3: 0x04000000},
+                       trg=(0, 2400, 0x11c), notes="r11c: the siege (s00), trg 0 ends it (s10, chapter end)"),
     # r40b (St4, st4_0 + em1f) as r40a's door 1 delivers Leon (r40a AEV: dst 1749, 0, 4498, angle -1.801); r40b's
     # only door arrival.
     "r40b-entry": dict(room=0x40b, pos=(1749, 0, 4498), ang=-1.801,
@@ -240,6 +279,8 @@ def lines_for(p, door=False, dump=False, name=None):
         out.append("find 0x%08x" % p["find"])
     for i, v in sorted((p.get("unlock") or {}).items()):
         out.append("unlock %d 0x%08x" % (i, v))
+    for i, v in sorted((p.get("status") or {}).items()):
+        out.append("status %d 0x%08x" % (i, v))
     for i, v in sorted((p.get("items") or {}).items()):
         out.append("items %d 0x%08x" % (i, v))
     dead = list(p.get("dead") or [])

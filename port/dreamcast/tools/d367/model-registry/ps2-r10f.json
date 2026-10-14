@@ -1,0 +1,30 @@
+{
+  "registry": "ps2-r10f-merchant",
+  "about": "CH23 r10f em13 type6: complete seven-info 61-bone merchant, closed and open coat. Source em10_R1_Trade selects cloth 0x1ee/0x1ed and keeps base hands; source goods visibility remains live. No suppression or 34-bone Ganado alias.",
+  "cast_dir": "/root/probe/codex-ch23-enemies-20261013/regcast-merchant",
+  "revision_overlay": "ps2-overlay",
+  "level": "conservative",
+  "archive_audit": "source/archive-audit.json",
+  "lighting": "Source lighting and cull need guarded CH23 runtime qualification; mask runs preserve robe and cloth alpha. Source hand variants outside normal merchant wait/trade remain unqualified.",
+  "descriptors": [
+    {
+      "name": "merchant13-c0", "archive": "em13", "model_id": "0x13", "source_types": [6],
+      "module": "src/em13/em13_set.cpp Em13Set type6 + src/em10/em10.cpp em10ModelInit; closed cloth BIN0x1ee/TPL0x1f1",
+      "mask_runs": {
+        "1": "/root/probe/codex-ch23-enemies-20261013/models/merchant13-c0-mask-robe",
+        "2": "/root/probe/codex-ch23-enemies-20261013/models/merchant13-c0-mask-cloth"
+      }
+    },
+    {
+      "name": "merchant13-o0", "archive": "em13", "model_id": "0x13", "source_types": [6],
+      "module": "src/em10/em10.cpp em10_R1_Trade and em10ClothPartsSet: open cloth BIN0x1ed/TPL0x1f1",
+      "mask_runs": {
+        "1": "/root/probe/codex-ch23-enemies-20261013/models/merchant13-o0-mask-robe",
+        "2": "/root/probe/codex-ch23-enemies-20261013/models/merchant13-o0-mask-cloth"
+      }
+    }
+  ],
+  "room_packages": {
+    "10f": {"descriptors": ["merchant13-c0", "merchant13-o0"], "evidence": "PS2 emleon01 r10f rows0x3d/0x49 select em13 type6; frozen r10f census has61 parts/7 infos."}
+  }
+}

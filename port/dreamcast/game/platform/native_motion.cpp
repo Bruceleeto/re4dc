@@ -50,6 +50,17 @@ static_assert(RE4DC_MOTION_PRESSURE_BYTES >= 65536 &&
 #ifndef RE4DC_MOTION_RESERVE
 #define RE4DC_MOTION_RESERVE 0
 #endif
+#ifndef RE4DC_MOTION_BOUNDED_R11F
+#define RE4DC_MOTION_BOUNDED_R11F 0
+#endif
+#if RE4DC_MOTION_BOUNDED_R11F
+#if !RE4DC_MOTION_RESERVE || RE4DC_MOTION_USAGE_LOG
+#error "bounded r11f motion needs reserve=1, usage_log=0"
+#endif
+#if RE4DC_MOTION_PRESSURE_BYTES != 262144
+#error "bounded r11f motion is qualified with the existing 262144-byte pressure cap"
+#endif
+#endif
 #ifndef RE4DC_MOTION_USAGE_LOG
 #define RE4DC_MOTION_USAGE_LOG 0
 #endif
@@ -61,6 +72,9 @@ struct Binding {
     unsigned char* archive; unsigned bytes;
     const unsigned char* records; unsigned count;
     Slot* slots; unsigned budget, hot_bytes, resident;
+#if RE4DC_MOTION_BOUNDED_R11F
+    bool bounded; // static binding marker; checked before any suspended archive/slot access
+#endif
 #if RE4DC_MOTION_RESERVE
     // MOTION_RESERVE=1: the cold part of the budget (two clips of the largest cold size) is
     // allocated at bind, so a later miss never allocates from a full heap 4 (the r100 ambush:
@@ -76,7 +90,8 @@ Binding bindings[kArchives]{};
 #if RE4DC_SUBSCREEN
 // Sub screen open (sscrn_bridge.cpp): the game's heaps 2/3/4 are suspended and their cells in
 // the swapped area hold sub screen data, so nothing already resident may be evicted (freed
-// into a suspended heap); new clips load into the current heap 12 over budget meanwhile.
+// into a suspended heap). Misses outside heap4 are rejected below. New bounded bindings
+// are skipped before their archive range or borrowed records/slots are inspected.
 bool hold;
 #endif
 Owner owners[32]{};
@@ -85,6 +100,9 @@ std::uint64_t stamp;
 mutex_t lock=MUTEX_INITIALIZER;
 unsigned word(const unsigned char* p) { unsigned n;std::memcpy(&n,p,4);return n; }
 unsigned aligned(unsigned n) { return (n+31)&~31U; }
+#if RE4DC_MOTION_BOUNDED_R11F
+#include "native_motion_r11f_profiles.inc"
+#endif
 #ifndef RE4DC_MOTION_FAST_READ
 #define RE4DC_MOTION_FAST_READ 0
 #endif
@@ -196,7 +214,12 @@ void release_binding(Binding& b) {
     stats.metadata_bytes-=aligned(b.count*sizeof(Slot));stats.hot_bytes-=b.hot_bytes;
 #if RE4DC_MOTION_RESERVE
     for(auto* p:b.slab)if(p)re4dc_motion_free(p);
+#if RE4DC_MOTION_BOUNDED_R11F
+    // New profile accounting charges each successful slab allocation separately.
+    stats.metadata_bytes-=b.bounded?((b.slab[0]!=nullptr)+(b.slab[1]!=nullptr))*b.slab_bytes:2*b.slab_bytes;
+#else
     stats.metadata_bytes-=2*b.slab_bytes;
+#endif
 #endif
 #if RE4DC_MOTION_USAGE_LOG
     if(b.seen)re4dc_motion_free(b.seen);
@@ -298,7 +321,11 @@ unsigned* load(Binding& b,unsigned i) {
                 if(data)break;
 #if RE4DC_MOTION_RESERVE_SPILL
                 // Both slabs busy: cache this key in heap 4 while the source keeps its margin (MOTION_RESERVE_SPILL).
-                if(re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_RESERVE_SPILL)) {
+                if(
+#if RE4DC_MOTION_BOUNDED_R11F
+                    !b.bounded &&
+#endif
+                    re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_RESERVE_SPILL)) {
                     static unsigned spills;
                     if(++spills<=4 || (spills&1023)==0)re4dc_log("motion reserve: spill #%u bytes=%u heap4=%d\n",spills,bytes,re4dc_static_heap_free());
                     break;
@@ -317,6 +344,9 @@ unsigned* load(Binding& b,unsigned i) {
                 re4dc_log("motion reserve: use #%u bytes=%u slab=%u free=%s\n",uses,bytes,b.slab_bytes,
                           (slab_busy(b,b.slab[0]) && slab_busy(b,b.slab[1]))?"0":"1");
         }
+#if RE4DC_MOTION_BOUNDED_R11F
+        if(b.bounded && !data)fail("bounded motion requires reserved slab");
+#endif
         if(!data)
 #endif
         data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
@@ -372,7 +402,11 @@ unsigned* load(Binding& b,unsigned i) {
                 thd_pass();result=re4dc::storage::read_file(arena,path);
             }
         }
-        if(result.error || result.size!=size) { re4dc_motion_free(data);fail("motion key read"); }
+        if(result.error || result.size!=size) {
+#if RE4DC_MOTION_BOUNDED_R11F
+            if(!b.bounded)
+#endif
+            re4dc_motion_free(data);fail("motion key read"); }
         stats.bytes_read+=result.size;
 #if RE4DC_MOTION_FAST_READ
         }
@@ -380,12 +414,20 @@ unsigned* load(Binding& b,unsigned i) {
         unsigned fnv=2166136261U;for(unsigned j=0;j<size;++j)fnv=(fnv^data[j])*16777619U;
         const auto* proxy=b.archive+word(e);const unsigned head=prefix(proxy);
         if(net_crc32le(data,size)!=word(e+8) || fnv!=word(e+12) || std::memcmp(proxy,data,head)) {
+
+#if RE4DC_MOTION_BOUNDED_R11F
+            if(!b.bounded)
+#endif
             re4dc_motion_free(data);fail("motion identity/header mismatch");
         }
         auto* table=reinterpret_cast<unsigned*>(data+head-4*data[2]);
         for(unsigned j=0;j<data[2];++j) {
             const unsigned offset=table[j];
-            if(offset<head || offset>=size) { re4dc_motion_free(data);fail("motion key offset"); }
+            if(offset<head || offset>=size) {
+#if RE4DC_MOTION_BOUNDED_R11F
+            if(!b.bounded)
+#endif
+            re4dc_motion_free(data);fail("motion key offset"); }
             table[j]=static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(data)+offset);
         }
         s.data=data;s.used=++stamp;b.resident+=bytes;stats.resident_bytes+=bytes;
@@ -420,10 +462,25 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     // D325 qualifies room-owned em12, before heap4 reset. Frozen stage heaps
     // and the ARAM/shooting-range swap require a distinct ownership audit.
     if(re4dc_motion_current_heap()!=4)return 0;
+#if RE4DC_MOTION_BOUNDED_R11F
+    if(rel>bytes || bytes-rel!=64 || mtc_offset<16+8*n ||
+       mtc_offset>=rel || rel-mtc_offset<32 || (mtc_offset&31) ||
+       std::memcmp(mtc,"R4MOTBL\0",8) || word(mtc+16)!=20 || word(mtc+24)!=bytes)return 0;
+    unsigned clip_limit=kClipLimit;bool bounded=false;
+    if(word(mtc+8)==3u) {
+#if RE4DC_SUBSCREEN
+        if(hold)return 0;
+#endif
+        clip_limit=bounded_profile(a,bytes,rel,mtc);
+        if(!clip_limit)return 0;
+        bounded=true;
+    } else if(word(mtc+8)!=2u || word(mtc+28)!=kClipLimit)return 0;
+#else
     if(rel>bytes || bytes-rel!=64 || mtc_offset<16+8*n ||
        mtc_offset>=rel || rel-mtc_offset<32 || (mtc_offset&31) ||
        std::memcmp(mtc,"R4MOTBL\0",8) || word(mtc+8)!=2 || word(mtc+16)!=20 ||
        word(mtc+24)!=bytes || word(mtc+28)!=kClipLimit)return 0;
+#endif
     const unsigned count=word(mtc+12);
     if(!count || count>kEntries || count>(rel-mtc_offset-32)/20 ||
        net_crc32le(mtc+32,count*20)!=word(mtc+20))return 0;
@@ -431,7 +488,12 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     for(unsigned i=0;i<count;++i) {
         const auto* e=mtc+32+20*i;const unsigned off=word(e),size=word(e+4),flags=word(e+16);
         if(off<16+8*n || off>=mtc_offset || (off&31) || off<=prev ||
-           size>kClipLimit || size<32 || (size&31) || flags>1 || !a[off+2])return 0;
+#if RE4DC_MOTION_BOUNDED_R11F
+           size>clip_limit || (bounded && flags) ||
+#else
+           size>kClipLimit ||
+#endif
+           size<32 || (size&31) || flags>1 || !a[off+2])return 0;
         unsigned head=prefix(a+off);if(head>size || head>mtc_offset-off)return 0;
         bool found=false;unsigned end=mtc_offset;
         for(unsigned j=0;j<n;++j) {
@@ -454,6 +516,9 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     // diagnostic until the source prefetch/concurrency closure is complete.
     // Hot entries are never LRU victims; a budget miss is explicit, not thrash.
     *b={a,bytes,mtc+32,count,slots,hot+2*largest,hot,0};
+#if RE4DC_MOTION_BOUNDED_R11F
+    b->bounded=bounded;
+#endif
     stats.metadata_bytes+=meta;stats.hot_bytes+=hot;
 #if RE4DC_MOTION_RESERVE
     if(largest) {
@@ -461,7 +526,13 @@ extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
         for(auto*& p:b->slab) {
             p=static_cast<unsigned char*>(re4dc_motion_alloc(b->slab_bytes));
             if(!p) { re4dc_log("motion bind: reserve slab of %u failed\n",b->slab_bytes);release_binding(*b);return 0; }
+#if RE4DC_MOTION_BOUNDED_R11F
+            if(b->bounded)stats.metadata_bytes+=b->slab_bytes;
+#endif
         }
+#if RE4DC_MOTION_BOUNDED_R11F
+        if(!b->bounded)
+#endif
         stats.metadata_bytes+=2*b->slab_bytes;
         re4dc_log("motion reserve: bind slabs=2x%u\n",b->slab_bytes);
     }
@@ -488,7 +559,11 @@ extern "C" int re4dc_motion_acquire(const void* header,unsigned** table) {
     if(!stats.metadata_bytes)return 0;
     const auto p=reinterpret_cast<std::uintptr_t>(header);
     for(unsigned bno=0;bno<kArchives;++bno) {
-        auto& b=bindings[bno];auto base=reinterpret_cast<std::uintptr_t>(b.archive);
+        auto& b=bindings[bno];
+#if RE4DC_MOTION_BOUNDED_R11F && RE4DC_SUBSCREEN
+        if(hold && b.bounded)continue; // no archive-range, MTC or slot reads across the room/UI swap
+#endif
+        auto base=reinterpret_cast<std::uintptr_t>(b.archive);
         if(!base || p<base || p-base>=b.bytes)continue;
 #if RE4DC_MOTION_INDEX
         // GAME_MOTION_INDEX (design-logic P4): re4dc_motion_bind accepts a table only when the record

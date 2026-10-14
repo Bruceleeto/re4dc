@@ -1841,6 +1841,10 @@ static int ch13_bgm1_sub()
     // r118 (ROUTE_CH21): slot 1 is bio4midi #9 (r118_checkBgm starts slot 1), the same frozen-layout gap.
     if (room == 0x118) return (pSnd->room_bgm_tbl[0] >> 16) & 0x8000;
 #endif
+#if defined(RE4DC_ROUTE_CH22) && RE4DC_ROUTE_CH22
+    // r113 (ROUTE_CH22, chapter 2-2): slot 1 is bio4midi #3, the same frozen-layout gap.
+    if (room == 0x113) return (pSnd->room_bgm_tbl[0] >> 16) & 0x8000;
+#endif
     return (room == 0x108 || room == 0x10A) && ((pSnd->room_bgm_tbl[0] >> 16) & 0x8000);
 }
 
