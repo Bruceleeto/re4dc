@@ -1,0 +1,271 @@
+# Character lighting phase 2: per-actor light probe (ACTOR_PROBE_LIGHT)
+
+Lane lp2, 2026-10-14. Branch `lane/light-p2` (local), commits `7ac3635b` (probe) and `ad45bdd1` (shared record).
+Option branch `lane/light-p2-extra` (`a6496bef`, unmerged): `ACTOR_PROBE_LIGHT_EXTRA`. All knobs default 0.
+Evidence: `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014` (cost projections `hwmodel-*`, `cost-table.json`, gates under
+`gates\`, stills sheet `lighting-sheet.png`).
+
+## What it does
+
+`ACTOR_PROBE_LIGHT=1` (Leon) / `=2` (Leon and the Ganado classes 0x10..0x20). Each actor gets one light probe per frame.
+The probe is ambient light plus one directional light. Each vertex then needs one dot product's worth of lighting.
+
+- **Source.** The probe is evaluated from the actor's GameCube light set, once, at the actor's origin. This is the set
+  that the game's own `LightSetModel` selected: room `.lit` lights, plus dynamic lights such as the muzzle flash, fires
+  and effect lights. These are the same records that `LEON_SOURCE_LIGHT` and `PS2_GANADO_LIT` capture.
+- **Fit.** The probe is the L0 + L1 fit of the clamped-cosine sum.
+  - Light vector: V = Σ luma(C_i) · l_i.
+  - Coherence: a = |V| / Σ luma(C_i).
+  - Directional term: a · ΣC_i, along V/|V|.
+  - Ambient term: 0.25 · (1 − a) · ΣC_i, added to the GX ambient.
+  - A single light reproduces `build_lights` exactly (host test).
+- **Parts.** Each part lights with that direction, expressed in the part's own normal space.
+  - Leon uses the per-part (modelview 3×3)^-T, as D36 does.
+  - Ganados use the record's shared normal matrix.
+  - All parts go through the existing fast kernel, never the exact per-vertex evaluator.
+  - Every palette entry's direction is built in one pass per fold (`probe_dirs_all`). Before this, the kernels' record
+    walks built them per palette (`avk_build_dirs_n16` + `skin_light_dirs`), which cost 0.83 ms for Leon in the house.
+- **Distance tiers (=2).** The near tier is lit per vertex. Mid and far tiers get one colour per part from the probe, as
+  `CROWD_FLAT` does today.
+- **Requirements.** `LEON_SOURCE_LIGHT=1`, for Leon's light-set capture. `=2` also needs `PS2_GANADO_LIT=1` and
+  `CROWD_LOD=1`. Make enforces both.
+- **Fallback.** A part the probe cannot serve (about 11% of parts in the `PROBE_LIGHT` log, likely the material caps
+  check or Leon's basis case; not investigated) keeps the existing `build_lights` path. That path is the D36 / Ganado
+  light of today, not a GameCube model fallback.
+- **Code.** About 210 lines of C++ in `platform/native_actor_fast.cpp`, the 42-line header, 28 lines of `crowd.mk` and the host test
+  `tests/test_actor_probe_light.py`. No new assembly and no linker change: it reuses the existing
+  `re4dc_avk_light_*` kernels with one direction.
+
+### Why not D36 or an offline probe grid (the simpler alternatives)
+
+- **D36 (`LEON_SOURCE_LIGHT=1`) alone** is the simplest code that is already there. Measured on the model, it is not
+  safe. When Leon stands under more than 3 lights (r100 house, 690:749), every Leon vertex takes the exact per-vertex
+  evaluator (`pass_lights_exact` + `world_of`), which costs +21.9 ms per frame. The probe removes that path for Leon.
+- **No offline per-room probe grid.** The user's proposal baked probes from the GC room light sets. That is not
+  needed:
+  - The game already runs `LightSetModel` for every model every frame, as part of the source frame.
+  - Sampling that set once per actor costs about 0.05 ms per frame for Leon (`probe_lights` + `probe_of`, modelled,
+    r100 house).
+  - A baked grid would save almost nothing. It would also lose the dynamic lights and add a converter, disc data and
+    heap.
+- **A one-direction kernel** (new SH-4 asm) would save about 0.4 ms for Leon (estimate from the instruction share of
+  the unused directions, not modelled). It was not done. The probe is already within about 1.4 ms of flat, and the
+  saving does not justify a new kernel (CLAUDE.md rule).
+
+## Shared light record (lp2 owns the format)
+
+`platform/include/actor_light_probe.h` exports `re4dc_actor_light_probe(model, out)`. It returns the newest probe for
+that model (this frame's, else the previous frame's):
+
+- `dir`: view space, unit vector from the actor toward the dominant light. A shadow falls along −dir. All zero means
+  no direction.
+- `color`: directional colour, GX units / 255.
+- `ambient`: GX ambient / 255 + the folded residual.
+- `coherence`: 0..1. 1 means one clear light; 0 means light from all sides.
+- `serial`: the actor-frame serial the record was built in.
+- Reserved extension terms, zero today:
+  - `extra_n` and `extra_index` (the option below).
+  - `flash` (a global flash or tint term).
+
+Fields are only appended, never reordered.
+
+The shadow lane (PVR modifier volumes, lane/shadow `614c0552`, `mv_shadow.cpp`) reads this record for Leon and the
+live Ganados 0x10..0x20:
+
+- World shadow direction = −(Vᵀ · dir), with V = `pG->Cam.v_mat`.
+- Footprint stretch = 1700 mm body height × slope × coherence, capped at 1800 mm.
+- No probe, or an all-zero dir, gives a round footprint straight down.
+- It reads the record in `stream_close` after the owner draws, so it gets this frame's record.
+
+So light and shadow agree, and there is one light table. With `ACTOR_PROBE_LIGHT=1`, Ganados have no probe, so their
+shadows are round.
+
+The record exists only in builds with `ACTOR_PROBE_LIGHT=1` or `=2`. Those builds define
+`RE4DC_ACTOR_LIGHT_PROBE_API=1`, and callers must guard on it, because unresolved symbols link to silent stubs.
+
+## Extension contract (so later light or shadow options need no rework)
+
+- **Characters.** The light path is "probe + 0..N extra lights", with N = 0 by default. `ACTOR_PROBE_LIGHT_EXTRA=N`
+  (option branch `a6496bef`) works as follows:
+  - The N strongest lights at the origin are left out of the probe and evaluated per part.
+  - They go into the fast kernel's otherwise-zero directions 1 and 2.
+  - The per-vertex cost is unchanged.
+  - `EXTRA=0` builds are byte-identical to the probe builds (identity PASS lp2Z1C vs lp2R1C, lp2Z2C vs lp2R2C).
+- **Flash.** A future flash term adds to the ambient (`Re4dcLightProbe.flash`). That is 3 adds per actor per frame.
+- **World.** The world keeps its baked per-vertex colour, since the PS2 world is prelit. A global flash or tint
+  modulates the frame through the existing post-quad path: Filter00 / `POST_F00`, or the `LOOK_TOGGLE` grade quad.
+  Nothing relights world vertices.
+- **Shadows.** The shadow lane takes direction and strength from `dir` and `coherence`. If the meaning of either
+  changes, the shadow lane must be told.
+
+## Cost (SH-4 hardware model, MODELLED, not console)
+
+How these were measured:
+
+- Build: the test 10 recipe (`t10s-build.sh`) on `lane/light-p2`, plus `DBG_WARP=1 PC_SAMPLER=1 PACE_MODE=off`.
+  PACE_MODE=fast arms mixed drawn and skipped frames differently per arm, so they were thrown out.
+- Assets: the test 10 data fixture (`t10s-fix.py`, pkg-r91tP.json, `--pak gc --hands 1`). These are the PS2 world and
+  PS2 cast packages; there are no GC model fallbacks (MCHECK_LEONGC PASS below).
+- Projection: `hwproject.sh`, nominal model with the low..high what-if range, global frame windows.
+- Scenes:
+  - houseA: r100 house, Codex warp/pad, 690:749. Leon stands under more than 3 lights.
+  - house: the same run, 740:819 (Codex's window).
+  - wide: the r101 wide burning-cross warp, 1390:1469, 12 Ganados alive.
+  - r10b: room start, warp `room 0x10b inv default god`, 500:579.
+- Reading the table: the flat row is absolute whole-frame ms; every other cell is its delta against flat. "Lighting" is the sum of the
+  lighting functions. Binaries differ in layout and I-cache, which moves the whole frame by about ±0.5..2 ms (for
+  example X1 vs R1 wide: whole frame +1.96, lighting +0.21). Read the lighting column for the scheme's own cost.
+
+| Option | r100 house, Leon >3 lights (690:749) | r100 house (740:819, Codex window) | r101 burning cross (1390:1469) | r10b start (500:579) |
+|---|---|---|---|---|
+| Flat (test 10) | 37.97 (33.06..44.95); lighting 0.27 | 39.15 (34.12..46.28); lighting 0.25 | 86.76 (75.91..102.66); lighting 3.17 | 39.00 (34.37..45.57); lighting 0.27 |
+| D36 LEON_SOURCE_LIGHT=1 | +21.87 (+21.23..+22.68); lighting 21.47 | +5.40 (+5.12..+5.74); lighting 5.40 | +3.76 (+3.25..+4.40); lighting 4.95 | +1.13 (+1.28..+0.96); lighting 2.42 |
+| D5 design 1 (CROWD_FLAT=0) | +0.75 (+0.68..+0.84); lighting 0.89 | +0.63 (+0.57..+0.70); lighting 0.88 | +2.78 (+2.49..+3.15); lighting 4.99 | - |
+| D5 design 2 (GANADO_ONE_LIGHT=1) | +1.77 (+1.62..+1.97); lighting 1.80 | +1.85 (+1.66..+2.08); lighting 1.80 | +5.54 (+4.95..+6.31); lighting 7.91 | - |
+| Probe ACTOR_PROBE_LIGHT=1 | +1.36 (+1.18..+1.57); lighting 1.69 | +1.30 (+1.13..+1.50); lighting 1.64 | +1.92 (+1.76..+2.16); lighting 4.46 | +1.36 (+1.25..+1.54); lighting 1.81 |
+| Probe ACTOR_PROBE_LIGHT=2 | +2.02 (+1.72..+2.40); lighting 2.08 | +1.84 (+1.57..+2.18); lighting 2.02 | +3.38 (+2.89..+4.07); lighting 5.59 | +1.43 (+1.30..+1.65); lighting 1.82 |
+| Probe =1 + 1 extra light (option) | - | - | +3.88 (+3.25..+4.73); lighting 4.67 | - |
+| Probe =1 + 2 extra lights (option) | - | - | +4.27 (+3.51..+5.28); lighting 4.67 | - |
+| Probe =2 + 1 extra light (option) | - | - | +5.09 (+4.26..+6.22); lighting 6.02 | - |
+| Probe =2 + 2 extra lights (option) | - | - | +4.75 (+4.04..+5.71); lighting 6.07 | - |
+
+What each arm lights:
+
+| Arm | Leon | Ganados |
+|---|---|---|
+| Flat | flat | flat (`PS2_GANADO_LIT=1 CROWD_FLAT=1`) |
+| D36 | source lights | flat |
+| D5 d1, D5 d2 | flat | lit |
+| Probe =1 | lit | flat |
+| Probe =2 | lit | lit |
+
+So the D5 rows are a Ganado cost only. Compare them with the Ganado increment of the probe, which is =2 minus =1:
+
+| Ganado lighting | houseA | house | wide |
+|---|---|---|---|
+| D5 design 1 | +0.75 (lighting +0.62) | +0.63 (+0.63) | +2.78 (+1.82) |
+| D5 design 2 | +1.77 (+1.53) | +1.85 (+1.55) | +5.54 (+4.74) |
+| Probe =2 minus =1 | +0.66 (+0.39) | +0.54 (+0.38) | +1.46 (+1.13) |
+
+Each cell is the whole-frame ms, with the lighting-function ms in brackets.
+
+Extra lights for the dynamic option, in the worst r101 view (wide). "Leon only" means probe =1 + N; "Leon + near
+enemies" means probe =2 + N:
+
+| Wide, modelled | Whole frame vs flat | Lighting functions | Lighting delta vs the probe alone |
+|---|---|---|---|
+| Leon only: probe =1 | +1.92 | 4.46 | - |
+| Leon only: probe =1 + 1 extra light | +3.88 | 4.67 | +0.21 |
+| Leon only: probe =1 + 2 extra lights | +4.27 | 4.67 | +0.21 |
+| Leon + near enemies: probe =2 | +3.38 | 5.59 | - |
+| Leon + near enemies: probe =2 + 1 extra light | +5.09 | 6.02 | +0.43 |
+| Leon + near enemies: probe =2 + 2 extra lights | +4.75 | 6.07 | +0.48 |
+
+How to read the extra-light rows:
+
+- The lighting column is the real cost of the option: +0.2 ms for Leon, about +0.45..0.7 ms with the near Ganados.
+- Per function:
+  - The palette directions go back to per palette: `skin_light_dirs` rises by 0.37 ms for Leon and 0.72 ms for
+    Leon + Ganados.
+  - `probe_extra` and `probe_of` add 0.25 ms in the Leon + Ganados case.
+  - `probe_dirs_all` falls by 0.15..0.28 ms.
+- Most of the larger whole-frame delta is layout and I-cache noise, not lighting. `MeshDraw::draw` (world meshlets)
+  rose by 0.57 / 0.70 ms with an identical instruction count.
+- So the extra lights cost about 0.2..0.7 ms of real work in the worst view, and the whole frame can still move
+  1..2 ms either way when the binary changes.
+
+## Gates (on the final code, ad45bdd1)
+
+| Gate | Result |
+|---|---|
+| Knob-off identity | lp2KP vs t10stP (test 10 play image): IDENTITY PASS (objcopy image + overlays + syms). Rechecked after every change. |
+| H2 STRICT, probe on | lp2GT (knob-off) vs lp2S2T (`ACTOR_PROBE_LIGHT=2 LEON_SOURCE_LIGHT=1`). Both have `_end` 8c40a29c (`IMAGE_PAD_BYTES=4288` on the off arm), `RE4DC_LOG_STOP_TICK=4700`, trace_lock, overruns 0. logic_trace_diff rc=0 (STRICT). |
+| Decisions | decision_cmp MUST-IDENTICAL over 4702 ticks: em-em 133840, line queries 81607, area 3791, damage 56040. Drift 0. Info only: sq=4@285 (sound). |
+| s30 | Route movie id=10030 shown 340, dropped 0, in both arms. |
+| MCHECK_LEONGC + TEX_CHECK | lp2S2M (probe =2 + `MCHECK_LEONGC=1 TEX_CHECK=2`): h2, boat and square routes give LEON-GC PASS ×3 and TEXCHK PASS (3/3); halt/missing/fault 0. |
+| Host test | `tests/test_actor_probe_light.py`: fit, one light = `build_lights`, cache, declines, palette directions, shared record, source data unchanged. |
+
+The STRICT and MCHECK runs used probe =2, which covers =1 (Leon's path is the same in both). The `EXTRA` option has no
+STRICT run or host test.
+
+## Look
+
+The stills sheet is `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\lighting-sheet.png`.
+
+- Columns: Flat | D36 | D5 d1 | D5 d2 | Probe =1 | Probe =2 | GameCube.
+- Rows: r100 house Leon; r101 square, villager + Leon; r101 wide crowd; r10b start Leon.
+
+What it shows:
+
+- The probe is nearly identical to D36 in the house and in r101F.
+- In the wide shot the probe makes Leon backlit and darker, which is closer to GC.
+- GC Leon's jacket is brighter and greener in r101F. That is a material/TEV difference shared by all DC columns.
+- The freeze-tick villager pose differs slightly between arms.
+- The r10b GC shot is the lake path at room start, not the dock.
+- There is no PS2 column (left for the PCSX2 agent).
+
+## Dynamic lights (study only; nothing implemented beyond the probe)
+
+### Inventory, chapter 1 to 2-1
+
+From GameCube code; the PS2 side is mostly inferred.
+
+How GC handles lights:
+
+- Lights are `cLight` in `LightMgr`. Room `.lit` cut lights come in at `light.cpp:727`, and dynamic lights through
+  `create()`.
+- Behaviours: flicker (type 1), sine (2), fade (6), and 0x10 for muzzle/explosion fades (×0.3 per frame).
+- `setModel2` gives each model up to 8 lights, chosen by mask: Leon 1, Ganado 2, room SMD scenery 0x10.
+
+| Source | GC | What it lights | Port today |
+|---|---|---|---|
+| Muzzle flash | `EstSet` 0x45/0x46/0x4B/0x36 effect light, fade type 0x10 | Characters near the gun; world SMD if its mask allows | Reaches Leon and lit Ganados through the probe/D36; not the world |
+| Grenade / explosion | `objSubWep.cpp` 591/658/722, effect light + `Filter00SetAddSpread` screen glow | Characters + a full-screen additive glow | Character light through the probe; the screen glow is likely missing (GXCopyTex stub, POST_F00 has no spread colour) |
+| Flash grenade | `EstSet` 0x3F, 15000 hit radius, Filter00 white-out | Screen + characters | Same as above |
+| r101 pyre / burning cross | cut 0 light 12, flicker, R 5.6 m, (255,216,152), mask 0x10 | World/SMD only, not characters | PS2 world is prelit (static): no flicker |
+| r100 house fire / lamp | cut 0 light 2, flicker, R 4.8 m, mask 0x57 | World and characters | Characters flicker through the probe; world static |
+| Torch / dynamite Ganados | effect lights (`em10.cpp`) | Nearby characters | Through the probe when the effect has a light (effect data, not decoded) |
+| Lightning | r113/r11d/r11b thunder tasks (chapter 2-2 onward), room light intensity or scenery colour | World + characters | Not in chapter 1 / 2-1 |
+| Attached lights | Del Lago boat core light (`pl0f.cpp:397`), Ashley (`pl_npc.cpp:174`) | The owner's surroundings | Through the probe for the owner |
+
+On PS2:
+
+- The ELF keeps the whole light system: `cLightMgr`, `Light00..10_Move`, `cEsp11`, `setModel2`, `LightSetModel`,
+  `Filter00SetAddSpread`.
+- The PS2 world is prelit COLOR with no normals.
+- So PS2 dynamic lights reach characters and objects, but not the world. The port matches that today.
+
+### Options (look gain, ms, complexity, risk)
+
+The ms figures are modelled where marked; the rest are estimates.
+
+| Option | Look gain | ms | Complexity | Risk |
+|---|---|---|---|---|
+| A. Dynamic lights inside the probe (default, done) | Muzzle flash, fires and effect lights move Leon's (and with =2 the near Ganados') light | 0 extra: already inside the probe numbers | None | None |
+| B. `ACTOR_PROBE_LIGHT_EXTRA=1/2` (option branch) | The strongest 1-2 lights keep their own direction and falloff, e.g. a muzzle flash next to a lamp | Wide, modelled: lighting +0.21 ms (Leon), +0.43..0.48 ms (Leon + Ganados) over the probe; whole frame +1.4..2.4 ms, mostly layout noise | Small C++ (per-part fold); palette directions go back to per palette (`skin_light_dirs` 0.41 ms in X1-wide) | Low; needs its own STRICT + host test before use |
+| C. Character flash term (`flash` → ambient) | Grenade/explosion flash on characters | About 0 (3 adds per actor) | Small | Low |
+| D. World flash/tint via post quad (POST_F00 with RGB, or LOOK_TOGGLE grade) | Explosion, flash grenade, fire pulse on the whole screen | CPU negligible; GPU one full-screen translucent layer, only on flash frames (not modelled) | Small (POST_F00 needs an RGB colour) | Low; check fill rate on flash frames outdoors |
+| E. Regional world glow in the world kernel | Pyre/torch flicker on nearby world vertices | Estimate +0.3..0.5 ms house, about +1 ms outdoors, while active | Assembly change in the world kernel (t11/Codex area) | Medium-high; not recommended |
+| F. Per-vertex world relight | Full GC-like world lights | Not costed: the PS2 world has no normals | Large (converter + kernel) | High; rejected |
+| G. One-direction asm kernel | None (speed only) | Estimate −0.4 ms for Leon | New SH-4 asm | Medium; not justified now |
+
+## Recommendation
+
+- **Leon: ship `ACTOR_PROBE_LIGHT=1`.** It costs about +1.3..1.9 ms modelled (lighting 1.6..1.8 ms on its own) in
+  every scene, looks like D36, and carries the dynamic lights. D36 on its own is unsafe: +21.9 ms when Leon is under
+  more than 3 lights.
+- **Ganados: keep CROWD_FLAT (flat) by default. `ACTOR_PROBE_LIGHT=2` is the option to choose by fps and look.** It
+  adds about +0.5..0.7 ms in the house and about +1.5 ms in the wide fight on top of =1. That is cheaper than both
+  D5 designs: design 1 costs +0.6..0.75 in the house and +2.8 wide; design 2 costs +1.8 and +5.5. It also gives the
+  shadow lane a direction for every near Ganado.
+- **Dynamic lights:** keep A (free, already in). C and D are the cheap next options if a flash is wanted. B stays an
+  unmerged option. Do not do E, F or G.
+- **Budget** (whole frame vs flat, worst r101 view):
+  - Characters about 2 ms with =1, about 3.4 ms with =2.
+  - With option B (extra lights), add about 0.2..0.5 ms of lighting work.
+  - World dynamic light: 0 ms CPU.
+- **Shadows** take direction and strength from the probe record (one light table). The shadow lane owns its volumes;
+  this lane does not touch them.
+
+The ms figures are modelled on the SH-4 hardware model, not measured on a console. A console run is needed before the
+fps claim is final.
