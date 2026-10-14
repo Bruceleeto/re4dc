@@ -144,3 +144,7 @@ Synthetic fixtures check source/gain mismatch, bad hashes and CRCs, semantic
 rejection, vertex-alpha rejection, unchanged opaque/shared-key parts, exact
 placement and mesh preservation, true R4ID/PCL1 identity updates, immutable
 baseline texture-pack entries and refusal to overwrite previous output.
+
+## r100 candidate runtime identity
+
+`PS2_PT_VARIANT_CRC=176921082` selects the genuine `0x0a8b99fa` R4PW/PCL1 identity for the reviewed per-material r100 candidate. It requires `PS2_PT_CUTOUT=1`; its default is zero, which retains the existing selection. Both the mesh/sidecar package check and the PCL1 header check still apply. This setting does not alter visibility cells or the culling algorithm. A baseline capture must use the baseline CRC selection and its matching original package; a candidate capture must use the candidate selection and its matching package. Never use a mismatched package to disable culling as a comparison control. The candidate remains pending runtime and visual gates.

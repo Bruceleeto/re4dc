@@ -1574,6 +1574,11 @@ struct Portal { std::uint32_t axis; float plane,u0,u1,v0,v1; }; // u = axis+1, v
 // --vc-clamp 2.0 (PS2 vertex colour x SMX ColorRGB; colour bytes and 2 un-instanced BINs differ, the geometry is the
 // same), so the same sub-cells and portals with that package's mesh CRC, sidecar CRC and mesh bytes.
 constexpr unsigned kPcSidecarUse=0xd888094fU,kPcMeshUse=0x6122bba4U,kPcMeshBytesUse=1536992U;
+#elif defined(RE4DC_PS2_PT_VARIANT_CRC) && RE4DC_PS2_PT_VARIANT_CRC
+// Candidate CRC is genuine and must match both R4PW and PCL1. Offline proof
+// retains the exact mesh, placements, cell boxes and portal geometry. No cull
+// test or identity check is bypassed by selecting the reviewed candidate.
+constexpr unsigned kPcSidecarUse=RE4DC_PS2_PT_VARIANT_CRC,kPcMeshUse=kPcMeshCrc,kPcMeshBytesUse=kPcMeshBytes;
 #elif defined(RE4DC_PS2_PT_CUTOUT) && RE4DC_PS2_PT_CUTOUT
 // PS2_PT_CUTOUT=1 (game30.mk): the r100 package rebuilt with ps2_room_r4im.py --cutout-max-alpha 224 (only part passes
 // 2 -> 1 and those parts' texture keys differ; mesh and placements are the same), so the same cell with that sidecar CRC.

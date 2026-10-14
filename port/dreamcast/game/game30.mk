@@ -2291,6 +2291,22 @@ $(error PS2_R100_SMX=1 needs PS2_PT_CUTOUT=1 (the package is built on the cutout
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_R100_SMX=1
 endif
+# Explicit r100 candidate package identity. The offline conversion preserves mesh,
+# placements and PCL cell/portal bytes, but changes the real R4PW body CRC. Zero
+# retains the original selection. Only reviewed candidate CRCs may be selected.
+PS2_PT_VARIANT_CRC ?= 0
+ifneq ($(filter-out 0 176921082,$(PS2_PT_VARIANT_CRC)),)
+$(error PS2_PT_VARIANT_CRC must be 0 or 176921082 (r100 per-material candidate v1))
+endif
+ifneq ($(PS2_PT_VARIANT_CRC),0)
+ifneq ($(PS2_PT_CUTOUT),1)
+$(error PS2_PT_VARIANT_CRC requires PS2_PT_CUTOUT=1)
+endif
+ifeq ($(PS2_R100_SMX),1)
+$(error PS2_PT_VARIANT_CRC and PS2_R100_SMX=1 select different r100 packages (cx-integrate))
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PT_VARIANT_CRC=$(PS2_PT_VARIANT_CRC)
+endif
 PS2_INTERIOR_CULL ?= 0
 ifneq ($(PS2_INTERIOR_CULL),0)
 ifeq ($(PS2_WORLD_MESH),0)
