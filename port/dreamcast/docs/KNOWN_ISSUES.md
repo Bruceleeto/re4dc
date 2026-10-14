@@ -4,7 +4,7 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 13, 2026. The current public build is console test `db351823` (r22j test 9).
+Last updated: October 13, 2026. The current public build is console test `40fb4deb` (r22j test 9.1, which is test 9 plus a memory leak fix).
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -13,7 +13,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 0 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 5 |
-| 🟢 Fixed in test 9 | Fixed and checked in our tests; the problem was not console-only | 4 |
+| 🟢 Fixed in test 9 / 9.1 | Fixed and checked in our tests; the problem was not console-only | 5 |
 | 🛠️ In progress | Being fixed now | 1 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
 | ⏸️ Open | Known, not yet worked on | 9 |
@@ -37,6 +37,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- | --- |
 | Leaves, fences and tree branch tips draw as solid shapes on a real console (fine in emulators) | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Blank screen on door transitions | test 7, test 8 | 🟢 Fixed in test 9 | |
+| Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
 | The item name disappears when its menu opens in the inventory | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The on-screen speed display is cut off by the border on a real console | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon switches back to the GameCube model after the boat | test 8, test 9 | 🛠️ In progress (fix in testing, after test 9) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
@@ -64,7 +65,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Console checklist for test 9
 
-Test 9: https://github.com/lamb2k/re4dc/releases/tag/test-db351823-20261013
+Test 9.1: https://github.com/lamb2k/re4dc/releases/tag/test-40fb4deb-20261013 (test 9 plus a memory leak fix; the checklist is the same)
 
 These fixes can only be confirmed on a real Dreamcast, because emulators draw the old and new versions the same.
 If you play test 9 on a console, please report on any of these in the test 9 feedback issue:
