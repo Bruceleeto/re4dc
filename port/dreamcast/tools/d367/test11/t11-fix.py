@@ -82,12 +82,14 @@ DATA['objs'] = {k: v for _r in OBJS_ROOMS for k, v in DATA['objs-' + _r].items()
 # objs12: the rooms whose library rows passed the test 12 gates (r100: H2 STRICT 4702 + s30 340/340; r101: warp STRICT
 # 2402 + LEON-GC + TEX_CHECK); the other rooms are test 13 (coordinator 10-14: the all-room objects pass is test 13).
 DATA['objs12'] = {k: v for _r in ('r100', 'r101') for k, v in DATA['objs-' + _r].items()}
-# test 13, not ready (tex13/NOT-READY.txt): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and the PS2-picture
-# object dars (tools/ps2_objects_tex.py; colour-only swap: flag-4 mask pairs missing until the items lane pair logic).
+# test 14 (complete-world objects): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and objst-<room> = PS2 geometry +
+# PS2 pictures with material pairs (tools/ps2_objects_tex.py v2: flag-4 parts get a pair package keyed (new colour, GC
+# mask); the lane items 421b7251 rules) in re4-assets-private/objs-20261014/tex14 (tex13 = colour-only, superseded).
+# objst-r11a carries the r11a2 geometry (+ et1000).
 DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
-TEX13 = OBJS + '/tex13'
+TEX14 = OBJS + '/tex14'
 for _r in OBJS_ROOMS:
-    DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX13, _r, _r), 'tex': '%s/%s/tex' % (TEX13, _r)}
+    DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX14, _r, _r), 'tex': '%s/%s/tex' % (TEX14, _r)}
 for _r in ('r100', 'r101'):
     DATA['objs-%sp' % _r] = {'st1/%s.dar' % _r: '%s/%sp/%s.dar' % (OBJS, _r, _r)}
 # (later --data names win: '--data <test 11 data>,objs,objs-r100p' = every room with the padded r100)
