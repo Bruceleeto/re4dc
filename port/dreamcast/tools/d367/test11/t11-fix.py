@@ -291,6 +291,11 @@ DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' el
 GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
 DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
 T15_DATA = T14_DATA + ',cast15,glod'
+# Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
+# released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
+# 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
+T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
+DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
