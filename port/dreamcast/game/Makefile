@@ -1607,6 +1607,24 @@ endif
 # refused descriptor evicts and opens again instead of failing the load every frame; the native model slab
 # (64 KiB) is allocated before the first room-entry preload, not after it. Logs kos= headroom (VRAM_ROOM_LOG).
 TEX_META_EVICT ?= 0
+# RETIRE_KOS_FLOOR=<bytes> (test 12.2, render only, default 0 = image unchanged; needs TEX_KEEP=1 TEX_META_EVICT=1):
+# TEX_KEEP keeps every texture entry resident across a room change, and with TEX_META_EVICT each open package holds a
+# KOS block (144-184 B). Leaving r101 after the fight kept ~345 of them (~60 KB) plus the 64 KiB model slab into the
+# next room's start (12.1 "room lifecycle: phase=enter drift kos=-128808"), and the next room's own KOS allocations ran
+# out under a 48 KiB KOS squeeze (the console's smaller KOS; tools/d367/fullplay/kos_squeeze.sh leave100 / leave103).
+# At room retirement (after the fence, before the next room allocates) the kept entries are closed least recently used
+# first, sparing actor-leased and room-pinned ones, until KOS headroom is at least RETIRE_KOS_FLOOR; textures the next
+# room shares reload from tex.pak during its load. Logs "native UI: room retire KOS floor:".
+RETIRE_KOS_FLOOR ?= 0
+ifneq ($(shell echo '$(RETIRE_KOS_FLOOR)' | grep -Ex '[0-9]+'),$(RETIRE_KOS_FLOOR))
+$(error RETIRE_KOS_FLOOR must be a byte count)
+endif
+ifneq ($(RETIRE_KOS_FLOOR),0)
+ifneq ($(TEX_KEEP)$(TEX_META_EVICT),11)
+$(error RETIRE_KOS_FLOOR needs TEX_KEEP=1 TEX_META_EVICT=1)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_RETIRE_KOS_FLOOR=$(RETIRE_KOS_FLOOR)U
+endif
 # PRELOAD_LARGE_FIRST=1 (lane vram12 D5, render only, default 0; needs TEX_RESIDENT=1): the room-entry preload loads its
 # picks of 16 KiB or more first, then the rest (two forward sweeps in disc order), so small packages do not fragment
 # the pool ahead of the large ones.

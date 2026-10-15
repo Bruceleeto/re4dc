@@ -4189,6 +4189,32 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     // queued reader borrows archive texels. This does not free live VRAM uploads.
     sources_reset();
 }
+#if defined(RE4DC_RETIRE_KOS_FLOOR) && RE4DC_RETIRE_KOS_FLOOR
+namespace {
+// RETIRE_KOS_FLOOR (Makefile; render only): at room retirement close kept texture entries, least recently used first,
+// until the KOS heap has RE4DC_RETIRE_KOS_FLOOR bytes of headroom for the next room's start. Runs after the retire
+// fence (or at Render_swap for a deferred retirement), before the entries are marked oldest; actor-leased and
+// room-pinned entries stay.
+void retire_kos_floor(){
+    const unsigned before=kos_headroom();
+    unsigned closed=0;
+    while(kos_headroom()<RE4DC_RETIRE_KOS_FLOOR){
+        Entry* victim=nullptr;
+        for(auto& e:entries){
+            if(!e.valid || RE4DC_ROOM_PINNED(e))continue;
+#if RE4DC_ACTOR_TRANSACTION
+            if(actor_texture_leases.pinned(unsigned(&e-entries)))continue;
+#endif
+            if(!victim || e.frame<victim->frame)victim=&e;
+        }
+        if(!victim)break;
+        close_entry(*victim);++closed;
+    }
+    re4dc_log("native UI: room retire KOS floor: closed=%u kos=%u->%u floor=%u\n",closed,before,kos_headroom(),
+        unsigned(RE4DC_RETIRE_KOS_FLOOR));
+}
+}  // namespace
+#endif
 extern "C" void re4dc_ui_retire_room(){
 #if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
     for(unsigned i=0;i<kTextureCount;++i)fx_pool_pin[i]=false;   // FX_TEX_POOL: the next room fills its own pool
@@ -4243,6 +4269,9 @@ extern "C" void re4dc_ui_retire_room(){
     if(!stream_retire)
 #endif
 #if RE4DC_TEX_KEEP
+#if defined(RE4DC_RETIRE_KOS_FLOOR) && RE4DC_RETIRE_KOS_FLOOR
+    retire_kos_floor();                      // RETIRE_KOS_FLOOR: KOS headroom for the next room first (LRU order)
+#endif
     for(auto& entry:entries)entry.frame=0;   // kept resident, oldest: evictable
 #else
     for(auto& entry:entries)close_entry(entry);
@@ -5343,6 +5372,9 @@ extern "C" void re4dc_ui_end_frame(int present){
         if(present && black){stream_open();stream_close(true);++stream_black_frames;}
     }
 #if RE4DC_TEX_KEEP
+#if defined(RE4DC_RETIRE_KOS_FLOOR) && RE4DC_RETIRE_KOS_FLOOR
+    if(stream_retire)retire_kos_floor();     // RETIRE_KOS_FLOOR: the deferred retirement, scene closed and fenced
+#endif
     if(stream_retire){for(auto& entry:entries)entry.frame=0;stream_retire=false;}
 #else
     if(stream_retire){for(auto& entry:entries)close_entry(entry);stream_retire=false;}
