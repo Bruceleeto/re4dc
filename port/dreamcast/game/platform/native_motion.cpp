@@ -13,7 +13,10 @@ extern "C" { unsigned long long re4dc_motion_wait_total_us; }
 #ifndef RE4DC_MOTION_RESERVE_SPILL
 #define RE4DC_MOTION_RESERVE_SPILL 0
 #endif
-#if RE4DC_MOTION_RESERVE_SPILL
+#ifndef RE4DC_MOTION_COLD_POOL
+#define RE4DC_MOTION_COLD_POOL 0
+#endif
+#if RE4DC_MOTION_RESERVE_SPILL || RE4DC_MOTION_COLD_POOL
 extern "C" int re4dc_static_heap_free();   // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
 #endif
 #include <kos.h>
@@ -348,6 +351,23 @@ unsigned* load(Binding& b,unsigned i) {
                     static unsigned spills;
                     if(++spills<=4 || (spills&1023)==0)re4dc_log("motion reserve: spill #%u bytes=%u heap4=%d\n",spills,bytes,re4dc_static_heap_free());
                     break;
+                }
+#endif
+#if RE4DC_MOTION_COLD_POOL && RE4DC_MOTION_PRESSURE_BYTES
+                // MOTION_COLD_POOL (game30.mk): both slabs busy; this key joins the pressure pool (already evicted down
+                // to the cap) while heap 4 keeps the margin; a failed allocation evicts a slab user below, as before.
+                if(
+#if RE4DC_MOTION_BOUNDED_R11F
+                    !b.bounded &&
+#endif
+                    re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_COLD_POOL)) {
+                    data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
+                    static unsigned pooled,refused;
+                    if(data) {
+                        if(++pooled<=4 || (pooled&255)==0)re4dc_log("motion cold pool: use #%u bytes=%u resident=%u heap4=%d\n",pooled,bytes,stats.resident_bytes,re4dc_static_heap_free());
+                        break;
+                    }
+                    if(++refused<=4 || (refused&255)==0)re4dc_log("motion cold pool: allocation failed #%u bytes=%u, slab eviction\n",refused,bytes);
                 }
 #endif
                 unsigned victim=b.count;std::uint64_t oldest=~std::uint64_t(0);

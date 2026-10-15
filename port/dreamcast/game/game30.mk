@@ -106,6 +106,23 @@ endif
 # the console waited 161 ms/s on those reads. An allocation that still fails takes MOTION_OOM_EVICT's path, a movie
 # MOVIE_HEAP_EVICT's (both evict LRU motion keys).
 MOTION_PRESSURE_GROW ?= 0
+# MOTION_COLD_POOL=<bytes> (test 14 motion streaming, crash lane 10-15; needs MOTION_RESERVE=1 and MOTION_PRESSURE_BYTES;
+# render and I/O only, default 0 = image unchanged): a cold key (flags 0) whose binding's two slabs are both in use is
+# allocated in heap 4 inside the MOTION_PRESSURE_BYTES pool (pressure_room_for has already evicted, least recently used
+# across hot and cold keys, down to the cap) while heap 4 keeps at least <bytes> free after it, instead of evicting a
+# slab user. A failed allocation falls back to the slab eviction as before. Why: the r103 farm's Ganados use 3-5 keys
+# at a time (<= 81 KB, mostly cold) but the cold keys cycle through 2 slabs: 12 disc reads/s on Flycast, 37.9 reads/s
+# and 161 ms/s waiting on the console; r209's Zealot archive is all cold (2,262 loads in one bench scene).
+MOTION_COLD_POOL ?= 0
+ifneq ($(MOTION_COLD_POOL),0)
+ifneq ($(MOTION_RESERVE),1)
+$(error MOTION_COLD_POOL needs MOTION_RESERVE=1)
+endif
+ifeq ($(MOTION_PRESSURE_BYTES),0)
+$(error MOTION_COLD_POOL needs MOTION_PRESSURE_BYTES)
+endif
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_COLD_POOL=$(MOTION_COLD_POOL)
+endif
 ifneq ($(MOTION_PRESSURE_GROW),0)
 ifeq ($(MOTION_PRESSURE_BYTES),0)
 $(error MOTION_PRESSURE_GROW needs MOTION_PRESSURE_BYTES)
