@@ -109,6 +109,8 @@ for _r in ('r100', 'r101'):
 #               PS2 effect library, FX_PS2_PACK / PAL4) + vram12 tex-vr12-both.pak (blackgc14vl: r101 world VQ + Leon's
 #               atlas ec255e66-76812316 as VQ, user decision 10-14 23:58 "Leon ships VQ") + the merchant's 4 texture
 #               keys (packed, not loose: test 11's loose-texture lesson), then tex_wrapsafe.py (TEX_WRAP_SAFE)
+#               + (vram12 D5) dc/resident.bin: the per-room first-sight texture lists (ROOM_RESIDENT=1), built by
+#               t12-texpak.sh from vram/resident/r*.tsv
 #   objs12    = lane objs' r100 + r101 PS2 room objects from ps2lib/objects (r101 = 32dfe338); accepted for test 12
 #               (coordinator 10-15)
 #   sg101     = PS2_STRIP_GROUPS=1 r101 world package (ps2lib/world/r101-sg4, built from the r101 package f5592282 =
@@ -116,7 +118,7 @@ for _r in ('r100', 'r101'):
 #               changes, regenerate it (tools/ps2_strip_groups.py + worldlean/sgcheck.py): the runtime refuses a stale r4sg
 #   merchant  = ps2lib/cast/r102/merchant-em18 (PS2_CAST_MERCHANT=1): registry + em18.drs (its textures are in t12tex)
 T12D = '/root/probe/lanes-20261014/t12rc/data'
-DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12c.pak'})
+DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12d.pak', 'dc/resident.bin': T12D + '/resident.bin'})
 MERCHANT = PRIV + '/ps2lib/cast/r102/merchant-em18'
 DATA['merchant'] = {k: MERCHANT + '/' + k for k in ('dc/native/r102/registry.re4nmr', 'em/em18.drs')}
 CLASH += [('t12tex', o) for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr', 'blackgc14v', 'blackgc14vl')]

@@ -268,10 +268,18 @@ extern "C" void re4dc_lbx_close(void);
 #if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
 extern "C" void re4dc_model_drop_summary();  // MODEL_DROP_LOG, defined above re4dc_model_packet_reserve
 #endif
+#if RE4DC_TEX_META_EVICT
+extern "C" void re4dc_kos_heap_state(unsigned* free_chunks,unsigned* used,unsigned* break_room);   // platform/os.cpp
+#endif
 namespace {
 constexpr unsigned kQuadCount=256, kTextureCount=RE4DC_TEX_RESIDENT?RE4DC_TEX_SLOTS:RE4DC_PVR_STREAM?80:48, kSourceCount=RE4DC_PVR_STREAM?128:256, kVramBudget=4*1024*1024;
 #if RE4DC_UI_VRAM
 unsigned vram_budget,vram_retries,vram_rejects; // budget: set by re4dc_ui_init() from the actual pool
+#if RE4DC_TEX_META_EVICT
+unsigned vram_meta_evicts; // TEX_META_EVICT: uploads evicted for KOS heap (refused descriptor prefix or reserve)
+constexpr unsigned kKosReserve=8U*1024U;    // KOS heap the texture cache leaves free (pack sector reads, file handles)
+unsigned kos_headroom(){unsigned f=0,u=0,b=0;re4dc_kos_heap_state(&f,&u,&b);return f+b;}
+#endif
 #endif
 struct Key { unsigned crc,fnv; bool operator==(const Key& b)const{return crc==b.crc && fnv==b.fnv;} };
 #if RE4DC_TEX_PACK
@@ -2678,7 +2686,8 @@ void whfix_drop(unsigned required){
 //     not on the disc), gc_fx (distinct effect textures drawn from their GameCube picture with FX_PS2_PACK=1: no
 //     PS2 conversion; -1 without FX_PS2_PACK), dropped (WORLD_HOLE_FIX queue-full parts), fx_dropped (effect sprites
 //     past the queue), tex_rej (model parts without their texture), snd_fail (AICA bank blocks left silent),
-//     snd_used (AICA bytes held now).
+//     snd_used (AICA bytes held now), meta (TEX_META_EVICT evictions for KOS heap: a refused package descriptor or
+//     the kKosReserve the cache leaves free), kos (KOS heap headroom now, TEX_META_EVICT; 0 without it).
 //   vram gc-fx: one line per distinct GameCube-picture effect key per visit (the first 64), for the gate's ps2lib
 //     INDEX.tsv lookup (tools/d367/vram/vram_gate.py; ps2_source=NONE rows are the known gaps).
 // Gates: tools/d367/vram/vram_gate.py (benchmark runs) and fullplay/fp_check.py fail on refusals, guard_p skips,
@@ -2687,7 +2696,7 @@ extern "C" void re4dc_vram_pages_census(unsigned* out);   // vram_pages.cpp
 extern "C" unsigned re4dc_aica_skipped_blocks(void);      // audio_aica.cpp / audio_stub.cpp
 extern "C" unsigned re4dc_aica_used_bytes(void);
 unsigned vram_nocontig,vram_guard_pressure;
-constexpr unsigned kVramCounters=14;
+constexpr unsigned kVramCounters=15;
 struct VramRoom { unsigned room=~0U,since,min_free,min_largest,peak_pinned,base[kVramCounters]; };
 VramRoom vroom;
 #if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
@@ -2741,6 +2750,11 @@ void vram_room_counters(unsigned* c){
     c[9]=re4dc_aica_skipped_blocks();
     c[10]=vram_guard_pressure;
     c[11]=loads;c[12]=reclaimed;c[13]=vram_retries;
+#if RE4DC_TEX_META_EVICT
+    c[14]=vram_meta_evicts;
+#else
+    c[14]=0;
+#endif
 }
 void vram_room_largest(unsigned& largest,unsigned& alloc_bytes){
     unsigned c[13]={};re4dc_vram_pages_census(c);largest=c[4];alloc_bytes=c[1];
@@ -2769,8 +2783,13 @@ void vram_room_sample(const char* at){
 #else
     const int gc=-1;
 #endif
-    re4dc_log("vram gaps: r=%03x at=%s f=%u refusals=%u guard=%u guard_p=%u nocontig=%u latched=%u absent=%u gc_fx=%d dropped=%u fx_dropped=%u tex_rej=%u snd_fail=%u snd_used=%u\n",
-        vroom.room,at,frame,c[0],c[1],c[10],c[2],c[3],c[4],gc,c[6],c[7],c[8],c[9],re4dc_aica_used_bytes());
+    re4dc_log("vram gaps: r=%03x at=%s f=%u refusals=%u guard=%u guard_p=%u nocontig=%u latched=%u absent=%u gc_fx=%d dropped=%u fx_dropped=%u tex_rej=%u snd_fail=%u snd_used=%u meta=%u kos=%u\n",
+        vroom.room,at,frame,c[0],c[1],c[10],c[2],c[3],c[4],gc,c[6],c[7],c[8],c[9],re4dc_aica_used_bytes(),c[14],
+#if RE4DC_TEX_META_EVICT
+        kos_headroom());
+#else
+        0U);
+#endif
 }
 // Every frame (re4dc_ui_present) and before the preload sample: the visit's room, minima and samples.
 void vram_room_track(){
@@ -2926,6 +2945,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     ++load_opens;
 #endif
     const int heap_before=re4dc_ui_heap_free();
+#if RE4DC_TEX_META_EVICT
+    const unsigned kos_before=kos_headroom();   // the KOS heap one load takes (bounded upload line)
+#endif
 #if RE4DC_TEX_PACK
 #define RE4DC_OPEN_PACKAGE() (in_pack?slot->package.open_streamed_at(texpack::kPath,pack_offset,pack_size):slot->package.open_streamed(path))
 #else
@@ -2964,6 +2986,30 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         if(!victim) return false;
         RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();close_entry(*victim);++reclaimed;return true;
     };
+#if RE4DC_TEX_META_EVICT
+    // TEX_META_EVICT=1 (Makefile; render only): each open package keeps its descriptor prefix (header + texture record,
+    // 144 B for one texture) in the KOS heap, which ends at ARENA_FIT_KOS_BYTES and cannot grow without moving heap 4
+    // (whose free bytes the game's spawn checks read). With VRAM no longer the limit (lane vram12 D5: r101 holds ~330
+    // packages, KOS heap full) a refused prefix is a capacity miss like a full pool: evict the least recently used
+    // upload this frame does not draw and open again (at most 8 evictions per load). Without it the load fails every
+    // frame (r101 benchmark, D5 data: 1,604 failed loads of 6 textures, one Ganado body among them).
+    // These are KOS heap evictions, not VRAM pressure: they do not arm the effect thrash guard (RE4DC_FX_EVICTED).
+    auto evict_kos=[&evict]{
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+        const unsigned keep=fx_evict_frame;const bool r=evict();fx_evict_frame=keep;return r;
+#else
+        return evict();
+#endif
+    };
+    for(unsigned tries=0;!ok && tries<8 && slot->package.error() && !std::strcmp(slot->package.error(),"streamed metadata allocation failed") && evict_kos();++tries){
+        ++vram_meta_evicts;
+        ok=RE4DC_OPEN_PACKAGE();
+    }
+    // The tex.pak index lookup and file reads take KOS heap too (with the heap full a sector read failed: "tex pack:
+    // index sector N read error ... re-read in 30 frames"), so after a load the heap keeps kKosReserve bytes free:
+    // least recently used uploads the frame does not draw are evicted until it does.
+    for(unsigned tries=0;tries<32 && kos_headroom()<kKosReserve && evict_kos();++tries)++vram_meta_evicts;
+#endif
 #if RE4DC_TEX_RESIDENT
     unsigned need=0;
     if(ok) {
@@ -3096,7 +3142,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     const char* const texchk_why=slot->package.error()?slot->package.error():"upload";
 #endif
     if(!ok) slot->package.close();
+#if RE4DC_TEX_META_EVICT
+    re4dc_log("native UI: bounded upload heap=%d->%d metadata=%u staging=shared-16384 source_allocation=0 kos=%u->%u\n",heap_before,re4dc_ui_heap_free(),slot->package.metadata_bytes(),kos_before,kos_headroom());
+#else
     re4dc_log("native UI: bounded upload heap=%d->%d metadata=%u staging=shared-16384 source_allocation=0\n",heap_before,re4dc_ui_heap_free(),slot->package.metadata_bytes());
+#endif
     if(ok)++loads;
     if(!ok) {RE4DC_TEXCHK_FAIL(key,texchk_why);return nullptr;}
     slot->valid=true;slot->key=key;
@@ -3339,12 +3389,60 @@ void preload_select(const re4dc::texture::SourceIdentityTable& table,unsigned& n
         preload_picks[n++]={key,(unsigned short)width,(unsigned short)height,(unsigned short)format};bytes+=least;
     }
 }
+#if RE4DC_ROOM_RESIDENT
+// ROOM_RESIDENT=1 (Makefile; render only; lane vram12 D5): dc/resident.bin lists, per room, the textures its scenes
+// load on first sight after the preload (tools/d367/vram/resident_keys.py, from benchmark and play logs: effects,
+// PS2 cast and room objects, HUD). They join each room-entry pass after all the others, under the same slot and
+// byte limits, so the room's set loads once at its entry instead of in its first frames of play. The file is
+// 16-byte records (u16 room, width, height, format; u32 crc, fnv; room 0 pads it to whole 512-byte pieces), read a
+// piece at a time into a stack buffer (re4dc::texture::read_file_range: a handle per read, IO_SERIAL like the opens);
+// without the file there is no list.
+unsigned resident_listed,resident_picked;
+void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned limit,unsigned byte_limit){
+    re4dc::profile::Source src{};
+#if defined(__sh__)
+    re4dc_profile_source(&src);
+#endif
+    resident_listed=resident_picked=0;
+    struct Rec { std::uint16_t room,width,height,format; std::uint32_t crc,fnv; };
+    static_assert(sizeof(Rec)==16,"dc/resident.bin record");
+    Rec buf[32];
+    unsigned pieces=0;
+    for(;re4dc::texture::read_file_range("/cd/dc/resident.bin",pieces*sizeof(buf),buf,sizeof(buf),nullptr)==
+          re4dc::texture::RangeRead::ok;++pieces){
+        for(unsigned i=0;i<32 && n+resident<limit;++i){
+            const Rec& r=buf[i];
+            if(r.room!=src.room || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
+            ++resident_listed;
+            const Key key{r.crc,r.fnv};
+            bool known=false;
+            for(auto& e:entries)if(e.valid && e.key==key){if(e.frame!=frame){e.frame=frame;++resident;bytes+=e.package.vram_bytes();}known=true;break;}
+            for(const auto& m:missing_keys)if(!known && (m.crc|m.fnv) && m==key)known=true;
+            for(unsigned k=0;k<n && !known;++k)if(preload_picks[k].key==key)known=true;
+            const unsigned least=preload_least(r.width,r.height);
+            if(known || bytes+least>byte_limit)continue;
+            preload_picks[n++]={key,r.width,r.height,r.format};bytes+=least;++resident_picked;
+        }
+    }
+    if(pieces)re4dc_log("native texture preload: resident list room=%03x pieces=%u listed=%u picked=%u\n",src.room,pieces,
+                        resident_listed,resident_picked);
+}
+#endif
 #if RE4DC_IO_PROBE
 extern "C" void re4dc_iowrap_reset(void);                                            // io_wrap.cpp
 extern "C" void re4dc_iowrap_report(const char* what, unsigned cycle, unsigned long long wall_us);
 #endif
+#if RE4DC_TEX_META_EVICT
+bool ensure_model_storage();   // below: the native model slab (64 KiB of KOS heap, kept once allocated)
+#endif
 void preload_identities(){
     preload_pending=false;++preload_runs;
+#if RE4DC_TEX_META_EVICT
+    // The native model slab first: the slab is allocated at the first native model draw and kept from then on, which
+    // came after the room-entry preload, so a preload that filled the KOS heap with texture descriptors took its
+    // 64 KiB (lane vram12 D5 trial: "native model slab: allocation failed", the native model path off for r101).
+    if(!model_packets)ensure_model_storage();
+#endif
 #if RE4DC_IO_PROBE
     re4dc_iowrap_reset(); // IO_PROBE (test only): this pass's IO tables ("iowrap: preload" below)
 #endif
@@ -3475,12 +3573,29 @@ void preload_identities(){
         }
     }
 #endif
+#if RE4DC_ROOM_RESIDENT
+    preload_resident(n,resident,bytes,limit,byte_limit);
+#endif
     // Package-name order ("%08x-%08x": crc, then fnv).
     for(unsigned i=1;i<n;++i){
         const PreloadPick p=preload_picks[i];unsigned j=i;
         for(;j && (preload_picks[j-1].key.crc>p.key.crc || (preload_picks[j-1].key.crc==p.key.crc && preload_picks[j-1].key.fnv>p.key.fnv));--j)preload_picks[j]=preload_picks[j-1];
         preload_picks[j]=p;
     }
+#if RE4DC_PRELOAD_LARGE_FIRST
+    // PRELOAD_LARGE_FIRST=1 (Makefile; render only): two forward sweeps instead of one, the picks of at least
+    // kPreloadLarge bytes first, then the rest, each in package-name order (disc order). Small packages loaded
+    // between large ones leave holes no later large package fits ("no contiguous block" with free VRAM).
+    {
+        constexpr unsigned kPreloadLarge=16U*1024U;
+        unsigned m=0;
+        for(unsigned i=0;i<n;++i)if(preload_least(preload_picks[i].width,preload_picks[i].height)>=kPreloadLarge){
+            const PreloadPick p=preload_picks[i];
+            for(unsigned j=i;j>m;--j)preload_picks[j]=preload_picks[j-1];
+            preload_picks[m++]=p;
+        }
+    }
+#endif
     bool full=false;
 #if RE4DC_TEX_KEEP
     // Kept entries of earlier rooms still hold VRAM and count in `used`; load() evicts them
@@ -3498,6 +3613,9 @@ void preload_identities(){
         if(pins+reserve>=budget || pvr_mem_available()+stale<reserve+preload_least(preload_picks[i].width,preload_picks[i].height)){full=true;break;}
 #else
         if(used+reserve>=budget || pvr_mem_available()<reserve+preload_least(preload_picks[i].width,preload_picks[i].height)){full=true;break;}
+#endif
+#if RE4DC_TEX_META_EVICT
+        if(kos_headroom()<kKosReserve){full=true;break;}   // KOS heap: the rest load on first sight
 #endif
         const PreloadPick& p=preload_picks[i];
         const Re4dcUiImage image{reinterpret_cast<const void*>(1),nullptr,p.width,p.height,p.format,0xffffffffU,0};

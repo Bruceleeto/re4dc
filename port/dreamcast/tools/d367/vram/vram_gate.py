@@ -9,7 +9,12 @@ Reads a game log (benchmark or full-play segment) and
     other bytes, uploads after the room-entry preload (gameplay disc reads), evictions, fragmentation retries and the
     visit's gap counters;
   - fails on any VRAM budget refusal, thrash-guard refusal under eviction pressure (guard_p), "no contiguous block"
-    failure, or GameCube effect picture ("vram gc-fx:" key) that ps2lib/INDEX.tsv does not list with ps2_source=NONE
+    failure, rejected texture package (tex_rej: a pack read error or a package the KOS heap or the validator refused),
+    gameplay upload in a room with a resident list (D5: vram/resident/r<room>.tsv, ROOM_RESIDENT=1 preloads it, so
+    any upload after the room-entry preload is a disc re-read the list does not cover; full-play checks report them),
+    a KOS heap failure (D5: "Out of memory" from sbrk, the native model slab or a motion file read refused: the texture
+    cache holds the KOS heap's descriptors, TEX_META_EVICT keeps a reserve and the slab is allocated before the
+    preload), or GameCube effect picture ("vram gc-fx:" key) that ps2lib/INDEX.tsv does not list with ps2_source=NONE
     (the known gaps). A key is looked up through ps2lib/effects-tex/KEYS.tsv (vram/fx_keys.py) and reported with its
     INDEX row: NOT_CONVERTED (the PS2 has the picture, the converter skipped it), converted (the pack should have the
     PS2 picture: wrong tex.pak), or no row (an effect file ps2lib does not index yet, e.g. an enemy's own EFF).
@@ -18,6 +23,8 @@ Reads a game log (benchmark or full-play segment) and
   - A log without VRAM_ROOM_LOG lines (builds before test 12) is judged on what it has: "native UI VRAM: ...
     rejects=N" (cumulative) and the "no contiguous block" lines fail; "native effect guard: resident_only_skips=N"
     does not say whether the cache was under pressure, and GameCube effect pictures are not logged: both are noted.
+D5 (10-15) also reports the TEX_META_EVICT counters: meta (uploads evicted for KOS heap) and the visit's least KOS
+heap headroom (kos).
 Known issues (fullplay/known-issues.txt format: builds|category|segment|regex|why) excuse a failure whose text matches.
 Categories: vram (refusal, guard_p, nocontig), gc-fallback (gc-fx). Exit 0 = PASS, 1 = FAIL.
 fullplay/fp_check.py calls analyse() for every segment (nocontig=False there: its RULES already fail those lines).
@@ -34,9 +41,16 @@ GCFX = re.compile(r'^vram gc-fx: r=([0-9a-f]+) f=(\d+) key=([0-9a-f]{8}-[0-9a-f]
 OLD_VRAM = re.compile(r'^native UI VRAM: frame=\d+ .*rejects=(\d+)')
 OLD_GUARD = re.compile(r'^native effect guard: frame=\d+ resident_only_skips=(\d+)')
 NOCONTIG = re.compile(r'no contiguous block')
-GAP_FIELDS = ('refusals', 'guard', 'guard_p', 'nocontig', 'latched', 'absent', 'gc_fx', 'dropped', 'fx_dropped', 'tex_rej', 'snd_fail')
+KOSFAIL = re.compile(r'^Out of memory\. Requested sbrk_base|^native model slab: allocation failed|^motion key read retry')
+GAP_FIELDS = ('refusals', 'guard', 'guard_p', 'nocontig', 'latched', 'absent', 'gc_fx', 'dropped', 'fx_dropped', 'tex_rej', 'snd_fail',
+              'meta')
 ROOM_FIELDS = ('pinned', 'dynamic', 'other', 'free', 'largest', 'min_free', 'min_largest', 'peak_pinned', 'loads', 'evicted', 'retries')
 INF = 1 << 32
+
+
+def resident_rooms():
+    """Rooms with a ROOM_RESIDENT list (vram/resident/r<room>.tsv), as the log writes them ('101')."""
+    return {p.stem[1:] for p in (HERE / 'resident').glob('r*.tsv')}
 
 
 def ps2lib_root(arg=None):
@@ -89,14 +103,16 @@ def num(d, k, default=0):
         return default
 
 
-def analyse(lines, index=None, nocontig=True):
-    """dict(rooms=[visit rows], failures=[dict(cat, what, line)], known_gaps=[...], notes=[...], new_format=bool)."""
+def analyse(lines, index=None, nocontig=True, resident=None):
+    """dict(rooms=[visit rows], failures=[dict(cat, what, line)], known_gaps=[...], notes=[...], new_format=bool).
+    resident: rooms whose gameplay uploads fail (resident_rooms()); None = reported only."""
     visits = {}       # (room, start frame) -> row
     order = []
     gcfx = {}         # key -> (room, line no, line)
     old_rej = old_guard = 0
     old_rej_line = ''
     nocontig_lines = []
+    kos_lines = []
     new_format = False
     for i, ln in enumerate(lines, 1):
         if ln.startswith('vram room: '):
@@ -143,6 +159,10 @@ def analyse(lines, index=None, nocontig=True):
             if 'gc_fx' in d and num(d, 'gc_fx', 0) < 0:
                 v['gaps']['gc_fx'] = -1
             v['snd_used'] = num(d, 'snd_used', None)
+            if num(d, 'kos', 0) > 0:
+                v['min_kos'] = min(v.get('min_kos', INF), num(d, 'kos'))
+            if d.get('at') != 'preload' and v['preload_loads'] is not None:
+                v.setdefault('play_line', 'line %d: %s' % (i, ln.strip()[:220]))
             continue
         m = GCFX.match(ln)
         if m:
@@ -157,6 +177,8 @@ def analyse(lines, index=None, nocontig=True):
             old_guard = max(old_guard, int(m.group(1)))
         if NOCONTIG.search(ln):
             nocontig_lines.append('line %d: %s' % (i, ln.strip()[:220]))
+        if KOSFAIL.match(ln):
+            kos_lines.append('line %d: %s' % (i, ln.strip()[:220]))
     out = dict(rooms=[], failures=[], known_gaps=[], notes=[], new_format=new_format)
     for k in order:
         v = visits[k]
@@ -164,7 +186,7 @@ def analyse(lines, index=None, nocontig=True):
                                  min_free=None if v['min_free'] == INF else v['min_free'],
                                  min_largest=None if v['min_largest'] == INF else v['min_largest'],
                                  peak_pinned=v['peak_pinned'], last=v['last'], gaps=v['gaps'], snd_used=v.get('snd_used'),
-                                 loads=v['loads'], evicted=v['evicted'], retries=v['retries'],
+                                 loads=v['loads'], evicted=v['evicted'], retries=v['retries'], min_kos=v.get('min_kos'),
                                  play_loads=None if v['preload_loads'] is None else v['loads'] - v['preload_loads'],
                                  play_evicted=None if v['preload_evicted'] is None else v['evicted'] - v['preload_evicted']))
         g = v['gaps']
@@ -177,6 +199,17 @@ def analyse(lines, index=None, nocontig=True):
         if nocontig and g['nocontig']:
             out['failures'].append(dict(cat='vram', what='r%s: %d "no contiguous block" failure(s) in the visit from frame %d' % (v['room'], g['nocontig'], v['start']),
                                         line=v['gap_lines']['nocontig']))
+        if g['tex_rej']:
+            out['failures'].append(dict(cat='vram', what='r%s: %d rejected texture package(s) (pack read error, KOS heap or validator) in the visit from frame %d'
+                                        % (v['room'], g['tex_rej'], v['start']), line=v['gap_lines']['tex_rej']))
+        pl = out['rooms'][-1]['play_loads']
+        if pl and resident is not None and v['room'] in resident:
+            out['failures'].append(dict(cat='vram', what='r%s: %d upload(s) after the room-entry preload in a room with a resident list '
+                                        '(disc re-reads: add the keys to vram/resident/r%s.tsv, resident_keys.py list)' % (v['room'], pl, v['room']),
+                                        line=v.get('play_line', '')))
+    if kos_lines:
+        out['failures'].append(dict(cat='vram', what='%d KOS heap failure line(s) (sbrk refused, native model slab or motion read)' % len(kos_lines),
+                                    line=kos_lines[0]))
     for key, (room, i, ln) in gcfx.items():
         known, text = classify(key, index)
         item = dict(cat='gc-fallback', what='r%s: %s' % (room, text), line='line %d: %s' % (i, ln[:220]))
@@ -195,17 +228,18 @@ def analyse(lines, index=None, nocontig=True):
 def table(rooms):
     """Markdown rows: one per room visit."""
     L = ['| Room | From frame | Min free | Min largest | Peak pinned | Pinned / dynamic / other (last) | Loads after preload | Evicted | Frag retries | '
-         'Refusals | Guard (pressure) | No contig | GC fx | Dropped parts | Snd fail |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+         'Refusals | Guard (pressure) | No contig | GC fx | Dropped parts | Snd fail | Tex rej | KOS evict | Min KOS |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for v in rooms:
         last = v['last']
         g = v['gaps']
-        L.append('| r%s | %d | %s | %s | %d | %s | %s | %d | %d | %d | %d (%d) | %d | %s | %d | %d |' % (
+        L.append('| r%s | %d | %s | %s | %d | %s | %s | %d | %d | %d | %d (%d) | %d | %s | %d | %d | %d | %d | %s |' % (
             v['room'], v['start'], v['min_free'], v['min_largest'], v['peak_pinned'],
             '%s / %s / %s' % (last.get('pinned'), last.get('dynamic'), last.get('other')) if last else '-',
             '-' if v['play_loads'] is None else v['play_loads'], v['evicted'], v['retries'],
             g['refusals'], g['guard'], g['guard_p'], g['nocontig'], g['gc_fx'] if g['gc_fx'] >= 0 else 'n/a',
-            g['dropped'] + g['fx_dropped'], g['snd_fail']))
+            g['dropped'] + g['fx_dropped'], g['snd_fail'], g['tex_rej'], g['meta'],
+            '-' if v.get('min_kos') is None else v['min_kos']))
     return L
 
 
@@ -228,7 +262,7 @@ def main(argv):
     allres = {}
     for log in a.logs:
         lines = Path(log).read_text(errors='replace').splitlines()
-        res = analyse(lines, index)
+        res = analyse(lines, index, resident=resident_rooms())
         fails, kn = [], list(res['known_gaps'])
         for f in res['failures']:
             k = known_for(known, f['cat'], a.seg, f['what'] + ' ' + f['line'])

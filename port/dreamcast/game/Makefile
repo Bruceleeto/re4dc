@@ -1513,6 +1513,42 @@ ifneq ($(UI_VRAM)$(VRAM_PAGES),11)
 $(error VRAM_ROOM_LOG=1 needs UI_VRAM=1 VRAM_PAGES=1)
 endif
 endif
+# TEX_META_EVICT=1 (lane vram12 D5, render only, default 0; needs UI_VRAM=1 TEX_RESIDENT=1): the KOS heap that
+# ARENA_FIT_KOS_BYTES leaves (~138 KB at r101 entry; heap 4 cannot give more: the spawn checks read its free bytes)
+# holds every open texture package's descriptor, so with VRAM no longer the limit it is. A streamed package takes
+# one KOS block (descriptor + pointer table + flags: 160 B for one texture, was three blocks, 184 B); the cache keeps
+# 8 KiB of KOS heap free (pack sector reads, motion file opens) by evicting least recently used uploads, and a
+# refused descriptor evicts and opens again instead of failing the load every frame; the native model slab
+# (64 KiB) is allocated before the first room-entry preload, not after it. Logs kos= headroom (VRAM_ROOM_LOG).
+TEX_META_EVICT ?= 0
+# PRELOAD_LARGE_FIRST=1 (lane vram12 D5, render only, default 0; needs TEX_RESIDENT=1): the room-entry preload loads its
+# picks of 16 KiB or more first, then the rest (two forward sweeps in disc order), so small packages do not fragment
+# the pool ahead of the large ones.
+PRELOAD_LARGE_FIRST ?= 0
+# ROOM_RESIDENT=1 (lane vram12 D5, render only, default 0; needs TEX_RESIDENT=1): the room-entry preload also loads
+# the room's list in dc/resident.bin (tools/d367/vram/resident_keys.py: the textures its scenes otherwise load on
+# first sight), so the room's set is resident from its entry. Without the file the preload is as before.
+ROOM_RESIDENT ?= 0
+ifneq ($(filter-out 0 1,$(ROOM_RESIDENT)),)
+$(error ROOM_RESIDENT must be 0 or 1)
+endif
+ifeq ($(ROOM_RESIDENT)$(TEX_RESIDENT),10)
+$(error ROOM_RESIDENT=1 needs TEX_RESIDENT=1)
+endif
+ifneq ($(filter-out 0 1,$(PRELOAD_LARGE_FIRST)),)
+$(error PRELOAD_LARGE_FIRST must be 0 or 1)
+endif
+ifeq ($(PRELOAD_LARGE_FIRST)$(TEX_RESIDENT),10)
+$(error PRELOAD_LARGE_FIRST=1 needs TEX_RESIDENT=1)
+endif
+ifneq ($(filter-out 0 1,$(TEX_META_EVICT)),)
+$(error TEX_META_EVICT must be 0 or 1)
+endif
+ifeq ($(TEX_META_EVICT),1)
+ifneq ($(UI_VRAM)$(TEX_RESIDENT),11)
+$(error TEX_META_EVICT=1 needs UI_VRAM=1 TEX_RESIDENT=1)
+endif
+endif
 ifneq ($(VRAM_PAGES),1)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/vram_pages.o,$(PLATFORM_OBJS))
 endif
@@ -1538,6 +1574,9 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_TEX_CHECK %s\n' '$(TEX_CHECK)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_ROOM_LOG %s\n' '$(VRAM_ROOM_LOG)' >> $@.tmp
+	@printf '#define RE4DC_TEX_META_EVICT %s\n' '$(TEX_META_EVICT)' >> $@.tmp
+	@printf '#define RE4DC_PRELOAD_LARGE_FIRST %s\n' '$(PRELOAD_LARGE_FIRST)' >> $@.tmp
+	@printf '#define RE4DC_ROOM_RESIDENT %s\n' '$(ROOM_RESIDENT)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_KEEP %s\n#define RE4DC_PVR_LATCH %s\n' '$(TEX_KEEP)' '$(PVR_LATCH)' >> $@.tmp
