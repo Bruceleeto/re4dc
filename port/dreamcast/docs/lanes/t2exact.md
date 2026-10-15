@@ -199,6 +199,46 @@ Verdict: NOT BUILT (the coordinator's rule: under ~1 ms at the cross, report fir
 granularity (strip groups / meshlets culled by a cheap test, or smaller clusters offline), which is the world LOD /
 cluster layout lane's ground, not an occluder test.
 
+## Back-face (normal cone) culling before the transform (coordinator 10-15: ceiling first; NOT built)
+
+Question: at the cross, 3,391 of the 7,339 in-view triangles per frame are back faces. Can the CPU skip their vertices
+before the transform? Tool tools/d367/ps2world/pvs/cone.py works on the same logged cameras (frames 500..799; 56 cross,
+35 farm). Its runtime model is MeshDraw: the clusters in the frustum, the LOD level (lod_px 5: 198 / 12 levels a frame at
+the cross and 127 / 15 at the farm, matching the game's PS2MESH lod counters), the meshlet box test, and today's strip
+groups (r101 .r4sg; r103 has none: its sg_tests are 0). Back face: one-sided part (cull != 0) seen from the side
+opposite cross(b - a, c - a) (strip parity as the package; flat one-sided ground is 79% / 65% up-facing by this rule).
+
+4. Existing CPU back-face rejection: none before the transform. MeshDraw::meshlet transforms every corner (or the strip
+   groups' corner range), and strips are accepted, culled or clipped by outcodes (screen edges, near, far) only. Only
+   clipped triangles get an area test after the transform (clip_projected_triangle, p.cull). The PVR culls the rest by
+   the part's cull mode.
+
+Corners transformed per frame: model 17,173 cross / 22,671 farm (the game counts 20.8k / 25.8k with passes 1-2). The
+world transform (vp::transform_sched) costs 4.44 / 5.35 ms MODELLED, which is 0.21 us a corner.
+
+| skippable corners / frame | r101 cross | r103 farm |
+|---|---|---|
+| per-triangle ideal: corners used only by back faces (no test could get these without per-view groups) | 10,463 (60.9%) | 6,965 (30.7%) |
+| 1. whole meshlets all back-facing (today's unit) | 94 (0.5%) | 149 (0.7%) |
+| 1. today's strip groups all back-facing (one corner range lo..hi, as sg_select) | 982 (5.7%) | 149 (0.7%) |
+| 2. orientation groups G=4 (k-means of normals per meshlet), one range, exact per-view condition | 1,942 (11.3%) | 2,902 (12.8%) |
+| 2. G=4, runtime cone test (axis, half angle, bounding sphere), one range | 1,266 (7.4%) | 1,788 (7.9%) |
+| 2. G=8, cone test, each kept group's own corner range (several transform calls) | 2,326 (13.5%) | 3,532 (15.6%) |
+| 2. G=8, groups owning their corners (shared corners duplicated: +15k cross / +3.5k farm), cone test | net -6,605 (worse) | net +1,693 |
+| extra strip vertices sent by regrouping (2 per new strip break), G=4 / G=8 | +2,456 / +5,077 (of 30.1k) | +1,832 / +3,254 (of 24.2k) |
+
+3. ms (MODELLED; corrected x1.23 WORLD): the best realisable row (G=8, cone, per-group ranges) saves 2,326 x 0.21 us =
+   0.50 ms gross at the cross (0.61 corrected), 3,532 x 0.21 = 0.73 ms at the farm (0.90 corrected). That is before
+   the runtime test (480 / 409 transformed meshlets a frame x 8 cone tests ~ 3.8k tests, ~0.3-0.4 ms with the record
+   reads; sg_select's 400 tests a frame cost 1.18 ms today), the extra transform calls per range (~0.2-0.4 ms) and the
+   extra strip vertices (~0.06 ms CPU, more TA work). With G=4 and one range: 0.27 / 0.37 ms gross against ~0.2 ms of
+   tests. Net: about 0 at the cross and at most ~0.2-0.3 ms at the farm. Below the 0.2 ms bar on the cross, so NOT BUILT.
+Why the ideal 61% does not survive: back-facing triangles share corners with front-facing ones within a meshlet (one
+corner range, or duplicated corners), and a fixed group is all back-facing only for some views (k-means cones are
+~60-90 degrees wide). The waste is real (6-10k corners a frame) but sits below any fixed-group granularity. Reaching it
+needs view-dependent work per triangle, after the transform (that is what the PVR already does for free on the GPU
+side).
+
 ## B6: read-side prefetch
 
 Finding (MODELLED per-instruction profile, pcprof.py): both streams the backlog names already prefetch their input.
@@ -251,3 +291,75 @@ LAYOUT WARNING (for every lane): layout alone moves the cross by up to +2.5 ms M
 lane saw +2.2 ms from moving _end by ~700 B with IMAGE_PAD_BYTES=704, knob off), more than this lever and most exact
 levers. A lever's MODELLED gain is only real when it beats a layout control, and the console prices D misses ~2.5x the
 model. See "Layout sweep" below.
+
+## Job 1: strip groups (.r4sg) for every released chapter 1-2 room (priced, NOT built; coordinator 10-15)
+
+Today only r101 has a ps2-world.r4sg (bake13, 117,152 B). The runtime is generic: any room whose disc carries a matching
+.r4sg (mesh crc) gets the group tests under the test 13 recipe's PS2_STRIP_GROUPS=1; no code change is needed.
+
+Tool tools/d367/worldlean/sgprice.py (runtime model of MeshDraw: box_class + LOD at lod_px 5, box_mask / group_visible
+per meshlet, cluster-inside skips, sg_select on the crossed planes, corner range lo..hi, strip outcodes against the
+screen edges, near and the PROJECTION far 1e6, not the 25 m cull far). Checked against the game's own counters on the
+logged cameras (frames 500..799):
+
+| counter (per frame) | r101 cross: sim / game | r103 farm: sim / game |
+|---|---|---|
+| sg_select calls | 405 / 411 | (no records) |
+| meshlets with a group cut | 282 / 282 | |
+| groups cut | 683 / 685 | |
+| corners skipped (sg_vskip) | 8,692 / 8,812 | |
+| strips walked | 4,564 / 4,402 | 6,147 / 6,088 |
+| strips culled after the transform | 1,009 / 988 | 2,172 / 2,024 |
+
+Price per frame (MODELLED, unit costs from the t2exact k0 hw runs, frames 500..799): transform 0.22 us a corner
+(cross 4.44 ms / 19.5k, farm 5.35 / 24.9k), a culled strip's walk 0.31 us (lane objs' r101 delta), sg_select 2.9 us a
+call (1.18 ms / 405), sg_coef 2.9 us a part, box_mask 1.34 us vs group_visible 1.51 us a meshlet test. Check against the
+one measured A/B: lane objs' r101 bench eye (-15300,1721,2377, yaw 90, pitch -8) prices at -0.81 ms MODELLED; measured
+-0.82 world (oe23s vs hy23). Corrected = MODELLED x1.23 (WORLD). Cameras: logged (r101 cross 56, r103 farm 35);
+elsewhere roomproj.py's samples (door arrivals + ESL enemy sets, Leon's over-the-shoulder rig, 16 yaws; "worst" = the
+10% of views with the most transformed corners). Packages = the test 13 disc's (fixture fix-t2crT-cross.json).
+
+| room | views | corners T today (typ / worst) | corners feeding only culled strips | walked strips culled after transform | G=4 corners skipped | saving MODELLED typ / worst | corrected typ / worst | + SG_SELECT_LEAN (job 2) MODELLED typ / worst | .r4sg KB (G=4 / sparse 10 B) |
+|---|---|---|---|---|---|---|---|---|---|
+| r100 | 416 | 12.2k / 21.2k | 49% | 50% | 34% | 0.66 / 0.84 | 0.81 / 1.03 | 0.94 / 1.26 | 123 / 76 |
+| r101 (has it) | 816 | 17.3k / 29.7k | 51% | 52% | 37% | 1.03 / 1.44 | 1.27 / 1.78 | 1.44 / 2.10 | 114 / 69 |
+| r101 LOGGED cross | 56 cams | 28.2k | 47% | 49% | 31% | 1.32 | 1.62 | 1.95 | |
+| r102 | 48 | 5.3k / 13.1k | 43% | 46% | 30% | 0.19 / -0.04 | 0.24 / -0.05 | 0.31 / 0.19 | 33 / 19 |
+| r103 | 320 | 13.1k / 23.1k | 40% | 41% | 29% | 0.53 / 0.76 | 0.65 / 0.93 | 0.81 / 1.25 | 91 / 56 |
+| r103 LOGGED farm | 35 cams | 24.9k | 34% | 35% | 24% | 0.71 | 0.88 | 1.21 | |
+| r104 | 752 | 12.5k / 23.8k | 42% | 44% | 28% | 0.43 / 0.41 | 0.53 / 0.50 | 0.69 / 0.84 | 57 / 35 |
+| r105 | 352 | 8.2k / 18.6k | 49% | 51% | 35% | 0.39 / 0.56 | 0.48 / 0.69 | 0.60 / 0.97 | 68 / 40 |
+| r106 | 272 | 14.7k / 25.5k | 44% | 45% | 31% | 0.75 / 0.96 | 0.92 / 1.18 | 1.07 / 1.49 | 81 / 50 |
+| r107 | 432 | 12.7k / 34.6k | 40% | 40% | 29% | 0.49 / 0.64 | 0.61 / 0.78 | 0.77 / 1.22 | 75 / 47 |
+| r108 | 512 | 8.6k / 17.4k | 49% | 50% | 34% | 0.42 / 0.71 | 0.52 / 0.88 | 0.63 / 1.08 | 75 / 46 |
+| r109 | 288 | 17.5k / 27.5k | 29% | 29% | 18% | 0.36 / 0.41 | 0.44 / 0.50 | 0.66 / 0.84 | 74 / 45 |
+| r10a | 496 | 8.2k / 19.6k | 43% | 44% | 30% | 0.28 / 0.31 | 0.34 / 0.38 | 0.45 / 0.65 | 65 / 39 |
+| r10b | 32 | 8.1k / 15.5k | 57% | 58% | 41% | 0.50 / 0.38 | 0.61 / 0.46 | 0.70 / 0.72 | 61 / 36 |
+| r117 | 80 | 11.7k / 31.4k | 40% | 43% | 29% | 0.35 / 0.22 | 0.43 / 0.27 | 0.62 / 0.78 | 76 / 45 |
+| r118 | 256 | 11.4k / 19.2k | 44% | 45% | 31% | 0.51 / 0.79 | 0.62 / 0.97 | 0.76 / 1.19 | 76 / 47 |
+| r119 | 80 | 17.7k / 39.9k | 32% | 32% | 21% | 0.53 / 0.82 | 0.65 / 1.01 | 0.84 / 1.47 | 83 / 52 |
+| r11a | 208 | 6.1k / 17.1k | 47% | 47% | 32% | 0.21 / 0.25 | 0.26 / 0.30 | 0.35 / 0.56 | 66 / 40 |
+| r11b | 352 | 7.6k / 14.0k | 55% | 56% | 38% | 0.43 / 0.51 | 0.53 / 0.63 | 0.62 / 0.82 | 68 / 40 |
+
+- The farm: 35% of walked strips are culled after the transform (game: 2,024 culled of 6,088 walked; "51%" is culled /
+  emitted), and 34% of the transformed corners feed only culled strips. Groups skip 24% of its corners: 0.71 ms
+  MODELLED (0.88 corrected), 1.21 with job 2's leaner sg_select.
+- 16 rooms without records: 0.19-0.75 ms MODELLED in the typical view (sum 7.0), 0.24-0.92 corrected. Above the
+  ~0.4 ms bar: r100, r103, r104 (0.43), r106, r107, r108 (0.42), r10b, r118, r119, r11b (0.43); with job 2 every room
+  but r102 / r11a / r10a. G=2 (half the bytes) keeps about half the saving (r103 farm 0.31; table in
+  t2exact-20261015/sgprice), so G=4 is the better trade per KB.
+- Heap 4 (no net growth rule): a dense G=4 file is 16 B x 4 x meshlets: 33-123 KB per room, 1,171 KB for the 16. Each
+  needs an equal heap 4 saving or a smaller format. A sparse format (a u16 offset per meshlet, records only for
+  meshlets with 2+ non-empty groups, 10-byte records with the group box in u8 fractions of the meshlet box, rounded
+  outward) is 19-76 KB (714 KB for the 16; same culls, a box test on u8 data; needs a runtime reader change + gates).
+  Known tight rooms: r100 (s30 movie skipped: largest block 40.7 KB < 48 KB), r119 (El Gigante end movie failed its
+  heap 4 staging when the mesh grew 184 KB), r103 (516,896 B min in play, and MOTION_COLD_POOL keeps 256 KB free).
+- Effort with the existing converter: tools/ps2_strip_groups.py runs in under a second a room; sgcheck.py on r100,
+  r103, r119 here: 0 triangle-set differences, 0 record faults. Per room: one t11-fix.py data set (re4mesh + r4sg, after
+  blackps2 / r100tr4 so the reordered mesh replaces the disc's), one sgcheck run, and the gates: heap 4 at the room's
+  movies / enemy loads (s30-style), KOS squeeze, and the emitted-strip identity (PS2MESH strips= equal knob on / off,
+  one 1-min pair per room, or batched rooms per warp disc). r100 also needs its interior cell
+  (interior-r100.cell) re-stamped: PS2_R100_SMX / TR4 check the package crc, and the reorder changes it (meshlet ids
+  do not change). About a day for the 16 rooms with gates, mostly the heap 4 proofs.
+- Evidence: C:\Flycast-Evidence\re4-dreamcast\t2exact-20261015\sgprice (per-room result.json + views.json, table.json);
+  drivers /root/probe/lanes-20261015/t2exact/s/sgrooms.py + sgtable.py.
