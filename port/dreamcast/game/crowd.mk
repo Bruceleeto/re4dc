@@ -562,3 +562,12 @@ GC_STUB_SKIP ?= 0
 ifneq ($(GC_STUB_SKIP),0)
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GC_STUB_SKIP=$(GC_STUB_SKIP)
 endif
+
+# OWNER_SETUP_LEAN=1 (lane crowd12 2026-10-15; render only, exact; default 0): the Ganados' behind-the-house-walls
+# bound (coarse_actor_owner_ganado.inc invis_interior / invis_owner_interior) is not built while the Trans-time
+# interior cell state is inactive, when its hidden test returns 0 anyway.
+OWNER_SETUP_LEAN ?= 0
+ifneq ($(OWNER_SETUP_LEAN),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
+$(OBJDIR)/coarse_ganado_cast.o: GAME_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
+endif

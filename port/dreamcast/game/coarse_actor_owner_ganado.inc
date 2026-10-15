@@ -751,6 +751,9 @@ static bool invis_settled(cModel* m) {
 // the CROWD_LOD note kept) under the same settled-parts rule. Owner-path Ganados are not taken: their crowd ranking
 // entries come from the cast chunks the pregate keeps, which this test does not reproduce.
 extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3], const float hi[3]);  // native_static.cpp
+#if defined(RE4DC_OWNER_SETUP_LEAN) && RE4DC_OWNER_SETUP_LEAN
+extern "C" int re4dc_ps2_interior_trans_active();  // native_static.cpp
+#endif
 #if RE4DC_PS2_INTERIOR_OWNER
 extern "C" int re4dc_ps2_interior_owner_hidden(const float lo[3], const float hi[3]);  // native_static.cpp
 #endif
@@ -758,6 +761,9 @@ static inline void invis_acc(float* lo, float* hi, const float* w, float rho) {
     for (unsigned a = 0; a < 3; ++a) { if (w[a] - rho < lo[a]) lo[a] = w[a] - rho; if (w[a] + rho > hi[a]) hi[a] = w[a] + rho; }
 }
 static bool invis_interior(cModel* m, const InvisRec& r) {
+#if defined(RE4DC_OWNER_SETUP_LEAN) && RE4DC_OWNER_SETUP_LEAN
+    if (!re4dc_ps2_interior_trans_active()) return false;  // OWNER_SETUP_LEAN: the hidden test would return 0
+#endif
     if (!r.bindkey) return false;
     cParts* parts[64];
     const unsigned np = invis_parts(m, parts);
@@ -829,6 +835,9 @@ static bool invis_interior(cModel* m, const InvisRec& r) {
 // each of its runs reaches crowd_tier, and the world box of all the balls lies wholly outside the house box and the
 // Trans-time cell hides it.
 static bool invis_owner_interior(cModel* m, const InvisRec& r) {
+#if defined(RE4DC_OWNER_SETUP_LEAN) && RE4DC_OWNER_SETUP_LEAN
+    if (!re4dc_ps2_interior_trans_active()) return false;  // OWNER_SETUP_LEAN: the hidden test would return 0
+#endif
     const InvisView& iv = invis_view;
     if (iv.fog < 0.0f) { ++invis_pco_why[5]; return false; }
     float (*root)[4] = m->pParts->mat;

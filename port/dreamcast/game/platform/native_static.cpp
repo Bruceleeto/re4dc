@@ -4127,6 +4127,13 @@ extern "C" void re4dc_ps2_interior_trans(const float* view,const float* P){
 }
 // 1: the Trans-time cell hides the world box (lo / hi) and the actor may be skipped; 0 otherwise (and always at =2,
 // which queues the box for the magenta check instead).
+#if defined(RE4DC_OWNER_SETUP_LEAN) && RE4DC_OWNER_SETUP_LEAN
+// OWNER_SETUP_LEAN (crowd.mk): 1 while the hidden tests below can return 1 (their own first condition).
+extern "C" int re4dc_ps2_interior_trans_active(){
+    const pc::State& s=pc::st_trans;
+    return s.active && s.setup_frame==re4dc_ui_frame();
+}
+#endif
 extern "C" int re4dc_ps2_interior_actor_hidden(const float lo[3],const float hi[3]){
     pc::State& s=pc::st_trans;
     if(!s.active || s.setup_frame!=re4dc_ui_frame())return 0;
