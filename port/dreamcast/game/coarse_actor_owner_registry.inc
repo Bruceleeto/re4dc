@@ -468,7 +468,14 @@ int registry_palettes(cModel* m,const Re4dcActorPlan& p,float* const* output) {
     const unsigned d=registry_bound->descriptor;
     for(unsigned u=0;u<registry_skin_used[d];++u) {
         const unsigned b=registry_skin_bone[d][u];
+#if RE4DC_NMR_SLOTS
+        // A draw-slot descriptor's bind run holds one inverse per SOURCE joint: slot b skins with its joint's
+        // (source_parents[source_bones + b], the joint registry_skeleton_slots bound to parts[b]).
+        const float* const bind=desc->source_bones?desc->bind[desc->source_parents[desc->source_bones+b]]:desc->bind[b];
+        registry_jobs[u]={&registry_bound->parts[b]->mat[0][0],bind,registry_T[b]};
+#else
         registry_jobs[u]={&registry_bound->parts[b]->mat[0][0],desc->bind[b],registry_T[b]};
+#endif
     }
     re4dc_coarse_skin_bones(invx,registry_jobs,registry_skin_used[d]);
 #if RE4DC_NATIVE_MODEL_REGISTRY_PALBOUND
@@ -577,9 +584,9 @@ unsigned short scene_room;
 void scene_report(unsigned frame) {
     for(unsigned d=0;d<registry.descriptor_count;++d) {
         const auto& c=registry_count[d];if(!c.planned && !c.declined)continue;
-        re4dc_log("NMRD f=%u %s planned=%u admitted=%u would=%u declined=%u roles=%u skeleton=%u layout=%u semantics=%u certificate=%u acquire=%u skin=%u bind_rot_e6=%d bind_mm_e4=%d pos=%d,%d,%d\n",
+        re4dc_log("NMRD f=%u %s planned=%u admitted=%u would=%u declined=%u roles=%u skeleton=%u layout=%u semantics=%u certificate=%u acquire=%u skin=%u plan=%u bind_rot_e6=%d bind_mm_e4=%d pos=%d,%d,%d\n",
             frame,registry.descriptors[d].name,c.planned,c.admitted,c.would,c.declined,c.why[kRwRoles],c.why[kRwSkeleton],c.why[kRwLayout],
-            c.why[kRwSemantics],c.why[kRwCertificate],c.why[kRwAcquire],c.why[kRwSkin],int(c.bind_rotation*1e6f),int(c.bind_translation*1e4f),
+            c.why[kRwSemantics],c.why[kRwCertificate],c.why[kRwAcquire],c.why[kRwSkin],c.why[kRwPlan],int(c.bind_rotation*1e6f),int(c.bind_translation*1e4f),
             int(c.pos[0]),int(c.pos[1]),int(c.pos[2]));
     }
 #if RE4DC_NATIVE_MODEL_REGISTRY == 2
@@ -594,6 +601,9 @@ void scene_report(unsigned frame) {
     if(registry_tracked_full)re4dc_log("NMRM f=%u untracked=%u\n",frame,registry_tracked_full);
     re4dc_log("NMRU f=%u shape=%u revision=%u roles=%u skeleton=%u finite=%u\n",frame,registry_unbound_why[kRwShape],
         registry_unbound_why[kRwRevision],registry_unbound_why[kRwRoles],registry_unbound_why[kRwSkeleton],registry_unbound_why[kRwFinite]);
+    re4dc_log("NMRU2 f=%u none=%u skin=%u plan=%u layout=%u semantics=%u certificate=%u acquire=%u\n",frame,registry_unbound_why[0],
+        registry_unbound_why[kRwSkin],registry_unbound_why[kRwPlan],registry_unbound_why[kRwLayout],registry_unbound_why[kRwSemantics],
+        registry_unbound_why[kRwCertificate],registry_unbound_why[kRwAcquire]);
     for(unsigned k=0;k<scene_count;++k) {
         const auto& r=scene_rows[k];
         re4dc_log("NMRS f=%u room=%04x id=%02x ot=%u parts=%u infos=%u plan=%c native=%u crowd=%u declined=%u registry_declined=%u absent=%u would=%u\n",

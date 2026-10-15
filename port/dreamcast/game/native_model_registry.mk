@@ -379,6 +379,11 @@ endif
 #              (RE4DC_NMR_DROP_BUMP, set here: the DC source path never draws the GC bump stage). Disc data:
 #              dc/native/r117/registry.re4nmr + its atlas and three pair packages; pl/pl11.drs must be texture-prepared.
 #              Not with NATIVE_MODEL_REGISTRY=2 (compare mode).
+#              Runtime (2026-10-15, Flycast census, r117 follow warp): =2 admits her on every drawn frame (2400/2400,
+#              0 declines, TEX_CHECK 0 fails) after four fixes: four owner materials (atlas + three mask pairs;
+#              RE4DC_ACTOR_MATERIALS=4 below), her source TEV group 1 (as Luis), the head's shape bit / Morph need and
+#              the bump drop in the certificate (coarse_actor_material.inc), and the slot palettes' bind (one inverse
+#              per SOURCE joint: slot b uses its joint's; coarse_actor_owner_registry.inc registry_palettes).
 PS2_ASHLEY ?= 0
 ifeq ($(filter $(PS2_ASHLEY),0 1 2),)
 $(error PS2_ASHLEY must be 0, 1 or 2)
@@ -395,6 +400,10 @@ $(error PS2_ASHLEY is not modelled by NATIVE_MODEL_REGISTRY=2 (compare mode))
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_ASHLEY=$(PS2_ASHLEY) -DRE4DC_NMR_SLOTS=1 -DRE4DC_NMR_DROP_BUMP=1 -DRE4DC_NMR_FACTS=72
 $(OBJDIR)/src/game/trans.o: GAME_CPPFLAGS += -DRE4DC_NMR_ASHLEY=$(PS2_ASHLEY)
+# Her descriptors plan four materials (the PS2 atlas + head / hair / extra 9 mask pairs; the default owner capacity is
+# three, which declined her at the third mask run: census NMRD plan=). Every object, as the plan crosses objects.
+GAME_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
 else
 ifneq ($(PS2_CAST_MERCHANT),0)
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_FACTS=40
