@@ -637,5 +637,5 @@ ifneq ($(STATIC_OBJ_BAKE),0)
 ifeq ($(PS2_PLACE_GATE),0)
 $(error STATIC_OBJ_BAKE needs PS2_PLACE_GATE=1)
 endif
-$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BAKE=1
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BAKE=1
 endif
