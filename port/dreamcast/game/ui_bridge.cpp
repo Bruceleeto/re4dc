@@ -242,6 +242,10 @@ extern "C" void re4dc_room4_open();
 extern "C" void re4dc_room4_close();
 #if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS
 extern "C" void re4dc_kos_census_log(const char* phase,unsigned room);  // platform/kos_census.cpp
+#if RE4DC_KOS_CENSUS>=2
+extern "C" void re4dc_kos_census_window(unsigned room,unsigned frame);
+extern "C" void re4dc_kos_threads_report(void);
+#endif
 #endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace {
@@ -503,6 +507,12 @@ extern "C" int re4dc_room_cycle_poll(){
     ++room_frames;
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
     if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+#endif
+#if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS>=2
+    if(room_frames==1 || room_frames%150==0){  // KOS_CENSUS=2 (diagnostic): peak census per window, thread stacks
+        re4dc_kos_census_window(unsigned(pG?pG->room_id:0),room_frames);
+        re4dc_kos_threads_report();
+    }
 #endif
 #if defined(RE4DC_KOS_TRACE) && RE4DC_KOS_TRACE
     if(room_frames%RE4DC_KOS_TRACE==0){  // KOS_TRACE (crowd.mk, diagnostic): KOS malloc headroom through the room

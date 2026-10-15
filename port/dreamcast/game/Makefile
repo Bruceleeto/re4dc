@@ -1056,6 +1056,26 @@ endif
 ifeq ($(DISC_COMPAT),1)
 $(OBJDIR)/platform/gdrom_mount.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_COMPAT=1
 endif
+# KOS_SBRK_LAST_PAGE=1 (lane ramreclaim 2026-10-15, default 0 = image unchanged; exact): KOS mm_sbrk refuses a break that
+# reaches the kernel stack's base (`new_base >= limit`), so the last 4 KiB page below the 64 KiB kernel stack can never be
+# used: every console/Flycast "Out of memory. Requested sbrk_base 0x8cff0000" is that page. The game links a copy of
+# kernel/mm/mm.c with `>` (patches/kos-804b319-mm-sbrk-last-page.patch); a break ending exactly at the base does not
+# overlap the stack. Behaviour differs only where the stock check would have run out of KOS: +4,096 B usable KOS.
+KOS_SBRK_LAST_PAGE ?= 0
+ifneq ($(filter-out 0 1,$(KOS_SBRK_LAST_PAGE)),)
+$(error KOS_SBRK_LAST_PAGE must be 0 or 1)
+endif
+ifeq ($(KOS_SBRK_LAST_PAGE),1)
+KOSMM := $(OBJDIR)/kosmm
+PLATFORM_OBJS += $(KOSMM)/mm.o
+$(KOSMM)/mm.c: $(KOS_BASE)/kernel/mm/mm.c $(CURDIR)/../patches/kos-804b319-mm-sbrk-last-page.patch
+	@rm -rf $(KOSMM)/p && mkdir -p $(KOSMM)/p/kernel/mm
+	cp $< $(KOSMM)/p/kernel/mm/
+	patch --fuzz=0 -s -p1 -d $(KOSMM)/p < $(CURDIR)/../patches/kos-804b319-mm-sbrk-last-page.patch
+	cp $(KOSMM)/p/kernel/mm/mm.c $@
+$(KOSMM)/mm.o: $(KOSMM)/mm.c
+	kos-cc $(KOS_CFLAGS) -O2 -fmacro-prefix-map=$(KOSMM)/=kosmm/ -MMD -MP -c $< -o $@
+endif
 # DISC_READ_FALLBACK=2 (issue #28 v2, 2026-10-15; v1 gave a black screen under the ISO loader): no cdrom streams at all
 # (fs_iso9660 reads by sector reads), every sector read is a bounded GD command polled from the calling thread (DMA, then
 # DMA after a bounded drive re-init, then PIO; the one that works is reported and kept), cdrom_reinit is wrapped with a
