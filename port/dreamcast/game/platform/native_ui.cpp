@@ -3477,6 +3477,9 @@ unsigned preload_least(unsigned width,unsigned height){
 }
 struct PreloadPick { Key key; unsigned short width,height,format; };
 PreloadPick preload_picks[kTextureCount];
+#if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
+unsigned rce_retire_frame;bool rce_armed;   // ROOM_CHANGE_EVICT: set at room retirement (room_change_retire)
+#endif
 #if RE4DC_QUALITY_ASSETS
 bool preload_room_pass; // Standard: skip the index's drop keys in the room-identity pass only
 #endif
@@ -3711,6 +3714,24 @@ void preload_identities(){
             for(unsigned j=i;j>m;--j)preload_picks[j]=preload_picks[j-1];
             preload_picks[m++]=p;
         }
+    }
+#endif
+#if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
+    if(rce_armed){
+        // ROOM_CHANGE_EVICT: the first pass of a new room. Its listed resident entries are pinned to this frame by
+        // preload_select; close every other kept entry the old room did not draw in its last RE4DC_ROOM_CHANGE_EVICT
+        // frames (leased, fx-pool and room-pinned entries stay). The caller completed the TA and render fences, as for
+        // load()'s evictions.
+        rce_armed=false;
+        unsigned closed=0,closed_bytes=0,kept=0,kept_bytes=0;
+        for(auto& e:entries){
+            if(!e.valid || RE4DC_ENTRY_PINNED(e))continue;
+            const unsigned sz=e.package.vram_bytes();
+            if(e.frame+RE4DC_ROOM_CHANGE_EVICT>=rce_retire_frame){++kept;kept_bytes+=sz;continue;}
+            close_entry(e);++closed;closed_bytes+=sz;
+        }
+        re4dc_log("native UI: room change evict: closed=%u kb=%u kept=%u kept_kb=%u listed_resident=%u free=%u window=%u\n",
+            closed,closed_bytes/1024,kept,kept_bytes/1024,resident,(unsigned)pvr_mem_available(),unsigned(RE4DC_ROOM_CHANGE_EVICT));
     }
 #endif
     bool full=false;
@@ -4215,6 +4236,16 @@ void retire_kos_floor(){
 }
 }  // namespace
 #endif
+#if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
+namespace {
+// ROOM_CHANGE_EVICT (Makefile; render only): retirement keeps the entries' last-drawn frames (LRU order across the
+// room change) and arms one eviction at the next room's first preload pass (room_change_evict below).
+void room_change_retire(){
+    for(auto& e:entries)if(e.frame>=frame)e.frame=frame?frame-1:0U;   // none stays "drawn this frame"
+    rce_retire_frame=frame;rce_armed=true;
+}
+}  // namespace
+#endif
 extern "C" void re4dc_ui_retire_room(){
 #if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
     for(unsigned i=0;i<kTextureCount;++i)fx_pool_pin[i]=false;   // FX_TEX_POOL: the next room fills its own pool
@@ -4272,7 +4303,11 @@ extern "C" void re4dc_ui_retire_room(){
 #if defined(RE4DC_RETIRE_KOS_FLOOR) && RE4DC_RETIRE_KOS_FLOOR
     retire_kos_floor();                      // RETIRE_KOS_FLOOR: KOS headroom for the next room first (LRU order)
 #endif
+#if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
+    room_change_retire();                    // ROOM_CHANGE_EVICT: kept resident in LRU order, evictable
+#else
     for(auto& entry:entries)entry.frame=0;   // kept resident, oldest: evictable
+#endif
 #else
     for(auto& entry:entries)close_entry(entry);
 #endif
@@ -5375,7 +5410,11 @@ extern "C" void re4dc_ui_end_frame(int present){
 #if defined(RE4DC_RETIRE_KOS_FLOOR) && RE4DC_RETIRE_KOS_FLOOR
     if(stream_retire)retire_kos_floor();     // RETIRE_KOS_FLOOR: the deferred retirement, scene closed and fenced
 #endif
+#if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
+    if(stream_retire){room_change_retire();stream_retire=false;}   // ROOM_CHANGE_EVICT: LRU order kept
+#else
     if(stream_retire){for(auto& entry:entries)entry.frame=0;stream_retire=false;}
+#endif
 #else
     if(stream_retire){for(auto& entry:entries)close_entry(entry);stream_retire=false;}
 #endif
