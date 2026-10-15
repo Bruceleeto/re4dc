@@ -1788,8 +1788,82 @@ unsigned owner_tests=0,owner_hid=0; // PS2_INTERIOR_ACTORS=2: owner-path Ganados
 }
 #endif
 #endif
+#if RE4DC_PS2_WORLD_LEAN
+// PS2_WORLD_LEAN (game30.mk, render only, default 0; lane objs 2026-10-14, r101 world submit). Bits:
+//  1 world-space placement pretest: per pass the six cull planes (the four screen edges group_visible uses, near and
+//    the pass's cull far) go to world space once; a placement whose mesh box (world AABB of the affine'd box) lies
+//    wholly outside one of them by more than a unit is culled without its view concat and view-space box test.
+//  2 fully-inside propagation: a placement box (grown by one grid step, the cluster rounding) wholly inside every plane
+//    skips its clusters' and meshlets' box tests; a cluster wholly inside skips its meshlets' tests (meshlet boxes nest
+//    in their cluster box: lane objs nest.py, r101 0 of 1726 outside). Same rejections as group_visible otherwise.
+//  4 the meshlet cache's constant words (MESH_PRIME_LAZY) are primed once per pass, not once per part: in the
+//    direct path the cache is the model packet buffer's fixed tail, and only the transform (which never writes those
+//    words) and the walks touch it inside a pass.
+//  8 (diagnostic) checks 2 and 4: every skipped box test is run anyway and every reused prime word is read back;
+//    disagreements counted in the PS2LEAN line (check_bad / prime_bad must stay 0).
+namespace lean {
+constexpr unsigned kMode=RE4DC_PS2_WORLD_LEAN;
+struct Stats { unsigned pre_culled,pl_inside,cl_inside,skipped,prime_reuse,check_bad,prime_bad,dyn_fast; } st;
+const pvr_vertex_t* prime_at=nullptr; unsigned primed=0;
+// 0 outside (group_visible's rejection, the same arithmetic), 1 straddles, 2 inside every plane with a unit of margin
+// (the box grown by grow[], model units per axis, for that verdict only; nullptr: not grown).
+inline unsigned box_class(const re4dc::render::DrawBounds& bounds,const float m[12],const float p[7],const float vp[6],
+                          float near_distance,float far_distance,const float* grow){
+    float center[3],extent[3],view[3],radius[3];
+    for(unsigned a=0;a<3;++a){center[a]=(bounds.minimum[a]+bounds.maximum[a])*0.5f;
+        extent[a]=(bounds.maximum[a]-bounds.minimum[a])*0.5f;}
+    for(unsigned row=0;row<3;++row){const auto* v=m+4*row;
+        view[row]=v[0]*center[0]+v[1]*center[1]+v[2]*center[2]+v[3];
+        radius[row]=std::fabs(v[0])*extent[0]+std::fabs(v[1])*extent[1]+std::fabs(v[2])*extent[2];}
+    if(-view[2]+radius[2]<near_distance || -view[2]-radius[2]>far_distance)return 0;
+    const float ox=2*vp[0]/vp[2],oy=2*vp[1]/vp[3];
+    const float pl[4][3]={{p[1],0,p[2]-1-ox},{-p[1],0,-p[2]-1+ox},{0,-p[3],-p[4]-1-oy},{0,p[3],p[4]-1+oy}};
+    float s[4];
+    for(unsigned k=0;k<4;++k){
+        const float a=pl[k][0],b=pl[k][1],c=pl[k][2];
+        s[k]=a*view[0]+b*view[1]+c*view[2];
+        if(s[k]+std::fabs(a)*radius[0]+std::fabs(b)*radius[1]+std::fabs(c)*radius[2]<-0.0001f)return 0;
+    }
+    float r[3]={radius[0],radius[1],radius[2]};
+    if(grow)for(unsigned row=0;row<3;++row){const auto* v=m+4*row;
+        r[row]+=std::fabs(v[0])*grow[0]+std::fabs(v[1])*grow[1]+std::fabs(v[2])*grow[2];}
+    if(!(-view[2]-r[2]>=near_distance+1.0f && -view[2]+r[2]<=far_distance-1.0f))return 1;
+    for(unsigned k=0;k<4;++k)
+        if(!(s[k]-(std::fabs(pl[k][0])*r[0]+std::fabs(pl[k][1])*r[1]+std::fabs(pl[k][2])*r[2])>1.0f))return 1;
+    return 2;
+}
+// The six planes in world space: n.w + d >= 0 inside; an = |n|.
+struct World { float n[6][3],an[6][3],d[6]; };
+inline void world_planes(const float* V,const float* P,const float* vp,float near_distance,float far_distance,World& w){
+    const float ox=2*vp[0]/vp[2],oy=2*vp[1]/vp[3];
+    const float pl[6][4]={{P[1],0,P[2]-1-ox,0},{-P[1],0,-P[2]-1+ox,0},{0,-P[3],-P[4]-1-oy,0},{0,P[3],P[4]-1+oy,0},
+                          {0,0,-1,-near_distance},{0,0,1,far_distance}};
+    for(unsigned k=0;k<6;++k){
+        const float a=pl[k][0],b=pl[k][1],c=pl[k][2];
+        for(unsigned i=0;i<3;++i){w.n[k][i]=a*V[i]+b*V[4+i]+c*V[8+i];w.an[k][i]=std::fabs(w.n[k][i]);}
+        w.d[k]=a*V[3]+b*V[7]+c*V[11]+pl[k][3];
+    }
+}
+// true: the box lo..hi under the 3x4 affine A is wholly outside one plane (by more than a unit).
+inline bool world_out(const World& w,const float* A,const float lo[3],const float hi[3]){
+    float c[3],h[3];
+    for(unsigned r=0;r<3;++r){
+        c[r]=A[4*r+3];h[r]=0;
+        for(unsigned k=0;k<3;++k){const float mc=(lo[k]+hi[k])*0.5f,mh=(hi[k]-lo[k])*0.5f;
+            c[r]+=A[4*r+k]*mc;h[r]+=std::fabs(A[4*r+k])*mh;}
+    }
+    for(unsigned k=0;k<6;++k)
+        if(w.n[k][0]*c[0]+w.n[k][1]*c[1]+w.n[k][2]*c[2]+w.d[k]+w.an[k][0]*h[0]+w.an[k][1]*h[1]+w.an[k][2]*h[2]<-1.0f)return true;
+    return false;
+}
+}
+#endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
+#if RE4DC_PS2_WORLD_LEAN
+    bool lean_inside=false; // PS2_WORLD_LEAN bit 2: the placement box is inside every plane (no cluster / meshlet tests)
+    bool lean_part=false;   // PS2_WORLD_LEAN: a ps2_pass part (bit 2 cluster classes; bit 4 the cache prime kept across the pass)
+#endif
     const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
     re4dc::room::CompactVertex12* gather_pool; // mesh view's v3 gather buffer (nullptr: v1/v2)
 #if RE4DC_PS2_INTERIOR_CULL
@@ -1849,6 +1923,13 @@ struct MeshDraw : Emitter {
 #if !RE4DC_MESH_PRIME_LAZY
         re4dc::vp::prime(cache,re4dc::vp::kCacheEntries);
 #endif
+#if RE4DC_PS2_WORLD_LEAN && RE4DC_MESH_PRIME_LAZY
+        if((lean::kMode&4U) && lean_part && cache==lean::prime_at){
+            primed=lean::primed;++lean::st.prime_reuse;
+            if(lean::kMode&8U)for(unsigned i=0;i<primed;++i)
+                if(cache[i].flags!=PVR_CMD_VERTEX || cache[i].oargb!=0){++lean::st.prime_bad;primed=0;break;}
+        }
+#endif
         // After bind(): packet.u_scale/v_scale are the bound texture's.
         k={part.uv_scale[0],part.uv_bias[0],p.uv_offset[0],packet.u_scale,
            part.uv_scale[1],part.uv_bias[1],p.uv_offset[1],packet.v_scale,near,far,
@@ -1873,7 +1954,11 @@ struct MeshDraw : Emitter {
         const auto* base=corners(l);
         const auto* in=reinterpret_cast<const vp::Vertex12*>(base);
 #if RE4DC_MESH_PRIME_LAZY
-        if(l.vertex_count>primed){vp::prime(cache+primed,l.vertex_count-primed);primed=l.vertex_count;}
+        if(l.vertex_count>primed){vp::prime(cache+primed,l.vertex_count-primed);primed=l.vertex_count;
+#if RE4DC_PS2_WORLD_LEAN
+            if(lean_part){lean::prime_at=cache;lean::primed=primed;}
+#endif
+        }
 #endif
         if(checks==vp::kChecksNone)vp::transform<vp::kChecksNone>(in,l.vertex_count,cache,outcodes,k);
         else if(checks==vp::kChecksScreen)vp::transform<vp::kChecksScreen>(in,l.vertex_count,cache,outcodes,k);
@@ -2025,11 +2110,29 @@ struct MeshDraw : Emitter {
 #endif
 #endif
     // One meshlet: 1 drawn or culled, 0 fallback allowed, -1 frame aborted.
-    int draw(const re4dc::room::Meshlet& l){
+    int draw(const re4dc::room::Meshlet& l
+#if RE4DC_PS2_WORLD_LEAN
+             ,bool known=false // PS2_WORLD_LEAN bit 2: the meshlet's cluster (or placement) is inside every plane
+#endif
+            ){
+#if RE4DC_PS2_WORLD_LEAN
+        if(known){
+            ++lean::st.skipped;
+            if(lean::kMode&8U){
+                const re4dc::render::DrawBounds bounds{
+                    {float(l.bounds_min[0]),float(l.bounds_min[1]),float(l.bounds_min[2])},
+                    {float(l.bounds_max[0]),float(l.bounds_max[1]),float(l.bounds_max[2])}};
+                if(!re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0))++lean::st.check_bad;
+            }
+        }else{
+#endif
         const re4dc::render::DrawBounds bounds{
             {float(l.bounds_min[0]),float(l.bounds_min[1]),float(l.bounds_min[2])},
             {float(l.bounds_max[0]),float(l.bounds_max[1]),float(l.bounds_max[2])}};
         if(!re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)){++stats.groups_culled;return 1;}
+#if RE4DC_PS2_WORLD_LEAN
+        }
+#endif
         ++stats.groups_visible;
         if(!bind()){++stats.bind_rejects;return submitted?-1:0;}
         ++stats.batches;
@@ -2066,7 +2169,18 @@ struct MeshDraw : Emitter {
             float lo[3],hi[3];
             for(unsigned a=0;a<3;++a){lo[a]=float(cl.bounds_min[a]);hi[a]=float(cl.bounds_max[a]);}
             const re4dc::render::DrawBounds bounds{{lo[0],lo[1],lo[2]},{hi[0],hi[1],hi[2]}};
+#if RE4DC_PS2_WORLD_LEAN
+            unsigned cin;
+            if(lean_inside){
+                cin=2;++lean::st.skipped;
+                if((lean::kMode&8U) && !re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0))++lean::st.check_bad;
+            }else if((lean::kMode&2U) && lean_part)cin=lean::box_class(bounds,mvq,p.projection,p.viewport,near,cull_far,nullptr);
+            else cin=re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)?1U:0U;
+            if(!cin){++stats.clusters_culled;continue;}
+            if(cin==2)++lean::st.cl_inside;
+#else
             if(!re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)){++stats.clusters_culled;continue;}
+#endif
 #if RE4DC_PS2_INTERIOR_CULL
             // 1 the cluster is hidden, 0 seen (or not tested), -1 it meets the house box: each meshlet is tested.
             const int pc_state=!pc_mode?0:pc_all?1:pc::grid_hidden(pc_wq,cl.bounds_min,cl.bounds_max);
@@ -2093,7 +2207,11 @@ struct MeshDraw : Emitter {
                     if(hid==(pc_mode==1)){if(hid)++pc::st.meshlets;continue;} // =1: skip hidden; check run: skip seen
                 }
 #endif
+#if RE4DC_PS2_WORLD_LEAN
+                const int result=draw(lets[i],cin==2);
+#else
                 const int result=draw(lets[i]);
+#endif
                 if(result<=0)return result;
             }
         }
@@ -3240,6 +3358,20 @@ Slot* slots=nullptr; unsigned nslots=0;
 std::uint8_t slot_of[kIds];                        // id -> slot (kNone: baked)
 #if RE4DC_PS2_WORLD_PARTS
 std::uint8_t object_order[kIds]; unsigned nobjects=0;
+#if RE4DC_PS2_WORLD_LEAN
+// PS2_WORLD_LEAN bit 16: a 64-bit hash mask of every bound object address. re4dc_ps2_dyn_source (once per scenery
+// object per frame, ~200 calls in r101) returns 0 at once when no bound object hashes to the asked address's bit;
+// any other address takes the search as before (the answer is the same either way).
+std::uint32_t lean_mask[2];
+inline unsigned lean_bit(std::uintptr_t a){return unsigned((a>>4)^(a>>10)^(a>>16))&63U;}
+void lean_rebuild(){
+    lean_mask[0]=lean_mask[1]=0;
+    for(unsigned i=0;i<nobjects;++i){
+        const unsigned b=lean_bit(reinterpret_cast<std::uintptr_t>(slots[slot_of[object_order[i]]].obj));
+        lean_mask[b>>5]|=1U<<(b&31U);
+    }
+}
+#endif
 void order_object(unsigned id){
     unsigned at=0;
     for(;at<nobjects && object_order[at]!=id;++at){}
@@ -3249,6 +3381,9 @@ void order_object(unsigned id){
     while(at<nobjects && reinterpret_cast<std::uintptr_t>(slots[slot_of[object_order[at]]].obj)<key)++at;
     for(unsigned j=nobjects;j>at;--j)object_order[j]=object_order[j-1];
     object_order[at]=std::uint8_t(id);++nobjects;
+#if RE4DC_PS2_WORLD_LEAN
+    lean_rebuild();
+#endif
 }
 #endif
 unsigned off_flag=0,off_serial=0,off_mat=0;        // cObj field offsets (from the first bind)
@@ -3262,6 +3397,9 @@ void reset(){
 #if RE4DC_PS2_WORLD_PARTS
     if(slots)for(unsigned i=0;i<nslots;++i)if(slots[i].parts)re4dc_static_free(slots[i].parts);
     nobjects=0;
+#if RE4DC_PS2_WORLD_LEAN
+    lean_mask[0]=lean_mask[1]=0;
+#endif
 #endif
     if(slots)re4dc_static_free(slots);
     block=nullptr;ids=nullptr;nids=0;slots=nullptr;nslots=0;std::memset(slot_of,kNone,sizeof(slot_of));frame=~0U;
@@ -3692,6 +3830,18 @@ int ps2_pass(unsigned pass,float zfar){
 #if RE4DC_SKY_ANY
     const float pass_cull_far=cull_far;
 #endif
+#if RE4DC_PS2_WORLD_LEAN
+    lean::World lw;
+    const bool lw_on=(lean::kMode&1U)!=0;
+    if(lw_on)lean::world_planes(ps2w.view,P,ps2w.viewport,near,cull_far,lw);
+    lean::prime_at=nullptr;lean::primed=0; // bit 4: the prime holds within this pass only
+    if(!pass){
+        const unsigned f=re4dc_ui_frame();
+        if(!(f%120))re4dc_log("PS2LEAN frame=%u mode=%u pre_culled=%u pl_inside=%u cl_inside=%u skipped=%u prime_reuse=%u check_bad=%u prime_bad=%u dyn_fast=%u\n",
+            f,lean::kMode,lean::st.pre_culled,lean::st.pl_inside,lean::st.cl_inside,lean::st.skipped,lean::st.prime_reuse,
+            lean::st.check_bad,lean::st.prime_bad,lean::st.dyn_fast);
+    }
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC
     if(!pass && dyn::ids){
         const unsigned f=re4dc_ui_frame();
@@ -3825,13 +3975,29 @@ int ps2_pass(unsigned pass,float zfar){
                 if(st==2){concat(dyn::delta[dyn::moved_of[id]],pl.affine,moved_affine);affine=moved_affine;}
             }
         }
+#if RE4DC_PS2_WORLD_LEAN
         ++c.placements;
-        float mv[12];concat(ps2w.view,affine,mv);
 #define RE4DC_PS2_AFFINE affine
 #else
         ++c.placements;
+        float mv[12];concat(ps2w.view,affine,mv);
+#define RE4DC_PS2_AFFINE affine
+#endif
+#else
+        ++c.placements;
+#if !RE4DC_PS2_WORLD_LEAN
         float mv[12];concat(ps2w.view,pl.affine,mv);
+#endif
 #define RE4DC_PS2_AFFINE pl.affine
+#endif
+#if RE4DC_PS2_WORLD_LEAN
+#if RE4DC_SKY_ANY
+        const bool lean_sky=re4dc_sky_mode() && ps2_sky_row(ps2w.room,pl.placement); // sky rows: their own far, no pretest
+#else
+        constexpr bool lean_sky=false;
+#endif
+        if(lw_on && !lean_sky && lean::world_out(lw,RE4DC_PS2_AFFINE,mesh.bounds_min,mesh.bounds_max)){++c.culled;++lean::st.pre_culled;continue;}
+        float mv[12];concat(ps2w.view,RE4DC_PS2_AFFINE,mv);
 #endif
         const re4dc::render::DrawBounds bounds{{mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},
                                                {mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]}};
@@ -3842,7 +4008,17 @@ int ps2_pass(unsigned pass,float zfar){
         const float cull_far=sky?far:pass_cull_far;
         re4dc_ps2_sky_header=(sky_mode==2 && sky)?1U:0U;
 #endif
+#if RE4DC_PS2_WORLD_LEAN
+        unsigned lean_in;
+        if(lean::kMode&2U){
+            const float grow[3]={std::fabs(mesh.step[0]),std::fabs(mesh.step[1]),std::fabs(mesh.step[2])}; // cluster boxes round out by < 1 step
+            lean_in=lean::box_class(bounds,mv,P,ps2w.viewport,near,cull_far,grow);
+        }else lean_in=re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)?1U:0U;
+        if(!lean_in){++c.culled;continue;}
+        if(lean_in==2)++lean::st.pl_inside;
+#else
         if(!re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)){++c.culled;continue;}
+#endif
         const float grid[12]={mesh.step[0],0,0,mesh.origin[0], 0,mesh.step[1],0,mesh.origin[1], 0,0,mesh.step[2],mesh.origin[2]};
 #if RE4DC_PS2_INTERIOR_CULL
         // 0 no test (no cell, or the placement is inside the house box), 1 test its clusters, 2 wholly hidden.
@@ -3896,6 +4072,9 @@ int ps2_pass(unsigned pass,float zfar){
             d.alpha=0xff000000U;d.vertex_alpha=false;d.cull_far=cull_far;d.direct=true;
 #endif
             d.part_index=index;d.lod_scale=lod_scale;
+#if RE4DC_PS2_WORLD_LEAN
+            d.lean_inside=lean_in==2;d.lean_part=true;
+#endif
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
 #if RE4DC_PS2_INTERIOR_ACTORS && RE4DC_PS2_INTERIOR_CULL==2
@@ -4310,6 +4489,12 @@ extern "C" void re4dc_ps2_dyn_parts(unsigned room,unsigned id,const void* object
 }
 extern "C" int re4dc_ps2_dyn_source(unsigned room,const void* object,unsigned serial){
     if(!dyn::ids || ps2w.room!=room)return 0;
+#if RE4DC_PS2_WORLD_LEAN
+    if(lean::kMode&16U){
+        const unsigned b=dyn::lean_bit(reinterpret_cast<std::uintptr_t>(object));
+        if(!((dyn::lean_mask[b>>5]>>(b&31U))&1U)){++lean::st.dyn_fast;return 0;}
+    }
+#endif
     // This small owner table is shared with the placement adapter. Match the
     // serial before inspecting any borrowed part addresses after object reuse.
     const auto key=reinterpret_cast<std::uintptr_t>(object);

@@ -2667,6 +2667,20 @@ $(error PS2_WORLD_FOG_SOURCE must be 0 or 1)
 endif
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_FOG_SOURCE=1
 endif
+# PS2_WORLD_LEAN (native_static.cpp ps2_pass / MeshDraw, render only, default 0; lane objs 2026-10-14): bit mask.
+# 1 world-space placement pretest (no view concat / box test for a placement wholly outside a cull plane), 2 fully-inside
+# propagation (a placement or cluster box inside every plane skips its children's box tests), 4 the meshlet cache's
+# constant words primed once per pass instead of once per part, 8 (diagnostic) re-runs every skipped test and reads
+# back every reused prime word (PS2LEAN check_bad / prime_bad must stay 0), 16 re4dc_ps2_dyn_source (once per scenery
+# object per frame) rejects an address no bound object hashes to without its search. The drawn picture is unchanged by
+# design.
+PS2_WORLD_LEAN ?= 0
+ifneq ($(PS2_WORLD_LEAN),0)
+ifneq ($(filter-out $(shell seq 1 31),$(PS2_WORLD_LEAN)),)
+$(error PS2_WORLD_LEAN must be 0..31)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_LEAN=$(PS2_WORLD_LEAN)
+endif
 # MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
 # first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
 MESH_CLASSIFY ?= 0
