@@ -53,9 +53,10 @@ SS_PACK ?= 0
 # The packed backing holds the room preload while the sub screen is open (re4dc_ui_vram_hold), and the preload runs
 # again after the close only when the hold released uploads (claim_released). The sub screen's own pictures (r101
 # post-bell call: 430 KB, loaded while paused) evict room uploads through load() without counting there, so the
-# room's resident-list keys they evicted (4 HUD pictures) reloaded on first sight in play after the call. With it an
-# eviction by load() while a claim or hold is open counts in claim_released: the room preload pass runs at the close
-# and brings the room's listed keys back before play resumes (a load point, as at room entry).
+# room's resident-list keys they evicted (4 HUD pictures) reloaded on first sight in play after the call. With it the
+# uploads load() evicts during the hold that the room drew in the 60 frames before it are remembered (up to 64), and
+# after the close a preload pass restricted to them brings them back before play resumes (a load point, as at room
+# entry). A full room pass instead reloaded 95 r101 keys at the close (1.6 s in Flycast), most of them not in view.
 SS_HOLD_RESTORE ?= 0
 ifneq ($(SS_HOLD_RESTORE),0)
 ifneq ($(SS_PACK),1)
