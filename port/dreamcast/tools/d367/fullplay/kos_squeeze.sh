@@ -3,7 +3,8 @@
 # KOS out-of-memory gate (2026-10-15, user: make the console OOM check automatic). Runs a KOS_SQUEEZE twin base
 # (fp_twin.sh <release out> <lab> KOS_WATCH=1 KOS_SQUEEZE=1 W11_FIXTURE=1, then fp_master.sh ... <twin>) through
 # fight (r101 cross, benchmark-r101-v3), call (radio call 0 replayed in r100 after s40, kos-call-warp.txt) and door
-# (door103: post-bell call, the r103 door, r103 entry), every level in parallel per scene, each run 60 s wall on JIT
+# (door103: post-bell call, the r103 door, r103 entry), leave100 / leave103 (the fight, then at room frame 450 the
+# room changes to r100 / r103: r101's KOS use carried into the next room load; added 10-15 for 12.1), every level in parallel per scene, each run 60 s wall on JIT
 # Flycast with FP_NOLIMIT=1. A "squeeze <bytes> <frag>" line is prepended to each warp fixture: the twin holds that
 # much KOS from boot (KOS_SQUEEZE, platform/os.cpp). Levels default "49152:0 49152:1" (the release gate: 48 KiB as one
 # block and as 4 KiB pieces). Prints one line per run: min headroom, min top block (largest block), OOM lines
@@ -12,13 +13,15 @@
 # EVAL_ONLY=1: judge existing <evidence>/kos-<scene>-<bytes>-<frag> runs without running Flycast.
 # Example: kos_squeeze.sh 'C:\Flycast-Evidence\...\_discs\sqtwin' fpsqW 'C:\Flycast-Evidence\...\kos-t12'
 here=$(cd "$(dirname "$0")" && pwd)
-BASE=${1:?base}; TW=${2:?twin label}; EV=${3:?evidence}; LEVELS=${4:-"49152:0 49152:1"}; SCENES=${5:-"fight call door"}
+BASE=${1:?base}; TW=${2:?twin label}; EV=${3:?evidence}; LEVELS=${4:-"49152:0 49152:1"}; SCENES=${5:-"fight call door leave100 leave103"}
 export FP_NOLIMIT=1
 S=$(cat //wsl.localhost/Ubuntu-24.04/root/probe/lanes/route/out-$TW/syms.txt)
 EVU=$(cygpath -u "$EV"); mkdir -p "$EVU/fixtures"
 declare -A WARP=( [fight]=$here/segments/kos-fight-warp.txt [call]=$here/segments/kos-call-warp.txt
-                  [door]=$here/segments/door103-warp.txt )
-declare -A END=( [fight]='warp: alert at room frame' [call]='subscreen backing: open' [door]='phase=enter room=103' )
+                  [door]=$here/segments/door103-warp.txt [leave100]=$here/segments/kos-leave100-warp.txt
+                  [leave103]=$here/segments/kos-leave103-warp.txt )
+declare -A END=( [fight]='warp: alert at room frame' [call]='subscreen backing: open' [door]='phase=enter room=103'
+                 [leave100]='phase=enter room=100' [leave103]='phase=enter room=103' )
 fail=0
 for sc in $SCENES; do
   for lv in $LEVELS; do
