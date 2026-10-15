@@ -427,7 +427,7 @@ def main():
                 else:
                     raise ValueError('texture source unknown (binding %s)' % (b,))
             # GC image -> the PS2 image(s) of the triangles the converter put in parts sampling it
-            newbin, st = po.rebuild(gbin, ps2bin)
+            newbin, st = po.rebuild(gbin, ps2bin, tex_map=po.TEX_MAPS.get(str(entry['name']).lower()))
             drawn = [q for q in po.GcModel(newbin).parts if q['tris']]
             pair_of = {}
             for q in drawn:
@@ -503,6 +503,12 @@ def main():
                 w, h, rgba, il = pimg[d]
                 gk = gc_image(gsrc, k)
                 rgba, how, err = orient(rgba, gk, il & 1)
+                if rgba.shape[0] != gh or rgba.shape[1] != gw:
+                    # the runtime checks a package against the record's TPL header (width / height / format): a PS2
+                    # picture of another size is not drawn (objs13 look check 10-15: r119 tree, r10b / r11b island,
+                    # r104 gate hidden). Resample (nearest) the PS2 picture to the GC image size: PS2 texels, GC size.
+                    how += ', resampled %dx%d -> %dx%d' % (rgba.shape[1], rgba.shape[0], gw, gh)
+                    rgba = resample(rgba, gh, gw)
                 pair_jobs, why = plan_pairs(k, pair_of.get(k, ()), d, rgba.shape[:2])
                 if why:
                     entry.setdefault('kept_gc_images', []).append(dict(image=k, why=why + ' (pair not built: colour kept GC)'))

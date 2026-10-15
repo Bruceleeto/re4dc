@@ -237,7 +237,14 @@ def gc_winding_sense(m):
     return 1 if agree >= 0 else -1
 
 
-def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
+# PS2 material image -> GC TPL image, for models whose PS2 TPL lists the images in another order than the GC TPL
+# (checked by image size: r104 et1700 gate, GC img0 128x256 panels / img1 64x64 frame, PS2 img0 64x64 / img1 128x256;
+# without it the panels' PS2 triangles land in the 64x64 frame part and the PS2 pictures' sizes disagree with the GC
+# record, which hid the gate in the objs13 look check 10-15). Keyed by the etc model name.
+TEX_MAPS = {'et1700.bin': {0: 1, 1: 0}}
+
+
+def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False, tex_map=None):
     """-> (new big-endian GC BIN, stats). gc_tris_from: selftest geometry list instead of the PS2 BIN.
     allow_empty: a model with no triangle is written (world-owned objects); otherwise it is refused (a PS2 placeholder
     such as the window panes et0000 / et2500, one degenerate triangle, is never converted silently)."""
@@ -298,7 +305,8 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
             stats['degenerate'] += 1
             continue
         cen = tuple(sum(p[i] for p in P) / 3 for i in range(3))
-        ti, _ = grid.nearest(cen, lambda i: part_tex[cpart[i]] == tex)
+        gtex = (tex_map or {}).get(tex, tex)
+        ti, _ = grid.nearest(cen, lambda i: part_tex[cpart[i]] == gtex)
         if ti < 0:
             stats['no_tex_part'] += 1
             ti, _ = grid.nearest(cen)
@@ -655,7 +663,7 @@ def room(args):
                     src_le = to_le(gbin, nm)
                     if body[0x40:].rstrip(b'\0') != src_le.rstrip(b'\0'):
                         raise ValueError('ETM %s is not le_mirror(GC)' % nm)
-                    new, st = rebuild(gbin, pents[nm])
+                    new, st = rebuild(gbin, pents[nm], tex_map=TEX_MAPS.get(nm.lower()))
                     if st['out_tris'] >= st['gc_tris'] and not args.keep_larger:
                         st.update(kind='etc', name=nm, skipped='PS2 not smaller')
                         report['objects'].append(st)

@@ -427,12 +427,41 @@ few KB where breakables return to GC and --keep-larger converts the finer PS2 me
 r103 1/3, r104 1/5, r108..r10a 1/1, r10b 2/5; the rest load outside the warp view (room-resident pictures are read at
 entry only when drawn); r117 1/1, r118 0/1, r11a 0/1, r11b 1/6, r119 2/2.
 
-r106 decision: the objs13 r106 dar delays the room's setup step by one tick (DVD read of the larger payload); the
-logic after it is identical. Options: accept as a load-timing shift (as door loads), or drop --keep-larger for r106
-BIN 0x34 / et0500 (the two finer PS2 meshes, +11 KB) to stay under the tick. Until decided, `objs13` includes r106.
+r106 decision (coordinator 10-15): ACCEPTED as a load-timing shift, the same class as door loads. Evidence: the room's
+setup step (enemy / object spawn) completes at room tick 8 instead of 7; with that 1-tick offset the 412 following
+ticks are STRICT (logic_trace_diff --align auto --from 189: offset 1, STRICT); the merged pak alone (g16p-106-c,
+tex-t13o.pak, test 12 dar) is STRICT vs test 12, and the objs13 dar with the pictures in the pak (g16p-106-t) shifts
+the same, so the +17 KB dar (DVD read) causes it. Keeping BIN 0x34 / et0500 GC would be a GC fallback (a bug), so
+objs13 keeps r106 as gated. Test 13 landing: the RC merges tex-t13o.pak (tex-t12d.pak + the 32 objs13 pictures,
+work/tex-t13o.pak, sha256 b67fa060... after the look fixes) into tex.pak; the long H2 / s30 run happens once on the final test 13
+candidate.
 
-Still sheet (4 heaviest rooms, objs-20261014/sheets/t13-objs.png; sheet16.py): control mcheck runs g16-<r>-cm (test
-12 dar) vs g16-<r>-m (objs13), same shot slot. The shots are wall-clock (15 s period), not frame-locked, so actor poses
-and the r119 camera differ between columns; the warp views frame few converted objects (r10b BIN 0x1e door frame,
-r117 gate frame look the same in both). A look check with object-facing warps is still open.
+Look sheet for the user (coordinator 10-15): objs-20261014/sheets/t13-look.png (all 15 rooms, 2 columns each) and
+t13-look-<r>.png (full size). Warps work/warps/look<r>.txt (lookwarps.py): Leon 2,500..9,000 units from a converted
+object (ETS placement from the dar, etspos.py, or the room code's SetObjSmd / SetRock / SetFloatIsland / SetTree
+position), on the line toward the room's entry warp, facing it, god mode, `freeze 1200` (both columns are the same
+settled frame; shot slot t0030). Control g16L-<r>-c = test 12 data, test g16L-<r>-t* = objs13 (mklook.sh, t12c2mW,
+60 s). Targets: r102 et1300 door, r103 et0500, r104 et1700 gate, r105 et2200 door, r106 BIN 0x34 closet, r107 et1600,
+r108 / r118 et1a00 medal (high, not in frame), r109 / r11a et1000 torch (not clearly in frame), r10a BIN 0x20 rock (high
+on the cliff, edge of frame), r10b BIN 0x1e island, r117 et1600, r11b et0300, r119 BIN 0x22 tree.
+
+The look check found objects that DISAPPEARED with the PS2 pictures; TEX_CHECK=2, LEON-GC and pair-missing all passed on
+them, so these gates do not catch it (a gate gap: a package whose size differs from the record's TPL header is not
+drawn, silently):
+- r104 et1700 (the gate): the PS2 TPL lists the two images in the other order (PS2 img0 64x64 / img1 128x256 vs GC img0
+  128x256 panels / img1 64x64 frame). ps2_objects.py TEX_MAPS {'et1700.bin': {0: 1, 1: 0}} (rebuild tex_map, used by
+  both tools): the panels go to the panel part, both pictures now match (mean abs diff 25 -> 4.9 / 4.3). A geometry-only
+  run (g16L-104-g, GC pictures) drew the gate, so it was the pictures.
+- r10b / r11b BIN 0x1e / 0x1f (float island) and r119 BIN 0x22 (tree): PS2 pictures smaller than the GC image (64x64 vs
+  256x256, 32x128 vs 64x128, 64x64 vs 128x128; 64x256 vs 128x512). Same with the pictures in tex.pak (g16L-119-p,
+  g16L-10b-p), so not the loose-file path. ps2_objects_tex.py now resamples (nearest) such a PS2 picture to the GC
+  image size: PS2 texels at the GC size (r10b VRAM 9,216 -> 28,672 B, r11b 19,456 -> 38,912, r119 9,216 -> 21,504).
+- After the fixes (g16L-104-t2, g16L-10b-t3, g16L-119-t3, g16L-11b-t3) every target is drawn; re-gated r104 / r10b /
+  r11b / r119: 602 / 602 / 602 / 382 ticks STRICT, MUST-IDENTICAL; TEX_CHECK=2 PASS, LEON-GC PASS, pair missing 0.
+  Every other room's dar and pictures are byte-identical to the gated ones. t13 store + tex-all refreshed; merged pak
+  work/tex-t13o.pak now sha256 b67fa060... (4,511 packages).
+- Proposed gate for the picture swap: compare every swapped record's TPL header size with its package size offline
+  (ps2_objects_tex.py now guarantees it), and keep a frozen-frame look pair per converted room.
+
+The earlier 4-room still (sheets/t13-objs.png, wall-clock shots) is superseded by t13-look.png.
 
