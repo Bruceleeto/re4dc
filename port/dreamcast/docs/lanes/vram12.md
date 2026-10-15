@@ -66,3 +66,14 @@ nocontig and gc-fx keys that ps2lib/INDEX.tsv does not list as ps2_source=NONE. 
 `ps2lib/effects-tex/KEYS.tsv` (`tools/d367/vram/fx_keys.py <ps2lib>`, re-run after fx_ps2_pack.py lib). Logs from
 builds without the knob (test 11) are judged on rejects= and "no contiguous block" only; their thrash-guard count has no
 pressure split and is noted, not failed (no new failures on the test 11 candidate gate logs g5b-183453 / pcr2-193643).
+
+D4 gates (cedae1ad + knob file):
+- Knob off: IDENTITY PASS vd4otP vs t12rctP (18c392a9; image 2292926655b1d52f, every overlay and syms identical).
+- r101 bell trace pair vd4otT vs vd4tT (T12_DATA, stop tick 1802): STRICT, 1804 compared, 0 masked; decisions
+  MUST-IDENTICAL over ticks 0..1802. Evidence: vram-map-20261014\d4-tr-bell-{off,on}, strict-d4-bell-*.
+- Test 11 candidate gate logs (fullplay-20261014 g5b-183453, 20 segments; pcr2-193643, 8 segments), re-checked with the
+  new fp_check: no new failures.
+- r101 benchmark on the knob-on arm (d4-bench-b; MODELLED): min free 82,336 B, min largest block 3,072 B, 149 uploads
+  after the preload, 40 evictions, 20 frag retries. The gate FAILS on 85 thrash-guard skips under pressure and 17
+  GameCube effect pictures: 10 common core.das ids NOT_CONVERTED in ps2lib, 7 em13 enemy-effect pictures with no
+  ps2lib row. These are real gaps, not false fails.
