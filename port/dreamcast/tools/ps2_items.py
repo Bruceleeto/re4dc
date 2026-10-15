@@ -31,6 +31,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import struct
 import sys
 import zlib
@@ -845,6 +846,25 @@ def verify(args):
     return 1 if bad else 0
 
 
+def gate(args):
+    """Record a gate result in INDEX.tsv's gate column for lane items' rows of the given rooms (metadata only: the
+    converted outputs and every other lane's rows are untouched)."""
+    idx = Path(args.lib) / 'INDEX.tsv'
+    rooms = set(args.rooms.split(','))
+    classes = set(args.classes.split(','))
+    assert re.match(r'^(PASS|FAIL):\S+$', args.result), args.result
+    out, n = [], 0
+    for l in idx.read_text().splitlines():
+        f = l.split('\t')
+        if len(f) == 10 and f[9] == 'items' and f[0] in classes and f[1] in rooms:
+            f[8] = args.result
+            n += 1
+            l = '\t'.join(f)
+        out.append(l)
+    idx.write_text('\n'.join(out) + '\n')
+    print('gate %s: %d rows (%s)' % (args.result, n, ','.join(sorted(rooms))))
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest='cmd', required=True)
@@ -861,8 +881,11 @@ def main():
     a = sp.add_parser('verify'); a.add_argument('--dar', required=True)
     a = sp.add_parser('census'); a.add_argument('--dar', required=True); a.add_argument('--room', required=True)
     a.add_argument('--lib', required=True); a.add_argument('--classes', default='items,breakables')
+    a = sp.add_parser('gate'); a.add_argument('--lib', required=True); a.add_argument('--rooms', required=True)
+    a.add_argument('--result', required=True, help='PASS:<run> or FAIL:<run>'); a.add_argument('--classes', default='items,breakables')
     args = ap.parse_args()
-    sys.exit({'convert': convert, 'pack': pack, 'pack-core': pack_core, 'pack-ss': pack_ss, 'census': census, 'verify': verify}[args.cmd](args) or 0)
+    sys.exit({'convert': convert, 'pack': pack, 'pack-core': pack_core, 'pack-ss': pack_ss, 'census': census, 'verify': verify,
+              'gate': gate}[args.cmd](args) or 0)
 
 
 if __name__ == '__main__':
