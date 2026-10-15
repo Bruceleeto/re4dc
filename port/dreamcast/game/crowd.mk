@@ -610,3 +610,15 @@ ifneq ($(SOB_DUMP),0)
 $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_SOB_DUMP=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SOB_DUMP=1
 endif
+
+# STATIC_OBJ_BAKE=1 (render only, lane crowd12 2026-10-15; default 0): the room's static etc objects (doors, boxes,
+# racks, windows, kind-1 0x21) baked offline into its PS2 world package draw from it while the game asks to draw them
+# at the baked rest pose (bit-identical matrices); opened / broken / pushed / picked up / moved = the live draw.
+# Needs PS2_PLACE_GATE=1 and the baked package staged (r101: re4-assets-private/crowd12-bake-20261015/r101).
+STATIC_OBJ_BAKE ?= 0
+ifneq ($(STATIC_OBJ_BAKE),0)
+ifeq ($(PS2_PLACE_GATE),0)
+$(error STATIC_OBJ_BAKE needs PS2_PLACE_GATE=1)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BAKE=1
+endif

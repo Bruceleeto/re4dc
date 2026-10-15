@@ -79,9 +79,15 @@ WalkSignature walk_signature(){
 #if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
 extern "C" void re4dc_sobdump_lists(const void* model);  // model_bridge.cpp (SOB_DUMP, diagnostic)
 #endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+extern "C" void re4dc_sob_bake_frame();  // model_bridge.cpp (STATIC_OBJ_BAKE)
+#endif
 extern "C" void re4dc_prepare_model_assets(){
 #if RE4DC_D349_RENDERER_STACK
     if(!re4dc_model_diagnostic_enabled())return;
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+    re4dc_sob_bake_frame();  // STATIC_OBJ_BAKE: this frame's baked / live decisions (OT registered, moves done)
+#endif
 #if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
     // SOB_DUMP (diagnostic): raw GX lists of the static etc objects before the plan owner below encodes them.
     for(unsigned table=0;table<OT_MAX;++table){
