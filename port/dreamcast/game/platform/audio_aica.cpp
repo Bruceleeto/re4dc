@@ -1606,8 +1606,14 @@ void str_fill(u32 h, u32 gen)
     S.str_load_us += (u32) (timer_us_gettime64() - t0) - (S.str_io_us - io0);
 }
 
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+extern "C" void re4dc_disc_meter_music_thread(void);  // dvd_read_safe.cpp: this thread's reads are the music stream
+#endif
 __attribute__((unused)) void* str_main(void*)
 {
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    re4dc_disc_meter_music_thread();
+#endif
     if (!str_index_load()) return nullptr;
     for (;;) {
         thd_sleep(10);

@@ -870,8 +870,10 @@ endif
 # count) in platform/dvd_read_safe.cpp's wraps: a marker square lit while a read is in flight (green) or ran since the
 # last drawn frame (orange), a row with reads/s, KB/s and ms/s the game thread spent inside those calls (the last pace
 # window), and the room-entry load time (StageSet entry, or room enter for the first room, to the first gameMainLoop
-# frame in the room), shown for 5 s. "DISCRD:" log lines per window with reads and per room entry. The read path only
-# updates counters (interrupts masked for the few instructions) and reads the timer when the game thread calls.
+# frame in the room), shown for 5 s. The music stream thread's reads (audio_aica.cpp str_main, bgm/aica_str.dat, 2 KB
+# every few frames all through play) are kept apart: a thin blue bar under the marker, not in the marker or the row.
+# "DISCRD:" log lines per window with game reads and per room entry. The read path only updates counters (interrupts
+# masked for the few instructions) and reads the timer when the game thread calls.
 DISC_READ_METER ?= 0
 ifneq ($(filter $(DISC_READ_METER),0 1),$(DISC_READ_METER))
 $(error DISC_READ_METER must be 0 or 1)
@@ -906,6 +908,7 @@ $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 endif
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))

@@ -2109,7 +2109,8 @@ extern "C" int re4dc_quality_render(void);
 extern "C" int re4dc_pmc_row(unsigned* code, unsigned* val10);  // pace.cpp
 #endif
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
-extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* rate, unsigned* load_ms);  // platform/dvd_read_safe.cpp
+extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* music, unsigned* rate, unsigned* load_ms);  // dvd_read_safe.cpp
+extern "C" int re4dc_disc_meter_loading(void);
 #endif
 constexpr int kPhaseRows=11;
 unsigned phase_v[kPhaseRows];unsigned phase_seq=~0U;
@@ -2141,7 +2142,12 @@ void speed_draw(){
     phase_refresh();   // the PHASES: log line each window, also while the counter is off
 #endif
     const bool counter=re4dc_speed_screen(v)!=0,note=re4dc_speed_note(&s)!=0;
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    const bool meter_load=re4dc_disc_meter_loading()!=0;
+    if(!counter && !note && !meter_load)return;
+#else
     if(!counter && !note)return;
+#endif
     HudBatch& b=speed_batch;b.n=1;
     pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
@@ -2175,20 +2181,23 @@ void speed_draw(){
             }
         }
 #endif
-#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
-        {   // DISC_READ_METER: the read marker (green: a GD-ROM read in flight, orange: one ran since the last drawn frame,
-            // dim: none), then reads/s, KB/s and game-thread blocked ms/s, then the room-entry load time in ms (5 s)
-            unsigned lit=0,rate[3]={},load=0;
-            const int room=re4dc_disc_meter_hud(&lit,rate,&load);
-            hud_rect(b,40,64,20,20,lit==2?0xf040ff40U:lit==1?0xf0ffa020U:0x40ffffffU);
-            constexpr float RY=SY+(kPhaseRows+1)*18;
-            hud_number(b,380,RY,rate[0],false,0xe060ff60U);
-            hud_number(b,440,RY,rate[1],false,0xe060ff60U);
-            hud_number(b,500,RY,rate[2],false,0xe060ff60U);
-            if(room)hud_number(b,500,RY+18,load,false,0xe0ffff60U);
-        }
-#endif
     }
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    if(counter || meter_load){   // DISC_READ_METER: also during room loads, where the speed counter hides
+        // the read marker (green: a GD-ROM read in flight, orange: one ran since the last drawn frame, dim: none) with
+        // the music stream's reads as a blue bar under it, then reads/s, KB/s and game blocked ms/s (without the music
+        // stream), then the room-entry load time in ms (5 s); during a load: reads, KB, blocked ms and ms so far
+        unsigned lit=0,music=0,rate[3]={},load=0;
+        const int room=re4dc_disc_meter_hud(&lit,&music,rate,&load);
+        hud_rect(b,40,64,20,20,lit==2?0xf040ff40U:lit==1?0xf0ffa020U:0x40ffffffU);
+        if(music)hud_rect(b,40,86,20,4,0xf04080ffU);
+        constexpr float RY=SY+(kPhaseRows+1)*18;
+        hud_number(b,380,RY,rate[0],false,0xe060ff60U);
+        hud_number(b,440,RY,rate[1],false,0xe060ff60U);
+        hud_number(b,500,RY,rate[2],false,0xe060ff60U);
+        if(room)hud_number(b,500,RY+18,load,false,0xe0ffff60U);
+    }
+#endif
 #if defined(RE4DC_SPEED_VMU_OFF) && RE4DC_SPEED_VMU_OFF
     const int boxes=2;   // SPEED_VMU_OFF (pace.mk, issue #29): Off, Screen
 #elif defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT

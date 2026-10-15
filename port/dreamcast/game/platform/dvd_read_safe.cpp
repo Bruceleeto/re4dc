@@ -78,15 +78,20 @@ extern "C" int __real_cdrom_stream_stop(bool abort_dma);
 #if RE4DC_DISC_READ_METER
 // DISC_READ_METER=1 (Makefile; T12 Phases disc, display / log only). Every drive call made through the wraps below
 // (stream start, stream request, sector read) is "in flight" while it runs; requests and sector reads count as reads
-// with their bytes. Time inside a call is the game thread's blocked time only when the game thread (the one that closes
-// the pace windows, pace.cpp) made it; the loader / sound threads' reads count for the marker, reads and KB only.
+// with their bytes. Time inside a call is the game's blocked time only when the game made it: the main thread (the one
+// that closes the pace windows, pace.cpp) or a source task thread (os.cpp "re4-task": the frame waits for the task); other
+// threads' reads count for the marker, reads and KB only (the last one's label is logged as other=).
 // fs_iso9660's one non-blocking request (32 bytes) is followed by a poll outside the wrap: not in the blocked time.
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <kos/thread.h>
+#include <string.h>
 namespace {
 unsigned m_busy, m_seen;                       // drive calls in flight; one ran since the HUD last looked
 unsigned m_reads, m_bytes;                     // this window
+unsigned m_mbusy, m_mseen, m_mreads, m_mbytes; // the same for the music stream thread (kept apart)
+kthread_t* m_music;
+kthread_t* m_other;                            // the last thread other than the game / music thread that read
 unsigned long long m_block_us, m_t0;           // game-thread time inside drive calls this window; window start
 unsigned m_tot_reads;                          // since boot (room-entry deltas)
 unsigned long long m_tot_bytes, m_tot_block;
@@ -98,9 +103,23 @@ unsigned long long m_room_t0, m_room_until, m_room_b0, m_room_k0;
 unsigned m_room_r0, m_room_ms;
 struct DiscMeterScope {
     unsigned long long t0;
-    bool game;
+    bool game, music;
     DiscMeterScope(size_t bytes, bool read)
     {
+        music = m_music && thd_current == m_music;
+        if (music) {
+            const int o = irq_disable();
+            ++m_mbusy;
+            m_mseen = 1;
+            if (read) {
+                ++m_mreads;
+                m_mbytes += (unsigned) bytes;
+            }
+            irq_restore(o);
+            game = false;
+            t0 = 0;
+            return;
+        }
         const int o = irq_disable();
         ++m_busy;
         m_seen = 1;
@@ -111,11 +130,20 @@ struct DiscMeterScope {
             m_tot_bytes += bytes;
         }
         irq_restore(o);
-        game = m_game && thd_current == m_game;
+        // the game: the main thread and the source task threads (os.cpp "re4-task": a task's read stalls the frame)
+        game = m_game && (thd_current == m_game || !strncmp(thd_current->label, "re4-task", 8));
+        if (!game) m_other = thd_current;
         t0 = game ? timer_us_gettime64() : 0;
     }
     ~DiscMeterScope()
     {
+        if (music) {
+            const int o = irq_disable();
+            --m_mbusy;
+            m_mseen = 1;
+            irq_restore(o);
+            return;
+        }
         const unsigned long long us = game ? timer_us_gettime64() - t0 : 0;
         const int o = irq_disable();
         m_block_us += us;
@@ -133,9 +161,9 @@ extern "C" void re4dc_disc_meter_window(void)
     const unsigned long long now = timer_us_gettime64();
     m_game = thd_current;
     const int o = irq_disable();
-    const unsigned reads = m_reads, bytes = m_bytes;
+    const unsigned reads = m_reads, bytes = m_bytes, mreads = m_mreads, mbytes = m_mbytes;
     const unsigned long long block = m_block_us;
-    m_reads = m_bytes = 0;
+    m_reads = m_bytes = m_mreads = m_mbytes = 0;
     m_block_us = 0;
     irq_restore(o);
     if (m_t0) {
@@ -144,8 +172,10 @@ extern "C" void re4dc_disc_meter_window(void)
         m_rate[1] = (unsigned) ((bytes * 1000000ULL / 1024 + dt / 2) / dt);
         m_rate[2] = (unsigned) ((block * 1000ULL + dt / 2) / dt);
         if (reads || block)
-            re4dc_log("DISCRD: window_ms=%u reads=%u kb=%u block_ms=%u (per s: reads=%u kb=%u block_ms=%u)\n",
-                      (unsigned) (dt / 1000), reads, bytes / 1024, (unsigned) (block / 1000), m_rate[0], m_rate[1], m_rate[2]);
+            re4dc_log("DISCRD: window_ms=%u reads=%u kb=%u block_ms=%u (per s: reads=%u kb=%u block_ms=%u) music reads=%u kb=%u other=%s\n",
+                      (unsigned) (dt / 1000), reads, bytes / 1024, (unsigned) (block / 1000), m_rate[0], m_rate[1], m_rate[2],
+                      mreads, mbytes / 1024, m_other ? m_other->label : "-");
+        m_other = nullptr;
     }
     m_t0 = now;
 }
@@ -175,12 +205,33 @@ extern "C" void re4dc_disc_meter_room(int what, unsigned room)
               (unsigned) ((m_tot_block - m_room_b0) / 1000));
 }
 
-// native_ui.cpp speed display: lit 2 = a read in flight now, 1 = one ran since the last call, 0 = none; the last
-// window's rates; 1 + the room-entry load time for 5 s after the room's first frame.
-extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* rate, unsigned* load_ms)
+// audio_aica.cpp str_main: the calling thread is the music stream.
+extern "C" void re4dc_disc_meter_music_thread(void) { m_music = thd_current; }
+
+// native_ui.cpp: a room load is under way (the meter is drawn although the speed counter hides during room changes).
+extern "C" int re4dc_disc_meter_loading(void) { return m_room_pending; }
+
+// native_ui.cpp speed display: lit (game and loader reads) and music (the music stream) 2 = a read in flight now,
+// 1 = one ran since the last call, 0 = none; the last window's rates (without the music stream); 1 + the room-entry
+// load time for 5 s after the room's first frame. During a room load: the reads, KB and blocked ms so far and the
+// elapsed load time (counting up).
+extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* music, unsigned* rate, unsigned* load_ms)
 {
+    if (m_room_pending) {
+        *lit = m_busy ? 2U : m_seen ? 1U : 0U;
+        m_seen = 0;
+        *music = m_mbusy ? 2U : m_mseen ? 1U : 0U;
+        m_mseen = 0;
+        rate[0] = m_tot_reads - m_room_r0;
+        rate[1] = (unsigned) ((m_tot_bytes - m_room_k0) / 1024);
+        rate[2] = (unsigned) ((m_tot_block - m_room_b0) / 1000);
+        *load_ms = (unsigned) ((timer_us_gettime64() - m_room_t0) / 1000);
+        return 1;
+    }
     *lit = m_busy ? 2U : m_seen ? 1U : 0U;
     m_seen = 0;
+    *music = m_mbusy ? 2U : m_mseen ? 1U : 0U;
+    m_mseen = 0;
     rate[0] = m_rate[0];
     rate[1] = m_rate[1];
     rate[2] = m_rate[2];
