@@ -131,6 +131,8 @@ def main():
     for src in (TEMPLATE / 'data').rglob('*'):
         if src.is_file():
             d = cap / src.relative_to(TEMPLATE); d.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(src, d)
+    (cap / 'data').mkdir(exist_ok=True)
+    assert a.vmu or (cap / 'data' / 'T0000_vmu_save_A1.bin').exists(), 'harness template %s has no data/T0000_vmu_save_A1.bin' % TEMPLATE
     if a.vmu:
         shutil.copyfile(a.vmu, cap / 'data' / 'T0000_vmu_save_A1.bin')
     syms = a.syms.split()[:3]

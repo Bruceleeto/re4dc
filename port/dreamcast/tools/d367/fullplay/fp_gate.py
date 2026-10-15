@@ -129,6 +129,29 @@ def main():
     (ev / 'gate.json').write_text(json.dumps(meta, indent=1))
     vmu_save = os.environ.get('FP_VMU_SAVE', r'C:\Flycast-Evidence\re4-dreamcast\fullplay-20261014\_inputs\user-a1-20261012.bin')
     S = HERE / 'segments'
+    # Disc space (2026-10-14): each base (_discs/twin, _discs/rel) and the zip's _release extraction is deleted as soon
+    # as the last segment that uses it has ended (their sha256 stay in prep.json / gate.json), not at the gate's end.
+    import threading
+    left = {k: sum(1 for s in segs if s['disc'] == k) for k in ('real', 'twin', 'rel')}
+    lock = threading.Lock()
+    def drop(kind):
+        if a.keep_discs:
+            return
+        if kind == 'real':
+            rel = ev / '_release'
+            if rel.exists():
+                shutil.rmtree(rel, ignore_errors=True); log('released _release (no real-disc segment left)')
+            return
+        gone = []
+        for f in ('track03.iso', 'track02.raw', 'track01-template.iso'):
+            p = ev / '_discs' / kind / f
+            if p.exists():
+                p.unlink(); gone.append(f)
+        if gone:
+            log('released _discs/%s (no %s segment left)' % (kind, kind))
+    for k, n in left.items():
+        if n == 0:
+            drop(k)
     def run(s):
         cmd = [sys.executable, str(HERE / 'fp_run.py'), '--cap', str(ev / s['name']), '--seconds', str(s['seconds']),
                '--name', s['name'], '--grace', str(s['grace'])] + (['--align'] if a.align else [])
@@ -156,6 +179,10 @@ def main():
         r, _ = fp_check.check_segment(ev, s, fp_check.parse_known(a.known, prep['release_tree_commit']))
         log('done  %s %s %.0fs%s' % (s['name'], r['result'], time.time() - t,
                                      ('  ' + '; '.join('%s: %s' % (f['cat'], f['what']) for f in r['failures'][:3])) if r['failures'] else ''))
+        with lock:
+            left[s['disc']] -= 1
+            if left[s['disc']] == 0:
+                drop(s['disc'])
         return s['name']
     tr = time.time()
     subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',

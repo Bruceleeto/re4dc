@@ -808,8 +808,23 @@ not the absence of that fault.
 **Short cache loop (`--only cache`).** `cache` warps r100 <-> r101 four times (450 room frames per visit; a room's
 texture and model loads finish within ~240 frames of its entry) and samples every entry: r100 x5 / r101 x4 for the
 floor rule, about 4 min of segment wall. It answers the memory-trend question in place of `long`. The 1500-frame
-version (ca10b / ca11b, ~8.6 min) and the 450-frame version (cq10a / cq11a) give the same verdicts on test 10 and
+version (ca10b / ca11b, ~8.6 min) and the 450-frame version (cq10a / cq11b) give the same verdicts on test 10 and
 eb4e8813 (PASS, the same r100 VRAM floor).
+
+**5-minute rule (user, 2026-10-14).** Every segment ends within ~5 min wall and all run at once up to the Flycast
+cap (`seconds` is only a hang cap, <= 420). Changes: `long` moved to `long.conf` (opt-in; `cache` answers its
+memory question); `bell` forces the bell with `trg 0 2400` (DebugTrg(0)) instead of the 11,700-frame timer
+(`bell-trg-warp.txt`); `reset` plays r102 for ~25 s instead of ~117 s, presses START on the first r120 intro movie
+after the reset (fp_check accepts terminal 2 for a movie whose `route movie skip` is logged; the game then skips
+r120s01 and clears the r100 s40 event, `evd/r100s40.evd set CLEAR`, with no s40 movie) and stops on that line,
+after the r100 entry and its heap 4 census (s40 itself is real-newgame's; prs5: 198 s, was 490 s); `boat` 240 s; graces `lake` 30 s, `ch21`
+20 s; the crash suite stops 20 s after each moment, `realcall` moved to `crash-extra.conf`.
+HWTRACE_ALIGN runs only on the interpreter (hwready.patch wraps the interpreter's ReadMem/WriteMem; the dynarec
+uses fastmem host loads) and Flycast cannot switch cores mid-run, so align segments are cut to the moment itself.
+fp_gate releases each base disc and the `_release` extraction as soon as the last segment using it has ended.
+`test11/gate-all.sh <gdemu dir> <label>` starts the full-play gate, the crash suite, the two STRICT windows
+(A: h2 to tick 2000 = s03, s20, ambush, s30 340/340; B: the r101 square fight to tick 2000) and the kit check
+(`KIT_CMD`) at once.
 
 **Traps.** fp_prep picks the newest `out-*` whose binary equals the disc's 1ST_READ.BIN; another lane's knob-off build
 can match (cr11a picked out-d11ktP = b8fc59e3), and known rows keyed to the release commit then do not apply: pass
