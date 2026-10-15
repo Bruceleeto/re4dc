@@ -13,10 +13,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 0 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
-| 🟢 Fixed in test 9 / 9.1 / 10 | Fixed and checked in our tests; the problem was not console-only | 5 |
+| 🟢 Fixed in test 9 / 9.1 / 10 / 12 | Fixed and checked in our tests; the problem was not console-only | 7 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 13 |
+| ⏸️ Open | Known, not yet worked on | 14 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -50,8 +50,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Leon and most villagers are not lit by the scene's lights | test 8 | ⏸️ Open | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
-| At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
-| The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
+| At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
+| The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
+| Some effects (31 shared fire, smoke and spark pictures) still use the GameCube pictures; the rest of the village effects use the PS2 ones | test 12 | ⏸️ Open: those pictures are stored in a PS2 format that is not converted yet | |
+| The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
 
 ## Sound
 
@@ -66,6 +68,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
+| In the village fight at most 8 villagers attack at once; the others wait and join as villagers fall | test 12 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the bell are unchanged | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 
