@@ -569,7 +569,7 @@ endif
 OWNER_SETUP_LEAN ?= 0
 ifneq ($(OWNER_SETUP_LEAN),0)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
 endif
 
 # TEX_IDENT_LEAN=1 (lane crowd12 2026-10-15; render only, exact; default 0): texture identity lookups
