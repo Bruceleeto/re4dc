@@ -15,20 +15,20 @@
 #else
 #include "ps2leon_runtime.h"
 #endif
-// Leon's draw-order type: the source draws him at ot_type 7, and at 0 in scripted rides (r10b boat, crowd.mk
-// LEON_HAND_POSES=1 admits both so the boat ride keeps the PS2 body; default: 7 only, as before).
-#if defined(RE4DC_LEON_HAND_POSES) && RE4DC_LEON_HAND_POSES
-#include "player.h"
-#define RE4DC_LEON_OT_BAD(m) ((m)->ot_type!=7 && !((m)->ot_type==0 && (m)==(cModel*)pPL))
-#else
-#define RE4DC_LEON_OT_BAD(m) ((m)->ot_type!=7)
-#endif
 #if RE4DC_LEON_HAND_TABLE
 #include "coarse_actor_transaction.h"
 #include "ps2leon_hands.h" // crowd.mk LEON_HAND_DIR: the PS2 hand of every pose (tools/d367/ps2leon/build_hands.py)
 #endif
 #else
 #include "leon4k_runtime.h" // private generated asset, outside the repository
+#endif
+// Leon's draw-order type (also without PS2_LEON: the owner paths and actor_tex_prep use it since 5094849d): the source draws him at ot_type 7, and at 0 in scripted rides (r10b boat, crowd.mk
+// LEON_HAND_POSES=1 admits both so the boat ride keeps the PS2 body; default: 7 only, as before).
+#if defined(RE4DC_LEON_HAND_POSES) && RE4DC_LEON_HAND_POSES
+#include "player.h"
+#define RE4DC_LEON_OT_BAD(m) ((m)->ot_type!=7 && !((m)->ot_type==0 && (m)==(cModel*)pPL))
+#else
+#define RE4DC_LEON_OT_BAD(m) ((m)->ot_type!=7)
 #endif
 #if RE4DC_ACTOR_PL08 && !RE4DC_ACTOR_PL08_PACK
 #include "leon_pl08_runtime.h" // ACTOR_PL08: pl08's own chunks (private, ACTOR_PL08_DIR)

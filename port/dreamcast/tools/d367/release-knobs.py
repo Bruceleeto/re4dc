@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""release-knobs.py: the public contributor kit's view of a test release recipe (stdlib only).
+
+The release recipe (tools/d367/<test>/<t>-build.sh, arm tP) builds the play program through route/route-build.sh,
+which writes every make knob it passed to build-r21.sh into out-<label>/candidate.txt. That list, with the private
+directories replaced by their place in the Build-Assets zip, is the release's knob file
+tools/d367/<test>/release-knobs.txt, and build-public.sh builds from it. Nothing is typed twice.
+
+  write  <candidate.txt> <release-knobs.txt> --test N --tag TAG --source SHA --recipe PATH
+         [--image-sha256 HEX] [--assets-zip NAME]
+         Writes the knob file (one knob per line, after '# key: value' header lines).
+  check  <candidate.txt> <release-knobs.txt>
+         Exit 1 unless the knob file holds exactly the recipe's knobs (order kept: make takes the last value).
+  args   <release-knobs.txt> <assets dir>
+         Prints the knobs for build-public.sh, @ASSETS@ replaced by <assets dir>.
+  zip    <candidate.txt> <out zip> [--bundle DIR]
+         Writes the Build-Assets zip from the directories the recipe compiled in (deterministic: fixed dates).
+  zipcheck <candidate.txt> <zip> [--bundle DIR] [--objdir DIR]
+         Exit 1 unless the zip holds exactly those directories' files, byte for byte, and (with --objdir, the
+         release build's objdir) every private file the release build's .d files name.
+  doclint <release-knobs.txt> <doc>...
+         Exit 1 if a contributor doc names an older test ("test 7", "test-c29c4bf5-...") than the knob file's.
+
+Private directories: the recipe's ASSETS (route-build.sh's play actor bundle, --bundle) -> re4dc-assets/,
+PS2_LEON_DIR -> re4dc-assets/ps2leon/, PS2_GANADO_DIR -> re4dc-assets/ps2ganado/. Any other knob whose value is an
+absolute path outside the tree is an error: a new private input must get a place in the zip (and a line in
+build-public.sh's PRIVATE_OFF) before the release can publish.
+"""
+import argparse, hashlib, re, sys, zipfile
+from pathlib import Path
+
+BUNDLE = '/root/probe/lanes/play-actor-bundle'
+PRIVATE = {'PS2_LEON_DIR': 'ps2leon', 'PS2_GANADO_DIR': 'ps2ganado'}
+ZIP_ROOT = 're4dc-assets'
+DATE = (2026, 10, 12, 0, 0, 0)
+
+
+def die(msg):
+    sys.exit('release-knobs: ' + msg)
+
+
+def candidate_knobs(path):
+    toks = Path(path).read_text().split()
+    bad = [t for t in toks if not re.match(r'^[A-Z][A-Z0-9_]*=', t)]
+    if bad:
+        die('%s: not a knob: %s' % (path, ' '.join(bad[:5])))
+    return toks
+
+
+def sanitize(knobs):
+    out = []
+    for kv in knobs:
+        k, v = kv.split('=', 1)
+        if k in PRIVATE:
+            out.append('%s=@ASSETS@/%s' % (k, PRIVATE[k]))
+        elif v.startswith('/'):
+            die('%s names a private path (%s): give it a place in the Build-Assets zip and in build-public.sh' % (k, v))
+        else:
+            out.append(kv)
+    return out
+
+
+def read_file(path):
+    head, knobs = {}, []
+    for line in Path(path).read_text().splitlines():
+        m = re.match(r'^# ([a-z0-9_-]+): (.*)$', line)
+        if m:
+            head[m.group(1)] = m.group(2).strip()
+        elif line.strip() and not line.startswith('#'):
+            knobs.append(line.strip())
+    return head, knobs
+
+
+def private_dirs(knobs, bundle):
+    dirs = [(ZIP_ROOT, Path(bundle))]
+    for kv in knobs:
+        k, v = kv.split('=', 1)
+        if k in PRIVATE:
+            dirs = [d for d in dirs if d[0] != '%s/%s' % (ZIP_ROOT, PRIVATE[k])]
+            dirs.append(('%s/%s' % (ZIP_ROOT, PRIVATE[k]), Path(v)))
+    return dirs
+
+
+def expected_files(knobs, bundle):
+    files = {}
+    for pre, d in private_dirs(knobs, bundle):
+        if not d.is_dir():
+            die('private directory %s is missing' % d)
+        for f in sorted(p for p in d.resolve().iterdir() if p.is_file()):
+            files['%s/%s' % (pre, f.name)] = f
+    return files
+
+
+def cmd_write(a):
+    knobs = sanitize(candidate_knobs(a.candidate))
+    head = [('test', a.test), ('tag', a.tag), ('source', a.source), ('recipe', a.recipe)]
+    if a.image_sha256:
+        head.append(('image-sha256', a.image_sha256))
+    if a.assets_zip:
+        head.append(('assets-zip', a.assets_zip))
+    lines = ['# RE4DC release knobs: the make knobs of the test release play program, in the order the recipe passes',
+             '# them (make takes the last value). Written by tools/d367/release-knobs.py write from the release build\'s',
+             '# out-<label>/candidate.txt; checked by tools/d367/kit-check.sh; read by build-public.sh. Do not edit.',
+             '# @ASSETS@ = the unpacked Build-Assets zip (re4dc-assets/).']
+    lines += ['# %s: %s' % kv for kv in head]
+    Path(a.out).write_text('\n'.join(lines + knobs) + '\n')
+    print('release-knobs: wrote %s (%d knobs)' % (a.out, len(knobs)))
+
+
+def cmd_check(a):
+    want = sanitize(candidate_knobs(a.candidate))
+    _, have = read_file(a.knobs)
+    if want == have:
+        print('release-knobs: %s matches %s (%d knobs)' % (a.knobs, a.candidate, len(have)))
+        return
+    import difflib
+    sys.stdout.writelines(difflib.unified_diff([k + '\n' for k in have], [k + '\n' for k in want],
+                                               a.knobs, a.candidate))
+    die('the knob file differs from the recipe: rerun release-knobs.py write')
+
+
+def cmd_args(a):
+    _, knobs = read_file(a.knobs)
+    print(' '.join(k.replace('@ASSETS@', a.assets) for k in knobs))
+
+
+def cmd_zip(a):
+    files = expected_files(candidate_knobs(a.candidate), a.bundle)
+    sums = []
+    with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for name, f in files.items():
+            data = f.read_bytes()
+            zi = zipfile.ZipInfo(name, date_time=DATE)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(zi, data)
+            sums.append('%s  %s' % (hashlib.sha256(data).hexdigest(), name))
+        z.writestr(zipfile.ZipInfo('%s/SHA256SUMS.assets' % ZIP_ROOT, date_time=DATE), '\n'.join(sums) + '\n')
+    with zipfile.ZipFile(a.out) as z:
+        assert z.testzip() is None and all('\\' not in n for n in z.namelist())
+        print('release-knobs: %s %d entries' % (a.out, len(z.namelist())))
+
+
+def cmd_zipcheck(a):
+    knobs = candidate_knobs(a.candidate)
+    files = expected_files(knobs, a.bundle)
+    bad = []
+    with zipfile.ZipFile(a.zip) as z:
+        names = {n for n in z.namelist() if not n.endswith('/')} - {'%s/SHA256SUMS.assets' % ZIP_ROOT}
+        for n in sorted(set(files) - names):
+            bad.append('missing from zip: ' + n)
+        for n in sorted(names - set(files)):
+            bad.append('in zip, not in the recipe directories: ' + n)
+        for n in sorted(names & set(files)):
+            if z.read(n) != files[n].read_bytes():
+                bad.append('differs: %s vs %s' % (n, files[n]))
+    if a.objdir:
+        roots = [(pre, str(d)) for pre, d in private_dirs(knobs, a.bundle)]
+        roots += [(pre, str(d.resolve())) for pre, d in private_dirs(knobs, a.bundle)]
+        deps = set()
+        for d in Path(a.objdir).rglob('*.d'):
+            for tok in d.read_text(errors='replace').replace('\\\n', ' ').split():
+                tok = tok.rstrip(':')
+                for pre, root in roots:
+                    if tok.startswith(root.rstrip('/') + '/'):
+                        deps.add('%s/%s' % (pre, tok[len(root.rstrip('/')) + 1:]))
+        missing = sorted(deps - set(files))
+        bad += ['the release build read %s, not in the zip' % n for n in missing]
+        if not missing:
+            print('release-knobs: the release build read %d private files, all in the zip' % len(deps))
+    if bad:
+        print('\n'.join(bad))
+        die('%s does not match the recipe (%d problems): rebuild it with release-knobs.py zip' % (a.zip, len(bad)))
+    print('release-knobs: %s matches the recipe directories (%d files)' % (a.zip, len(files)))
+
+
+def cmd_doclint(a):
+    head, _ = read_file(a.knobs)
+    cur = float(head.get('test', '0'))
+    tag = head.get('tag', '')
+    bad = []
+    for doc in a.docs:
+        for i, line in enumerate(Path(doc).read_text().splitlines(), 1):
+            for m in re.finditer(r'\b[Tt]est ?(\d+(?:\.\d+)?)\b', line):
+                if float(m.group(1)) < cur:
+                    bad.append('%s:%d: names test %s (current %s): %s' % (doc, i, m.group(1), head['test'], line.strip()))
+            for m in re.finditer(r'\btest-[0-9a-f]{8}-\d{8}\b', line):
+                if m.group(0) != tag:
+                    bad.append('%s:%d: names release %s (current %s): %s' % (doc, i, m.group(0), tag, line.strip()))
+            for m in re.finditer(r'RE4DC-Console-Test-([0-9a-f]{8})-', line):
+                if m.group(1) != head.get('source', '')[:8]:
+                    bad.append('%s:%d: names release zip of %s (current %s): %s' % (doc, i, m.group(1), head.get('source'), line.strip()))
+    if bad:
+        print('\n'.join(bad))
+        die('%d stale release names in the contributor docs' % len(bad))
+    print('release-knobs: contributor docs name no release older than test %s' % head.get('test'))
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    s = p.add_subparsers(dest='cmd', required=True)
+    w = s.add_parser('write'); w.add_argument('candidate'); w.add_argument('out')
+    for k in ('--test', '--tag', '--source', '--recipe'):
+        w.add_argument(k, required=True)
+    w.add_argument('--image-sha256'); w.add_argument('--assets-zip')
+    c = s.add_parser('check'); c.add_argument('candidate'); c.add_argument('knobs')
+    r = s.add_parser('args'); r.add_argument('knobs'); r.add_argument('assets')
+    z = s.add_parser('zip'); z.add_argument('candidate'); z.add_argument('out'); z.add_argument('--bundle', default=BUNDLE)
+    zc = s.add_parser('zipcheck'); zc.add_argument('candidate'); zc.add_argument('zip')
+    zc.add_argument('--bundle', default=BUNDLE); zc.add_argument('--objdir')
+    d = s.add_parser('doclint'); d.add_argument('knobs'); d.add_argument('docs', nargs='+')
+    a = p.parse_args()
+    {'write': cmd_write, 'check': cmd_check, 'args': cmd_args, 'zip': cmd_zip, 'zipcheck': cmd_zipcheck,
+     'doclint': cmd_doclint}[a.cmd](a)
+
+
+if __name__ == '__main__':
+    main()

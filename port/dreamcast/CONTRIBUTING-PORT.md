@@ -20,13 +20,16 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 `SHA256SUMS.txt`, builds the program, puts it on the release disc and prints the path of
 `disc.gdi` (under `port/dreamcast/out-contrib/disc`). Options:
 
-* `--release <tag>` picks a release, for example `--release test-c29c4bf5-20261011`.
+* `--release <tag>` picks a release, for example `--release test-eb4e8813-20261014` (test 11).
+  An older release needs the `build-public.sh` of its own source commit (see "Which recipe" below).
 * `--toolchain <dir>` uses or builds the toolchain there; a toolchain already in the environment
   (`RE4DC_KOS_BASE`) is used as is.
 * `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
 
 The Build-Assets zip holds the generated character data the release program was built with, so your
-program draws the same characters as the release. Downloads are kept, so a second run only rebuilds.
+program draws the same characters as the release: built from the release's source commit with its
+Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
+every release). Downloads are kept, so a second run only rebuilds.
 
 ## Where to read next
 
@@ -68,18 +71,30 @@ This builds the current test recipe into `port/dreamcast/out-public`: `re4dc-gam
 overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build knob as make saw it.
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
-Without `ASSETS` the build uses `game/public-assets`, neutral stand ins that carry no game data:
+**Which recipe.** `build-public.sh` reads the release's knob file, today
+`tools/d367/test11/release-knobs.txt` (test 11, source eb4e8813). The maintainers write that file from
+the release build itself, so it is the exact knob list of the published program. To build an older
+release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
-* Leon and the villagers draw with their original GameCube models from the disc instead of the
-  converted meshes. They look like the GameCube version but cost more time to draw.
-* The PS2 character models (Leon, villagers, El Gigante, Del Lago) are off.
+Without `ASSETS` the build uses `game/public-assets`, neutral stand ins that carry no game data, and
+switches these release knobs off (`PRIVATE_OFF` in `build-public.sh`). The game plays the same; it looks
+different from the release:
+
+* `PS2_LEON=0 LEON_HAND_PACK=0`: Leon is the GameCube model (the release draws the PS2 Leon, also in
+  every hand pose).
+* `PS2_GANADO=0 PS2_GANADO_LIT=0`: the male villagers are the GameCube models (the release draws the
+  PS2 models with the PS2 lighting).
+* El Gigante, Del Lago, the female villagers, the animals and the PS2 room worlds come from the disc,
+  so they draw as in the release.
+* Leon and the villagers draw from the original GameCube models on the disc instead of the converted
+  meshes. They cost more time to draw, so do not compare speed with the release.
 * The memory card messages show the GameCube wording ("Memory Card in Slot A") instead of the VMU wording.
 
 Either way, measure your change against your own build with the change switched off.
 
 ## 3. Put it on a release disc
 
-    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-c29c4bf5-20261011-GDEMU.zip \
+    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-eb4e8813-20261014-GDEMU.zip \
         port/dreamcast/out-public mydisc
 
 `mydisc` gets `disc.gdi` and its three tracks: the release disc with your program as the boot file and
@@ -142,6 +157,21 @@ maintainers keep outside the repository.
 
 No PC version and no GameCube retail disc are used. The second GameCube debug disc is used only by
 the decompilation build.
+
+## Release checklist (maintainers)
+
+On every test release, in the same landing as the release recipe, before the release publishes:
+
+1. Refresh the knob file from the release's play build:
+   `python3 port/dreamcast/tools/d367/release-knobs.py write <out-<label>>/candidate.txt
+   port/dreamcast/tools/d367/<test>/release-knobs.txt --test N --tag <tag> --source <sha> --recipe <t-build.sh>
+   --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name>`.
+2. Point `RELEASE_KNOBS` in `build-public.sh` at it (one line), and update the release names in this page.
+3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip>`), not by hand.
+4. Run `tools/d367/kit-check.sh <knob file> <out-<label>> <package dir>` (knob file = recipe, zip = recipe,
+   these docs name no older release, a clean checkout of the release commit rebuilds the release program
+   byte for byte, builds without assets, swaps onto the release disc), then `tools/d367/kit-boot.sh <WORK>`
+   (the swapped discs boot to New Game and r101 in Flycast). A release does not publish until both pass.
 
 ## Questions
 
