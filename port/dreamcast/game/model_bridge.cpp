@@ -706,8 +706,7 @@ extern "C" void re4dc_sob_bake_frame(){
         drawn+=o.draw;
         if(o.draw!=o.prev && o.m && S->switches<64){
             ++S->switches;
-            re4dc_log("SOBAKE switch room=%03x frame=%u placement=%u id=%02x draw=%u
-",room,unsigned(pG->Frame_cnt),placement,
+            re4dc_log("SOBAKE switch room=%03x frame=%u placement=%u id=%02x draw=%u\n",room,unsigned(pG->Frame_cnt),placement,
                       kTable[S->first+i].id,o.draw);
         }
         o.prev=o.draw;
