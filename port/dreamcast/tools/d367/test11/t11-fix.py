@@ -180,6 +180,17 @@ DATA['acc12d'] = {k: v for k, v in DATA['acc12all'].items() if k != 'tex'}
 CLASH += [('items12', 'items'), ('acc12d', 'acc12'), ('acc12d', 'acc12all')]
 # order matters: items12 after objs12 / r119c (its dars replace theirs), acc12d last
 T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12b,merchant,items12,acc12d'
+# Test 12.1 (lane t12dark, 2026-10-15; T12-DARK-ROOMS-20261015.md): the GC light bake (blackgc) darkened rooms that
+# test 10 drew lit (r11b lake shore dock: planks and ground near-black on the console and in Flycast). 12.1 swaps the 14
+# baked rooms to the PS2 formula (blackps2: --a0-light ps2, black faces 0..2.5% per room, t11-bk.md) with the same
+# program and recipe as test 12. r119 keeps the test 10 package, as in test 12 (heap 4 / El Gigante movies).
+#   blackps2w = blackps2 without r119 and without its loose newtex (the 295 re-keyed textures go into tex.pak)
+#   t121tex   = tex.pak = test12/t12-texpak.sh with BLACK=blackps2/newtex (tex-t12d.pak + 293 new keys, no key changed;
+#               sha256 b097d061); resident.bin unchanged (r101 only)
+DATA['blackps2w'] = {k: v for k, v in DATA['blackps2'].items() if k != 'tex' and not k.startswith('dc/native/r119/')}
+T121D = os.environ.get('T121D', '/root/probe/t12dark/data')
+DATA['t121tex'] = {'dc/tex.pak': T121D + '/tex-t121.pak'}
+T121_DATA = T12_DATA + ',blackps2w,t121tex'  # order: after t12tex (its blackgc meshes and tex.pak are replaced)
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
