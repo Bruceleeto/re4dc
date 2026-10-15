@@ -493,6 +493,9 @@ void put_row(const Fb& fb, int row, const char* s, uint16_t fg)
         }
     }
 }
+#ifndef RE4DC_DISC_POLL_SPIN_MS
+#define RE4DC_DISC_POLL_SPIN_MS 0
+#endif
 #ifndef RE4DC_DISC_BOOT_LOG
 #define RE4DC_DISC_BOOT_LOG 1
 #endif
@@ -676,7 +679,9 @@ int run(int cmd, void* params, unsigned timeout_ms, bool busy_test, const char* 
             abort_bounded(h, what, lba);
             return ERR_TIMEOUT;
         }
-        if (spins < 64) thd_pass();
+        // DISC_POLL_SPIN_MS: keep yielding (thd_pass) for that long before sleeping; a KOS sleep lasts until the next
+        // scheduler tick (THD_SCHED_HZ 100 = 10 ms), so a read that completes in 2 ms otherwise costs up to 10.
+        if (spins < 64 || ms() - t0 < RE4DC_DISC_POLL_SPIN_MS) thd_pass();
         else thd_sleep(1);
     }
 }

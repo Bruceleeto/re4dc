@@ -895,12 +895,15 @@ ifneq ($(filter $(DISC_COMPAT),0 1),$(DISC_COMPAT))
 $(error DISC_COMPAT must be 0 or 1)
 endif
 ifeq ($(DISC_COMPAT),1)
+# DISC_COMPAT=1 DISC_READ_FALLBACK=0 is the timing-neutral subset (KOS fixes + the mount; 12.2's stream reads kept):
+# STRICT against 12.2 in Flycast, where the plain sector reads move load completion by ticks (lane discread 10-15).
 ifneq ($(filter $(origin DISC_READ_FALLBACK),command line environment),)
-ifneq ($(DISC_READ_FALLBACK),2)
-$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2)
+ifneq ($(filter $(DISC_READ_FALLBACK),0 2),$(DISC_READ_FALLBACK))
+$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 0 for the subset))
 endif
+else
+DISC_READ_FALLBACK := 2
 endif
-override DISC_READ_FALLBACK := 2
 override KOS_DISC_FIX := 1
 DISC_BOOT_LOG ?= 2
 endif
@@ -959,9 +962,12 @@ endif
 ifneq ($(DISC_READ_FALLBACK),0)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
 endif
+# DISC_POLL_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0): a sector read polls its GD command with thd_pass for N ms
+# before it sleeps (a KOS sleep ends at the next 10 ms scheduler tick). Lane discread load-time experiment.
+DISC_POLL_SPIN_MS ?= 0
 ifeq ($(DISC_READ_FALLBACK),2)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS)
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check
