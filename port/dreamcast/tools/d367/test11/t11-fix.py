@@ -267,6 +267,22 @@ DATA['res14r3'] = {'dc/resident.bin': T14R3D + '/resident.bin'}
 # Test 14 (t14/rc, 2026-10-15; TEST14-SCOPE.md, test14/t14-build.sh T14REC): test 13's data + res14r3 (replaces T13's
 # dc/resident.bin; order: last).
 T14_DATA = T13_DATA + ',res14r3'
+# Test 15 row 7 (t15/int, 10-15; lane ps2cast14 b00f9a43, PS2CAST-20261014.md "released rooms ch1-1..2-1"): cast15 = the PS2
+# small cast room packages (recipe PS2_CAST_CH1=1 PS2_CAST_BOAT=1 ACTOR_PALETTE_BANK=40 NATIVE_MODEL_REGISTRY_POOL=1) and the
+# texture-prepared archives em2a em24 em27 em29 em2e pl0f; their pictures are loose here (the candidate merges them into
+# tex.pak). r117: the zealot pool package is the room's registry.re4nmr and Ashley's r117 package moves to partner.re4nmr
+# (the lane's r117-zp-p gate fixture; PS2_ASHLEY_ROOMS=1 reads it). r118: reg-118pc (em17 pool; its cart rows are unused,
+# em3b is not linked). Order: after T14_DATA (replaces ashley13's r117 registry and the earlier r100 / r104 / r118 packages).
+C15D = os.environ.get('C15D', '/root/probe/lanes-20261015/ps2cast')
+_C15R = {'100': '100', '104': '104', '105': '105', '106': '106', '107': '107', '108': '108', '10a': '10a', '10b': '10b',
+         '11a': '11a', '11b': '11b', '117': '117p', '118': '118pc'}
+DATA['cast15'] = {'dc/native/r%s/registry.re4nmr' % r: '%s/conv-t14/reg-%s/package/r%s/registry.re4nmr' % (C15D, g, r)
+                  for r, g in _C15R.items()}
+DATA['cast15']['dc/native/r117/partner.re4nmr'] = ASHLEY + '/r117/ashley-pl11/dc/native/r117/registry.re4nmr'
+for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f'):
+    DATA['cast15']['em/%s.drs' % _n] = '%s/prep14/%s/%s.drs' % (C15D, _n, _n)
+DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) for g in _C15R.values()] +     ['%s/prep14/%s' % (C15D, _n) for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f')]
+T15_DATA = T14_DATA + ',cast15'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
