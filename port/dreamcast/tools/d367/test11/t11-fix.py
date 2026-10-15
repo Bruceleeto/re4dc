@@ -115,7 +115,7 @@ for _r in ('r100', 'r101'):
 #               smx101's ps2-world.re4mesh); it comes after smx101 in T12_DATA so it replaces that mesh. If smx101 ever
 #               changes, regenerate it (tools/ps2_strip_groups.py + worldlean/sgcheck.py): the runtime refuses a stale r4sg
 #   merchant  = ps2lib/cast/r102/merchant-em18 (PS2_CAST_MERCHANT=1): registry + em18.drs (its textures are in t12tex)
-T12D = '/root/probe/lanes-20261014/t12rc/data'
+T12D = os.environ.get('T12D', '/root/probe/lanes-20261014/t12rc/data')   # T12D=<dir>: a lane's own tex-t12b.pak
 DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12b.pak'})
 MERCHANT = PRIV + '/ps2lib/cast/r102/merchant-em18'
 DATA['merchant'] = {k: MERCHANT + '/' + k for k in ('dc/native/r102/registry.re4nmr', 'em/em18.drs')}
