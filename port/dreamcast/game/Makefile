@@ -881,13 +881,14 @@ endif
 # MOTION_STATS_LOG=1 (test 14 r103 motion thrash, crash lane 10-15; log only, default 0 = image unchanged; needs
 # DISC_READ_METER=1): at each DISCRD window close, one "MOTSTAT:" line with the native motion cache's counters for the
 # window (misses = key loads from the disc, evictions, KB read) and its state (resident
-# bytes, the pressure cap, heap 4 free bytes).
+# bytes, the pressure cap, heap 4 free bytes), and per bound archive one "MOTWS:" line with its working set: the bytes
+# of the distinct keys the game used in the window, in the current 5-window block and since the bind.
 MOTION_STATS_LOG ?= 0
 ifneq ($(MOTION_STATS_LOG),0)
 ifneq ($(DISC_READ_METER),1)
 $(error MOTION_STATS_LOG=1 needs DISC_READ_METER=1)
 endif
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_STATS_LOG=1
+$(OBJDIR)/platform/dvd_read_safe.o $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_STATS_LOG=1
 endif
 DISC_READ_FALLBACK ?= 0
 DISC_FAIL_TEST ?= 0

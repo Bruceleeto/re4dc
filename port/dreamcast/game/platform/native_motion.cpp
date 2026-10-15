@@ -96,6 +96,15 @@ bool hold;
 #endif
 Owner owners[32]{};
 Re4dcMotionStats stats{};
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+// MOTION_STATS_LOG (Makefile): keys used per binding (bits by entry), for the window, the 5-window block and since bind.
+unsigned char ws_win[kArchives][32], ws_blk[kArchives][32], ws_all[kArchives][32];
+unsigned ws_windows;
+inline void ws_touch(const Binding& b,unsigned i) {
+    const unsigned k=unsigned(&b-bindings);if(k>=kArchives || i>=256)return;
+    const unsigned char m=(unsigned char)(1u<<(i&7));ws_win[k][i>>3]|=m;ws_blk[k][i>>3]|=m;ws_all[k][i>>3]|=m;
+}
+#endif
 std::uint64_t stamp;
 mutex_t lock=MUTEX_INITIALIZER;
 unsigned word(const unsigned char* p) { unsigned n;std::memcpy(&n,p,4);return n; }
@@ -225,6 +234,9 @@ void release_binding(Binding& b) {
     if(b.seen)re4dc_motion_free(b.seen);
 #endif
     re4dc_motion_free(b.slots);b={};
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+    {const unsigned k=unsigned(&b-bindings);if(k<kArchives){std::memset(ws_win[k],0,32);std::memset(ws_blk[k],0,32);std::memset(ws_all[k],0,32);}}
+#endif
 }
 #if RE4DC_MOTION_PRESSURE_BYTES
 // Called only under Locked, before a miss allocates its payload. Archive and
@@ -291,6 +303,9 @@ unsigned char* oom_evict_alloc(unsigned bytes) {
 #endif
 unsigned* load(Binding& b,unsigned i) {
     const auto* e=record(b,i);auto& s=b.slots[i];
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+    ws_touch(b,i);
+#endif
     if(s.data) { ++stats.hits;s.used=++stamp; }
     else {
         ++stats.misses;const auto started=timer_us_gettime64();
@@ -451,6 +466,25 @@ extern "C" int re4dc_motion_thread_busy(const void* owner) {
     irq_restore(old);return busy!=0;
 }
 extern "C" void re4dc_motion_get_stats(Re4dcMotionStats* out) { Locked guard;*out=stats; }
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+// dvd_read_safe.cpp, each DISCRD window close: one MOTWS line per bound archive (keys used: count / bytes).
+extern "C" void re4dc_motion_ws_window() {
+    Locked guard;const bool blk_end=++ws_windows%5==0;
+    for(unsigned k=0;k<kArchives;++k) {
+        const auto& b=bindings[k];if(!b.archive)continue;
+        unsigned n[3]={0,0,0},by[3]={0,0,0},cold=0;
+        for(unsigned i=0;i<b.count && i<256;++i) {
+            const unsigned char m=(unsigned char)(1u<<(i&7));const unsigned sz=aligned(word(record(b,i)+4));
+            if(ws_win[k][i>>3]&m){++n[0];by[0]+=sz;if(!word(record(b,i)+16))cold+=sz;}
+            if(ws_blk[k][i>>3]&m){++n[1];by[1]+=sz;}
+            if(ws_all[k][i>>3]&m){++n[2];by[2]+=sz;}
+        }
+        re4dc_log("MOTWS: archive=%u entries=%u win=%u/%u (cold %u) block5=%u/%u%s bind=%u/%u resident=%u\n",b.bytes,b.count,
+                  n[0],by[0],cold,n[1],by[1],blk_end?" end":"",n[2],by[2],b.resident);
+        std::memset(ws_win[k],0,32);if(blk_end)std::memset(ws_blk[k],0,32);
+    }
+}
+#endif
 extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     Locked guard;auto* a=static_cast<unsigned char*>(archive);
     if(!a || bytes<16)return 0;

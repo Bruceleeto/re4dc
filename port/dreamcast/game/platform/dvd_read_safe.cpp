@@ -161,6 +161,7 @@ extern "C" void re4dc_bench_disc(unsigned reads, unsigned long long block_us, un
 #if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
 #include "native_motion.h"
 extern "C" int re4dc_static_heap_free();             // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
+extern "C" void re4dc_motion_ws_window();             // native_motion.cpp: the MOTWS working-set lines
 namespace {
 // MOTION_STATS_LOG (Makefile): the native motion cache per DISCRD window.
 void motion_stats_window(unsigned window_ms)
@@ -171,8 +172,9 @@ void motion_stats_window(unsigned window_ms)
     re4dc_log("MOTSTAT: window_ms=%u misses=%u evictions=%u kb=%u hits=%u resident=%u peak=%u hot=%u heap4=%d\n",
               window_ms, s.misses - last.misses, s.evictions - last.evictions, (unsigned) ((s.bytes_read - last.bytes_read) / 1024),
               s.hits - last.hits, s.resident_bytes, s.peak_cache_bytes, s.hot_bytes,
-              re4dc_static_heap_free());
+              s.metadata_bytes ? re4dc_static_heap_free() : -1);   // a room heap only while an archive is bound
     last = s;
+    re4dc_motion_ws_window();
 }
 }  // namespace
 #endif
