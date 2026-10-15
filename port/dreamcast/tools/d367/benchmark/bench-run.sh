@@ -6,6 +6,7 @@
 # Fixture = the test 11 package fixture (t11-fix.py, data T11_DATA = the release set) with the scene's warp, so every
 # lane's numbers come from the same scene and data. Stages through the harness (stage-scenario.py), runs ONE Flycast
 # (run-emulator-novsync-i26.py), deletes the staged disc (disc.sha256 kept) and prints the bench-ms.py row.
+# BENCH_DATA_EXTRA (lane objs): extra t11-fix.py data sets appended to T11_DATA, e.g. ",objs-r101" (test arm).
 # Refuses to stage when C: has less than BENCH_MIN_GB (default 19) GB free.
 # Repeatability: run the same arm twice (names x-a, x-b) and pass both to bench-ms.py: fps / CPU within a few %.
 set -u
@@ -34,7 +35,7 @@ S=scenarios/route-bench-$N
 cat > "$E/_tools/stage-$N.sh" <<EOS
 set -e; mkdir -p $ST $FIXD
 D=\$(python3 -c "import re;print(re.search(r\"^T11_DATA = '([^']*)'\", open('$T11/t11-fix.py').read(), re.M).group(1))")
-python3 $T11/t11-fix.py $L $FIXD/$N.json --data \$D --warp $W > $ST/fix-$N.txt
+python3 $T11/t11-fix.py $L $FIXD/$N.json --data \$D${BENCH_DATA_EXTRA:-} --warp $W > $ST/fix-$N.txt
 python3 $KW/fix-replace.py $FIXD/$N.json $W >> $ST/fix-$N.txt
 cd "$HW" && python3 stage-scenario.py route-bench-$N --arm candidate-route$L --programs programs-route.json --overlay /mnt/c/Flycast-Evidence/re4-dreamcast/r11-media-overlay-r1/payloads --fixture $FIXD/$N.json > $ST/run-$N.json 2>&1 || true
 python3 -c "import json;d=json.load(open('$ST/run-$N.json'));print(d['status'],d['disc_sha256'])" || tail -5 $ST/run-$N.json
