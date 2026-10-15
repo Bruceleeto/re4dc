@@ -18,6 +18,23 @@ HD=45000; LBA_W=400; LBA_P=420; LBA_X=440; FIXB=8192; T1=606; T2=302
 WORK=$(mktemp -d /root/probe/lanes-20261014/fullplay/work/master.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 rm -rf "$OUT"; mkdir -p "$OUT"
+# Lane stage-ext4 (10-14), default on; RE4DC_STAGE_EXT4=0 = the old path (master straight into <outdir> on /mnt/c).
+# The base is mastered, manifested, redirected and hashed under $WORK on ext4; track03.iso goes once into the C: disc
+# cache (stage_ext4/disccache.py) and <outdir>/track03.iso is an NTFS hard link to it (fp_run.py only hard-links it
+# further; fp_iso.py redirect runs before caching). A base with the same inputs (release manifest, IP.BIN, twin binary
+# and overlays, this script) as a cached one is reused: no genisoimage, no copy.
+FINAL=
+if [ "${RE4DC_STAGE_EXT4:-1}" = 1 ]; then
+  FINAL=$OUT; OUT=$WORK/out; mkdir -p "$OUT"
+  DC=$here/../stage_ext4/disccache.py
+  KEY=$( { echo "kind=${TW:+twin}"; sha256sum "$0" "$MAN" "$IP"; [ -z "$TW" ] || { $TOOL/sh-elf-objcopy -R .stack -O binary $TW/re4dc-game.elf $WORK/k.bin; sha256sum $WORK/k.bin; for o in $TREE/dc/*.ovl; do sha256sum $TW/$(basename $o); done; }; } | sed 's#  .*/#  #' | sha256sum | cut -c1-64)
+  IDX=${RE4DC_STAGE_ROOT:-/root/stage}/fpimages/$KEY
+  if [ -s $IDX/track03.sha256 ] && C3=$(python3 $DC link "$(cat $IDX/track03.sha256)" track03.iso "$FINAL/track03.iso" 2>/dev/null); then
+    for f in track01-template.iso track02.raw base.json base-manifest.json base-diff.txt track03.sha256; do cp $IDX/$f "$FINAL/$f"; done
+    echo "MASTER $( [ -n "$TW" ] && echo twin || echo release ) $FINAL reused cached base $(cut -c1-16 $IDX/track03.sha256) (key ${KEY:0:16}); $(grep '^identical' "$FINAL/base-diff.txt")"
+    exit 0
+  fi
+fi
 cp -al "$TREE" $WORK/cdroot
 for f in dc/warp.txt dc/padscript.txt dc/w11.txt; do
   [ ! -e $WORK/cdroot/$f ] || { echo "fp_master: the release carries $f (a fixture file on a user disc)" >&2; exit 1; }
@@ -60,4 +77,15 @@ json.dump(dict(kind=kind, tree=tree, elf=elf, warp_lba=int(lw), pad_lba=int(lp),
           open(o, 'w'), indent=1)
 E
 sha256sum "$OUT/track03.iso" | cut -c1-64 > "$OUT/track03.sha256"
+if [ -n "$FINAL" ]; then
+  C3=$(python3 $DC put "$OUT/track03.iso" "$(cat "$OUT/track03.sha256")" --name track03.iso)
+  ln "$C3" "$FINAL/track03.iso"
+  [ "$(stat -c %s "$FINAL/track03.iso")" = "$(stat -c %s "$OUT/track03.iso")" ] || { echo "fp_master: cached track03.iso size differs" >&2; exit 1; }
+  rm -rf $IDX.tmp$$; mkdir -p $IDX.tmp$$
+  for f in track01-template.iso track02.raw base.json base-manifest.json base-diff.txt track03.sha256; do
+    cp "$OUT/$f" "$FINAL/$f"; cp "$OUT/$f" $IDX.tmp$$/$f
+  done
+  rm -rf $IDX; mv $IDX.tmp$$ $IDX
+  OUT=$FINAL
+fi
 echo "MASTER $KIND $OUT $(tail -1 "$OUT/base-diff.txt" | head -c 0)$(grep -c . "$OUT/base-diff.txt") diff lines; $(grep '^identical' "$OUT/base-diff.txt")"
