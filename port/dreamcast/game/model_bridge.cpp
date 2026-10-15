@@ -445,7 +445,7 @@ extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned*
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace sobdump {
 constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96;
-struct State { unsigned generation,used,sent,nseen,done; const void* seen[kSeen][2]; unsigned char data[kBytes]; };
+struct State { unsigned generation,used,sent,nseen,done,nlist; const void* seen[kSeen][2]; const void* lists[kSeen]; unsigned char data[kBytes]; };
 State* S=nullptr; unsigned frame_seen=~0U;
 inline bool target(const cModel* m){
     const unsigned k=m->kindid,id=m->id;
@@ -479,17 +479,24 @@ void frame(){
         S->sent+=k;
     }
 }
+bool ensure(){
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return false;
+    if(S && S->generation!=g)S=nullptr;
+    if(!S){
+        S=(State*)re4dc_static_alloc(sizeof(State));
+        if(!S){re4dc_log("SOBX FAIL alloc\n");return false;}
+        memset(S,0,sizeof(State)-kBytes);S->generation=g;
+        re4dc_log("SOBX BEGIN room=%03x generation=%u\n",unsigned(pG->room_id),g);
+    }
+    return true;
+}
 void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelPart* pt,const Re4dcModelPart& p){
     if(pG->Frame_cnt!=frame_seen)frame();
     if(!target(m))return;
     unsigned g,c,b,st,rf;
     if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return;
-    if(!S){
-        S=(State*)re4dc_static_alloc(sizeof(State));
-        if(!S){re4dc_log("SOBX FAIL alloc\n");return;}
-        memset(S,0,sizeof(State)-kBytes);S->generation=g;
-        re4dc_log("SOBX BEGIN room=%03x generation=%u\n",unsigned(pG->room_id),g);
-    }
+    if(!ensure())return;
     for(unsigned i=0;i<S->nseen;++i)if(S->seen[i][0]==m && S->seen[i][1]==pt)return;
     if(S->nseen>=kSeen || S->used>kBytes)return;
     S->seen[S->nseen][0]=m;S->seen[S->nseen][1]=pt;++S->nseen;
@@ -539,6 +546,29 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     if(S->used<=kBytes){const unsigned total=S->used-at;memcpy(S->data+at+4,&total,4);}
     (void)len;
 }
+}
+// SOB_DUMP: raw lists of a target model, from the model asset walk (before the plan owner encodes them in place).
+extern "C" void re4dc_sobdump_lists(const void* model){
+    using namespace sobdump;
+    const cModel* m=(const cModel*)model;
+    if(!target(m) || !ensure() || S->used>kBytes)return;
+    for(const cModelInfo* info=m->pModelInfo;info;info=info->pList){
+        const ModelData* d=info->pData;if(!d)continue;
+        const ModelPart* q=d->pParts;
+        for(unsigned i=0;q && i<d->displist_num;++i,q=(const ModelPart*)((const unsigned char*)q+0x20+q->size)){
+            bool seen=false;
+            for(unsigned k=0;k<S->nlist && !seen;++k)seen=S->lists[k]==q;
+            if(seen || S->nlist>=kSeen)continue;
+            const unsigned char* l=(const unsigned char*)q+0x20;
+            if(re4dc_actor_stream_encoded(l,q->size))continue;
+            S->lists[S->nlist++]=q;
+            const unsigned at=S->used;
+            put32(0x4C424F53U);put32(0);put32((unsigned)(size_t)m);put32((unsigned)(size_t)d);put32((unsigned)(size_t)q);
+            put32(q->size);put32(i|(unsigned(d->displist_num)<<16));put(l,q->size);
+            while(S->used<=kBytes && (S->used&3))put("",1);
+            if(S->used<=kBytes){const unsigned total=S->used-at;memcpy(S->data+at+4,&total,4);}
+        }
+    }
 }
 #endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,

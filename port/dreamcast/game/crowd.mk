@@ -607,6 +607,6 @@ endif
 # (arrays, raw GX list, matrices, texture key) as "SOBX" hex lines, input of the offline STATIC_OBJ_BAKE.
 SOB_DUMP ?= 0
 ifneq ($(SOB_DUMP),0)
-$(OBJDIR)/model_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_SOB_DUMP=1
+$(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_SOB_DUMP=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SOB_DUMP=1
 endif

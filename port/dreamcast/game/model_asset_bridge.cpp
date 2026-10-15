@@ -76,9 +76,21 @@ WalkSignature walk_signature(){
 }
 }
 #endif
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+extern "C" void re4dc_sobdump_lists(const void* model);  // model_bridge.cpp (SOB_DUMP, diagnostic)
+#endif
 extern "C" void re4dc_prepare_model_assets(){
 #if RE4DC_D349_RENDERER_STACK
     if(!re4dc_model_diagnostic_enabled())return;
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+    // SOB_DUMP (diagnostic): raw GX lists of the static etc objects before the plan owner below encodes them.
+    for(unsigned table=0;table<OT_MAX;++table){
+        const auto& ot=g_OtWork[table];
+        if(!ot.list || !ot.max)continue;
+        for(auto* node=&ot.list[ot.max-1];node;node=node->next)
+            if(node->data && node->func==(void (*)(void*))ModelRender)re4dc_sobdump_lists(node->data);
+    }
+#endif
 #if RE4DC_FRONT_LEAN
     // Same registrations as the last walk and nothing pending in the plan
     // owner: every part would hit (or keep its negative admission) again.
