@@ -95,6 +95,14 @@ DATA['objs'] = {k: v for _r in OBJS_ROOMS for k, v in DATA['objs-' + _r].items()
 # objs12: the rooms whose library rows passed the test 12 gates (r100: H2 STRICT 4702 + s30 340/340; r101: warp STRICT
 # 2402 + LEON-GC + TEX_CHECK); the other rooms are test 13 (coordinator 10-14: the all-room objects pass is test 13).
 DATA['objs12'] = {k: v for _r in ('r100', 'r101') for k, v in DATA['objs-' + _r].items()}
+# objs12b (lane objs cca4f2bf, 10-15, coordinator: the breakable class stays GameCube): objs12 with every cEmBox /
+# cEmBarrel etc model left GC (EtcModel.cpp SetBox / SetBarrel: et0100 et0200 et1100 et1200 et1e00 et1f00 et2d00
+# et2e00/01 et2f00/01 et3c00). Their break (debris effects owned by the box model) is where et1100's PS2 geometry went
+# wrong. r100b: et0100 et0200 GC; r101b: et0100 et0200 et1100 et1e00 GC. Every other object as objs12. (Only these data
+# set lines are taken from cca4f2bf; its --uv-fold option and test 14 study sets stay on lane/objs.)
+DATA['objs-r100b'] = {'st1/r100.dar': OBJS + '/r100b/r100.dar'}
+DATA['objs-r101b'] = {'st1/r101.dar': OBJS + '/r101b/r101.dar'}
+DATA['objs12b'] = {**DATA['objs-r100b'], **DATA['objs-r101b']}
 # test 13, not ready (tex13/NOT-READY.txt): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and the PS2-picture
 # object dars (tools/ps2_objects_tex.py; colour-only swap: flag-4 mask pairs missing until the items lane pair logic).
 DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
