@@ -402,7 +402,19 @@ route-v6 + ps2lib Ashley packages + the texture-prepared em18.drs; one 55 s warp
 - r117: Ashley admitted (her package alone). TEX_CHECK shows 3 lines for e1cd6919-a1b4d41c (missing from the route data);
   the knob-off control on the same data shows the same key plus 78 VRAM-budget / upload lines, so this is route data,
   not this change (owner: chapter 2 route data / VRAM).
-- r118, r111, r113, r11c, r11f: runs blocked by the C: floor (15.3 GB < 16 GB) on 10-15; see PS2CAST-20261014.md.
+- All seven rooms (disc d2pa4: every route overlay, route-v6's bounded texture-prepared pl11.drs, no pl11 override):
+  Ashley admitted on every drawn frame (ATX ev 16 / 18; 0 declines) in r117 r118 r112 r111 r113 r11c r11f; TEX_CHECK 0
+  in all but r117 (the pre-existing e1cd6919 above); LEON-GC 0; HALT / FAULT / MISSING 0. Heap 4 at room entry (room +
+  partner cells): r111 / r113 264,800 B, r112 353,184, r118 328,064, r11c 384,768, r11f 624,512 (both drawn in r11f with
+  MOTION_BOUNDED_R11F's bounded pl11). Not this change (pre-existing, other owners): em17 GC in r111 / r113 / r118
+  (ATX_INFO why=5 / 2), em13 GC in r11c, em11 GC in r117.
+- An earlier disc (d2pa3) lacked em35 / em3b / pl14 overlays (route data tree older than the arm): r118 HALTed "route
+  overlay missing". master.sh now copies every overlay the arm links.
+- STRICT per room (trace arms cxtk1 knob on vs cxta3 off, IMAGE_PAD_BYTES=2944, _end 8c430ddc both; same disc data; stop
+  tick 600 or the 60 s cap): r117 0..453, r118 0..571, r112 0..601, r111 0..412, r113 0..467, r11c 0..355, r11f 0..553:
+  STRICT, decisions MUST-IDENTICAL, 0 overruns, 0 HALT. (A warp start is not continued play: these prove the knob
+  changes no logic in each room's first ~6-10 s, not whole-room play.)
+- The r112 merchant: route-v7 (ch22 lane fix/route-v7.json) = route-v6 + the texture-prepared em18.drs.
 - Knob-off identity (test 11 recipe, play arm): image 412198a0, all overlays identical to 80f2f58b; with PS2_ASHLEY=2 and
   the rooms knob off, image eafa01ab identical too.
 
