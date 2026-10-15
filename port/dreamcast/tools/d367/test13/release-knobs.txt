@@ -3,11 +3,11 @@
 # out-<label>/candidate.txt; checked by tools/d367/kit-check.sh; read by build-public.sh. Do not edit.
 # @ASSETS@ = the unpacked Build-Assets zip (re4dc-assets/).
 # test: 13
-# tag: test-e22933ac-20261015
-# source: e22933ac
+# tag: test-23d70c9e-20261015
+# source: 23d70c9e
 # recipe: port/dreamcast/tools/d367/test13/t13-build.sh
-# image-sha256: 9fc742de89612fc4003690d64fc559c6c3f29f42f6d3f8d48851dcddffccc3f4
-# assets-zip: RE4DC-Test13-e22933ac-Build-Assets.zip
+# image-sha256: df444f7b64a4a5fb95f2413b69ab285b6863c8a9d60c9d719655894e4a6d4431
+# assets-zip: RE4DC-Test13-23d70c9e-Build-Assets.zip
 LOGIC_TRACE=0
 GAME_DECISION_TRACE=0
 ACTOR_TRANSACTION_DIAG=0
