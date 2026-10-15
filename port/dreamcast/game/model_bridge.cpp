@@ -442,6 +442,9 @@ extern "C" void re4dc_sob_room_leave(){
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);
 extern "C" void* re4dc_static_alloc(unsigned bytes);
 extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned* fnv);  // native_ui.cpp
+#if RE4DC_NATIVE_ACTOR_SKIN_LAZY
+extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p);  // native_actor_fast.cpp
+#endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace sobdump {
 constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96;
@@ -537,8 +540,12 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     put(&m->pos,12);put(&m->ang,12);put32(m->be_flag);put32(info->be_flag);
     put32(p.lighting?unsigned(sizeof(re4dc::render::SourceLighting)):0U);
     if(p.lighting)put(p.lighting,sizeof(re4dc::render::SourceLighting));
-    if(p.positions)put(p.positions,npos*p.position_stride);
-    if(p.normals)put(p.normals,nnrm*p.normal_stride);
+    Re4dcModelPart q=p;
+#if RE4DC_NATIVE_ACTOR_SKIN_LAZY
+    if(!q.positions)re4dc_actor_materialize_lazy(&q);  // lazily skinned info: the source's own CPU skin of this frame
+#endif
+    if(q.positions)put(q.positions,npos*p.position_stride);else put32(0xDEADBEEFU);
+    if(q.normals)put(q.normals,nnrm*p.normal_stride);
     if(p.uv)put(p.uv,nuv*4);
     if(p.colors)put(p.colors,nclr*4);
     if(list_bytes)put(p.stream,list_bytes);
