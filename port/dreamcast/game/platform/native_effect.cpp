@@ -14,6 +14,11 @@
 #endif
 #if RE4DC_EFFECT_BIND_DIAG
 extern "C" { unsigned re4dc_effect_bind_fail_line; }  // file scope: not in the unnamed namespace
+// ocbp line by line (no 16 KB purge-all buffer): write back dirty lines, drop the rest, so the next read is from RAM
+extern "C" void re4dc_dcache_purge(const void* p, unsigned n)
+{
+    for (uintptr_t a = (uintptr_t) p & ~(uintptr_t) 31; a < (uintptr_t) p + n; a += 32) __asm__ __volatile__("ocbp @%0" : : "r"(a) : "memory");
+}
 #endif
 namespace {
 struct Binding { unsigned char* archive; unsigned bytes; const unsigned char* entries; unsigned count; };

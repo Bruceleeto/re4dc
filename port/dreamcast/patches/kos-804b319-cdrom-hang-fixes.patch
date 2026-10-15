@@ -1,4 +1,4 @@
-RE4DC (lane discread, 2026-10-15, test 14 item 11): two hang fixes and a settle delay in KallistiOS 804b319
+RE4DC (lane discread, 2026-10-15, test 14 item 11): two hang fixes, a settle delay and a DMA completion fix in KallistiOS 804b319
 kernel/arch/dreamcast/hardware/cdrom.c. Applied by game/Makefile KOS_DISC_FIX=1 to a build-time copy of the file
 (the KOS checkout is not modified).
 - cdrom_exec_cmd_timed: on a timeout it called cdrom_abort_cmd() while still holding the G1 ATA semaphore through
@@ -7,9 +7,14 @@ kernel/arch/dreamcast/hardware/cdrom.c. Applied by game/Makefile KOS_DISC_FIX=1 
 - cdrom_reinit_ex: the CD_CMD_INIT retry loop ran forever while the drive kept answering "disc changed"; 8 tries.
 - cdrom_abort_cmd: 100 ms after the BIOS reset + init that follows an abort timeout (GDEMU clones need time after a
   reset before the next CMD_INIT: KOS PR #957).
+- cdrom_vblank: a DMA read was declared done once the BIOS command reported completed, while the G1 GD-DMA engine
+  (SB_GDST) could still be moving the last bytes; the reader then read the buffer tail early and kept stale lines in
+  the operand cache (console 10-15, LinkOrder bench: "invalid prepared enemy effect records"; Flycast never shows
+  it). A completed command now ends the wait only with the GD-DMA engine idle (else the DMA end interrupt does);
+  cdrom_stream_progress reports a DMA stream transfer in progress while the engine runs (fs_iso9660 32-byte tail).
 
 diff --git a/kernel/arch/dreamcast/hardware/cdrom.c b/kernel/arch/dreamcast/hardware/cdrom.c
-index 116c500..9a1441a 100644
+index 116c500..cd665ae 100644
 --- a/kernel/arch/dreamcast/hardware/cdrom.c
 +++ b/kernel/arch/dreamcast/hardware/cdrom.c
 @@ -173,16 +173,23 @@ int cdrom_exec_cmd(cd_cmd_code_t cmd, void *param) {
@@ -93,3 +98,28 @@ index 116c500..9a1441a 100644
  
      if(r == ERR_NO_DISC || r == ERR_SYS || r == ERR_TIMEOUT) {
          return r;
+@@ -599,6 +616,9 @@ int cdrom_stream_progress(size_t *size) {
+ 
+     if(stream_dma) {
+         rv = syscall_gdrom_dma_check(cmd_hnd, &check_size);
++        /* RE4DC: still in progress while the G1 GD-DMA engine (SB_GDST) moves bytes (see cdrom_vblank). */
++        if(rv != 1 && (*(volatile uint32_t *)0xa05f7418 & 1))
++            rv = 1;
+     }
+     else {
+         rv = syscall_gdrom_pio_check(cmd_hnd, &check_size);
+@@ -696,7 +716,13 @@ static void cdrom_vblank(uint32_t evt, void *data) {
+         syscall_gdrom_exec_server();
+         cmd_response = syscall_gdrom_check_command(cmd_hnd, &cmd_status);
+ 
+-        if(cmd_response != CD_CMD_PROCESSING && cmd_response != CD_CMD_BUSY && cmd_response != CD_CMD_STREAMING) {
++        /* RE4DC: a command the BIOS reports finished (completed / not found) is not a finished DMA: the G1 GD-DMA
++           engine (SB_GDST bit 0) can still be moving its last bytes to RAM. Signalled here, the reader went on, read
++           the buffer's tail from RAM before it landed and kept those stale bytes in the operand cache (console only;
++           Flycast ends the DMA with the command). The DMA end interrupt (g1_dma_irq_hnd) completes it then; a failed
++           command still ends the wait at once. */
++        if(cmd_response != CD_CMD_PROCESSING && cmd_response != CD_CMD_BUSY && cmd_response != CD_CMD_STREAMING &&
++           (cmd_response <= CD_CMD_FAILED || !(*(volatile uint32_t *)0xa05f7418 & 1))) {
+             dma_in_progress = false;
+ 
+             if(dma_blocking) {
