@@ -878,7 +878,17 @@ DISC_READ_METER ?= 0
 ifneq ($(filter $(DISC_READ_METER),0 1),$(DISC_READ_METER))
 $(error DISC_READ_METER must be 0 or 1)
 endif
+# DISC_READ_FALLBACK=2 (issue #28 v2, 2026-10-15; v1 gave a black screen under the ISO loader): no cdrom streams at all
+# (fs_iso9660 reads by sector reads), every sector read is a bounded GD command polled from the calling thread (DMA, then
+# DMA after a bounded drive re-init, then PIO; the one that works is reported and kept), cdrom_reinit is wrapped with a
+# bounded CD_CMD_INIT, and an on-screen boot log (until the game's first picture) names each step and the read in
+# flight; if every method fails a DISC READ FAILED screen stays up. DISC_FAIL_TEST with =2: 2 DMA reports done without a
+# transfer, 3 = 2 + PIO never completes, 4 the first DMA read and its abort never finish, 5 the first read spins with
+# interrupts off. Details: platform/dvd_read_safe.cpp.
 DISC_READ_FALLBACK ?= 0
+ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2),$(DISC_READ_FALLBACK))
+$(error DISC_READ_FALLBACK must be 0, 1 or 2)
+endif
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
@@ -892,8 +902,11 @@ ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
 endif
-ifeq ($(DISC_READ_FALLBACK),1)
-$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1
+ifneq ($(DISC_READ_FALLBACK),0)
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
+endif
+ifeq ($(DISC_READ_FALLBACK),2)
+GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check
