@@ -397,7 +397,8 @@ endif
 #              r10a r10b r11a r11b. Their GC materials and the PS2 sections match (same mesh and texels); the snake's and the
 #              fish's material needs bump, which reaches only GX stubs on the DC source path, so the certificate accepts its
 #              absence for registry models 0x24 / 0x27 (RE4DC_NMR_CH1CAST, the twin of model_registry.py source_drops "bump",
-#              Del Lago's rule). Traps, bats and crawlers need no code: their room package and texture-prepared archive
+#              Del Lago's rule). The bats are ot_type 1 (OT 0x11, the same ModelRender callback): the registry model check
+#              admits that for model 0x29 (RE4DC_REGISTRY_OT_OK). Traps and crawlers need no code: their room package and texture-prepared archive
 #              (prepare_enemy_motions.py SMALL, textures only) are disc data. Without the knob a snake / fish descriptor is
 #              declined by the certificate (GC model, as before). Needs PS2_DELLAGO=1 (the bump drop rule block).
 PS2_CAST_CH1 ?= 0

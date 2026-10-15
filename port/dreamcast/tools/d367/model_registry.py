@@ -518,6 +518,13 @@ def main():
         # RE4DC_NMR_ASHLEY: a 256 KiB package + skin ceiling (Ashley + her mask runs) in every room she follows Leon to
         # (r117, then the chapter 2 rooms; coarse_actor_registry_pack_check.inc RE4DC_NMR_PACK_KIB applies to every room).
         PACK_MAX_BYTES = 256 * 1024
+    if '--fact-parts' in args:
+        # --fact-parts N (lane ps2cast 2026-10-15): the image's part-fact capacity RE4DC_NMR_FACTS (native_model_registry.mk:
+        # 40 with PS2_CAST_MERCHANT, 72 with PS2_ASHLEY); a room package with more source parts than 32 (the r104 robed em13)
+        i = args.index('--fact-parts'); n = int(args[i + 1]); del args[i:i + 2]
+        if n not in (40, 72):
+            sys.exit('model_registry: --fact-parts takes 40 or 72 (RE4DC_NMR_FACTS)')
+        PACK_CAPACITY['fpart'] = n
     if '--ch23-facts' in args:
         args.remove('--ch23-facts')
         PACK_CAPACITY['fpart'] = 128  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc

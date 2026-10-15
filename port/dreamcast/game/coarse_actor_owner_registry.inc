@@ -972,12 +972,19 @@ extern "C" int re4dc_registry_merchant_robe(unsigned appearance,unsigned role,un
                      (role==5u && (bin==0xBu || bin==0xCu)));
 }
 #endif
+#if RE4DC_NMR_CH1CAST
+// PS2_CAST_CH1: the r106 bats (em29, model 0x29) are ot_type 1 (ModelTrans: OT 0x11, AddOtWorldPosRadius, the same
+// ModelRender callback as ot_type 0 in a later group); the owner path draws inside that callback, so the order is kept.
+#define RE4DC_REGISTRY_OT_OK(m,desc) (!(m)->ot_type || ((m)->ot_type==1 && (desc)->model_id==0x29u))
+#else
+#define RE4DC_REGISTRY_OT_OK(m,desc) (!(m)->ot_type)
+#endif
 extern "C" int re4dc_registry_model(const cModel* m,const Re4dcActorPlan* p) {
     const auto* desc=p?registry_descriptor(p->appearance):nullptr;
 #if RE4DC_NMR_SLOTS
-    return desc && m && m->id==desc->model_id && m->nParts==registry_source_bones(*desc) && RE4DC_PLAN_SHAPE(p,desc) && !m->ot_type;
+    return desc && m && m->id==desc->model_id && m->nParts==registry_source_bones(*desc) && RE4DC_PLAN_SHAPE(p,desc) && RE4DC_REGISTRY_OT_OK(m,desc);
 #else
-    return desc && m && m->id==desc->model_id && m->nParts==desc->bones && RE4DC_PLAN_SHAPE(p,desc) && !m->ot_type;
+    return desc && m && m->id==desc->model_id && m->nParts==desc->bones && RE4DC_PLAN_SHAPE(p,desc) && RE4DC_REGISTRY_OT_OK(m,desc);
 #endif
 }
 // The entry gate (source_actor_owner_hooks.inc, re4dc_actor_transaction_candidate): a model id with a validated
