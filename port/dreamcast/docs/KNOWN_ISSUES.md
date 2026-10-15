@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 15, 2026. The current public build is console test 12 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12.
+Last updated: October 15, 2026. The current public build is console test 12.1 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -14,9 +14,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
-| 🟢 Fixed in test 9 / 9.1 / 10 / 12 | Fixed and checked in our tests; the problem was not console-only | 7 |
+| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 | Fixed and checked in our tests; the problem was not console-only | 8 |
 | 🛠️ In progress | Being fixed now | 1 |
-| 🔍 Investigating | Being reproduced or traced | 4 |
+| 🔍 Investigating | Being reproduced or traced | 3 |
 | ⏸️ Open | Known, not yet worked on | 16 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
@@ -52,12 +52,12 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Some textures are missing or corrupted (same memory corruption as the crashes) | test 7, test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon and most villagers are not lit by the scene's lights | test 8 | 🛠️ In progress: from test 12, Leon is lit by the scene's lights, with a soft fill light that brings him close to the GameCube brightness. The villagers are not done yet | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn | [#19](https://github.com/lamb2k/re4dc/issues/19) |
+| Some rooms look almost pitch black: the r11b lake shore (dark dock and ground, near-black sky), r117, r108 | test 12 | 🟢 Fixed in test 12.1: the rooms use the PS2 room lighting, and the r11b / r119 mist is drawn as in test 10 | |
 | Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | Some effects (31 shared fire, smoke and spark pictures) still use the GameCube pictures; the rest of the village effects use the PS2 ones | test 12 | ⏸️ Open: those pictures are stored in a PS2 format that is not converted yet | |
 | The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
-| Some rooms look almost pitch black, as if they had no light | test 12 | 🔍 Investigating: we are comparing every room on the disc with test 10. Please tell us which rooms | |
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12 | ⏸️ Open: those rooms use the PS2 boxes with the GameCube debris effect. Planned for test 13 | |
 
 ## Sound

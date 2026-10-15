@@ -15,6 +15,8 @@
 #   + acc12 8 texture keys        lane acc12 (fdc16424): PS2 Ganado accessory pictures, ps2lib/cast/common/acc12/tex,
 #                                 packed instead of loose
 #   then tex_wrapsafe.py marks the uniform 16-bit packages (TEX_WRAP_SAFE=1).
+#   + (test 12.1, BLACK=<dir>) the re-keyed world textures of a t11 black-faces data set (blackps2/newtex: the PS2
+#                                 formula for the 14 rooms, T121_DATA in test11/t11-fix.py), packed instead of loose
 # tex_merge.py refuses a key two inputs change differently. Output: $OUT (default /root/probe/lanes-20261014/t12rc/data).
 # Also $OUT/resident.bin (dc/resident.bin, ROOM_RESIDENT=1): vram/resident_keys.py pack of vram/resident/r*.tsv.
 set -euo pipefail
@@ -31,10 +33,11 @@ mkdir -p $OUT
 sha256sum $BASE $FX $VR "$ITM" | cut -c1-16 | paste -sd' '
 python3 $D/texpack.py "$MER" $OUT/tex-merchant.pak
 python3 $D/texpack.py "$ACC" $OUT/tex-acc12.pak
-python3 $D/tex_merge.py $BASE $OUT/$NAME-merge.pak $FX $VR $OUT/tex-merchant.pak "$ITM" $OUT/tex-acc12.pak
+BLK=; if [ -n "${BLACK:-}" ]; then python3 $D/texpack.py "$BLACK" $OUT/tex-black.pak; BLK=$OUT/tex-black.pak; fi
+python3 $D/tex_merge.py $BASE $OUT/$NAME-merge.pak $FX $VR $OUT/tex-merchant.pak "$ITM" $OUT/tex-acc12.pak $BLK
 python3 $D/tex_wrapsafe.py $OUT/$NAME-merge.pak $OUT/$NAME.pak > $OUT/ws-$NAME.txt
 tail -1 $OUT/ws-$NAME.txt
 python3 $D/texpack.py --verify $OUT/$NAME.pak
-rm -f $OUT/$NAME-merge.pak $OUT/tex-merchant.pak $OUT/tex-acc12.pak
+rm -f $OUT/$NAME-merge.pak $OUT/tex-merchant.pak $OUT/tex-acc12.pak $OUT/tex-black.pak
 python3 $D/vram/resident_keys.py pack $OUT/resident.bin $D/vram/resident/r*.tsv
 sha256sum $OUT/$NAME.pak $OUT/resident.bin

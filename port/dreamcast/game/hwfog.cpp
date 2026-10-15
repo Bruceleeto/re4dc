@@ -46,8 +46,10 @@ const HwFogRow kRows[] = {
     {0x106, 3000.0f, 5000.0f, 0.09f},   // fog colour 6e6a59
     {0x107, 3000.0f, 5000.0f, 0.02f},   // 5f6059
     {0x109, 3000.0f, 5000.0f, 0.04f},   // 737166
-    {0x119, 3000.0f, 5000.0f, 0.00f},   // 191c1d (night): the far haze is cut, no veil
-    {0x11b, 3000.0f, 5000.0f, 0.00f},   // 262727 (night): the far haze is cut, no veil
+    // r119 / r11b (night, fog colour 191c1d / 262727) had rows that cut every haze sprite beyond 3 m with no veil. Test
+    // 12.1 drops them (lane t12dark, T12-DARK-ROOMS-20261015.md): a console player saw r11b's lake sky near-black in test
+    // 12 where test 10 drew a light grey mist. Flycast draws those far sprites faintly (they added ~1/255 to the stills
+    // this row was calibrated on), so it does not show the loss. Both rooms draw their whole haze again, as in test 10.
 };
 constexpr unsigned kRowCount = sizeof(kRows) / sizeof(kRows[0]);
 constexpr unsigned kHold = 60;   // native frames the last note stays valid (the haze pass need not run every frame)
