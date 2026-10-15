@@ -10,7 +10,15 @@ using re4dc_material::kRoomRoles;using re4dc_material::kRoomBlobs;
 // PS2_ASHLEY (native_model_registry.mk, RE4DC_NMR_ASHLEY): Ashley's GC TPLs give 28 source texture facts per package and
 // 17 per role (pl11 TPL 5), 10 source BIN models (three hand sets: 0xC..0x10), and her r117 package + skin needs more than 192 KiB (the loader allocates the actual size;
 // the generator allows 256 KiB only for r117). Off: 16 / 8 / 192 KiB as before.
-#if defined(RE4DC_NMR_ASHLEY) && RE4DC_NMR_ASHLEY
+#if defined(RE4DC_NMR_POOL) && RE4DC_NMR_POOL
+// NATIVE_MODEL_REGISTRY_POOL: a pool descriptor carries one source BIN model per pool section (the zealot pool: 18) and
+// their TPLs' texture facts, beside Ashley's partner package (10 models, 28 texture facts) in her rooms.
+#define RE4DC_NMR_TEX_FACTS 64u
+#define RE4DC_NMR_ROLE_TEXTURES 17u
+#define RE4DC_NMR_PACK_KIB 256u
+#define RE4DC_NMR_PACK_MODELS 48u
+#define RE4DC_NMR_ROLE_TN_BAD(tn,room) ((tn)>pack_role_texture_max(room))
+#elif defined(RE4DC_NMR_ASHLEY) && RE4DC_NMR_ASHLEY
 #define RE4DC_NMR_TEX_FACTS 32u
 #define RE4DC_NMR_ROLE_TEXTURES 17u
 #define RE4DC_NMR_PACK_KIB 256u
@@ -43,7 +51,10 @@ enum PackKind : unsigned {kDesc,kRef,kGeom,kBlob,kTex,kParents,kBind,kFModel,kFP
 constexpr unsigned kPackRecord[kPackKinds]={48,16,64,1,16,1,48,96,32,68,32,32};
 // CH23 closed/open em13 needs 35 source material facts; all three em35 forms
 // need 124. Facts stay in the validated room package; no added static arena.
-#if defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
+#if defined(RE4DC_NMR_POOL) && RE4DC_NMR_POOL
+// NATIVE_MODEL_REGISTRY_POOL: the pool sections' source part facts (each package its own; Luis 83, a pool ~60).
+constexpr unsigned kPackModels=RE4DC_NMR_PACK_MODELS,kPackParts=160,kPackTexFacts=RE4DC_NMR_TEX_FACTS;
+#elif defined(RE4DC_ROUTE_CH23) && RE4DC_ROUTE_CH23
 constexpr unsigned kPackModels=RE4DC_NMR_PACK_MODELS,kPackParts=128,kPackTexFacts=RE4DC_NMR_TEX_FACTS;
 #elif RE4DC_ROUTE_CH22
 // Complete Luis six-info body (74) plus its independent gun (9).
@@ -193,7 +204,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         detail=k;
         if(kind!=k+1 || off%32u || off<end || off>size || bytes>size-off || !count || count+RE4DC_PBK(k)>kPackCapacity[k] ||
            bytes!=count*kPackRecord[k])return kPwTable;
-#if RE4DC_ROUTE_CH22 && !RE4DC_ROUTE_CH23
+#if RE4DC_ROUTE_CH22 && !RE4DC_ROUTE_CH23 && !RE4DC_NMR_POOL
         if(k==kFPart && room!=0x11cu && count>32u)return kPwTable;
 #endif
         sec[k]={off,bytes,count};end=off+bytes;
@@ -274,9 +285,18 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         // A draw-slot descriptor (word 44 bits 8..15 = S source joints): parents run = S source parents (u8, 0xff =
         // root, else an earlier joint) + `bones` slot bytes (strictly increasing joints < S); bind run = S inverses.
         const unsigned S=(pu32(r,44)>>8)&255u,pjoints=S?S+bones:bones,bjoints=S?S:bones;
+#if RE4DC_NMR_POOL
+        // NATIVE_MODEL_REGISTRY_POOL: word 44 bit 24 = a pool descriptor (2..kRegPoolSections sections, no draw slots).
+        const unsigned pool=(pu32(r,44)>>24)&1u;
+        if(app!=nmr::appearance_first+d || id>255 || !bones || bones>max_bones || !sections || sections>(pool?kRegPoolSections:8u) ||
+           (pool && (S || sections<2u)) || first!=refs || pat!=parents_used || bfirst!=binds_used ||
+           RE4DC_NMR_WORD44_BAD(pu32(r,44)&~(1u<<24)) || refs+sections>sec[kRef].count ||
+           (S && S<=bones) || pat+pjoints>sec[kParents].count || bfirst+bjoints>sec[kBind].count)return kPwDescriptor;
+#else
         if(app!=nmr::appearance_first+d || id>255 || !bones || bones>max_bones || !sections || sections>8 || first!=refs ||
            pat!=parents_used || bfirst!=binds_used || RE4DC_NMR_WORD44_BAD(pu32(r,44)) || refs+sections>sec[kRef].count ||
            (S && S<=bones) || pat+pjoints>sec[kParents].count || bfirst+bjoints>sec[kBind].count)return kPwDescriptor;
+#endif
         if(S) {
             const auto* up=reinterpret_cast<const unsigned char*>(parents+pat);
             if(up[0]!=0xffu)return kPwSkeleton;
@@ -288,9 +308,17 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         }
         for(unsigned k=0;k<bjoints;++k)for(unsigned e=0;e<12;++e)if(!coarse_finite(bind[bfirst+k][e]))return kPwSkeleton;
 #else
+#if RE4DC_NMR_POOL
+        const unsigned pool=(pu32(r,44)>>24)&1u;
+        if(app!=nmr::appearance_first+d || id>255 || !bones || bones>max_bones || !sections || sections>(pool?kRegPoolSections:8u) ||
+           (pool && sections<2u) || first!=refs || pat!=parents_used || bfirst!=binds_used ||
+           RE4DC_NMR_WORD44_BAD(pu32(r,44)&~(1u<<24)) || refs+sections>sec[kRef].count ||
+           pat+bones>sec[kParents].count || bfirst+bones>sec[kBind].count)return kPwDescriptor;
+#else
         if(app!=nmr::appearance_first+d || id>255 || !bones || bones>max_bones || !sections || sections>8 || first!=refs ||
            pat!=parents_used || bfirst!=binds_used || RE4DC_NMR_WORD44_BAD(pu32(r,44)) || refs+sections>sec[kRef].count ||
            pat+bones>sec[kParents].count || bfirst+bones>sec[kBind].count)return kPwDescriptor;
+#endif
         // Skeleton: an index-ordered forest rooted at bone 0, finite inverse binds.
         if(parents[pat]!=-1)return kPwSkeleton;
         for(unsigned k=1;k<bones;++k)if(parents[pat+k]<-1 || parents[pat+k]>=int(k))return kPwSkeleton;
@@ -299,11 +327,16 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         std::memset(desc.name,0,sizeof(desc.name));std::memcpy(desc.name,r,n);
         desc.appearance=app+RE4DC_PB(desc);desc.model_id=id;desc.bones=bones;desc.sections=sections;desc.first_chunk=first+RE4DC_PB(ref);desc.skin_bytes=0;
         desc.parents=parents+pat;desc.bind=bind+bfirst;
+#if RE4DC_NMR_POOL
+        desc.pool=pool;
+#endif
 #if RE4DC_NMR_SLOTS
         desc.source_bones=S;
         desc.source_parents=S?reinterpret_cast<const unsigned char*>(parents+pat):nullptr;
 #endif
 #if RE4DC_NMR_SHIFT && RE4DC_NMR_SLOTS
+        desc.shift=(pu32(r,44)&255u)?(pu32(r,44)&255u):4u;
+#elif RE4DC_NMR_SHIFT && RE4DC_NMR_POOL
         desc.shift=(pu32(r,44)&255u)?(pu32(r,44)&255u):4u;
 #elif RE4DC_NMR_SHIFT
         desc.shift=pu32(r,44)?pu32(r,44):4u;
@@ -319,6 +352,8 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 const unsigned char* owner=p+sec[kRef].at+(first+1u)*16u;
                 if(pu32(owner,8)!=1u || pu32(owner,0)!=g || pu32(owner,4)!=t || pu32(owner,12) || pu32(f,12))return kPwRef;
             }
+#elif RE4DC_NMR_POOL
+            const bool luis=false;  // NATIVE_MODEL_REGISTRY_POOL without ROUTE_CH22: only pool sections may be mask-only
 #endif
 #if RE4DC_NMR_MASK
             // Word 12: 0, or a masked section: opaque run geometry + 1 (bits 0..7), pair run geometry + 1 (8..15), the
@@ -352,9 +387,14 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
             if(!geom_primary[g]){geom_primary[g]=1;skin_sum+=c.skin_bytes;}
             if(mw) {
                 const unsigned go=(mw&255u)-1u,gh=((mw>>8)&255u)-1u,tc=(mw>>16)&255u,tm=mw>>24;
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 const bool mask_only=(mw&255u)==0;
+#if RE4DC_NMR_POOL
+                // NATIVE_MODEL_REGISTRY_POOL: a pool section whose every triangle is a masked card is mask-only too.
+                if(mask_only && !(luis && i==3u) && !desc.pool)return kPwRef;
+#else
                 if(mask_only && !(luis && i==3u))return kPwRef;
+#endif
                 if((!mask_only && (go>=sec[kGeom].count || go==g || go==gh)) || gh>=sec[kGeom].count || gh==g || tc>=sec[kTex].count ||
 #else
                 if(go>=sec[kGeom].count || gh>=sec[kGeom].count || go==g || gh==g || go==gh || tc>=sec[kTex].count ||
@@ -366,7 +406,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 // the chunk's UV words; the runs' triangles add up to the chunk's.
                 const unsigned runs[2]={go,gh};
                 for(const unsigned x:runs) {
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                     if(mask_only && x==~0u)continue;
 #endif
                     const nmr::Chunk X=registry_geom_view(p+sec[kGeom].at,blob,x);
@@ -374,7 +414,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                        pu32(p+sec[kGeom].at+x*64,28)!=bones || std::memcmp(X.positions,A.positions,A.position_count*8u) ||
                        std::memcmp(X.normals,A.normals,A.normal_count*8u) || std::memcmp(X.weights,A.weights,A.palette_count*16u))return kPwRef;
                 }
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 const nmr::Chunk Hr=registry_geom_view(p+sec[kGeom].at,blob,gh);
                 if(mask_only) {if(Hr.triangles!=A.triangles)return kPwRef;}
                 else {
@@ -391,7 +431,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 PackHash ph;ph.add(reinterpret_cast<const unsigned char*>("R4MPv001"),8);
                 ph.add(reinterpret_cast<const unsigned char*>(words),16);
                 c.pair_crc=ph.crc32();c.pair_fnv=ph.fnv;
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 if(!mask_only)geom_used[go]=1;
                 geom_used[gh]=1;tex_used|=(1u<<tc)|(1u<<tm);
 #else
@@ -489,6 +529,13 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
         {13312u,0xefcc04b2u,0xe438fb43u},{13120u,0x01e766c0u,0x671da641u}};
     for(unsigned d=0;d<sec[kDesc].count;++d) {
         const auto& desc=PKD[d];bool extended=false;detail=d;
+#if RE4DC_NMR_POOL
+        if(desc.pool) {
+            // A pool's sections are never covered; a mask-only pool section is the general pair run (checked above).
+            for(unsigned i=0;i<desc.sections;++i)if(pack_chunks[desc.first_chunk+i].draw_owner!=i)return kPwBinding;
+            continue;
+        }
+#endif
         for(unsigned i=0;i<desc.sections;++i) {
             const auto& c=pack_chunks[desc.first_chunk+i];extended|=c.draw_owner!=i;
 #if RE4DC_NMR_MASK

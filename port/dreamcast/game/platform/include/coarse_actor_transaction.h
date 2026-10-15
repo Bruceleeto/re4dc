@@ -28,7 +28,20 @@ struct Re4dcActorPlan {
     unsigned material_count=0,run_count=0;
     Re4dcActorOwnedMaterial materials[kRe4dcActorMaterials]{};
     Re4dcActorPlannedRun runs[kRe4dcActorRuns]{};
+#if defined(RE4DC_NMR_POOL) && RE4DC_NMR_POOL
+    // NATIVE_MODEL_REGISTRY_POOL (native_model_registry.mk; every object): a pool descriptor's plan keeps its roles in
+    // source info order and names, per role, the pool section (role row and chunk) that info proved. pool=0 for every
+    // other plan: role k is section k.
+    unsigned pool=0;
+    unsigned char section[kRe4dcActorRoles]{};
+#endif
 };
+#if defined(RE4DC_NMR_POOL) && RE4DC_NMR_POOL
+inline unsigned re4dc_plan_section(const Re4dcActorPlan* p,unsigned k) {return p->pool?p->section[k]:k;}
+#define RE4DC_PLAN_ROLE(p,k) re4dc_plan_section((p),(k))
+#else
+#define RE4DC_PLAN_ROLE(p,k) (k)
+#endif
 extern "C" {
 int re4dc_actor_plan_leon(cModel*,Re4dcActorPlan*);
 int re4dc_actor_plan_ganado(cModel*,Re4dcActorPlan*);

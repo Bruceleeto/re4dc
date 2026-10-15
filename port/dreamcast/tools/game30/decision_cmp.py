@@ -85,6 +85,9 @@ def main():
     ap.add_argument("--from", dest="lo", type=int, default=None)
     ap.add_argument("--to", dest="hi", type=int, default=None)
     ap.add_argument("--json")
+    # --test-shift S (lane ps2cast 2026-10-15): compare test tick t with ref tick t+S (a load-timing shift: a door hold
+    # that ended S ticks sooner in the test; logic_trace_diff --align auto reports it as auto_offset -S).
+    ap.add_argument("--test-shift", dest="shift", type=int, default=0)
     a = ap.parse_args()
     A, pa = load(a.ref)
     B, pb = load(a.test)
@@ -102,7 +105,7 @@ def main():
         if a.lo is None:
             a.lo = 0
     AA = {t - da: v for t, v in A.items()}
-    BB = {t - db: v for t, v in B.items()}
+    BB = {t - db + a.shift: v for t, v in B.items()}
     ticks = sorted(k for k in set(AA) & set(BB)
                    if all(f in AA[k] and f in BB[k] for f in MUST)
                    and (a.lo is None or k >= a.lo) and (a.hi is None or k <= a.hi))

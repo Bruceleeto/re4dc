@@ -85,6 +85,8 @@ SLOTS = False               # --slots: draw-slot descriptors (source.json draw_s
 WIDE_IDENTITY = False       # --wide-identity: 64 / 96 and the pl08 base rows (RE4DC_ACTOR_WIDE_IDENTITY)
 ACTOR_MATERIALS = 3         # actor_native_owner.h kRe4dcActorMaterials
 ACTOR_CHUNKS = 8            # Re4dcActorPlan info[8]
+POOL = False                # --pool: pool descriptors (spec "pool": true), package only (NATIVE_MODEL_REGISTRY_POOL images)
+POOL_SECTIONS = 48          # coarse_actor_owner_registry.inc kRegPoolSections
 APPEARANCE0 = 0x200         # registry appearances 0x200 + descriptor index (Ganado 0..4, Leon 0x100)
 # coarse_actor_material.inc Need bits and what the flat owner path implements for a non-Leon actor
 DIFFUSE, SPECULAR, MASK, BUMP, MORPH, SOURCE_LIGHTING, SOURCE_PASS, ATLAS_SAMPLER = 1, 2, 4, 8, 16, 32, 64, 128
@@ -516,6 +518,13 @@ def main():
         # RE4DC_NMR_ASHLEY: a 256 KiB package + skin ceiling (Ashley + her mask runs) in every room she follows Leon to
         # (r117, then the chapter 2 rooms; coarse_actor_registry_pack_check.inc RE4DC_NMR_PACK_KIB applies to every room).
         PACK_MAX_BYTES = 256 * 1024
+    if '--fact-parts' in args:
+        # --fact-parts N (lane ps2cast 2026-10-15): the image's part-fact capacity RE4DC_NMR_FACTS (native_model_registry.mk:
+        # 40 with PS2_CAST_MERCHANT, 72 with PS2_ASHLEY); a room package with more source parts than 32 (the r104 robed em13)
+        i = args.index('--fact-parts'); n = int(args[i + 1]); del args[i:i + 2]
+        if n not in (40, 72):
+            sys.exit('model_registry: --fact-parts takes 40 or 72 (RE4DC_NMR_FACTS)')
+        PACK_CAPACITY['fpart'] = n
     if '--ch23-facts' in args:
         args.remove('--ch23-facts')
         PACK_CAPACITY['fpart'] = 128  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
@@ -536,6 +545,20 @@ def main():
     if '--wide-identity' in args:
         args.remove('--wide-identity')
         WIDE_IDENTITY = True; MATERIAL_ROWS = 96; SOURCE_BLOBS = 64   # RE4DC_ACTOR_WIDE_IDENTITY
+    global POOL
+    if '--pool' in args:
+        # --pool (lane ps2cast 2026-10-15, default off: output unchanged): descriptors whose spec says "pool": true are
+        # emitted as pool descriptors (word 44 bit 24; NATIVE_MODEL_REGISTRY_POOL images only, which also widen the
+        # identity rows to 128 and the package capacities: chunks / geometries 64, 48 source BIN models, 64 texture
+        # facts, 160 part facts, 256 KiB). Package only; needs --wide-identity.
+        args.remove('--pool')
+        if package_room is None or not WIDE_IDENTITY:
+            sys.exit('model_registry: --pool is package only (--package-room) and needs --wide-identity')
+        POOL = True; MATERIAL_ROWS = 128
+        global ACTOR_MATERIALS
+        ACTOR_MATERIALS = 4  # RE4DC_ACTOR_MATERIALS=4 (native_model_registry.mk with the pool): atlas + three mask pairs
+        PACK_CAPACITY.update(ref=64, geom=64, fmodel=48, fpart=160, ftex=64)
+        PACK_MAX_BYTES = 256 * 1024
     if len(args) != 2:
         sys.exit(__doc__)
     spec_path, out = os.path.abspath(args[0]), os.path.abspath(args[1])
@@ -646,7 +669,22 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             # --slots: an attachment model's local part table (fewer parts, distinct attach ids naming source joints)
             a = [p['attach'] for p in b['part_bindings']]
             return draw_slots is not None and len(a) == b['parts'] < bones and len(set(a)) == len(a) and all(0 <= x < bones for x in a)
-        if not luis and any([p['parent'] for p in b['part_bindings']] != parents and not attachment(b) for b in binds):
+        # partial_sections (descriptor opt-in; lane ps2cast-st3, the stage-3 soldiers): a head / hand BIN may carry
+        # only the parts it weights (or repeat a hand root by attach id: em11 type 7), each attached to the body part of its attach id (GC calcWeightMat); its parents
+        # name body parts (a section root: -1). The registry skins every section from the body's parts either way.
+        partial = set()
+        if d.get('partial_sections'):
+            for k, b in enumerate(binds[1:], 1):
+                q = b['part_bindings']
+                if len(q) == bones:
+                    continue
+                at = [p['attach'] for p in q]
+                if any(not (0 <= a < bones) for a in at) or \
+                        any(p['id'] != i or p['parent'] not in (-1, parents[p['attach']]) for i, p in enumerate(q)):
+                    raise Fail(f'{name} section {k}: partial skeleton is not a subset of the body hierarchy')
+                partial.add(k)
+        if not luis and any([p['parent'] for p in b['part_bindings']] != parents and not attachment(b)
+                            for k, b in enumerate(binds) if k not in partial):
             raise Fail(f'{name}: sections disagree on the hierarchy')
         if parents[0] != -1 or any(not (-1 <= q < i) for i, q in enumerate(parents)):
             raise Fail(f'{name}: parents are not a forest in index order')
@@ -684,7 +722,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                 raise Fail(f'{name} section {i}: archive BIN {b["bin"]} differs from source-bindings (counts/flags)')
             if luis and f['normalized'] != LUIS_NORMALIZED[b['bin']]:
                 raise Fail(f'{name} section {i}: pinned normalized source BIN differs')
-            if not luis and b['parts'] != bones and not attachment(b):
+            if not luis and b['parts'] != bones and not attachment(b) and i not in partial:
                 raise Fail(f'{name} section {i}: BIN has {b["parts"]} parts, the skeleton {bones}')
             # the runtime signature (coarse_ganado_cast.cpp fingerprint): FNV-1a of the first 64 bytes of the LE positions
             if '%08x' % digest(f['positions_le_first64'])[2] != b['source_vertex_fnv64_le']:
@@ -730,8 +768,13 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
         expected_roles = [0,1,3,4,5] if luis else list(range(len(sections)))
         if [c['source_info'] for c in chunks] != expected_roles:
             raise Fail(f'{name}: header chunks {[c["source_info"] for c in chunks]} are not one per source section in order')
-        if len(chunks) > ACTOR_CHUNKS:
-            raise Fail(f'{name}: {len(chunks)} chunks > {ACTOR_CHUNKS}')
+        pool = bool(d.get('pool'))
+        if pool and not POOL:
+            raise Fail(f'{name}: a pool descriptor needs --pool (a NATIVE_MODEL_REGISTRY_POOL package)')
+        if pool and (len(chunks) < 2 or draw_slots is not None or luis):
+            raise Fail(f'{name}: a pool needs 2+ sections and no draw slots')
+        if len(chunks) > (POOL_SECTIONS if pool else ACTOR_CHUNKS):
+            raise Fail(f'{name}: {len(chunks)} chunks > {POOL_SECTIONS if pool else ACTOR_CHUNKS}')
         skin = 0
         for c in chunks:
             err = preflight_chunk(c, draw)
@@ -772,9 +815,11 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
             if mj['header_sha256'] != L['header_sha256'] or mj['section'] != si or mj['triangles']['chunk'] != c['triangles']:
                 raise Fail(f'{name} section {si}: mask runs were made from another header / section')
             mask_only = bool(mj.get('mask_only'))
-            if mask_only and not (luis and si == 3 and mj['runs']['opaque']['triangles'] == 0 and
-                                  mj['runs']['hair']['triangles'] == c['triangles'] == 1273):
-                raise Fail('mask-only is restricted to the complete pinned Luis hair')
+            # mask-only: the complete pinned Luis hair, or (--pool) a pool section whose every triangle is a hair card
+            pool_only = pool and mj['runs']['opaque']['triangles'] == 0 and mj['runs']['hair']['triangles'] == c['triangles']
+            if mask_only and not ((luis and si == 3 and mj['runs']['opaque']['triangles'] == 0 and
+                                   mj['runs']['hair']['triangles'] == c['triangles'] == 1273) or pool_only):
+                raise Fail('mask-only is restricted to the complete pinned Luis hair and whole pool sections')
             rb = {}
             for k in ('opaque.blob', 'hair.blob', 'hair.uv'):
                 rb[k] = open(inputs.take(os.path.join(mdir, k), f'mask/{name}/{si}/{k}'), 'rb').read()
@@ -782,7 +827,7 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                 raise Fail(f'{name} section {si}: run blobs differ from mask-runs.json')
             if mask_only and rb['opaque.blob']:
                 raise Fail('mask-only opaque payload must be absent')
-            if mask_only:
+            if mask_only and luis:
                 # A complete source hair run retains triangle order and every
                 # original corner; undo only its colour-atlas cell transform.
                 aw, ah = luis['atlas']['size']; x, y, cw, ch = luis['atlas']['cells']['(5, 3)']
@@ -838,6 +883,8 @@ def generate(spec_path, out, tree, package_room=None, source_normal_length=False
                      position_shift=int(e.get('position_shift', 4)))
         if luis:
             entry['source_coverage_manifest_sha256'] = luis['reviewed_manifest_sha256']
+        if pool:
+            entry['pool'] = True
         if draw_slots is not None:
             entry.update(source_bones=bones, slots=list(draw_slots))
         if not 1 <= entry['position_shift'] <= 4:
@@ -1182,7 +1229,9 @@ def write_package(out, room, spec, runtime, textures, used_tex, bins, tpls, blob
                                                          # word 44: the position shift read by NATIVE_MODEL_REGISTRY_SHIFT=1
                                                          # images (0 = 4, what every image assumes)
                                                          (0 if r['position_shift'] == 4 else r['position_shift']) |
-                                                         (r['source_bones'] << 8 if r.get('slots') else 0)))
+                                                         (r['source_bones'] << 8 if r.get('slots') else 0) |
+                                                         # word 44 bit 24: a pool descriptor (--pool)
+                                                         (1 << 24 if r.get('pool') else 0)))
     # source identity facts, in first-use order
     fmodel, fpart, ftex, fm_index, ft_index, roles = [], [], [], {}, {}, []
     for r in runtime:

@@ -89,7 +89,12 @@ bool actor_owned_live;
 bool actor_certificate_reached;
 #endif
 re4dc_actor::PaletteArena actor_palette_arena;
-constexpr unsigned kActorPaletteCap=64*1024;
+#ifndef RE4DC_ACTOR_PALETTE_BANK
+#define RE4DC_ACTOR_PALETTE_BANK 64
+#endif
+// ACTOR_PALETTE_BANK (KiB, native_model_registry.mk): the per-frame palette bank funded from the primitive tail.
+constexpr unsigned kActorPaletteCap=RE4DC_ACTOR_PALETTE_BANK*1024;
+static_assert(RE4DC_ACTOR_PALETTE_BANK>=16 && RE4DC_ACTOR_PALETTE_BANK<=64,"ACTOR_PALETTE_BANK 16..64 KiB");
 constexpr unsigned kActorOwnerReserve=16*1024;
 extern "C" void* re4dc_prim_tail(unsigned,unsigned);
 extern "C" void re4dc_model_packet_abort();
@@ -331,6 +336,14 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
         re4dc_actor_workspace_release(&workspace);release_textures();return nullptr;
     }
     void* palette_memory=actor_palette_arena.data(palette_lease,p.palette_bytes);
+#if RE4DC_ACTOR_TRANSACTION_DIAG
+    {static const unsigned char* pal_first;static unsigned pal_peak,pal_logs;
+        static unsigned pal_frame,pal_low;const auto* pm=static_cast<const unsigned char*>(palette_memory);
+        if(pal_frame!=pG->Frame_cnt){pal_frame=pG->Frame_cnt;pal_low=~0u;}
+        if(pm){const unsigned lo=unsigned(uintptr_t(pm));if(lo<pal_low){pal_low=lo;pal_first=pm;}
+            const unsigned hw=unsigned(pm+p.palette_bytes-pal_first);
+            if(hw>pal_peak && pal_logs++<60){pal_peak=hw;re4dc_log("APAL f=%u peak=%u id=%02x bytes=%u\n",unsigned(pG->Frame_cnt),hw,unsigned(m->id),p.palette_bytes);}}}
+#endif
     void* memory=palette_memory?re4dc_prim_tail(header,kActorOwnerReserve):nullptr;
     if(!memory) {
         ATD(m,12,header,p.palette_bytes);
@@ -416,7 +429,11 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     if(p.appearance>=nmr::appearance_first &&
        (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F) ||
         ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)) || ((RE4DC_NMR_SOURCE_LIGHT&16) && m->id==0x22) ||
-        ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23) || ((RE4DC_NMR_SOURCE_LIGHT&32) && m->id==0x18))) {
+        ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23) || ((RE4DC_NMR_SOURCE_LIGHT&32) && m->id==0x18)
+#if RE4DC_NMR_POOL
+        || ((RE4DC_NMR_SOURCE_LIGHT&64) && p.pool)
+#endif
+        )) {
 #if RE4DC_ACTOR_GANADO_DEATH_FADE
         if(!captured)
 #endif
