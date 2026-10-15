@@ -168,13 +168,18 @@ CLASH += [('items', 'leonhr')]
 #   acc12d  = acc12all without the loose 'tex' (its 8 packages are in t12tex)
 T12I = T12D + '/items'
 DATA['items12'] = {k: v for _r in ('r100', 'r101', 'r119') for k, v in DATA['items-' + _r].items()}
+# Release candidate (10-15): r100 / r101 items repacked on the objs12b dars (ps2_items.py pack, lane items lib; the same
+# run on the objs12 dars reproduces the lane's e28f4c55 / 298daec6; same asset results: r100 17 ps2, r101 29 ps2 + 1 NONE):
+# r100 4abfcc88 (on objs r100b c0eced0b), r101 f77af17a (on objs r101b fbb12e34).
+for _r in ('r100', 'r101'):
+    DATA['items12']['st1/%s.dar' % _r] = '%s/%sb/%s.dar' % (T12I, _r, _r)
 for _r in ('r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r11a r11b').split():
     DATA['items12']['st1/%s.dar' % _r] = '%s/%s/%s.dar' % (T12I, _r, _r)
 DATA['items12'].update({k: v for k, v in DATA['items'].items() if k == 'etc/core.das' or k.startswith('ss/cmn/')})
 DATA['acc12d'] = {k: v for k, v in DATA['acc12all'].items() if k != 'tex'}
 CLASH += [('items12', 'items'), ('acc12d', 'acc12'), ('acc12d', 'acc12all')]
 # order matters: items12 after objs12 / r119c (its dars replace theirs), acc12d last
-T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12,merchant,items12,acc12d'
+T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12b,merchant,items12,acc12d'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
