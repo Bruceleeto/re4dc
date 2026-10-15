@@ -58,6 +58,14 @@ SS_PACK ?= 0
 # after the close a preload pass restricted to them brings them back before play resumes (a load point, as at room
 # entry). A full room pass instead reloaded 95 r101 keys at the close (1.6 s in Flycast), most of them not in view.
 SS_HOLD_RESTORE ?= 0
+# CORE_PIN=1 (test 14 #1, needs ROOM_RESIDENT=1; render only, default 0 = image unchanged): dc/resident.bin's room 0
+# records (vram/resident/r000.tsv; room 0 with width 0 pads the file) are the core set: the HUD pictures every room
+# draws (r101 post-bell call: 4 of them, ~7 KB, evicted by the call's pictures and reloaded on first sight after it).
+# They join every room's resident list, and load() never picks them as an eviction victim.
+CORE_PIN ?= 0
+ifneq ($(CORE_PIN),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CORE_PIN=1
+endif
 ifneq ($(SS_HOLD_RESTORE),0)
 ifneq ($(SS_PACK),1)
 $(error SS_HOLD_RESTORE needs SS_PACK=1)

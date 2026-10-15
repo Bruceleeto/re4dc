@@ -52,7 +52,7 @@ T12=${T12-$T12REC}
 # test 12.2 (10-15, scope frozen by the coordinator): test 12.1 + RETIRE_KOS_FLOOR=65536 (the KOS left after r101 at the
 # next room's start); arms uP (12.2 play, packaged by test122/t122-package.sh) and uW (warp).
 T122="RETIRE_KOS_FLOOR=65536"
-# test 14 items on the 12.2 recipe (10-15): T14 knobs (e.g. SS_HOLD_RESTORE=1), arms wP (play) / wT (trace).
+# test 14 items on the 12.2 recipe (10-15): T14 knobs (e.g. SS_HOLD_RESTORE=1 CORE_PIN=1), arms wP (play) / wT (trace).
 T14=${T14-}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 MC="MCHECK_LEONGC=1 TEX_CHECK=2"

@@ -438,6 +438,16 @@ unsigned pack_error_skips; bool preload_after_pack;
 // one closes if a claim released uploads.
 unsigned vram_claims,claim_released;
 #endif
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+// CORE_PIN (subscreen.mk): the core keys (dc/resident.bin room 0), collected by preload_resident; load() never evicts
+// an entry holding one.
+constexpr unsigned kCoreKeys=16;
+Key core_keys[kCoreKeys];unsigned core_nkeys;
+inline bool core_pinned(const Entry& e){for(unsigned k=0;k<core_nkeys;++k)if(core_keys[k]==e.key)return true;return false;}
+#define RE4DC_CORE_PINNED(e) core_pinned(e)
+#else
+#define RE4DC_CORE_PINNED(e) false
+#endif
 #if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE && RE4DC_TEX_RESIDENT
 // SS_HOLD_RESTORE (subscreen.mk): the uploads load() evicts while the sub screen hold is open and that the room drew in
 // the kHoldWindow frames before the hold (the HUD, the view behind the call) are remembered; after the last unclaim a
@@ -3034,7 +3044,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     Entry* slot=nullptr;
     for(auto& e:entries) if(!e.valid){slot=&e;break;}
-    if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
+    if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && !RE4DC_CORE_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
     if(!slot) {RE4DC_PROFILE_COUNT(TextureNoSlot,1);RE4DC_TEXCHK_FAIL(key,"no-slot");return nullptr;}
 #if RE4DC_TEX_RESIDENT
     // Never evict a resident texture for a package that is not on the disc:
@@ -3111,7 +3121,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     // Without a pipeline, re4dc_ui_begin() quiesced the render before this frame.
     auto evict=[slot]{
         Entry* victim=nullptr;
-        for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
+        for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && !RE4DC_CORE_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
         if(!victim) return false;
         RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();RE4DC_HOLD_EVICTED(*victim);close_entry(*victim);++reclaimed;return true;
     };
@@ -3541,7 +3551,16 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
           re4dc::texture::RangeRead::ok;++pieces){
         for(unsigned i=0;i<32 && n+resident<limit;++i){
             const Rec& r=buf[i];
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+            if(!r.room && r.width && (r.crc|r.fnv)){   // CORE_PIN: a core key, pinned and listed in every room
+                const Key ck{r.crc,r.fnv};bool have=false;
+                for(unsigned k=0;k<core_nkeys && !have;++k)have=core_keys[k]==ck;
+                if(!have && core_nkeys<kCoreKeys)core_keys[core_nkeys++]=ck;
+            }
+            if((r.room!=src.room && r.room) || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
+#else
             if(r.room!=src.room || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
+#endif
             ++resident_listed;
             const Key key{r.crc,r.fnv};
             bool known=false;
@@ -3555,6 +3574,9 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
     }
     if(pieces)re4dc_log("native texture preload: resident list room=%03x pieces=%u listed=%u picked=%u\n",src.room,pieces,
                         resident_listed,resident_picked);
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+    if(pieces)re4dc_log("native texture preload: core keys=%u (pinned)\n",core_nkeys);
+#endif
 }
 #endif
 #if RE4DC_IO_PROBE
