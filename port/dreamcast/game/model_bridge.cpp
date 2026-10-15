@@ -389,3 +389,11 @@ extern "C" const void* re4dc_actor_accessory_parent(const void* model) {
     return oya && oya->kindid == 0 && oya->id >= 0x10 && oya->id <= 0x20 ? oya : nullptr;
 }
 #endif
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+// CALLPROF (game30.mk): an actor part's model as kindid << 8 | id for platform/callprof.cpp.
+extern "C" void re4dc_callprof_part_key(unsigned path,unsigned key);
+extern "C" void re4dc_callprof_part(const void* model,unsigned path){
+    const cModel* m=static_cast<const cModel*>(model);
+    re4dc_callprof_part_key(path,m?(unsigned(m->kindid)<<8|unsigned(m->id)):0xffffU);
+}
+#endif

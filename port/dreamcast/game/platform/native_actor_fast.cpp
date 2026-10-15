@@ -4468,11 +4468,17 @@ extern "C" unsigned re4dc_model_drop_last();
 #if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
 extern "C" const void* re4dc_actor_accessory_parent(const void* model);  // model_bridge.cpp
 #endif
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+extern "C" void re4dc_callprof_part(const void* model, unsigned path);  // model_bridge.cpp
+#endif
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
     return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
 }
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    re4dc_callprof_part(part ? part->model : nullptr, 0);
+#endif
 #if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
     // ACC_CROWD_TIER=N (crowd.mk, render only): a Ganado's hanging accessory is not drawn while that Ganado's crowd
     // tier this frame is >= N (2 mid, 3 far). Game state is untouched (the accessory still moves and renders on the
@@ -5042,6 +5048,9 @@ void one_close(OneWindow& w) {
 // LEON_NATIVE_PIPE (native_actor_leon_pipe.inc): known != nullptr hands in one_qualifies' result (its registry entry
 // and source), which the caller's preflight proved for this part; one_chunk(p, w) below is the unchanged call.
 int one_chunk_core(Re4dcModelPart& p, OneWindow& w, const SkinEntry* known, const Re4dcActorSource* known_src) {
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    re4dc_callprof_part(p.model, 1);
+#endif
     if (p.positions) return -1;
     ++stats.parts;
     const SkinEntry* se = nullptr;

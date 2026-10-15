@@ -653,7 +653,13 @@ struct Builder {
     }
 };
 }
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+extern "C" void re4dc_callprof_part(const void* model, unsigned path);  // model_bridge.cpp
+#endif
 extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    re4dc_callprof_part(p ? p->model : nullptr, 2);
+#endif
     RE4DC_PROFILE_SCOPE(ModelSetup);
     if(!re4dc_model_diagnostic_enabled())return;
 #if RE4DC_NATIVE_STATIC
