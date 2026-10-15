@@ -6,7 +6,7 @@
 #           Build-Assets zip is written from the recipe's private directories (release-knobs.py zip + zipcheck --objdir).
 # Output: $P (default C:\Game Dev\Emulators\RE4DC-Test12.2-Candidate): gdemu\, the GDEMU zip, the Build-Assets zip,
 # README.txt, SHA256SUMS.txt. Not published: the gates run on this package first.
-# Env: L (play label, default t12rctP), R (lane dir), P (output, /mnt/c path), SRC_SHA (default the build's stack.txt),
+# Env: L (play label, default t122auP), R (lane dir), P (output, /mnt/c path), SRC_SHA (default the build's stack.txt),
 #      NOZIP=1 (gdemu folder only; dry runs).
 set -e
 R=${R:-/root/probe/lanes-20261015/squeeze/rel122}
