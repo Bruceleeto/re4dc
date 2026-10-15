@@ -1931,17 +1931,18 @@ inline void sg_coef(const float* m,float near_distance,float* out){
 __attribute__((noinline)) unsigned sg_select(const std::uint16_t* g,unsigned n,const float* coef,unsigned mask,
         std::uint16_t* r0,std::uint16_t* r1,unsigned& lo,unsigned& hi,unsigned& culled){
     unsigned prev=0,nr=0,vlo=255,vhi=0,cut=0;
+    // the crossed planes, once per meshlet (not a 5-step skip loop per group)
+    const float* pl[5];unsigned np=0;
+    for(unsigned k=0;k<5;++k)if((mask>>k)&1U)pl[np++]=coef+8*k;
     for(unsigned i=0;i<n;++i,g+=8){
         const unsigned gend=g[6];
         if(gend==prev)continue;
         const float l0=float(g[0]),l1=float(g[1]),l2=float(g[2]),h0=float(g[3]),h1=float(g[4]),h2=float(g[5]);
         bool out=false;
-        const float* q=coef;
-        for(unsigned k=0;k<5 && !out;++k,q+=8){
-            if(!((mask>>k)&1U))continue;
-            const float* c=q;
+        for(unsigned k=0;k<np;++k){
+            const float* c=pl[k];
             const float P0=*c++,P1=*c++,P2=*c++,Q0=*c++,Q1=*c++,Q2=*c++,D=*c;
-            out=P0*h0+P1*h1+P2*h2+Q0*l0+Q1*l1+Q2*l2+D<-1.0f;
+            if(P0*h0+P1*h1+P2*h2+Q0*l0+Q1*l1+Q2*l2+D<-1.0f){out=true;break;}
         }
         if(out){++cut;prev=gend;continue;}
         r0[nr]=std::uint16_t(prev);r1[nr]=std::uint16_t(gend);++nr;

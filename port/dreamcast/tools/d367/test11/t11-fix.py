@@ -74,6 +74,10 @@ DATA['blackgc14vl'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': '/root/probe/lan
 CLASH += [(v, o) for v in ('blackgc14v', 'blackgc14vl') for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr',
                                                                    'blackgc14v' if v == 'blackgc14vl' else 'blackgc14vl')]
 T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bake (no r119) + Leon 2x, both in tex.pak
+# sg101 (lane objs 10-15): PS2_STRIP_GROUPS=1 data for r101 = ps2lib/world/r101-sg4 (tools/ps2_strip_groups.py --groups 4
+# of the test 11 r101 package f5592282: same size, strips re-ordered into spatial groups, every meshlet draws the same
+# triangles (sgcheck.py) + ps2-world.r4sg group records, mesh crc checked at open). Harmless with the knob off.
+DATA['sg101'] = {'dc/native/r101/ps2-world.%s' % x: PRIV + '/ps2lib/world/r101-sg4/ps2-world.%s' % x for x in ('re4mesh', 'r4sg')}
 # PS2 room objects (lane objs, docs/lanes/objs.md; Phase 2 B1 extended, test 12 candidate, NOT in T11_DATA): room
 # archives st1/rNNN.dar whose room-code set pieces and etc models (boxes, barrels, doors, racks, ladders, ...) carry
 # the PS2 geometry (tools/ps2_objects.py room --keep-larger; r101 BIN 0x20 = the burning stake is world-owned: the PS2
@@ -105,15 +109,18 @@ for _r in ('r100', 'r101'):
 #               PS2 effect library, FX_PS2_PACK / PAL4) + vram12 tex-vr12-both.pak (blackgc14vl: r101 world VQ + Leon's
 #               atlas ec255e66-76812316 as VQ, user decision 10-14 23:58 "Leon ships VQ") + the merchant's 4 texture
 #               keys (packed, not loose: test 11's loose-texture lesson), then tex_wrapsafe.py (TEX_WRAP_SAFE)
-#   objs-r101 = the PS2 library copy of lane objs' r101 room objects (ps2lib/objects/r101/r101.dar, sha256 32dfe338);
-#               objs12 (r100 + r101) is the lane's test 12 set, but only r101 (B1) is on the test 12 list
+#   objs12    = lane objs' r100 + r101 PS2 room objects from ps2lib/objects (r101 = 32dfe338); accepted for test 12
+#               (coordinator 10-15)
+#   sg101     = PS2_STRIP_GROUPS=1 r101 world package (ps2lib/world/r101-sg4, built from the r101 package f5592282 =
+#               smx101's ps2-world.re4mesh); it comes after smx101 in T12_DATA so it replaces that mesh. If smx101 ever
+#               changes, regenerate it (tools/ps2_strip_groups.py + worldlean/sgcheck.py): the runtime refuses a stale r4sg
 #   merchant  = ps2lib/cast/r102/merchant-em18 (PS2_CAST_MERCHANT=1): registry + em18.drs (its textures are in t12tex)
 T12D = '/root/probe/lanes-20261014/t12rc/data'
 DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12b.pak'})
 MERCHANT = PRIV + '/ps2lib/cast/r102/merchant-em18'
 DATA['merchant'] = {k: MERCHANT + '/' + k for k in ('dc/native/r102/registry.re4nmr', 'em/em18.drs')}
 CLASH += [('t12tex', o) for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr', 'blackgc14v', 'blackgc14vl')]
-T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,t12tex,objs-r101,merchant'
+T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12,merchant'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
