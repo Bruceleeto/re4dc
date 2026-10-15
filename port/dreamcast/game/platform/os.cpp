@@ -914,4 +914,30 @@ int re4dc_fixture_read(const char* path, char* buffer, unsigned size)
 // debugger is attached; keep it armed like retail.
 BOOL DBIsDebuggerPresent(void) { return 0; }
 
+#if defined(RE4DC_DEAD_STACK_POISON) && RE4DC_DEAD_STACK_POISON
+// DEAD_STACK_POISON=1 (mcheck.mk; debug only): 0xA5 below a blocked task thread's saved stack pointer (its dead
+// stack) down to its guard word. Called by the main thread while the task waits on its resume semaphore.
+void re4dc_poison_task_stack(OSThread* thread)
+{
+    if (thread == NULL || thread->kt == NULL || thread->kt == thd_current) return;
+    kthread_t* const k = thread->kt;
+    const unsigned lo = (unsigned) (uintptr_t) k->stack, sp = k->context.r[15];
+    if (!lo || sp < lo + 64 || sp > lo + k->stack_size) return;
+    for (volatile unsigned* w = (volatile unsigned*) (lo + 16); w < (volatile unsigned*) ((sp - 32) & ~3U); ++w)
+        *w = 0xA5A5A5A5U;
+}
+// The calling thread's own dead stack: `bytes` below 256 bytes under this frame (bounded by its stack when KOS
+// knows it). No calls while filling.
+void __attribute__((noinline)) re4dc_poison_own_stack(unsigned bytes)
+{
+    volatile unsigned probe = 0;
+    const unsigned sp = (unsigned) (uintptr_t) &probe, hi = (sp - 256) & ~3U;
+    const unsigned lo = (unsigned) (uintptr_t) thd_current->stack;
+    unsigned from = hi - bytes;
+    if (lo && from < lo + 16) from = lo + 16;
+    if (from >= hi) return;
+    for (volatile unsigned* w = (volatile unsigned*) from; w < (volatile unsigned*) hi; ++w) *w = 0xA5A5A5A5U;
+}
+#endif
+
 }  // extern "C"

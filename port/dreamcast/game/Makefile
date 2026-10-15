@@ -676,6 +676,25 @@ IO_SERIAL ?= 0
 # and the free AICA sound memory with this byte. Flycast starts with zeroed memory; a Dreamcast does not.
 # A run that differs from the same fixture with POISON_RAM=0 reads memory it never wrote.
 POISON_RAM ?= 0
+# DCINV_PURGE=1 (test 11 console faults, default 0): the SDK's DCInvalidateRange (platform/misc.cpp) writes dirty
+# lines back before invalidating them (KOS dcache_purge_range, ocbp) instead of discarding them (dcache_inval_range,
+# ocbi). On GC the game invalidates a buffer that hardware (EFB copy, DVD, ARAM DMA) is about to overwrite; on the
+# port nothing writes behind the cache for those buffers, so ocbi only throws away the CPU's newest stores - and the
+# bytes of whatever shares the first and last line. Flycast does not model the operand cache and never shows it.
+# DCINV_AUDIT=1 (console proof, test discs, default 0): before each DCInvalidateRange, count the lines the operand
+# cache holds dirty in that range (OC address array), per caller; "dcinv:" log lines name each caller's first discard
+# and a summary every 5 s, for the crash screen.
+DCINV_PURGE ?= 0
+DCINV_AUDIT ?= 0
+ifneq ($(filter $(DCINV_PURGE),0 1),$(DCINV_PURGE))
+$(error DCINV_PURGE must be 0 or 1)
+endif
+ifneq ($(filter $(DCINV_AUDIT),0 1),$(DCINV_AUDIT))
+$(error DCINV_AUDIT must be 0 or 1)
+endif
+ifneq ($(DCINV_PURGE)$(DCINV_AUDIT),00)
+$(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_DCINV_PURGE=$(DCINV_PURGE) -DRE4DC_DCINV_AUDIT=$(DCINV_AUDIT)
+endif
 # CRASH_SCREEN=1 (hardware readiness, default 0): a fault, a source HALT() or 30 s without a new frame
 # draws a report (stop kind, PC/PR/stage, threads, newest log lines) into frame buffer 0, for a photo
 # on hardware where the log ring cannot be read. platform/crash_screen.cpp.
@@ -793,14 +812,53 @@ endif
 # request is retried for 10 ms, then the stale flag is cleared (cdrom_abort_cmd with abort_dma), the stream restarted
 # where it stood and the request repeated. DVD_STUCK_TEST=<seconds> + DVD_STUCK_ADDR=<address of KOS dma_in_progress>
 # (test discs only) set the flag on demand. Not with IO_PROBE=1 (it wraps the same entry points).
+# DISC_READ_FALLBACK=1 (issue #28, default 0; same file): a DMA read (stream request or sector read) that fails, or
+# reports OK without landing (a marker in the destination's last 32 bytes survives: DreamShell's ISO loader), or a
+# stream stop that times out latches the session to PIO sector reads; the read is redone by PIO. It also validates the
+# sound stream table / ISS block headers (src/game/snd.cpp) and re-reads or skips a bad one instead of faulting.
+# DISC_FAIL_TEST=1|2 (test discs only): every DMA stream request (1), and also every DMA sector read (2), is skipped and
+# reported OK: the emulator's failure on demand.
+# DISC_READ_VERIFY=1 (test 11 console faults, default 0; same file + platform/dvd.cpp): a DMA read KOS reports done is
+# not handed back until the G1 GD-DMA engine is idle (SB_GDST); fs_iso9660's non-blocking 32-byte stream request is
+# made blocking so it gets the same wait; DVD_READ_SAFE never aborts a refused request while the GD DMA is running (up
+# to 2 s); a short or failed DVDReadAsyncPrio read is retried on a fresh handle (3 tries) and then reported
+# DVD_RESULT_FATAL instead of a partial count. Each event logs a "disc read verify:" line.
+# DISC_GD_ATOMIC=1 (test 11 console faults, default 0; same file): every GD-ROM BIOS syscall KOS makes runs with
+# interrupts masked. KOS's vblank and G1 DMA handlers call the BIOS (exec_server, check_command) from interrupt context
+# and write the cdrom driver's shared cmd_response/cmd_status, while a thread may be inside a BIOS call of its own;
+# the BIOS is not re-entrant. Flycast's HLE BIOS runs each syscall atomically, so it never shows this.
+DISC_GD_ATOMIC ?= 0
+ifneq ($(filter $(DISC_GD_ATOMIC),0 1),$(DISC_GD_ATOMIC))
+$(error DISC_GD_ATOMIC must be 0 or 1)
+endif
+DISC_READ_VERIFY ?= 0
+ifneq ($(filter $(DISC_READ_VERIFY),0 1),$(DISC_READ_VERIFY))
+$(error DISC_READ_VERIFY must be 0 or 1)
+endif
+ifeq ($(DISC_READ_VERIFY),1)
+$(OBJDIR)/platform/dvd.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_VERIFY=1
+endif
+DISC_READ_FALLBACK ?= 0
+DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
 DVD_STUCK_ADDR ?= 0
-ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST),00)
+ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY)$(DISC_GD_ATOMIC),000000)
 ifeq ($(IO_PROBE),1)
-$(error DVD_READ_SAFE / DVD_STUCK_TEST and IO_PROBE=1 wrap the same cdrom entry points)
+$(error DVD_READ_SAFE / DVD_STUCK_TEST / DISC_READ_FALLBACK and IO_PROBE=1 wrap the same cdrom entry points)
 endif
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
+ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
+GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
+endif
+ifeq ($(DISC_READ_FALLBACK),1)
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1
+endif
+ifeq ($(DISC_GD_ATOMIC),1)
+GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_GD_ATOMIC=1
+endif
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DVD_READ_SAFE=$(DVD_READ_SAFE) -DRE4DC_DVD_STUCK_TEST=$(DVD_STUCK_TEST) -DRE4DC_DVD_STUCK_ADDR=$(DVD_STUCK_ADDR)
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
