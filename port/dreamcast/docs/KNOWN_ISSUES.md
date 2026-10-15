@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 15, 2026. The current public build is console test 12.1 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix.
+Last updated: October 15, 2026. The current public build is console test 12.2 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -13,9 +13,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
 | 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 | Fixed and checked in our tests; the problem was not console-only | 8 |
-| 🛠️ In progress | Being fixed now | 2 |
+| 🛠️ In progress | Being fixed now | 1 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
 | ⏸️ Open | Known, not yet worked on | 16 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
@@ -36,7 +36,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie. Planned for test 13 | |
-| Possible out-of-memory crash on a real console when leaving the village (r101) after a long fight, at the next room's start | test 12, 12.1 | 🛠️ In progress: found by our memory checks, not reported by anyone yet; the fix frees the village's leftover memory when the room changes (test 12.2) | |
+| Possible out-of-memory crash on a real console when leaving the village (r101) after a long fight, at the next room's start | test 12, 12.1 | 🟢 Fixed in test 12.2, needs console check: found by our memory checks, not reported by anyone yet; the village's leftover texture records are freed when the room changes, and our console-memory test (Flycast with 48 KiB of the console's system memory held back) now leaves the village to r100 and r103 without running out | |
 | A crash screen (`MISSING sub screen pool freeze allocation`) when a radio call opens on a real console | test 11 (not released), test 12 preview | ✅ Confirmed fixed on a real Dreamcast (test 12 preview): the call screen now keeps its copies in memory set aside for it | |
 
 ## Picture
@@ -91,6 +91,8 @@ If you play test 12 on a console, please report on any of these in a bug report:
    solid blocks?
 3. **Curtains and walls in the first house.** Textured, or flat, striped or noisy?
 4. **Speed display** (hold R, press START until it shows on screen). Is the counter fully visible?
+5. **Leaving the village after the fight** (test 12.2). After the village fight, walk on to the next room (back to
+   r100, or on to r103). Any crash screen while it loads?
 
 An item moves to ✅ Confirmed fixed after a console report.
 

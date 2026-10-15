@@ -76,6 +76,7 @@ for x in "$@"; do case $x in
   tW)  b ${L}tW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP ${XON:-} ;;
   mW)  b ${L}mW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP $MC ${XON:-} ;;
   tT)  b ${L}tT  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=${PAD_T:-0} $TR ${XON:-} ;;
+  uT)  b ${L}uT  $T $ON $T11REC $T12 $T122 IMAGE_PAD_BYTES=${PAD_T:-0} $TR ${XON:-} ;;
   kP)  b ${L}kP  $T $ON $T11REC IMAGE_PAD_BYTES=0 $PL ;;
   kT)  b ${L}kT  $T $ON $T11REC IMAGE_PAD_BYTES=${PAD_K:-0} $TR ;;
   cP)  b ${L}cP  $CT $ON $T11REC IMAGE_PAD_BYTES=0 $PL ;;
