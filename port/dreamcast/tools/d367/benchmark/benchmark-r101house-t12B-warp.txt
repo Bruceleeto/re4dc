@@ -1,0 +1,23 @@
+name benchmark-r101house-v3
+# benchmark-r101house (lane crowd12, 2026-10-14; the stack's dense check scene): the r101 house siege. The fight is on
+# (find 0x2000, crowd alerted), Leon is placed in AT area 8 (the house), so the house event s21 runs: the window
+# breaks, the PS2 rules send 9 Ganados (0x3C..0x46) on top of the survivors, ladders come up. god. Window after the
+# s21 movie: probe S4-r101house-probe (c12S4tW) shows alive 12 (9 sent + 3), 9 models drawn all near (1.5..3.8 m)
+# from room frame ~750 to ~3150, so the window 1500..2400 sits inside the siege.
+room 0x101
+pos -7914 0 2000
+ang 1.5708
+find 0x00002000
+inv default
+god
+alert 30
+alivelog 150
+area 8
+# bench-window 1500 2400
+# bench-hwwindow 1700:2599
+# t12 (crowd12 2026-10-15): the v3 scene on the test 12 data (run with BENCH_DATA = t11-fix.py T12_DATA)
+# STATIC_OBJ_BAKE (crowd12 2026-10-15, test 13): the r101 PS2 world package with the 14 baked static objects (placements 209..222), settled capture on test 12 data
+# bench-replace dc/native/r101/ps2-world.re4mesh=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.re4mesh
+# bench-replace dc/native/r101/ps2-world.r4pw=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.r4pw
+# bench-replace dc/native/r101/ps2-world.r4sg=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.r4sg
+# bench-replace dc/native/r101/ps2-world.ids=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.ids

@@ -1777,6 +1777,39 @@ endif
 AVK_SFLAGS += -DRE4DC_ACTOR_LIGHT_N16=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_N16=$(ACTOR_LIGHT_N16)
 endif
+# ACTOR_MOVCA=1 (lane memlay 2026-10-15; render only, default 0: nothing changes): the position kernels allocate
+#              each meshlet cache entry's 32-byte line with movca.l before its first store, so the write-only
+#              output no longer read-allocates a line from RAM (hw model census, benchmark-r101 cap 6: ~5.3k of
+#              those fills per frame in avk_pos_*). emit / emit_sq write the flags word themselves (the line's
+#              flags / oargb words are not primed any more); word 7 (oargb) reaches the TA unprimed, and these
+#              headers have no specular, so the TA ignores it. mkavk.py movca_lines.
+ACTOR_MOVCA ?= 0
+ifneq ($(ACTOR_MOVCA),0)
+ifneq ($(ACTOR_MOVCA),1)
+$(error ACTOR_MOVCA must be 0 or 1)
+endif
+ifeq ($(ACTOR_VTX_KERNEL),0)
+$(error ACTOR_MOVCA needs ACTOR_VTX_KERNEL)
+endif
+ifneq ($(filter-out 0,$(NATIVE_ACTOR_UV16)),)
+$(error ACTOR_MOVCA needs NATIVE_ACTOR_UV16=0 (word 7 carries the clipper's u there))
+endif
+AVK_SFLAGS += -DRE4DC_ACTOR_MOVCA=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_MOVCA=1
+endif
+# MEM_MOVCA=1 (lane memlay 2026-10-15; default 0: nothing changes): memset / memcpy through link wraps
+#              (platform/memprof.cpp): every whole 32-byte line of a cached main-RAM (P1) destination is allocated
+#              with movca.l and then fully written, so it is not read from RAM first (the write-allocate fill);
+#              memcpy also prefetches the next source line. Head / tail bytes, small calls (< 64 bytes) and
+#              other areas (P2 uncached, P4) go to the library routines unchanged. The bytes written are the same.
+MEM_MOVCA ?= 0
+ifneq ($(MEM_MOVCA),0)
+ifneq ($(filter-out 0,$(MEMPROF)),)
+$(error MEM_MOVCA and MEMPROF both wrap memset / memcpy)
+endif
+GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
+$(OBJDIR)/platform/memprof.o: PLATFORM_CPPFLAGS += -DRE4DC_MEM_MOVCA=1
+endif
 
 GAME_FP_CONTRACT ?= fast
 GAME_O2 ?= 0

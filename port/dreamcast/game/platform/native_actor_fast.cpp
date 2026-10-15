@@ -49,6 +49,11 @@
 #include "re4dc_platform.h"
 #endif
 #include "warp_late.h"
+// ACTOR_MOVCA (game30.mk; render only, default 0): the position kernels allocate each meshlet cache entry's line
+// with movca.l (no fill from RAM: the line is written before it is read); emit / emit_sq write the flags word.
+#ifndef RE4DC_ACTOR_MOVCA
+#define RE4DC_ACTOR_MOVCA 0
+#endif
 #include "../../room/pvr_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -2423,6 +2428,10 @@ inline pvr_vertex_t* emit(pvr_vertex_t* dst, const pvr_vertex_t* cache, const u8
         : [dst] "+r"(dst), [index] "+r"(index), [n] "+r"(n)
         : [cache] "r"(cache), [five] "r"(5)
         : "r0", "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "t", "memory");
+#if RE4DC_ACTOR_MOVCA
+    // ACTOR_MOVCA: cache entries allocated by movca.l carry no primed flags word (emit_sq).
+    for (pvr_vertex_t* v = dst - n; v != dst; ++v) v->flags = PVR_CMD_VERTEX;
+#endif
     dst[-1].flags = PVR_CMD_VERTEX_EOL;
     return dst;
 #else
@@ -2588,6 +2597,42 @@ inline std::uint32_t* emit_sq(std::uint32_t* sq, const pvr_vertex_t* cache, cons
         if (k + 1 == n) w[0] = eol;
         re4dc_ta_hash(w, 32);
     }
+#endif
+#if RE4DC_ACTOR_MOVCA
+    // ACTOR_MOVCA: the position kernels allocate cache entries with movca.l, so an entry's flags word is not
+    // primed: every vertex's flags word is written here (PVR_CMD_VERTEX in the branch's delay slot, then EOL over
+    // it on the last one), as emit_meshlet already does for whole meshlets.
+    const std::uint32_t vtx = PVR_CMD_VERTEX;
+    __asm__ __volatile__(
+        "fschg\n"
+        "1:\n\t"
+        "mov.b   @%[index]+,r0\n\t"
+        "and     #127,r0\n\t"
+        "shld    %[five],r0\n\t"
+        "add     %[cache],r0\n\t"
+        "fmov    @r0+,dr0\n\t"
+        "fmov    @r0+,dr2\n\t"
+        "fmov    @r0+,dr4\n\t"
+        "fmov    @r0+,dr6\n\t"
+        "add     #32,%[sq]\n\t"
+        "fmov    dr6,@-%[sq]\n\t"
+        "fmov    dr4,@-%[sq]\n\t"
+        "fmov    dr2,@-%[sq]\n\t"
+        "fmov    dr0,@-%[sq]\n\t"
+        "dt      %[n]\n\t"
+        "bf/s    2f\n\t"
+        "mov.l   %[vtx],@%[sq]\n\t"
+        "mov.l   %[eol],@%[sq]\n"
+        "2:\n\t"
+        "pref    @%[sq]\n\t"
+        "tst     %[n],%[n]\n\t"
+        "bf/s    1b\n\t"
+        "add     #32,%[sq]\n\t"
+        "fschg\n"
+        : [sq] "+r"(sq), [index] "+r"(index), [n] "+r"(n)
+        : [cache] "r"(cache), [five] "r"(5), [eol] "r"(eol), [vtx] "r"(vtx)
+        : "r0", "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "t", "memory");
+    return sq;
 #endif
     __asm__ __volatile__(
         "fschg\n"
