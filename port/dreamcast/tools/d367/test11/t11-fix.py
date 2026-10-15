@@ -281,7 +281,11 @@ DATA['cast15'] = {'dc/native/r%s/registry.re4nmr' % r: '%s/conv-t14/reg-%s/packa
 DATA['cast15']['dc/native/r117/partner.re4nmr'] = ASHLEY + '/r117/ashley-pl11/dc/native/r117/registry.re4nmr'
 for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f'):
     DATA['cast15']['em/%s.drs' % _n] = '%s/prep14/%s/%s.drs' % (C15D, _n, _n)
-DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) for g in _C15R.values()] +     ['%s/prep14/%s' % (C15D, _n) for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f')]
+# reg-118pc/tex holds 0e80c998-3aeeebb9 with other bytes than reg-108 / reg-118 (same size, a re-encode); one key, one
+# picture in tex.pak: the reg-108 bytes (ae7e472f) ship, so r118 uses C15T118 = reg-118pc/tex without that file.
+C15T118 = os.environ.get('C15T118', '/root/probe/lanes-20261015/t15k/data/reg-118pc-tex')
+DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' else C15T118 for g in _C15R.values()] + \
+    ['%s/prep14/%s' % (C15D, _n) for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f')]
 T15_DATA = T14_DATA + ',cast15'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
@@ -335,6 +339,7 @@ def main():
         r.pop(k, None); rm.add(k); rec.append('rm ' + k)
     for t in opt.get('--texdir', []):
         texdir(t, r, rec)
+    rm -= set(r)  # a staged loose picture (data 'tex' dirs, --texdir) wins over the base's removal of the same file
     for k, f in (('--warp', 'dc/warp.txt'), ('--pad', 'dc/padscript.txt'), ('--qtxt', 'dc/quality.txt')):
         if k in opt:
             r[f] = opt[k][0]
