@@ -117,6 +117,9 @@ static void* reverb_mem_alloc(u32 size)
 // the BGM file (0x60), the door SE table (0x68), the room BGM table (0x6A) and the sub data (0x59)
 // — lays out the per-block MRAM buffers and the four stream buffers, starts the driver and takes
 // the saved output mode.
+#if defined(RE4DC_DISC_READ_FALLBACK) && RE4DC_DISC_READ_FALLBACK >= 2
+extern "C" void re4dc_disc_note(int level, const char* fmt, ...);  // platform/dvd_read_safe.cpp: the boot log
+#endif
 void SndInit()
 {
     int len;
@@ -149,13 +152,23 @@ void SndInit()
             }
             return true;
         };
+#if RE4DC_DISC_READ_FALLBACK >= 2
+        if (ok((const u8*) SND_DATA_TOP, len)) re4dc_disc_note(1, "snd: stream table ok (%d bytes)", len);
+        else re4dc_disc_note(3, "snd: stream table bad (%d bytes), read again", len);
+#endif
         if (!ok((const u8*) SND_DATA_TOP, len)) {
             re4dc_log("SND: stream table (file 0, %d bytes) is not valid; reading it again\n", len);
             r = DvdRead(0, (void*) SND_DATA_TOP, 0, 0, 0, 0x11, __FILE__, __LINE__);
             str_flag = Dvd.ReadCheck(r, &len, 0, 0) > 0;
+#if RE4DC_DISC_READ_FALLBACK >= 2
+            if (ok((const u8*) SND_DATA_TOP, len)) re4dc_disc_note(1, "snd: stream table ok on the 2nd read");
+#endif
             if (!ok((const u8*) SND_DATA_TOP, len)) {
                 static u32 s_no_str[64];
                 re4dc_log("SND: stream table still not valid (%d bytes): streamed music and speech are off\n", len);
+#if RE4DC_DISC_READ_FALLBACK >= 2
+                re4dc_disc_note(3, "snd: stream table still bad: music off");
+#endif
                 str_flag = 0;
                 adr = SND_DATA_TOP + ALIGN32(len > 0 ? len : 0);
                 for (i = 0; i < 2; i++) {

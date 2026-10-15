@@ -963,7 +963,74 @@ $(error MOTION_STATS_LOG=1 needs DISC_READ_METER=1)
 endif
 $(OBJDIR)/platform/dvd_read_safe.o $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_STATS_LOG=1
 endif
+# DISC_COMPAT=1 (test 14 items 11/12, lane discread 2026-10-15, default 0): the disc-read compatibility set for GDEMU
+# units and clones, ODEs and loaders (RE4DC-DISC-COMPAT-RESEARCH-20261015.md section 6), one knob:
+# - DISC_READ_FALLBACK=2: plain sector reads only (no cdrom_stream start / cancel per read, so no stream is ever
+#   cancelled with data queued and DVD_READ_SAFE's 10 ms force-abort of a refused stream request cannot run), each read
+#   a bounded GD command (DMA, then DMA after a bounded drive re-init, then PIO), bounded cdrom_reinit;
+# - DISC_BOOT_LOG=2: the disc log goes on screen only once a read misbehaves (=1: always during the boot, the #28 discs);
+# - KOS_DISC_FIX=1: a build-time patched copy of KOS fs_iso9660.c (upstream aeee10d9: one mutex, no multi-thread /cd
+#   deadlock or garbage handles) and cdrom.c (exec_cmd_timed's abort deadlock, reinit_ex's endless retry, a settle
+#   delay after a drive reset) is linked in place of libkallisti's (patches/kos-804b319-*.patch; KOS is not modified);
+# - the /cd mount takes the data track that holds the ISO9660 volume descriptor, not the last one (GD MENU Card
+#   Manager's "Shrink GDI" splits the HD area into track 3 + track 4: platform/gdrom_mount.cpp).
+# Packaging (mkgdi.sh, not a make knob): PAD_1ST=1 pads 1ST_READ.BIN to whole sectors; PRODUCT= sets the product number.
+DISC_COMPAT ?= 0
+ifneq ($(filter $(DISC_COMPAT),0 1),$(DISC_COMPAT))
+$(error DISC_COMPAT must be 0 or 1)
+endif
+ifeq ($(DISC_COMPAT),1)
+# DISC_COMPAT=1 DISC_READ_FALLBACK=0 is the timing-neutral subset (KOS fixes + the mount; 12.2's stream reads kept):
+# STRICT against 12.2 in Flycast, where the plain sector reads move load completion by ticks (lane discread 10-15).
+ifneq ($(filter $(origin DISC_READ_FALLBACK),command line environment),)
+ifneq ($(filter $(DISC_READ_FALLBACK),0 2),$(DISC_READ_FALLBACK))
+$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 0 for the subset))
+endif
+else
+DISC_READ_FALLBACK := 2
+endif
+override KOS_DISC_FIX := 1
+DISC_BOOT_LOG ?= 2
+endif
+DISC_BOOT_LOG ?= 1
+ifneq ($(filter $(DISC_BOOT_LOG),1 2),$(DISC_BOOT_LOG))
+$(error DISC_BOOT_LOG must be 1 or 2)
+endif
+KOS_DISC_FIX ?= 0
+ifneq ($(filter $(KOS_DISC_FIX),0 1),$(KOS_DISC_FIX))
+$(error KOS_DISC_FIX must be 0 or 1)
+endif
+ifeq ($(KOS_DISC_FIX),1)
+KOSFIX := $(OBJDIR)/kosfix
+KOS_PATCHES := $(CURDIR)/../patches
+PLATFORM_OBJS += $(KOSFIX)/fs_iso9660.o $(KOSFIX)/cdrom.o
+$(KOSFIX)/fs_iso9660.c: $(KOS_BASE)/kernel/arch/dreamcast/fs/fs_iso9660.c $(KOS_PATCHES)/kos-804b319-fs-iso9660-aeee10d9.patch
+	@rm -rf $(KOSFIX)/p-fs && mkdir -p $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs
+	cp $< $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/
+	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-fs < $(KOS_PATCHES)/kos-804b319-fs-iso9660-aeee10d9.patch
+	cp $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/fs_iso9660.c $@
+$(KOSFIX)/cdrom.c: $(KOS_BASE)/kernel/arch/dreamcast/hardware/cdrom.c $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+	@rm -rf $(KOSFIX)/p-cd && mkdir -p $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware
+	cp $< $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/
+	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-cd < $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+	cp $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/cdrom.c $@
+$(KOSFIX)/%.o: $(KOSFIX)/%.c
+	kos-cc $(KOS_CFLAGS) -O2 -MMD -MP -c $< -o $@
+endif
+ifeq ($(DISC_COMPAT),1)
+$(OBJDIR)/platform/gdrom_mount.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_COMPAT=1
+endif
+# DISC_READ_FALLBACK=2 (issue #28 v2, 2026-10-15; v1 gave a black screen under the ISO loader): no cdrom streams at all
+# (fs_iso9660 reads by sector reads), every sector read is a bounded GD command polled from the calling thread (DMA, then
+# DMA after a bounded drive re-init, then PIO; the one that works is reported and kept), cdrom_reinit is wrapped with a
+# bounded CD_CMD_INIT, and an on-screen boot log (until the game's first picture) names each step and the read in
+# flight; if every method fails a DISC READ FAILED screen stays up. DISC_FAIL_TEST with =2: 2 DMA reports done without a
+# transfer, 3 = 2 + PIO never completes, 4 the first DMA read and its abort never finish, 5 the first read spins with
+# interrupts off. Details: platform/dvd_read_safe.cpp.
 DISC_READ_FALLBACK ?= 0
+ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2),$(DISC_READ_FALLBACK))
+$(error DISC_READ_FALLBACK must be 0, 1 or 2)
+endif
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
@@ -977,8 +1044,23 @@ ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
 endif
-ifeq ($(DISC_READ_FALLBACK),1)
-$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1
+ifneq ($(DISC_READ_FALLBACK),0)
+$(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
+endif
+# EFFECT_BIND_DIAG=1 (lane discread 10-15, console diagnosis, default 0 = image unchanged): readEmData's MISSING line
+# names the native_effect.cpp check that refused the archive, the file, its size and an FNV-1a of the bytes read
+# ("enemy effect records chk<line> <file> <bytes>b fnv<hash>"), to tell a damaged disc read from a binding-table fault.
+EFFECT_BIND_DIAG ?= 0
+ifeq ($(EFFECT_BIND_DIAG),1)
+$(OBJDIR)/platform/native_effect.o: PLATFORM_CPPFLAGS += -DRE4DC_EFFECT_BIND_DIAG=1
+$(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_EFFECT_BIND_DIAG=1
+endif
+# DISC_POLL_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0): a sector read polls its GD command with thd_pass for N ms
+# before it sleeps (a KOS sleep ends at the next 10 ms scheduler tick). Lane discread load-time experiment.
+DISC_POLL_SPIN_MS ?= 0
+ifeq ($(DISC_READ_FALLBACK),2)
+GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS)
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check
