@@ -447,7 +447,7 @@ extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p);  // native_actor
 #endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace sobdump {
-constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96,kMods=48,kSettle=60;
+constexpr unsigned kBytes=384u*1024u,kSeen=160,kLines=8,kLine=96,kMods=48,kSettle=60;
 struct State { unsigned generation,used,sent,nseen,done,nlist,nmod; const void* seen[kSeen][2]; const void* lists[kSeen];
                const void* mod[kMods]; unsigned mod_frame[kMods]; unsigned char data[kBytes]; };
 State* S=nullptr; unsigned frame_seen=~0U;
