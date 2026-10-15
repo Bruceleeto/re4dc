@@ -20,7 +20,7 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 `SHA256SUMS.txt`, builds the program, puts it on the release disc and prints the path of
 `disc.gdi` (under `port/dreamcast/out-contrib/disc`). Options:
 
-* `--release <tag>` picks a release, for example `--release test-eb4e8813-20261014` (test 11).
+* `--release <tag>` picks a release by its tag (`test-<source commit>-<date>`, as on the releases page).
   An older release needs the `build-public.sh` of its own source commit (see "Which recipe" below).
 * `--toolchain <dir>` uses or builds the toolchain there; a toolchain already in the environment
   (`RE4DC_KOS_BASE`) is used as is.
@@ -94,7 +94,7 @@ Either way, measure your change against your own build with the change switched 
 
 ## 3. Put it on a release disc
 
-    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-eb4e8813-20261014-GDEMU.zip \
+    python3 port/dreamcast/tools/swap-program.py RE4DC-Console-Test-<commit>-<date>-GDEMU.zip \
         port/dreamcast/out-public mydisc
 
 `mydisc` gets `disc.gdi` and its three tracks: the release disc with your program as the boot file and
