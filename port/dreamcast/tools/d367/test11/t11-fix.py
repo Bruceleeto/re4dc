@@ -65,7 +65,13 @@ CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut')
 # at half brightness; never stage it with a knob-off binary (2x bright).
 DATA['leonhr'] = {'dc/tex.pak': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
 T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bake (no r119) + Leon 2x, both in tex.pak
-NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
+# PS2 Ganado accessories (test 12 item, lane ps2cast 2026-10-15; tools/d367/ps2cast/ps2_accessories.py): the village
+# Ganados' cObj12 caps / hats / glasses (em15 ARC 0x25F..0x269, em10SetAccesory) with the PS2 geometry and the PS2
+# pictures (8 dc/tex packages, loose here; a release puts them in tex.pak). em15.drs keeps its size and every other
+# byte outside ARC 0x25F..0x268 (the span is re-laid out in place; 2 NTR rows rebased). Disc data only; NOT in T11_DATA.
+DATA['acc12'] = {'em/em15.drs': PRIV + '/ps2lib/cast/common/acc12/em15.drs',
+                 'tex': PRIV + '/ps2lib/cast/common/acc12/tex'}
+NAME =re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
 def sha(p):
