@@ -29,3 +29,10 @@ db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | texture | bell | re4tex 128x128 f
 db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | alloc | h2 | alloc\[[0-9a-f]+\]:free\[[0-9a-f]+\] native UI texture staging | NEW 10-14: r100 s30 start: UI texture staging (55 KB) does not fit while the movie borrows heap 4
 db351823,40fb4deb,135fde2b,a93e8be0,bd57e195 | texture | ch21 | fbec854a-b7656a09 | NEW 10-14: chapter 2-1 results screen texture /cd/dc/tex/f/fbec854a-b7656a09.re4tex (pair color c050cf4e-216cd784 mask ec97f64b-dab43d54) is not on the disc
 40fb4deb,135fde2b | movie | lake | route movie terminal=3 id=10b10 | NEW 10-14: test 9.1 twin: r10b s10 ends on its first picture (terminal=3, "texture retirement: open scene discarded", vram_free=21504 at start); plays whole on test 9 and a93e8be0
+
+# --- Test 13 RC (2026-10-15): rows that the test 12.2 control shows the same way (fullplay-20261015 t122ctl-095515,
+# t122ctlh2-100441). Scoped to the test 13 release tree; 12.2 itself (2602b5c3 / 677229c8) shows them too.
+# (Route goals are not matchable here: the h2 segment's s30 goal still reports FAIL; 12.2 fails it the same way.)
+05e5ff76,677229c8 | alloc | h2 | alloc\[[0-9a-f]+\]:free\[[0-9a-f]+\] native UI texture staging | KNOWN_ISSUES "The cutscene at the r100 cliff (after the first house) is skipped" (12.2 control the same)
+05e5ff76,677229c8 | movie | h2 | id=10030 | KNOWN_ISSUES "The cutscene at the r100 cliff (after the first house) is skipped" (s30 terminal=3 0/340; 12.2 the same)
+05e5ff76,677229c8 | vram | boat | r10b: 12 thrash-guard refusal | KNOWN_ISSUES "On the r10b boat, a few effect pictures can be skipped while video memory is full" (12.2 control: the same 12)
