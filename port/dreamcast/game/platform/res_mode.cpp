@@ -279,20 +279,21 @@ void apply(unsigned m)
         const uint32_t opb0 = banks[b].opb - extra;
         buf->opb = opb0;
         buf->vertex_size = vsize_kos[b] - extra;
+#define RE4DC_RES_OPB0 opb0
 #else
-        const uint32_t opb0 = banks[b].opb;
+#define RE4DC_RES_OPB0 banks[b].opb  // knob off: the code as before (byte-identical image)
 #endif
         if (T > kos_tiles) {
             tm = (banks[b].region_end - tm_bytes) & ~127U;
             end = (tm - kTileMatrixHeader) & ~127U;
         }
         const uint32_t initial = tile_bytes * T;
-        const int overflow = int((end - opb0) / initial) - 1;
+        const int overflow = int((end - RE4DC_RES_OPB0) / initial) - 1;
         buf->opb_size = initial;
         buf->opb_overflow_count = overflow;
         uint32_t accum = 0;
         for (unsigned j = 0; j < PVR_OPB_COUNT; ++j) {
-            buf->opb_addresses[j] = opb0 + accum;
+            buf->opb_addresses[j] = RE4DC_RES_OPB0 + accum;
             accum += pvr_state.opb_size[j] * T;
         }
         buf->tile_matrix = tm;
@@ -310,7 +311,7 @@ void apply(unsigned m)
             }
         vr[-6] |= BIT(31);
         re4dc_log("res: bank %u tiles %u (%ux%u) opb %06x initial %u overflow %d (pool %u B) tile matrix %06x end %06x\n", b, T,
-                  tw, th, unsigned(opb0), unsigned(initial), overflow, unsigned(initial) * unsigned(overflow),
+                  tw, th, unsigned(RE4DC_RES_OPB0), unsigned(initial), overflow, unsigned(initial) * unsigned(overflow),
                   unsigned(tm), unsigned(end));
     }
     // The picture to hold until this mode has a complete one (none at boot).
