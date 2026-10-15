@@ -17,7 +17,10 @@ not need.
 * **A pull request needs:** the change behind a build knob whose default is 0; the same program bytes
   with the knob at 0 (knob off identity); the gain in milliseconds with the room, the view and the
   enemies on screen; and no change to collision, events, game state or AI. The maintainers then check
-  that the gameplay stays identical tick by tick (STRICT) before it goes into a test build.
+  that the gameplay stays identical tick by tick (STRICT) before it goes into a test build. Large-gain
+  approximations are the exception: default-off knob, judged by look (render) or by the same kills,
+  triggers, doors, waves and cutscenes (logic); see "Send a patch" in `port/dreamcast/CONTRIBUTING-PORT.md`,
+  which also covers the system memory (KOS squeeze) check and the one-minute emulator runs.
 * Never commit game data, disc images or extracted files.
 
 ## Current direction (D367): supersedes the sections below where they conflict

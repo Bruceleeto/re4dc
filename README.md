@@ -26,7 +26,21 @@ until then, play the console test in Flycast. Extract the complete package:
 | --- | --- | --- |
 | Dreamcast / GDEMU | Console test ZIP (`RE4DC-Console-Test-...-GDEMU.zip`) on the [latest release](https://github.com/lamb2k/re4dc/releases/latest) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
-The release page also has the test build checksums (`SHA256SUMS.txt`) and the test notes.
+The release page also has the test build checksums (`SHA256SUMS.txt`), the test notes, the Build-Assets zip for
+contributors (see Contributing), a second DreamShell test disc for [#28](https://github.com/lamb2k/re4dc/issues/28)
+and the benchmark disc (below).
+
+### Benchmark disc (not the game)
+
+`RE4DC-Benchmark-NOT-THE-GAME-...-GDEMU.zip` on the release page is a separate disc that only measures speed on a
+real console. It cannot be played: no title menu, no New Game, no saves, and it does not touch your VMU. A red
+"BENCHMARK DISC - NOT THE GAME" banner stays on screen, and the GDEMU menu lists it as
+"RE4DC BENCHMARK (NOT THE GAME)". It runs two scripted scenes by itself (the village by the burning cross, then the
+first house at its back window) and ends on a results screen; a full run takes about 4 minutes.
+
+To report, open a new issue titled "Benchmark results" with a sharp photo of the results screen, the CODE line typed
+out, your console region, how you ran it (GDEMU, another drive emulator, or a burned disc) and your video cable.
+The README inside the zip explains each number. Flycast runs it too, but emulator numbers are not console numbers.
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
@@ -72,9 +86,13 @@ Recent progress:
 
 Known issues (full list: [KNOWN_ISSUES.md](port/dreamcast/docs/KNOWN_ISSUES.md)):
 
-* **Stability:** random crashes on a real console (fixed in test 9, needs a console check); a few menu actions can stop the game;
+* **Stability:** random crashes and freezes on GDEMU while a room loads: the cause is found (the Dreamcast system
+  library could take an old "disc read finished" signal and use half-read data); the fix comes in test 14 and needs a
+  console check ([#27](https://github.com/lamb2k/re4dc/issues/27)). The memory corruption crashes of tests 7 and 8
+  were fixed in test 9 (needs a console check). A few menu actions can stop the game;
   the r100 cliff cutscene is skipped (test 12).
-* **Picture:** some textures are missing; water, ripples and shadows are incomplete; characters are not lit by the scene.
+* **Picture:** some textures are missing; water, ripples and shadows are incomplete; the villagers are not lit by
+  the scene (Leon is, since test 12); the night lake has no torch flames or rain.
 * **Sound:** the rifle sound is lower quality.
 * **Performance:** below the 30 fps / full speed target; pauses when entering rooms.
 
@@ -121,6 +139,7 @@ of the complete diagnostic screen. One bug per issue.
 
 Built on the [RE4 GameCube decompilation](docs/DECOMPILATION.md),
 [KallistiOS](https://github.com/KallistiOS/KallistiOS) and [Flycast](https://github.com/flyinghead/flycast).
+Third-party code in the program and its licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 An independent fan project for research and preservation, not affiliated with Capcom, Sega or Nintendo.
 Resident Evil is a Capcom trademark; game code and data belong to their owners. Project tools and
 documentation are [CC0](LICENSE).

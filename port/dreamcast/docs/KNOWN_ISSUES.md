@@ -15,9 +15,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
 | 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 | Fixed and checked in our tests; the problem was not console-only | 10 |
-| 🛠️ In progress | Being fixed now | 2 |
-| 🔍 Investigating | Being reproduced or traced | 5 |
-| ⏸️ Open | Known, not yet worked on | 14 |
+| 🛠️ In progress | Being fixed now | 3 |
+| 🔍 Investigating | Being reproduced or traced | 4 |
+| ⏸️ Open | Known, not yet worked on | 16 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -33,7 +33,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The intro stops on `MISSING motion key read` (one disc read came back incomplete) | test 7 | 🟢 Fixed, needs console check: since test 8 the read is retried up to 3 times | [#25](https://github.com/lamb2k/re4dc/issues/25) |
 | Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
 | Black screen when started from DreamShell with an IDE mod | test 9, 10 | 🔍 Investigating: DreamShell's loader handles the game's fast "streaming" disc reads differently, so some reads come back wrong. A second test disc that uses plain disc reads and shows on screen what it is doing is being prepared | [#28](https://github.com/lamb2k/re4dc/issues/28) |
-| Freezes or crashes on some GDEMU units while other games work, often while a room loads; one freeze at the SEGA screen | test 7, 8 and later | 🔍 Investigating: the game reads the disc with a fast "streaming" mode that some drive emulators and older firmware handle differently. We are testing plain disc reads instead. Meanwhile: start the game from openMenu or GDMenu, and if your SD card tool has a "Shrink GDI" option, leave it off (a tester fixed a freeze at the SEGA screen this way). When you report, please tell us whether your GDEMU is an original or a clone, the firmware version shown in its menu, and your SD card's brand and size | [#17](https://github.com/lamb2k/re4dc/issues/17), [#24](https://github.com/lamb2k/re4dc/issues/24), [#25](https://github.com/lamb2k/re4dc/issues/25), [#27](https://github.com/lamb2k/re4dc/issues/27) |
+| Freezes or crashes on some GDEMU units while other games work, often while a room loads; one freeze at the SEGA screen | test 7, 8 and later | 🛠️ In progress: cause found. After a fast "streaming" disc read, the Dreamcast system library (KallistiOS) could see an old "read finished" signal from the drive and carry on before the new data had arrived, so the game used half-read data. Emulators finish reads instantly, so they never show it. The fix (the library waits for the drive's transfer to really end) comes in test 14 and still needs a console check. Meanwhile: start the game from openMenu or GDMenu, and if your SD card tool has a "Shrink GDI" option, leave it off (a tester fixed a freeze at the SEGA screen this way). When you report, please tell us whether your GDEMU is an original or a clone, the firmware version shown in its menu, and your SD card's brand and size | [#17](https://github.com/lamb2k/re4dc/issues/17), [#24](https://github.com/lamb2k/re4dc/issues/24), [#25](https://github.com/lamb2k/re4dc/issues/25), [#27](https://github.com/lamb2k/re4dc/issues/27) |
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10, 11 | 🛠️ In progress: fixed in test 13 for the r105 key event (the chapter 1-2 results screen: a large picture now gets one free block of its size); r10b and r119 are still open | |
 | On the r10b boat, and in r105 after the chapter 1-2 results screen, a few effect pictures can be skipped while video memory is full | test 12.2, 13 | ⏸️ Open (found by the full-play check; fewer in r105 since test 13) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
@@ -63,6 +63,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
+| The night lake (start of chapter 2-1): the torches have no flames and the rain is missing | test 10 and later | ⏸️ Open: they use drawing paths not yet converted; planned with the PS2 amounts (about 100 rain streaks) | [#30](https://github.com/lamb2k/re4dc/issues/30) |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
 
 ## Sound
@@ -77,7 +78,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
-| Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
+| Below the 30 fps / full speed target, slowest in the village fight; the frame rate can dip for a few seconds and recover | all | ⏸️ Open: PS2 enemy and effect reductions under way | [#29](https://github.com/lamb2k/re4dc/issues/29) |
 | At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |

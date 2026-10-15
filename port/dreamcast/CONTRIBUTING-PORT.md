@@ -116,10 +116,10 @@ Do not use that disc for normal play: the script presses buttons at fixed times.
 
 ## 5. Speed display
 
-Test builds show their speed on the VMU in controller slot 1: drawn frames per second, game speed,
-CPU percentage and the frame pacing mode. Hold R and press START to cycle the frame pacing
-(Smooth, Fast, Off). Builds that also have the on screen display use R and START to cycle the display
-instead: Off, VMU, Screen, Both. Hold X and press START to switch the look preset.
+The release program starts with the speed display off. Hold R and press START to show it on screen: drawn
+frames per second and game speed (the VMU shows the Leon, Ashley, Hunnigan and Luis pages instead of speed
+numbers). Frame pacing is set in Options (Fast is the default). Hold X and press START to switch the look
+preset. A build with `SPEED_VMU_OFF=0` puts the speed numbers back on the VMU.
 
 ## 6. Send a patch
 
@@ -133,10 +133,26 @@ instead: Off, VMU, Screen, Both. Hold X and press START to switch the look prese
 * Say what the change looks like, with a screenshot pair (knob off, knob on) if it changes the picture.
 * Open a pull request against the `dreamcast-port` branch.
 
-The maintainers then run the gameplay identity gates before a change goes into a test build. They
-replay recorded sessions and compare the game logic tick by tick, so a render change must leave the
-gameplay exactly as it was (STRICT). That harness uses private recordings, so you do not need to
-run it; a change that touches collision, events, game state or AI will not be accepted.
+The maintainers then run these checks before a change goes into a test build. They use private
+recordings and tools, so you do not need to run them, but your patch has to pass them:
+
+* **Gameplay identity (STRICT).** Recorded sessions are replayed and the game logic is compared tick by
+  tick. An exact change must leave the gameplay exactly as it was.
+* **Approximations.** A change that is close but not exact (for example faster maths that rounds a little
+  differently) is welcome when the gain is large. It stays behind its own default-off knob. A render-only
+  approximation is judged by its look (a pair of stills). One that touches game logic must keep the same
+  gameplay: the same kills, triggers, doors, waves, room clears and cutscenes, with no desync or stuck
+  event. The maintainers offer large logic approximations to the project owner, who decides each one.
+  Small gains must be exact.
+* **System memory (KOS squeeze).** The game is run in Flycast with 48 KiB of the console's system memory
+  held back (`tools/d367/fullplay/kos_squeeze.sh`) through the village fight, a radio call and the door to
+  r103; it must not run out. Real consoles have less free system memory than Flycast, so say how much your
+  change adds to the program's static size.
+* **Short runs.** Each emulator check is a scene of a minute or less, started right at the event (a warp,
+  not a long walk). Long play happens once, on the final release candidate.
+
+A change to collision, events, game state or AI that is not one of the approximations above will not be
+accepted.
 
 ## 7. A full disc from your own discs
 
