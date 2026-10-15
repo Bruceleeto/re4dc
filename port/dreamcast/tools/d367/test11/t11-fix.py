@@ -97,20 +97,54 @@ DATA['objs'] = {k: v for _r in OBJS_ROOMS for k, v in DATA['objs-' + _r].items()
 # objs12: the rooms whose library rows passed the test 12 gates (r100: H2 STRICT 4702 + s30 340/340; r101: warp STRICT
 # 2402 + LEON-GC + TEX_CHECK); the other rooms are test 13 (coordinator 10-14: the all-room objects pass is test 13).
 DATA['objs12'] = {k: v for _r in ('r100', 'r101') for k, v in DATA['objs-' + _r].items()}
-# objs12b (lane objs cca4f2bf, 10-15, coordinator: the breakable class stays GameCube): objs12 with every cEmBox /
-# cEmBarrel etc model left GC (EtcModel.cpp SetBox / SetBarrel: et0100 et0200 et1100 et1200 et1e00 et1f00 et2d00
-# et2e00/01 et2f00/01 et3c00). Their break (debris effects owned by the box model) is where et1100's PS2 geometry went
-# wrong. r100b: et0100 et0200 GC; r101b: et0100 et0200 et1100 et1e00 GC. Every other object as objs12. (Only these data
-# set lines are taken from cca4f2bf; its --uv-fold option and test 14 study sets stay on lane/objs.)
+# objs12n (10-15): objs12 with r101's ETM et1100 (wood box) left GameCube: the game builds the box's break debris from
+# the model's own triangles (GC 164 incl. 24 inward splinter faces; PS2 68, all outward), so the PS2 box drew a flat
+# dark shard where GC draws white splinters (r119 et1100-only run r119e-m). objs-20261014/r101n = ps2_objects.py room
+# with the r101o arguments minus et1100.bin; every other object identical.
+DATA['objs-r101n'] = {'st1/r101.dar': OBJS + '/r101n/r101.dar'}
+DATA['objs12n'] = {**DATA['objs-r100'], **DATA['objs-r101n']}
+# objs12b (10-15, coordinator: the breakable class stays GameCube): objs12 with every cEmBox / cEmBarrel etc model left
+# GC (EtcModel.cpp SetBox / SetBarrel: et0100 et0200 et1100 et1200 et1e00 et1f00 et2d00 et2e00/01 et2f00/01 et3c00).
+# Their break (debris effects owned by the box model) is where et1100's PS2 geometry went wrong. r100b: et0100 et0200 GC;
+# r101b: et0100 et0200 et1100 et1e00 GC. Every other object as objs12.
 DATA['objs-r100b'] = {'st1/r100.dar': OBJS + '/r100b/r100.dar'}
 DATA['objs-r101b'] = {'st1/r101.dar': OBJS + '/r101b/r101.dar'}
 DATA['objs12b'] = {**DATA['objs-r100b'], **DATA['objs-r101b']}
-# test 13, not ready (tex13/NOT-READY.txt): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and the PS2-picture
-# object dars (tools/ps2_objects_tex.py; colour-only swap: flag-4 mask pairs missing until the items lane pair logic).
+# test 14 (complete-world objects): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and objst-<room> = PS2 geometry +
+# PS2 pictures with material pairs (tools/ps2_objects_tex.py v2: flag-4 parts get a pair package keyed (new colour, GC
+# mask); the lane items 421b7251 rules) in re4-assets-private/objs-20261014/tex14 (tex13 = colour-only, superseded).
+# objst-r11a carries the r11a2 geometry (+ et1000).
+# r119 dark block study (test 14): the p2b 10-11 package with BIN 0x22 (tree) AND ETM et1100 (box) converted (look lane:
+# the block shows only with both; r119c = BIN 0x22 only is in T11_DATA).
+DATA['r119-both'] = {'st1/r119.dar': PRIV + '/p2b-20261011/objects/r119b/r119.dar'}
+# objst-r119 (test 14): BIN 0x22 (tree) + ETM et1100 (box) PS2 geometry (p2b r119b) with their PS2 pictures (tex14/r119).
+# The look lane's dark block = a flat dark shard drawn by the PS2 et1100 fragment where GC draws white splinters; it
+# is the same with these PS2 pictures (r119t-m), so not the picture (open: fragment UVs / normals / colour). Logic is
+# identical (t119-c vs t119-b / t119-t STRICT 902 ticks MUST-IDENTICAL).
+DATA['objst-r119'] = {'st1/r119.dar': OBJS + '/tex14/r119/r119.dar', 'tex': OBJS + '/tex14/r119/tex'}
+# objsf-r119 (converter v3, --uv-fold): BIN 0x22 + et1000 + et1100 PS2 geometry with each PS2 triangle's UVs folded into
+# [0, 1] (the GC models' range; the game clamps et11.eff's box picture, so the PS2 box UVs u -0.96..-0.02 drew one
+# edge texel = the dark block) + PS2 pictures (tex15/r119).
+DATA['objsf-r119'] = {'st1/r119.dar': OBJS + '/tex15/r119/r119.dar', 'tex': OBJS + '/tex15/r119/tex'}
+# r119-box (study): only ETM et1100 (wood box) PS2 geometry, GC pictures (work/out/r119e; not a library asset)
+DATA['r119-box'] = {'st1/r119.dar': '/root/probe/lanes-20261014/objs/work/out/r119e/r119.dar'}
 DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
-TEX13 = OBJS + '/tex13'
+TEX14 = OBJS + '/tex14'
 for _r in OBJS_ROOMS:
-    DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX13, _r, _r), 'tex': '%s/%s/tex' % (TEX13, _r)}
+    DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX14, _r, _r), 'tex': '%s/%s/tex' % (TEX14, _r)}
+# objs13-<room> / objs13 (lane objs 10-15, test 13, on the published test 12 package pkg-t12c2tP.json): PS2 room objects
+# for r102..r10b, r117, r118, r119, r11a, r11b with the breakable class left GameCube (gen13.sh: ps2_objects.py from the
+# GC source dars, so the p2b PS2 breakables of tests 8..12 go back to GC), lane items' ps2_items.py pack on top (same
+# changed bytes / counts as the test 12 items dars) and PS2 pictures (ps2_objects_tex.py v2, --pak tex-t12d.pak).
+# Replaces the test 12 st1/<room>.dar of items12 / the RC's items dars; r100 / r101 stay objs12b + items (test 12).
+# Gates: docs/lanes/objs.md "Test 13 objects on the test 12 base". Use with the test 12 base: t11-fix.py <label> <out>
+# --base .../t12rc/fix/pkg-t12c2tP.json --base-label t12c2tP --data objs13.
+OBJS13 = OBJS + '/t13'
+OBJS13_ROOMS = 'r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r119 r11a r11b'.split()
+for _r in OBJS13_ROOMS:
+    DATA['objs13-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (OBJS13, _r, _r), 'tex': '%s/%s/tex' % (OBJS13, _r)}
+DATA['objs13'] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (OBJS13, _r, _r) for _r in OBJS13_ROOMS}
+DATA['objs13']['tex'] = OBJS13 + '/tex-all'  # one copy per key (store13.sh; shared pictures differ only in header source name)
 for _r in ('r100', 'r101'):
     DATA['objs-%sp' % _r] = {'st1/%s.dar' % _r: '%s/%sp/%s.dar' % (OBJS, _r, _r)}
 # (later --data names win: '--data <test 11 data>,objs,objs-r100p' = every room with the padded r100)

@@ -141,9 +141,11 @@ load_screen 0.32, dyn_source 0.21), actor submit 18.55.
 | r101 benchmark view (old objs base, hw 700:899 stride 7): world submit / total ms | 16.15 / 88.32 | 22.11 / 91.27 | 24.80 / 98.36 (70 m) | stays 25 m (coordinator 10-14: rule); church / houses behind the stake are sky at 25 m (sheet far-r101.png) |
 | r101 GPU proxy ms | 9.75 | 10.16 | 8.93 | |
 | r100 bridge view (w100, 700:819 stride 7) total ms | 33.27 | 33.27 | 33.27 (42.7 m) | View far free at this view (7 placements drawn either way; GPU proxy 11.69 = 11.69); one view only, not a wide one |
-| r11b wide view | queued (jobs-far.txt f11b/g11b/s11b) | | | |
+| r11b x11b view (rsf 0x11b 0 + goto 200 -58471 1875 -12698, hw 700:819 stride 7): world / total ms | 7.93 / 65.01 | 9.15 / 66.56 | 9.49 / 66.28 (270 m) | stays 25 m: View far +1.56 world / +1.27 total (just over ~1 ms), no visible gain (sheet far-r11b.png) |
+| r11b GPU proxy ms | 17.50 | | 17.51 | |
 
-Source View far known: r101 70 m, r100 cut 0 42.7 m (house cut 24.8 m, the source's own). The other route rooms need
+(The first r11b rows, w11b entry warp, were invalid: the r11bs00 entry movie covers the window, then the screen
+stays black.) Decisions: r101 25 m, r100 View far, r11b 25 m. Source View far known: r101 70 m, r100 cut 0 42.7 m (house cut 24.8 m, the source's own). The other route rooms need
 a View-far run each (FOG_FAR=1000000 FOG_FAR_CAP=1 logs cull_far per pass) or a parse of the room camera data: not done.
 
 ### Options ranked (estimates first, then built)
@@ -201,3 +203,320 @@ bench payload manifests). If a recipe stages a different r101 package, regenerat
 Recommended test 12 recipe additions: `PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1` + data `sg101`. Modelled
 r101 bench: total 71.83 -> 70.85 (-1.0 ms), world submit 16.13 -> 15.08. The 50 ms gate stays ~21 ms away; the rest is
 actor submit (18.55) and logic, not world culling.
+
+### Pre-transform strip rejection (coordinator 10-15 item: price first)
+
+Already built: PS2_STRIP_GROUPS is per-meshlet strip-group bounds baked offline into the package (r4sg) and tested
+against the frustum before transform. Pricing finer bounds from the existing counts (worldlean/stripcull.py at the
+bench eye -15300,1721,2377 yaw 90 pitch -8; MODELLED cost 40 cyc/vertex, 80/strip, 100/group test; base transform +
+walk 6.85 model ms): sorted groups of 4 (shipped) save 1.86, 8 save 1.89, 16 save 1.55, 64 (about per strip) 1.15.
+Finer rejection gains nothing more: the group test itself costs more than the vertices it saves. At runtime strips
+culled after transform fell from ~46 % to ~21 % of walked strips (oe31s: 3.2 M culled vs 11.7 M emitted over 3,600
+frames). What is left is the group test (sg_select 1.04 + box_mask 0.61 hw ms); only a fipr/asm version might take
+~0.5 ms off it, and that is not built (no measured case yet that justifies it under the CLAUDE.md rule).
+
+### PS2 per-area scenery hiding: PS2_AREA_HIDE (lane/objs-w a5188bc0; PS2-ENEMY-CODE-DIFF-20261015 item 11)
+
+- r107: PS2 st1_1.rel R107Main (0xf130) reads Room_flg[2]: bit 31 -> SMD groups 60 70 80 90 drawn, 50 100 hidden;
+  bit 30 -> 90 100 drawn, 50 60 70 80 hidden; neither -> 50 60 drawn, 70 80 90 100 hidden (SmdSetTrans(id, 1) =
+  drawn, be_flag bit 1). The bits come from PS2-only AEV flag areas (PS2 AEV record 0xA0 B, payload at 0x60): area 9
+  -> flag 64 (bit 31), areas 10 / 11 -> flag 65 (bit 30), trigger inside, player.
+- Port: r107.cpp tests the same three quads read only (no flag written; STRICT by construction) and hands the bits to
+  native_static.cpp area::, which skips the hidden groups' placements from a baked table (room 0x107, package R4PW crc
+  9081e7fd, 71 placements; any other crc or count logs "mismatch: off"). r11f's PS2 re-show of groups 30 / 15 after
+  the barn event is already r11f.cpp r11f_ps2Area9 (game objects): nothing new there.
+- Knob-off image identical (oa0htW de566ad4...). sa107-1b (w107 warp, v3pak): `PS2AREA ... ok`, state 0 hidden
+  07800000 0fde0fc0; pass-0 placements 61 -> 41, parts 70 -> 46, transformed vertices 4.565 M -> 4.325 M (-5.3 %),
+  emitted strips 753,960 -> 751,494; stills identical at that view (sheets\area-r107.png).
+- hw ms: knob off ha107-0 world 7.38 / total 47.73 (MODELLED, hw nominal, 700:819 stride 7). Knob on: about -0.2 ms
+  MODELLED from the counters; the hw-model rerun (ha107-1) is pending (Flycast freeze 10-15; the first ha107-1 ran on
+  the crc-off binary and is renamed *-CRCOFF-INVALID).
+
+### Static object bake hooks (answered crowd12 10-15)
+
+- The 9 r101 cObj00 (BIN 0x20, burning stake) were not baked by this lane: the PS2 r101 scenario SMD already has the
+  stake (SMD_016 + pole SMD_120) and the world package draws all 209 SMD placements; ps2_objects.py --world-owned 0x20
+  (0f071172) empties the GC copy. Lighting: prelit PS2 vertex colour x SMX ColorRGB + fog, no dynamic lights.
+- Hooks: R4PW placement per OBJ group ('g ...#SMD_n#SMX_id#'), ps2_room_ids.py -> ps2-world.ids (R4ID, crc tied);
+  runtime: the native_static.cpp ps2_pass placement loop (where PS2_WORLD_DYNAMIC and PS2_AREA_HIDE skip placements).
+  Smallest change for a game-owned bake: a per-placement owned bitmask + re4dc_ps2_place_gate(room, placement, draw)
+  set in the object's move / matUpdate before render (< 1 KB). A late opaque submit is not cheap (pass 0 is submitted
+  during the scene draw, the OP list cannot reopen).
+
+## Test 14 objects (coordinator 10-15; ON HOLD from 10-15 ~02:00 for the village)
+
+- tools/ps2_objects_tex.py v2 (47b8e299; the commit text says 125 images, the route set is 112 images + 22 pairs):
+  flag-4 parts keep the mask record's GC key and get a pair package keyed (new colour key, GC mask key) holding PS2
+  colour RGB + mask alpha; the mask is the PS2 TPL entry closest to the GC mask (4-bit n*17, accepted at mean abs
+  difference <= 16, good matches <= 6), else the GC mask resampled; --pak proves each mask key (the GC pair must be in
+  tex-v3-ws.pak). Outputs re4-assets-private/objs-20261014/tex14 (sha256.txt; tex13 superseded).
+- Still GC pictures: r100 BIN 0x33 (texture from the Leon archive, outside the room archive), r117 BIN 0x1f (one GC
+  image sampled by PS2 images 0, 1, 3). r10b / r11b BIN 0x1e / 0x1f masks keep the GC mask (PS2 error 45.8 / 97.2).
+- Gates (fixtures fix/g14-<r>-{c,t}-objstT.json + g14-<r>-t-objsmW.json, evaluator g14eval.sh):
+
+| room | warp STRICT + decision_cmp | TEX_CHECK=2 | LEON-GC | pair missing | PS2 keys seen loading |
+|---|---|---|---|---|---|
+| r102 | 2402 ticks MUST-IDENTICAL | PASS | PASS | 0 | 5 / 12 (window pair 711d7345 loaded) |
+| r103 | 2402 ticks MUST-IDENTICAL | not run (mcheck refused: C: floor guard) | not run | - | - |
+| r104..r11b | not run (on hold) | | | | |
+
+- r119 (BIN 0x22 tree + ETM et1100 box): the look lane's "hang" is the scripted `freeze 950` + 30 s watchdog (all three
+  arms hit it: r119c ui 712, r119b 696, r119t 738); logic is identical (t119-c vs t119-b and t119-c vs t119-t: STRICT
+  902 ticks MUST-IDENTICAL); r119b-m / r119t-m / r119c-m all TEXCHK PASS, LEON-GC PASS, pair missing 0. The "dark
+  block" is a broken-box fragment: GC draws white splinters, the PS2 et1100 geometry draws a flat dark-grey shard. The
+  tex14/r119 PS2 pictures (3e0bf632-0f5d6eba tree, 058ec2b1-11e00663 box; both seen loading) do NOT change it (sheets
+  r119-tex14.png, r119-shard-zoom.png: identical shard with GC or PS2 pictures), so it is not the picture: suspect the
+  PS2 et1100 fragment part's UVs / normals / colour as converted. Open; r119 stays BIN 0x22 only (r119c) until then.
+
+## Breakables stay GameCube (10-15 ~02:40; coordinator: documented exception "game logic reads the model's geometry")
+
+- r119's dark block = the converted wood box et1100 (SetBox type 3): a run with only et1100 PS2 (GC pictures, r119-box,
+  r119e-m) draws a flat dark shard at the break where GC draws white splinters (sheets r119-box-only.png). Not the
+  picture (tex14 PS2 pictures: same), not the UV range (--uv-fold, u -0.96..-0.02 shifted into [0, 1]: same, r119f-m),
+  not the normals (all outward). The box's break spawns effect models of et11.eff (EFM 0x09 / 0x19 / 0x2b, owner = the
+  box cEm: EfmSetObj04(parent)); the GC box has 164 triangles (24 inward splinter faces), the PS2 box 68 (all outward).
+  The exact coupling is not found yet (grep: no game code reads ModelData vertices outside rendering, shadows, bounds
+  and debug); treated as the class below.
+- Exception class (EtcModel.cpp, cEmBox / cEmBarrel): et0100 et0200 et1100 et1200 et1e00 et1f00 et2d00 et2e00/01
+  et2f00/01 et3c00 stay GameCube in every room. In the converted sets: r100 et0100 et0200; r101 et0100 et0200 et1100
+  et1e00; r102 et0100 et1100; r103 et0100 et0200 et1100; r104 et1100 et1200; r105 et0200 et1100 et1f00; r106 et0100
+  et0200 et1100 et1f00; r107 et1100; r108 et0100 et1f00; r109 et1100; r10a / r10b / r11a et0100 et1100 et1f00; r117
+  et1100; r118 et0100 et1f00; r11b et0100 et1100 et1f00; r119 et1100. The items lane's PS2 debris models
+  (ps2lib breakables, e.g. r101 et11_efm09 / 19 / 2b) were gated with GC boxes and are unaffected.
+- Test 12 data set objs12b (t11-fix.py; objs-20261014/r100b + r101b = ps2_objects.py with the r100o / r101o arguments
+  minus the class; every other object identical): r100b sha256 c0eced0b..., payload 1,606,688 B (r100o 1,604,832; the
+  GC source 1,918,528, so heap 4 / s30 is no worse than test 11); r101b fbb12e34..., payload 1,745,152 B.
+- Gates (short runs, test 11 build objstT / objsmW, data test 11 + objs12b, 10-15 02:40-02:45):
+  r101 v101 warp trace n101-c vs b101-t: 570 ticks MUST-IDENTICAL; b101-m TEX_CHECK=2 PASS, LEON-GC PASS, pair
+  missing 0, halt 0. r100 w100 warp b100-c vs b100-t: 602 ticks MUST-IDENTICAL; b100-m TEX_CHECK PASS, LEON-GC PASS,
+  pair missing 0, halt 0. (objs12n, r101 minus et1100 only: n101 570 ticks MUST-IDENTICAL, n101-m PASS / PASS.)
+- Later (not test 12): the PS2 builds the box break from its own et11.eff (EFM 0x09 PS2 entry 19,424 B vs GC 12,512 B)
+  with the 68-triangle box: converting the box together with the items lane's PS2 EFM debris (and checking the PS2
+  break routine) is the way to make et1100 PS2.
+- ps2_objects.py / ps2_objects_tex.py --uv-fold (cca4f2bf, default off): kept as an option (clamp-sampled objects).
+
+## Place gate hook + world append (lane/objs-w; crowd12 STATIC_OBJ_BAKE)
+
+- PS2_PLACE_GATE (7e3cc846, render only, default 0): re4dc_ps2_place_prepare_fn / _own / _gate; =2 diagnostic.
+  Knob-off image identical (de566ad4); STRICT r101 gate=2 vs off (v101, pg-S / pg-2) 1802 ticks MUST-IDENTICAL.
+- re4dc_ps2_place_ready (e818c023): lookup-only residency of a placement's part textures (r101: ready(0)=1, ready(8)=0).
+- tools/ps2_world_append.py (c6cc9e59): baked COLOR OBJ groups + tex.pak-key materials appended to the shipped
+  package (base tables byte-identical, selftest), then ps2_strip_groups.py (base region = ps2lib r101-sg4). Runtime
+  check pa-3 (60 s): placements 212, PS2SG ok, boxes textured + tinted (sheets append-boxes.png).
+
+## Preview 2 r101: cross view vs wall view (coordinator 10-15 ~02:50; console: wall 19.9 fps, cross ~12.5, FSAA same)
+
+Runs (Flycast, emulator counters, not console; build t12r8tW = preview 2 recipe + DBG_WARP / PC_SAMPLER; data
+pkg-t12r8pP.json; warp fix/x101-{cross,wall}-warp.txt: pos -7914 0 2000, ang +1.5708 (the cross / pyre, the
+benchmark-r101-v3 eye) vs -1.5708 (turned away), village Ganados dead (alive 0 logged), pre-bell so the pyre burns,
+Leon still; 60 s each): x101-cross-g, x101-wall-g. Per-frame rates over ui frames 960..1320
+(worldlean/viewdelta.py):
+
+| per frame | cross | wall | ratio |
+|---|---|---|---|
+| world strips walked | 2,587 | 1,875 | 1.38 |
+| world strips culled after transform | 898 | 450 | 1.99 |
+| world vertices transformed | 16,223 | 11,313 | 1.43 |
+| PS2 world parts drawn (pass 0 / 1 / 2 at frame 1320) | 105 / 5 / 19 | 74 / 8 / 17 | |
+| direct parts / slots (TA vertices) | 135 / 21,350 | 91 / 16,273 | 1.48 / 1.31 |
+| model parts / input / emitted vertices | 162 / 16,956 / 12,664 | 125 / 12,015 / 10,123 | 1.30 / 1.41 / 1.25 |
+| effect sprites queued (pyre fire, smoke, mist) | 26.6 | 0.7 | 39 |
+| texture handle-cache misses (linear scan) | 4.5 | 0 | |
+
+TA input estimate (32 B per vertex): cross ~(21.3k + 12.7k) x 32 B = 1.09 MB/frame, wall ~0.85 MB. The bench cross
+view with 12 Ganados (10-14 TA stats gb40, MODELLED proxy): 2.02 MB/frame, OP 58k vertices / 33k triangles, TR 3.1k
+triangles, overdraw 5.4 screens, GPU proxy 9.6 ms. (The TA-stats Flycast wrote no ta-stats.txt for the two x101 runs:
+per-list counts for the wall view are missing; rerun when Flycast runs are allowed.)
+
+TA back-pressure: the hw model has none beyond its store-queue cost (hwmodel README "Known gaps": 14 CPU cycles per
+32 B SQ burst, about 457 MB/s). Extra stall = bytes x (1 / real ingest - 1 / 457 MB/s): at 200 MB/s real ingest
+cross +3.1 ms / wall +2.4 ms; at 100 MB/s +8.5 / +6.6 ms. The view difference from TA ingest is about 0.7..1.9 ms, far
+from the >= 30 ms the console shows. So the cross view's extra cost is not TA ingest. Candidates, in order:
+1. GPU (ISP / TSP translucent layers of the pyre fire, smoke and mist sprites): the r22g console reading had outdoor
+   GPU 53 ms (mist sprite fill). "FSAA same, so not fill" holds only if the FSAA setting really changes the render size
+   on that console mode; the RC meter disc's GPU / CPU phase split decides it.
+2. Hardware-only CPU cost that Flycast and the hw model do not see: misaligned-access or FPU exception traps in code
+   that runs only with the cross in view (the effect emitters / sprites). Flycast hides misaligned faults; an align-
+   logger run on the cross view would show them.
+3. World submit: +43 % vertices and 2x strips culled after transform in the cross direction (a few ms modelled).
+hw-model ms per bucket for both views: see the next section (run 10-15 on the published test 12 recipe).
+
+### hw-model buckets, cross vs wall (MODELLED, not console; 10-15 ~04:10)
+
+Build t12c2tW 3fb11639 = the published test 12 recipe (t12rc ac1c912e, release-knobs.txt) + DBG_WARP + PC_SAMPLER;
+data pkg-t12c2tP.json (the published package) with the x101 warps (fix/x101-{cross,wall}-t12c2tW.json); global frames
+1000:1119, trace stride 7 (18 traced ticks per view); work/x12.sh -> o-hw.sh; evidence objs-20261014\hwmodel-hw-x12cross
+/ -x12wall, buckets work/hwlog/bucket-hw-x12{cross,wall}.md. Each run took 2 m 17 s of wall clock (boot + warp to vbl
+~1000 + trace; named exception to the 1-minute rule, the captured window itself is 120 frames).
+
+| | cross | wall |
+|---|---|---|
+| drawn tick (hw ms nominal [low..high]) | 47.99 [41.1..57.9] | 36.33 (every tick drawn) |
+| skipped tick | 11.18 | - |
+| pacing | over 33 ms: draws every other tick, ~59 ms / 2 ticks, ~17 fps | ~27.5 fps |
+| console (preview 2 t12r8pP, RC lead) | ~12.5 fps | 19.9 fps |
+| modelled / console fps | 1.36 | 1.38 |
+
+The model under-reads both views by the same factor, so the view gap is CPU the model already sees (a stall only the
+cross direction has, e.g. TA back-pressure or traps, would make the factor view-dependent). Caveat: console = preview 2,
+model = published test 12. Cross minus wall per drawn tick, +11.7 ms: RENDER/world +4.73 (transform_sched +1.20,
+walk_lean +0.54, MeshDraw +0.80, sg_select +0.38, box_mask / box_class +0.48), RENDER/models(other) +3.79 (GC-format
+model parts: avk_pos_skin_s16 +0.65, light_skin +0.44, pos_rigid_s16 +0.36, actor_submit +0.38, load / resolve /
+memcmp +0.87, build_lights +0.20, draw_model_part +0.18), RENDER/effects +1.44 (pyre fire; EspCommonTrans +0.33),
+RENDER/deferred-source-draws +1.15, PS2-world TR flush in the actor pass +1.1; LOGIC equal (8.9 / 8.4..8.9). Getting
+the cross drawn tick under ~36 ms would pace it like the wall; the model-path share is what STATIC_OBJ_BAKE +
+PS2_PLACE_GATE move into the world pass.
+
+## Test 13 objects on the test 12 base (10-15 morning)
+
+What tests 8..12 ship: the p2b 10-11 object dars (packed by lane items for test 12) for r103 r104 r106 r107 r108 r10a
+r10b r117 r118 r11a r11b; they skipped every PS2 mesh not smaller than GC and they CONVERTED breakables: et1100 (wood
+box) in r103 r104 r106 r107 r10a r10b r117 r11a r11b, et0100 / et0200 in r103 r106 r108 r10a r10b r118 r11a r11b
+(census-t11.txt). r119 ships r119c (BIN 0x22 only). r102 r105 r109 had no object dar.
+
+**Known issue fix (coordinator 10-15): the objs13 dars put the GameCube breakables back in every route room, which is
+the fix for the "dark box debris" known issue (a converted et1100 box breaks into a flat dark-grey shard instead of
+GC's white splinters; r119 study above). It lands with objs13 in test 13; KNOWN_ISSUES.md should point there.**
+
+Pipeline (tools/d367/objs13/, work dir work/out/<room>{g,t,x}):
+1. gen13.sh: ps2_objects.py room --keep-larger from the GC source dars (the p2b dar_in / audio-overlay / aica-<room>)
+   with the breakable class left out, so the p2b PS2 breakables go back to GC. -> <room>g
+2. ps2_items.py pack (lane items, t12rc ac1c912e tools, shared ps2lib) on top. Reproduces the test 12 items dars byte
+   for byte from the p2b inputs (r10b 8c219dda...); on the new dars the changed bytes and per-class counts equal the
+   test 12 packs in all 14 rooms compared. -> <room>t
+3. tex16.sh: ps2_objects_tex.py v2 (material pairs, --pak tex-t12d.pak). -> <room>x (dar + loose pictures)
+4. store13.sh -> re4-assets-private/objs-20261014/t13/<room>/ (+ tex-all: one copy per key; a picture two rooms
+   share has the same texels and differs only in its header's source-name field, offsets 36..39 / 48..).
+
+ps2_objects_tex.py fix (r105 TEXCHK "pair missing 2e433600-96ee4004 color=2559b3ac mask=1fa01187"): an ETM TPL image
+is one payload record, so swapping it for a converted model also swaps it for every etc model binding the same TPL.
+et0001 (window frame, converted) shares et0000.tpl image 0 with the GC window pane et0000, which draws it with a mask.
+Now an image that an unconverted etc model also draws keeps its GC picture (listed as GC-TEX; --share-gc-pictures =
+old behaviour). Only r105 and r107 changed (et0001 image 0); every other room's dar and pictures are byte-identical.
+
+Switch: t11-fix.py data sets `objs13` (15 rooms, tex-all) and `objs13-<room>`, with `--base
+.../t12rc/fix/pkg-t12c2tP.json --base-label t12c2tP`. Disc data only (the executable is unchanged; knob-off = the test
+12 image). Offline census (objs_census.py; KNOWN now lists the breakable class): exit 0, GC=0 in every room;
+GC-known = breakables, window panes et0000 / et2500, torch et1400 (absent from the PS2 ETM).
+
+Gates (Flycast, published test 12 builds t12c2tT trace / t12c2mW TEX_CHECK=2 + MCHECK_LEONGC; fixtures
+fix/g16-<r>-{c,t}-t12c2tT.json + g16-<r>-t-t12c2mW.json from mkfix16.sh; warp work/warps/w<r>.txt (r11b x11b, r119
+st-r119); trace stop tick 600 on both runs, trace_lock; 60 s runs, one Flycast; evaluator g16eval.sh):
+
+| room | converted (GC tris -> PS2 tris) | still GC | payload B (test 12 -> t13) | STRICT + decision_cmp | TEX_CHECK / LEON-GC / pair missing |
+|---|---|---|---|---|---|
+| r102 | et0a00 828->828, et0d00 56->176, et1300 870->870, et2c00 80->80, et2c01 93->93 | et0100 et1100 (breakable) | 1,277,408 -> 1,281,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r103 | et0500 240->564, et0600 144->144, et1a00 952->68 | et0100 et0200 et1100 | 1,434,880 -> 1,444,864 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r104 | BIN 0x20 464->464, et0600 144->144, et1300 870->870, et1700 84->204 | et1100 et1200 | 1,274,880 -> 1,281,472 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r105 | et0001 76->74 (GC picture), et2200 870->870, et2400 56->366 | et0200 et1100 et1f00, panes | 1,399,936 -> 1,408,000 | v3 602 STRICT, MUST-IDENTICAL (g16-105-c vs -t2) | v3 PASS / PASS / 0 (v1: pair missing 1, the shared pane picture) |
+| r106 | BIN 0x20 464->464, 0x32 510->510, 0x34 324->612, 0x36 388->388, et0500 240->564, et0d00 56->176 | et0100 et0200 et1100 et1f00 | 1,607,424 -> 1,624,704 | frame-aligned FAIL: room setup completes at room tick 8 instead of 7 (load timing of the +17 KB dar); with that 1-tick offset the 412 following ticks are STRICT; same with the pictures in tex.pak (g16p-106-t), and the merged pak alone is STRICT vs test 12 (g16p-106-c) | PASS / PASS / 0 |
+| r107 | et0001 76->74 (GC picture), et0700 84->252, et0701 114->114, et1600 196->468, et2b00 56->176 | et1100, pane | 1,321,984 -> 1,332,928 | v3 602 STRICT, MUST-IDENTICAL (g16-107-c vs -t2) | v3 PASS / PASS / 0 |
+| r108 | et1a00 952->68 | et0100 et1f00 | 1,328,480 -> 1,329,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r109 | et1000 414->414 | et1100 | 532,672 -> 532,544 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r10a | BIN 0x20 464->464 | et0100 et1100 et1f00 | 1,646,304 -> 1,649,536 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r10b | BIN 0x1e 2100->529 | et0100 et1100 et1f00 | 1,650,976 -> 1,653,824 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r117 | BIN 0x1f 2576->1270 (GC picture: one GC image sampled by PS2 images 0/1/3), et1600 196->468 | et1100 | 853,728 -> 859,968 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r118 | et1a00 952->68 | et0100 et1f00, torch et1400 | 1,361,632 -> 1,362,560 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r11a | et1000 414->414 (from r109's PS2 ETM) | et0100 et1100 et1f00, torch | 1,419,968 -> 1,422,688 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r11b | BIN 0x1f 2100->529, et0300 870->392 | et0100 et1100 et1f00, torch | 1,433,920 -> 1,436,768 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r119 | BIN 0x22 1964->1328, et1000 414->414 | et1100 | 1,298,208 -> 1,298,080 | 382 STRICT, MUST-IDENTICAL (the st-r119 warp freezes at ui 950) | PASS / PASS / 0 |
+
+Payload test 12 = the census of the test 11 dars (test 12 items packs keep the payload size). The p2b rooms grow by a
+few KB where breakables return to GC and --keep-larger converts the finer PS2 meshes; heap 4 is checked by the gates
+(no "no contiguous block", halt 0). Coverage (PS2 picture keys seen loading in the 60 s mcheck window): r102 4/10,
+r103 1/3, r104 1/5, r108..r10a 1/1, r10b 2/5; the rest load outside the warp view (room-resident pictures are read at
+entry only when drawn); r117 1/1, r118 0/1, r11a 0/1, r11b 1/6, r119 2/2.
+
+r106 decision (coordinator 10-15): ACCEPTED as a load-timing shift, the same class as door loads. Evidence: the room's
+setup step (enemy / object spawn) completes at room tick 8 instead of 7; with that 1-tick offset the 412 following
+ticks are STRICT (logic_trace_diff --align auto --from 189: offset 1, STRICT); the merged pak alone (g16p-106-c,
+tex-t13o.pak, test 12 dar) is STRICT vs test 12, and the objs13 dar with the pictures in the pak (g16p-106-t) shifts
+the same, so the +17 KB dar (DVD read) causes it. Keeping BIN 0x34 / et0500 GC would be a GC fallback (a bug), so
+objs13 keeps r106 as gated. Test 13 landing: the RC merges tex-t13o.pak (tex-t12d.pak + the 32 objs13 pictures,
+work/tex-t13o.pak, sha256 b67fa060... after the look fixes) into tex.pak; the long H2 / s30 run happens once on the final test 13
+candidate.
+
+Look sheet for the user (coordinator 10-15): objs-20261014/sheets/t13-look.png (all 15 rooms, 2 columns each) and
+t13-look-<r>.png (full size). Warps work/warps/look<r>.txt (lookwarps.py): Leon 2,500..9,000 units from a converted
+object (ETS placement from the dar, etspos.py, or the room code's SetObjSmd / SetRock / SetFloatIsland / SetTree
+position), on the line toward the room's entry warp, facing it, god mode, `freeze 1200` (both columns are the same
+settled frame; shot slot t0030). Control g16L-<r>-c = test 12 data, test g16L-<r>-t* = objs13 (mklook.sh, t12c2mW,
+60 s). Targets: r102 et1300 door, r103 et0500, r104 et1700 gate, r105 et2200 door, r106 BIN 0x34 closet, r107 et1600,
+r108 / r118 et1a00 medal (high, not in frame), r109 / r11a et1000 torch (not clearly in frame), r10a BIN 0x20 rock (high
+on the cliff, edge of frame), r10b BIN 0x1e island, r117 et1600, r11b et0300, r119 BIN 0x22 tree.
+
+The look check found objects that DISAPPEARED with the PS2 pictures; TEX_CHECK=2, LEON-GC and pair-missing all passed on
+them, so these gates do not catch it (a gate gap: a package whose size differs from the record's TPL header is not
+drawn, silently):
+- r104 et1700 (the gate): the PS2 TPL lists the two images in the other order (PS2 img0 64x64 / img1 128x256 vs GC img0
+  128x256 panels / img1 64x64 frame). ps2_objects.py TEX_MAPS {'et1700.bin': {0: 1, 1: 0}} (rebuild tex_map, used by
+  both tools): the panels go to the panel part, both pictures now match (mean abs diff 25 -> 4.9 / 4.3). A geometry-only
+  run (g16L-104-g, GC pictures) drew the gate, so it was the pictures.
+- r10b / r11b BIN 0x1e / 0x1f (float island) and r119 BIN 0x22 (tree): PS2 pictures smaller than the GC image (64x64 vs
+  256x256, 32x128 vs 64x128, 64x64 vs 128x128; 64x256 vs 128x512). Same with the pictures in tex.pak (g16L-119-p,
+  g16L-10b-p), so not the loose-file path. ps2_objects_tex.py now resamples (nearest) such a PS2 picture to the GC
+  image size: PS2 texels at the GC size (r10b VRAM 9,216 -> 28,672 B, r11b 19,456 -> 38,912, r119 9,216 -> 21,504).
+- After the fixes (g16L-104-t2, g16L-10b-t3, g16L-119-t3, g16L-11b-t3) every target is drawn; re-gated r104 / r10b /
+  r11b / r119: 602 / 602 / 602 / 382 ticks STRICT, MUST-IDENTICAL; TEX_CHECK=2 PASS, LEON-GC PASS, pair missing 0.
+  Every other room's dar and pictures are byte-identical to the gated ones. t13 store + tex-all refreshed; merged pak
+  work/tex-t13o.pak now sha256 b67fa060... (4,511 packages).
+- Proposed gate for the picture swap: compare every swapped record's TPL header size with its package size offline
+  (ps2_objects_tex.py now guarantees it), and keep a frozen-frame look pair per converted room.
+
+The earlier 4-room still (sheets/t13-objs.png, wall-clock shots) is superseded by t13-look.png.
+
+
+### v5: PS2 picture size declared instead of the nearest upscale (coordinator 10-15, user on r10b)
+
+The user saw 4x4 blocks on the r10b float island in t13-look-10b.png: v4 upscaled the 64x64 PS2 picture to the GC
+256x256 by nearest neighbour, and the DC then filtered the blocks. The PS2 GS filtered the 64x64 bilinearly. v5
+(ps2_objects_tex.py), for a PS2 picture whose size differs from the GC image:
+- default: DECLARE the PS2 size. The TPL image header (u16 height, width) and the R4NREF record carry the PS2 size and
+  the package stays PS2-sized; the model path's u/v scale (TPL header / package) is then 1 and the wrap check passes.
+  Render data only: the payload layout does not move, and STRICT shows no logic reads it.
+- bilinear upscale to the GC size (PIL BILINEAR) where the header cannot change on its own: a colour image with a
+  material-pair mask (the runtime requires mask size = colour size, and the GC mask is the graded alpha), or an indexed
+  R4PREF record. `--upscale-mismatch` forces it everywhere.
+
+| room / model | image | PS2 | GC | v5 | VRAM v4 -> v5 (room pictures) |
+|---|---|---|---|---|---|
+| r10b BIN 0x1e island | 0 (+ mask pair) | 64x64 | 256x256 | bilinear | 28,672 -> 25,600 B |
+| | 2 (+ mask pair) | 32x128 | 64x128 | bilinear | |
+| | 5 | 64x64 | 128x128 | declared 64x64 | |
+| r11b BIN 0x1f island | 0 / 2 / 5 | as r10b | | as r10b | 38,912 -> 35,840 B |
+| r119 BIN 0x22 tree | 0 | 64x256 | 128x512 | declared 64x256 | 21,504 -> 9,216 B |
+
+Gates (published test 12 builds, 60 s each, one Flycast): g16-<r>-t4 (t12c2tT, trace stop 600, trace_lock) vs control
+g16-<r>-c: r10b 602 / r11b 601 / r119 382 ticks STRICT, MUST-IDENTICAL; g16-<r>-m4 (t12c2mW TEX_CHECK=2 + LEON-GC):
+PASS / PASS, pair missing 0, halt 0, `native model rejection ... wrap=0`; look runs g16L-<r>-t4 the same.
+Before / after (frozen frame, freeze 1200, t0030): sheets/t13-v5.png (rows r10b island, r11b island, r11b et0300,
+r119 tree; columns test 12 / v4 nearest / v5) and t13-v5-<r>.png. The r11b island row uses a new warp
+(objs13/look11bi.txt: r10b's island pose in r11b; r11b.cpp places the same island positions), runs g16L-11bi-{c,t3,t4}.
+Every other room's dar and pictures are byte-identical to the gated ones. Stored dars: r10b 39bd07e1, r11b d8a5fcfa,
+r119 5131adf9 (others unchanged); merged pak work/tex-t13o.pak (tex-t12d + 32 objs13 pictures, 4,511 packages)
+now sha256 06e18e13... (v4 b67fa060... deleted, rebuildable).
+
+### Standing picture-size gate: tools/d367/tex_size_check.py (coordinator 10-15)
+
+Offline: every texture record (R4NREF / R4PREF in dars, .das, .drs, ...; R4PW world part tables) against its package
+(pak, then loose texdir): OK / WRAPSAFE (flags bit 30) / COVER (bit 31, FX sprite cover) / PAD (pow2 padding) /
+MISMATCH (FAIL; the model path drops a wrapping part, the world packet refuses any difference) / MISSING (TEX_CHECK's
+job). `--keys` checks a KEYS.tsv; `--objects-report` checks ps2_objects_tex.py tex.json for a PS2 TPL image order
+that differs from GC without a ps2_objects.TEX_MAPS entry (ORDER FAIL). Runtime half: the last `native model
+rejection ... wrap=N` must be 0 (all controls are 0; objs13/evm.sh prints it). In the re4-dreamcast-testing checklist.
+
+Negative tests: tex14 r119 (pre-v4 pictures) FAIL MISMATCH 2 (058ec2b1 32x128 vs 32x64, 3e0bf632 128x512 vs 64x256);
+r104 rebuilt with TEX_MAPS cleared (objs13/notexmap.py) FAIL ORDER 2 (et1700 images 0/1).
+
+Results 10-15 (pak tex-t12d.pak unless named):
+| data set | result |
+|---|---|
+| objs13 v5 (15 dars + tex.json, pak tex-t13o.pak) | PASS: OK 754, COVER 27, PAD 1, MISSING 192; ORDER 41 images clean |
+| test 12 items dars | PASS: OK 946, COVER 34, PAD 4, MISSING 195 |
+| ps2lib objects | PASS: OK 909, COVER 27, PAD 1, MISSING 192 |
+| ps2lib effects-tex KEYS.tsv (fx12) | PASS: OK 393, COVER 254, PAD 2, MISSING 79 (121 without the pak) |
+| ps2lib world r200..r22c (castle VQ, R4PW parts) | PASS: 43 rooms, every part OK (34..135 per room); r101-sg4 has no R4PW |
+| ps2lib cast | PASS: acc12 .drs OK 59, merchant-em18 OK 16, ashley-pl11 OK 4 + MISSING 20 (its keys are not in tex-t12d), boat-pl0f MISSING 7; baked cast models (castmodel atlas, info0.*) carry no size records (atlas UVs, no TPL header check): not applicable |
+| ps2lib items / breakables (library form) | no records (GC .bin + pictures; records are written when packed): checked in the packed dars above |
+MISSING records exist in the shipped test 12 dars too (195), so they are not an objs regression; they are GC images the runtime never
+looks up from tex.pak in these windows (TEX_CHECK=2 passes).
