@@ -408,22 +408,31 @@ st-r119); trace stop tick 600 on both runs, trace_lock; 60 s runs, one Flycast; 
 | r102 | et0a00 828->828, et0d00 56->176, et1300 870->870, et2c00 80->80, et2c01 93->93 | et0100 et1100 (breakable) | 1,277,408 -> 1,281,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
 | r103 | et0500 240->564, et0600 144->144, et1a00 952->68 | et0100 et0200 et1100 | 1,434,880 -> 1,444,864 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
 | r104 | BIN 0x20 464->464, et0600 144->144, et1300 870->870, et1700 84->204 | et1100 et1200 | 1,274,880 -> 1,281,472 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
-| r105 | et0001 76->74 (GC picture), et2200 870->870, et2400 56->366 | et0200 et1100 et1f00, panes | 1,399,936 -> 1,408,000 | v1 602 STRICT MUST-IDENTICAL; v3 rerun queued | v1 FAIL (pair missing 1, fixed in v3); v3 queued |
-| r106 | BIN 0x20 464->464, 0x32 510->510, 0x34 324->612, 0x36 388->388, et0500 240->564, et0d00 56->176 | et0100 et0200 et1100 et1f00 | 1,607,424 -> 1,624,704 | frame-aligned FAIL: room setup tick 7 -> 8 (load timing); with that 1-tick offset 412 ticks STRICT; pak-vs-loose runs queued | PASS / PASS / 0 |
-| r107 | et0001 76->74 (GC picture), et0700 84->252, et0701 114->114, et1600 196->468, et2b00 56->176 | et1100, pane | 1,321,984 -> 1,332,928 | v1 602 STRICT MUST-IDENTICAL; v3 rerun queued | v1 PASS; v3 queued |
+| r105 | et0001 76->74 (GC picture), et2200 870->870, et2400 56->366 | et0200 et1100 et1f00, panes | 1,399,936 -> 1,408,000 | v3 602 STRICT, MUST-IDENTICAL (g16-105-c vs -t2) | v3 PASS / PASS / 0 (v1: pair missing 1, the shared pane picture) |
+| r106 | BIN 0x20 464->464, 0x32 510->510, 0x34 324->612, 0x36 388->388, et0500 240->564, et0d00 56->176 | et0100 et0200 et1100 et1f00 | 1,607,424 -> 1,624,704 | frame-aligned FAIL: room setup completes at room tick 8 instead of 7 (load timing of the +17 KB dar); with that 1-tick offset the 412 following ticks are STRICT; same with the pictures in tex.pak (g16p-106-t), and the merged pak alone is STRICT vs test 12 (g16p-106-c) | PASS / PASS / 0 |
+| r107 | et0001 76->74 (GC picture), et0700 84->252, et0701 114->114, et1600 196->468, et2b00 56->176 | et1100, pane | 1,321,984 -> 1,332,928 | v3 602 STRICT, MUST-IDENTICAL (g16-107-c vs -t2) | v3 PASS / PASS / 0 |
 | r108 | et1a00 952->68 | et0100 et1f00 | 1,328,480 -> 1,329,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
 | r109 | et1000 414->414 | et1100 | 532,672 -> 532,544 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
 | r10a | BIN 0x20 464->464 | et0100 et1100 et1f00 | 1,646,304 -> 1,649,536 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
 | r10b | BIN 0x1e 2100->529 | et0100 et1100 et1f00 | 1,650,976 -> 1,653,824 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
-| r117 | BIN 0x1f 2576->1270 (GC picture: one GC image sampled by PS2 images 0/1/3), et1600 196->468 | et1100 | 853,728 -> 859,968 | queued | queued |
-| r118 | et1a00 952->68 | et0100 et1f00, torch et1400 | 1,361,632 -> 1,362,560 | queued | queued |
-| r11a | et1000 414->414 (from r109's PS2 ETM) | et0100 et1100 et1f00, torch | 1,419,968 -> 1,422,688 | queued | queued |
-| r11b | BIN 0x1f 2100->529, et0300 870->392 | et0100 et1100 et1f00, torch | 1,433,920 -> 1,436,768 | queued | queued |
-| r119 | BIN 0x22 1964->1328, et1000 414->414 | et1100 | 1,298,208 -> 1,298,080 | queued | queued |
+| r117 | BIN 0x1f 2576->1270 (GC picture: one GC image sampled by PS2 images 0/1/3), et1600 196->468 | et1100 | 853,728 -> 859,968 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r118 | et1a00 952->68 | et0100 et1f00, torch et1400 | 1,361,632 -> 1,362,560 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r11a | et1000 414->414 (from r109's PS2 ETM) | et0100 et1100 et1f00, torch | 1,419,968 -> 1,422,688 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r11b | BIN 0x1f 2100->529, et0300 870->392 | et0100 et1100 et1f00, torch | 1,433,920 -> 1,436,768 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r119 | BIN 0x22 1964->1328, et1000 414->414 | et1100 | 1,298,208 -> 1,298,080 | 382 STRICT, MUST-IDENTICAL (the st-r119 warp freezes at ui 950) | PASS / PASS / 0 |
 
 Payload test 12 = the census of the test 11 dars (test 12 items packs keep the payload size). The p2b rooms grow by a
 few KB where breakables return to GC and --keep-larger converts the finer PS2 meshes; heap 4 is checked by the gates
 (no "no contiguous block", halt 0). Coverage (PS2 picture keys seen loading in the 60 s mcheck window): r102 4/10,
 r103 1/3, r104 1/5, r108..r10a 1/1, r10b 2/5; the rest load outside the warp view (room-resident pictures are read at
-entry only when drawn).
+entry only when drawn); r117 1/1, r118 0/1, r11a 0/1, r11b 1/6, r119 2/2.
+
+r106 decision: the objs13 r106 dar delays the room's setup step by one tick (DVD read of the larger payload); the
+logic after it is identical. Options: accept as a load-timing shift (as door loads), or drop --keep-larger for r106
+BIN 0x34 / et0500 (the two finer PS2 meshes, +11 KB) to stay under the tick. Until decided, `objs13` includes r106.
+
+Still sheet (4 heaviest rooms, objs-20261014/sheets/t13-objs.png; sheet16.py): control mcheck runs g16-<r>-cm (test
+12 dar) vs g16-<r>-m (objs13), same shot slot. The shots are wall-clock (15 s period), not frame-locked, so actor poses
+and the r119 camera differ between columns; the warp views frame few converted objects (r10b BIN 0x1e door frame,
+r117 gate frame look the same in both). A look check with object-facing warps is still open.
 
