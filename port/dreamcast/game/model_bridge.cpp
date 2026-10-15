@@ -367,3 +367,25 @@ extern "C" void re4dc_actor_census_describe(const void* model, unsigned verts) {
               w ? int(w[3]) : 0, w ? int(w[7]) : 0, w ? int(w[11]) : 0);
 }
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (native_ui.cpp): a refused part's model as kind<<24 | id<<16 | type<<8 | nParts (low byte), or
+// 0xffffffff when the part has no model pointer in main RAM.
+extern "C" unsigned re4dc_model_drop_describe(const void* model) {
+    const unsigned a = (unsigned) model & 0x1fffffffU;
+    if (!model || ((unsigned) model & 3U) || a < 0x0c000000U || a >= 0x0d000000U) return 0xffffffffU;
+    const cModel* m = static_cast<const cModel*>(model);
+    return (unsigned(m->kindid) & 0xffU) << 24 | (unsigned(m->id) & 0xffU) << 16 | (unsigned(m->type) & 0xffU) << 8 |
+           (unsigned(m->nParts) & 0xffU);
+}
+#endif
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+// ACC_CROWD_TIER (crowd.mk): a hanging accessory object (cObj12, kind 1 id 0x12, em10SetAccesory) attached to a Ganado
+// (kind 0, id 0x10..0x20): that Ganado's model, else null. The parent link is Obj12Work::oya (cObj work + 0x10).
+#include "obj.h"
+extern "C" const void* re4dc_actor_accessory_parent(const void* model) {
+    const cModel* m = static_cast<const cModel*>(model);
+    if (!m || m->kindid != 1 || m->id != 0x12) return nullptr;
+    const cModel* oya = static_cast<const cObj*>(m)->o12.oya;
+    return oya && oya->kindid == 0 && oya->id >= 0x10 && oya->id <= 0x20 ? oya : nullptr;
+}
+#endif

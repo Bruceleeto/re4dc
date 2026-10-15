@@ -86,6 +86,9 @@ static const AtEffInfo r101_eff_info = {
 };
 
 static void r101_checkTowerBesieged();
+#if defined(RE4DC_R101_ALIVE_CAP) && RE4DC_R101_ALIVE_CAP
+static void r101_capInit();
+#endif
 extern "C" void r101_setFlameBottle(Vec* from, Vec* to);
 static void r101_checkEmNum();
 static void r101_Event30_TitleCall();
@@ -202,6 +205,9 @@ void R101Init()
     PSet(r101_work->pEm[7], &r101_work->em[7]);
     PSet(r101_work->pEm[8], &r101_work->em[8]);
     PSet(r101_work->pEm[9], &r101_work->em[9]);
+#if RE4DC_R101_ALIVE_CAP
+    r101_capInit();
+#endif
     if (!(pG->Item_find_flg & 0x2000)) {
         pG->Item_find_flg |= 0x2000;
         SceExec(0x12, (TaskFunc) r101_execOperator2, 0, 0, SCE_PRIO_DEF_2, 0);
@@ -352,7 +358,17 @@ static AreaData r101Ps2Area21 = {
 
 static void r101_ps2Villager(int rsf, int no, int inArea)
 {
+#if defined(RE4DC_R101_ALIVE_CAP) && RE4DC_R101_ALIVE_CAP
+    // R101_ALIVE_CAP: one villager per frame (a Ganado set this frame is not counted alive yet).
+    static u32 lastJoin = ~0U;
+    if (pG->Frame_cnt == lastJoin) {
+        return;
+    }
+#endif
     if (RsfCheck(G_ROOM_ID, rsf) == 0 && inArea && SceCountEmAlive(0x10, 0x20) < 9) {
+#if defined(RE4DC_R101_ALIVE_CAP) && RE4DC_R101_ALIVE_CAP
+        lastJoin = pG->Frame_cnt;
+#endif
         RsfSet(G_ROOM_ID, rsf);
         EmListSetAlive(no, 0);
         setEm(no, -1, 1, 1, 1);
@@ -362,12 +378,113 @@ static void r101_ps2Villager(int rsf, int no, int inArea)
 }
 #endif
 
+#ifndef RE4DC_R101_ALIVE_CAP
+#define RE4DC_R101_ALIVE_CAP 0
+#endif
+#ifndef RE4DC_R101_CAP_LOG
+#define RE4DC_R101_CAP_LOG 0
+#endif
+#if RE4DC_R101_ALIVE_CAP
+#if !(defined(RE4DC_PS2_ENEMY_ROOMS) && (RE4DC_PS2_ENEMY_ROOMS & 0x02))
+#error R101_ALIVE_CAP needs PS2_ENEMY_ROOMS bit 0x02
+#endif
+// R101_ALIVE_CAP (Makefile): the held / queued Ganado list entries, released one at a time below the cap.
+static u8 r101CapQ[32];
+static int r101CapN;
+static u32 r101CapLast;
+// Start-list Ganados held when the cap is below the 9 the PS2 list starts with (last ground entries first).
+static const u8 r101CapHoldOrder[9] = {0x19, 0x18, 0x17, 0x16, 0x15, 0x14, 0x1C, 0x1F, 0x1E};
+
+static void r101_capPush(int no)
+{
+    if (r101CapN < (int) sizeof(r101CapQ)) {
+        r101CapQ[r101CapN++] = (u8) no;
+    }
+}
+
+// A room-code send: straight in below the cap, else queued (released by R101Main).
+static void r101_capSend(int no)
+{
+    if (SceCountEmAlive(0x10, 0x20) >= RE4DC_R101_ALIVE_CAP) {
+        r101_capPush(no);
+#if RE4DC_R101_CAP_LOG
+        OSReport("r101cap: queue 0x%02x (alive %d, queued %d)\n", no, SceCountEmAlive(0x10, 0x20), r101CapN);
+#endif
+        return;
+    }
+    setEm(no, -1, 1, 1, 1);
+}
+
+// R101Init, fresh fight only: hold the start-list Ganados beyond the cap.
+static void r101_capInit()
+{
+    r101CapN = 0;
+    r101CapLast = 0;
+    if (RsfCheck(G_ROOM_ID, 6) || RsfCheck(G_ROOM_ID, 7)) {
+        return;
+    }
+    for (int k = 0; k < 9 - RE4DC_R101_ALIVE_CAP && k < 9; k++) {
+        const int no = r101CapHoldOrder[k];
+        cEm* e = GetEmPtrFromList(no);
+
+        if (e != 0) {
+            cEmWrap w;
+
+            w.setPtr(e, 0);
+            w.destroy();
+        } else {
+            EmListSetAlive(no, 0);
+        }
+        r101_capPush(no);
+#if RE4DC_R101_CAP_LOG
+        OSReport("r101cap: hold 0x%02x at entry (cap %d)\n", no, RE4DC_R101_ALIVE_CAP);
+#endif
+    }
+}
+
+// R101Main: once the fight is on (room save flag 6) and until the bell (7), one held Ganado comes in while fewer
+// than the cap are alive, at least 30 frames after the last. emNum (the kill base) rises with the alive count, so
+// the kills (emNum - alive) are unchanged.
+static void r101_capRelease()
+{
+    if (r101CapN == 0 || RsfCheck(G_ROOM_ID, 6) == 0 || RsfCheck(G_ROOM_ID, 7)) {
+        return;
+    }
+    if (pG->Frame_cnt - r101CapLast < 30 || SceCountEmAlive(0x10, 0x20) >= RE4DC_R101_ALIVE_CAP) {
+        return;
+    }
+    const int no = r101CapQ[0];
+
+    for (int k = 1; k < r101CapN; k++) {
+        r101CapQ[k - 1] = r101CapQ[k];
+    }
+    r101CapN--;
+    r101CapLast = pG->Frame_cnt;
+    EmListSetAlive(no, 0);
+    setEm(no, -1, 1, 1, 1);
+    r101_work->emNum++;
+#if RE4DC_R101_CAP_LOG
+    OSReport("r101cap: release 0x%02x frame %u alive %d emNum %d left %d\n", no, (unsigned) pG->Frame_cnt,
+             SceCountEmAlive(0x10, 0x20), r101_work->emNum, r101CapN);
+#endif
+}
+#define R101_SEND(no) r101_capSend(no)
+#else
+#define R101_SEND(no) setEm((no), -1, 1, 1, 1)
+#endif
+
 // Per-frame room main: nothing (PS2_ENEMY_RULES: the PS2 villager reinforcements).
 void R101Main()
 {
 #if defined(RE4DC_PS2_ENEMY_RULES) && RE4DC_PS2_ENEMY_RULES
+#if RE4DC_R101_ALIVE_CAP
+    r101_capRelease();
+#endif
     if (RsfCheck(G_ROOM_ID, 7) == 0) {
         int inArea = AreaHitCheck(&r101Ps2Area21, &pPL->pos) != 0;
+#if RE4DC_R101_ALIVE_CAP
+        inArea = inArea && SceCountEmAlive(0x10, 0x20) < RE4DC_R101_ALIVE_CAP;   // villagers join below the cap only
+#endif
 
         r101_ps2Villager(12, 0x1B, inArea);
         r101_ps2Villager(13, 0x1A, inArea);
@@ -418,6 +535,11 @@ extern "C" void r101_setFlameBottle(Vec* from, Vec* to)
 // Starts the bell event (s30): the fight is over.
 static inline void r101_startEvent30()
 {
+#if RE4DC_R101_CAP_LOG
+    OSReport("r101cap: bell frame %u kills %d alive %d emNum %d rsf8 %d\n", (unsigned) pG->Frame_cnt,
+             r101_work->emNum - SceCountEmAlive(0x10, 0x20), SceCountEmAlive(0x10, 0x20), r101_work->emNum,
+             RsfCheck(G_ROOM_ID, 8) ? 1 : 0);
+#endif
     RsfSet(G_ROOM_ID, 7);
     BitOff(pG->Scenario_flg[0], 0x08000000);
     BitOn(pG->door_flags_51CC, 0x200);
@@ -831,15 +953,15 @@ static void r101_Event20()
             }
         }
     }
-    setEm(0x3C, -1, 1, 1, 1);
-    setEm(0x3D, -1, 1, 1, 1);
-    setEm(0x3F, -1, 1, 1, 1);
-    setEm(0x40, -1, 1, 1, 1);
-    setEm(0x41, -1, 1, 1, 1);
-    setEm(0x42, -1, 1, 1, 1);
-    setEm(0x43, -1, 1, 1, 1);
-    setEm(0x45, -1, 1, 1, 1);
-    setEm(0x46, -1, 1, 1, 1);
+    R101_SEND(0x3C);
+    R101_SEND(0x3D);
+    R101_SEND(0x3F);
+    R101_SEND(0x40);
+    R101_SEND(0x41);
+    R101_SEND(0x42);
+    R101_SEND(0x43);
+    R101_SEND(0x45);
+    R101_SEND(0x46);
     OSReport("ps2en: r101 s21 sends 9 (alive %d)\n", SceCountEmAlive(0x10, 0x20));
 #else
     setEm(0x3C, -1, 1, 1, 1);
@@ -1097,9 +1219,9 @@ extern "C" void r101_FindPlayer()
     BitOff(pG->door_flags_51CC, 0x20);
     SceAtSetEnable(7, 0);
     r101_work->evt00->setCommand(CMND_DEL_DATA, 0, 0);
-    setEm(0x22, -1, 1, 1, 1);
-    setEm(0x23, -1, 1, 1, 1);
-    setEm(0x24, -1, 1, 1, 1);
+    R101_SEND(0x22);
+    R101_SEND(0x23);
+    R101_SEND(0x24);
     SceAtDataSet_exec(0, SCE_LEVEL10, 0, (TaskFunc) r101_DoorDontOpen100, 0, 1);
     SceAtDataSet_exec(2, SCE_LEVEL10, 0, (TaskFunc) r101_DoorDontOpen103, 0, 1);
     SndRoomStrStart(1, 3, 1);

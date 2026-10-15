@@ -1,0 +1,14 @@
+name benchmark-r101capgate
+# R101_ALIVE_CAP gameplay check (lane crowd12, 2026-10-14; not a perf scene): the fullplay `villager` segment's setup
+# (Leon walks into PS2 area 0x21, so the villagers can join) with the kill rig killing one Ganado every 60 room frames
+# until the bell: kills at the bell, waves, villager joins and time to the bell, capped vs uncapped (R101_CAP_LOG=1).
+room 0x101
+pos -7914 0 -254
+ang 2.9600
+find 0x00002000
+inv default
+god
+alivelog 150
+kill 0x15 100 0x101
+killrep 30 60
+goto 300 17486 700 -16680

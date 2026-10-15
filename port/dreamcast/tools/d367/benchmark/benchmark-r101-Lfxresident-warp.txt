@@ -1,0 +1,15 @@
+name benchmark-r101-Lfxresident
+# benchmark-r101 (lane crowd12, 2026-10-14): the r101 square, Leon by the burning cross / pyre facing the square
+# (lp2 "wide" view: 12 Ganados alive), the whole crowd alerted at room frame 30 and converging on him, god mode.
+# No pad input: Leon stands still, so the camera stays behind him on the same view. Full effects on screen: the
+# camera haze and mist, the pyre fire, torches. Settle room frames 0..299 (10 s), measure 300..1199 (30 s of game time).
+room 0x101
+pos -7914 0 2000
+ang 1.5708
+find 0x00002000
+inv default
+god
+alert 30
+alivelog 150
+# BENCH_LEVERS sweep binary: runtime levers for this run (bench_lever.h)
+lever fxresident

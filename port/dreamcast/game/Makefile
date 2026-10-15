@@ -161,6 +161,19 @@ $(error PS2_ENEMY_ROOMS needs PS2_ENEMY_RULES=1)
 endif
 $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r108.o $(OBJDIR)/mod/st1_3/src/st1/r108.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o $(OBJDIR)/mod/st1_2/src/st1/r11b.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_ROOMS=$(PS2_ENEMY_ROOMS)
 endif
+# R101_ALIVE_CAP=N (lane crowd12 2026-10-14; CHANGES GAMEPLAY by design; default 0 = off; needs PS2_ENEMY_ROOMS bit 0x02):
+#   at most N Ganados alive at once in the r101 village fight. Start-list Ganados beyond N are held at room entry
+#   (fresh fight only); the room code's sends beyond N (the square three at the alert, the s21 house nine) are
+#   queued; the PS2 villagers join only while fewer than N are alive. Queued / held Ganados come in one at a time,
+#   at least 30 frames apart, while fewer than N are alive, until the bell. Each one that comes in adds one to the
+#   kill base (emNum) exactly as it adds one to the alive count, so kills = emNum - alive and the bell's 15 / 18
+#   kills or 11,700 / 13,500-frame timer are unchanged. The reset waves are unchanged (they fire below 5 alive).
+# R101_CAP_LOG=1 (diagnostic, default 0): "r101cap:" lines (holds, queue, releases, waves, the bell's kills / timer).
+R101_ALIVE_CAP ?= 0
+R101_CAP_LOG ?= 0
+ifneq ($(R101_ALIVE_CAP)$(R101_CAP_LOG),00)
+$(OBJDIR)/mod/st1_1/src/st1/r101.o: GAME_CPPFLAGS += -DRE4DC_R101_ALIVE_CAP=$(R101_ALIVE_CAP) -DRE4DC_R101_CAP_LOG=$(R101_CAP_LOG)
+endif
 # em27ObaHitCk scans enemy slots through the sparse backing (workAt) instead of raw slot math, which read an
 # unbacked slot's 0xFF filler as a NaN position and dragged the fish to NaN (r10b dock / boss collision storm).
 $(OBJDIR)/mod/em27/src/em27/em27.o: GAME_CPPFLAGS += -DRE4DC_EM27_SLOT_FIX=1

@@ -1592,6 +1592,21 @@ struct Lights {
     bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
 #endif
 };
+// The fold's start state. MEMSET_LEAN=1 (crowd.mk; render only): every field but `prepared` is reset; prepared is
+// read only by pass_lights_exact (a fold that returned false), and the callers assign it on that return.
+inline void lights_reset(Lights& L) {
+#if defined(RE4DC_MEMSET_LEAN) && RE4DC_MEMSET_LEAN
+    L.fast = false; L.constant = false; L.count = 0; L.constant_rgb = 0;
+    for (unsigned i = 0; i < 3; ++i) { for (unsigned c = 0; c < 4; ++c) L.dir[i][c] = 0.0f; L.view_dot[i] = 0.0f; }
+    for (unsigned i = 0; i < 16; ++i) L.color[i] = 0.0f;
+    L.source = nullptr;
+#if RE4DC_ACTOR_PROBE_LIGHT
+    L.probe = false;
+#endif
+#else
+    L = Lights{};
+#endif
+}
 #if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
 // LEON_LIGHT_HEADROOM: Leon's lit record (LEON_SOURCE_LIGHT marks it in normal_matrix[3]) and its colour gain.
 inline bool leon_record(const SourceLighting& S) { return S.normal_matrix[3] == 1.0e30f; }
@@ -1671,7 +1686,7 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
 #if RE4DC_GIGANTE_LIGHTS
     const unsigned keep = gigante_keep(p);
 #endif
-    L = Lights{};
+    lights_reset(L);
     L.source = &S;
     constexpr float k = 1.0f / 255.0f;
     float scale[3], ambient[3];
@@ -1901,7 +1916,7 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
     }
     const ProbeEntry& e = probe_of(p);
     if (!e.ok) { ++probe_stats.declined; return false; }
-    L = Lights{};
+    lights_reset(L);
     L.source = &S;
     L.probe = true;
     L.dir[0][0] = (N[0] * e.v[0] + N[4] * e.v[1] + N[8] * e.v[2]) * f.nq;
@@ -1972,7 +1987,7 @@ bool part_lights(const Re4dcModelPart& p, const Frame& f, const float center[3],
 #if RE4DC_LEON_LIGHT_TOGGLE
     if ((re4dc_leon_light_mode == 0 || re4dc_leon_light_mode == 3) && leon_record(*p.lighting)) {
         const SourceLighting& S = *p.lighting;
-        L = Lights{};
+        lights_reset(L);
         L.source = &S;
         L.constant = true;
         L.constant_rgb = 0x808080U;  // FLAT: 128 on the 2x textures = test 10's white
@@ -4440,11 +4455,42 @@ void census_note(const Re4dcModelPart& p) {
 #else
 #define RE4DC_CENSUS_DEC(pp) do { } while (0)
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (native_ui.cpp): an actor-path resource reject, with the inner reason native_ui noted (else p =
+// packet capacity left under kCacheSlots + 64, d = direct scratch under kCacheSlots).
+extern "C" void re4dc_model_drop(const Re4dcModelPart*, unsigned, unsigned, unsigned, unsigned, unsigned);
+extern "C" unsigned re4dc_model_drop_last();
+#define RE4DC_DROP_ACTOR(pp, inner, cap) \
+    re4dc_model_drop((pp), 'a' | ((inner) ? (inner) : (re4dc_model_drop_last() & 0xffU) ? re4dc_model_drop_last() & 0xffU : 'p') << 8, (cap), 0, 0, 0)
+#else
+#define RE4DC_DROP_ACTOR(pp, inner, cap) do { } while (0)
+#endif
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+extern "C" const void* re4dc_actor_accessory_parent(const void* model);  // model_bridge.cpp
+#endif
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
     return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
 }
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+    // ACC_CROWD_TIER=N (crowd.mk, render only): a Ganado's hanging accessory is not drawn while that Ganado's crowd
+    // tier this frame is >= N (2 mid, 3 far). Game state is untouched (the accessory still moves and renders on the
+    // source side); only its native draw is skipped, counted as a culled part.
+    if constexpr (kCrowd) {
+        if (part) {
+            if (const void* oya = re4dc_actor_accessory_parent(part->model)) {
+                for (unsigned i = 0; i < crowd_count; ++i)
+                    if (crowd[i].model == oya) {
+                        if (crowd[i].tier >= unsigned(RE4DC_ACC_CROWD_TIER)) {
+                            ++stats.culled_parts; re4dc_model_result(0, 0, 0); return 1;
+                        }
+                        break;
+                    }
+            }
+        }
+    }
+#endif
 #if RE4DC_ACTOR_CENSUS
     census_cur = nullptr; census_mat_row = nullptr;
     if (part) census_note(*part);
@@ -4657,7 +4703,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF, project, nullptr}};
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
-    if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
+    if (!re4dc_model_packet_reserve(&p, &e.packet)) { RE4DC_DROP_ACTOR(&p, 0, 0); re4dc_model_result(2, 0, 0); return 1; }
 #if RE4DC_ACTOR_UV16
     // Consumed by the begin call below (direct or packet), whatever its result.
     e.uv16 = uv16_safe(p, *blob);
@@ -4670,7 +4716,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     if (re4dc_model_direct_enabled() && re4dc_model_direct_begin(&p, &direct)) {
         if (direct.scratch_capacity < kCacheSlots) {
             // Nothing sent yet beyond the header: an empty part.
-            re4dc_model_direct_end(0); re4dc_model_result(2, 0, 0); return 1;
+            re4dc_model_direct_end(0); RE4DC_DROP_ACTOR(&p, 'd', 0); re4dc_model_result(2, 0, 0); return 1;
         }
         e.direct = true; e.sq = direct.sq;
         e.packet.u_scale = direct.u_scale; e.packet.v_scale = direct.v_scale;
@@ -4682,6 +4728,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
         re4dc_model_next_header_pcw(pcw_set, pcw_clear);
 #endif
         if (!re4dc_model_packet_begin(&p, &e.packet) || e.packet.capacity < kCacheSlots + 64U) {
+            RE4DC_DROP_ACTOR(&p, 0, e.packet.capacity);
             re4dc_model_result(2, 0, 0);
             return 1;
         }
@@ -5218,14 +5265,15 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
     if (!w.open) {
-        if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
+        if (!re4dc_model_packet_reserve(&p, &e.packet)) { RE4DC_DROP_ACTOR(&p, 0, 0); re4dc_model_result(2, 0, 0); return 1; }
         if (re4dc_model_direct_enabled() && re4dc_model_direct_begin_reserved(&p, &e.packet, &w.direct)) {
             if (w.direct.scratch_capacity < kCacheSlots) {
-                re4dc_model_direct_end(0); re4dc_model_result(2, 0, 0); return 1;
+                re4dc_model_direct_end(0); RE4DC_DROP_ACTOR(&p, 'd', 0); re4dc_model_result(2, 0, 0); return 1;
             }
             w.open = true; w.sq = w.direct.sq; w.slots = 0; w.primed = 0;
         } else {
             if (!re4dc_model_packet_begin(&p, &e.packet) || e.packet.capacity < kCacheSlots + 64U) {
+                RE4DC_DROP_ACTOR(&p, 0, e.packet.capacity);
                 re4dc_model_result(2, 0, 0);
                 return 1;
             }

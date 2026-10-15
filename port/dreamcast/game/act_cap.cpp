@@ -43,6 +43,9 @@
 #include "camera.h"
 #include "re4dc_platform.h"
 #include "warp_late.h"
+#if defined(RE4DC_ACT_CAP_FAR_M) && RE4DC_ACT_CAP_FAR_M
+#include "bench_lever.h"
+#endif
 
 #ifndef RE4DC_ACT_CAP
 #define RE4DC_ACT_CAP 0
@@ -221,8 +224,20 @@ extern "C" void re4dc_act_cap_select(void)
             const bool near = d2 < kRange2;
             eng += near;
             thr += t;
+#if defined(RE4DC_ACT_CAP_FAR_M) && RE4DC_ACT_CAP_FAR_M
+            // ACT_CAP_FAR_M (game30.mk): beyond D metres the view rule no longer keeps a Ganado active
+            constexpr f32 kFar2 = (f32) (RE4DC_ACT_CAP_FAR_M * 1000) * (f32) (RE4DC_ACT_CAP_FAR_M * 1000);
+#if defined(RE4DC_BENCH_LEVERS) && RE4DC_BENCH_LEVERS
+            const bool farOk = RE4DC_LEVER(RE4DC_LV_FAR) && d2 > kFar2;
+#else
+            const bool farOk = d2 > kFar2;
+#endif
+            x->must = !on || t || near || e->hp <= 0 || e->dmg.m_Flag || pPL->pLockEm == e ||
+                      (!x->parked && g_tick - x->activeSince < kHoldTicks) || (!farOk && inView(e));
+#else
             x->must = !on || t || near || e->hp <= 0 || e->dmg.m_Flag || pPL->pLockEm == e ||
                       (!x->parked && g_tick - x->activeSince < kHoldTicks) || inView(e);
+#endif
             x->key = x->parked ? d2 : d2 * 0.64f;
             must += x->must;
         }

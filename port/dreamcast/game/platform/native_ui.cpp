@@ -261,6 +261,9 @@ extern "C" int re4dc_fixture_read(const char* path,char* buffer,unsigned size); 
 extern "C" void re4dc_lbx_open(int list,void (*send)(const void*,unsigned)); // platform/letterbox_clip.cpp
 extern "C" void re4dc_lbx_close(void);
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+extern "C" void re4dc_model_drop_summary();  // MODEL_DROP_LOG, defined above re4dc_model_packet_reserve
+#endif
 namespace {
 constexpr unsigned kQuadCount=256, kTextureCount=RE4DC_TEX_RESIDENT?RE4DC_TEX_SLOTS:RE4DC_PVR_STREAM?80:48, kSourceCount=RE4DC_PVR_STREAM?128:256, kVramBudget=4*1024*1024;
 #if RE4DC_UI_VRAM
@@ -306,6 +309,14 @@ bool fx_pool_pin[kTextureCount];unsigned fx_pool_size[kTextureCount],fx_pool_byt
 #define RE4DC_FX_POOL_PINNED(e) fx_pool_pin[unsigned(&(e)-entries)]
 #else
 #define RE4DC_FX_POOL_PINNED(e) false
+#endif
+#if defined(RE4DC_TEX_WRAP_SAFE) && RE4DC_TEX_WRAP_SAFE
+// TEX_WRAP_SAFE=1 (game30.mk; render only): a package whose texels are all one colour carries header flags bit 30
+// (tools/d367/tex_wrapsafe.py). Sampling it gives that colour whatever the wrap, padding or UV scale, so a wrapping
+// part may use it even though the converter padded its image (the r101 window glass, 2x2 padded to 8x8).
+#define RE4DC_WRAP_SAFE(pkg) ((((pkg).header().flags>>30)&1U)!=0U)
+#else
+#define RE4DC_WRAP_SAFE(pkg) false
 #endif
 #if RE4DC_ACTOR_TRANSACTION
 re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
@@ -2300,6 +2311,69 @@ int external_image_key(const Re4dcUiImage& image,Key& external) {
         native=e.table.lookup(image.pixels,image.width,image.height,image.format,external.crc,external.fnv,image.palette,image.palette_format,image.palette_bytes);
     return native;
 }
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+// UI_HASH_DIAG (crowd.mk, test only): which images image_key() hashes texel by texel (no source-table hit, no external
+// identity), per 60 UI frames: calls, bytes, nsource, and the 12 heaviest images (load()'s caller, pixels, size, format).
+namespace hashdiag {
+struct Rec { const void* px; const void* site; unsigned w, h, fmt, bytes, n; };
+Rec rec[12]; unsigned nrec, calls, bytes, frames, full;
+const void* site;
+void note(const Re4dcUiImage& i, unsigned b) {
+    ++calls; bytes += b;
+    for (unsigned k = 0; k < nrec; ++k) if (rec[k].px == i.pixels) { ++rec[k].n; return; }
+    if (nrec < 12) { rec[nrec++] = Rec{i.pixels, site, i.width, i.height, i.format, b, 1}; return; }
+    unsigned lo = 0; for (unsigned k = 1; k < 12; ++k) if (rec[k].n * rec[k].bytes < rec[lo].n * rec[lo].bytes) lo = k;
+    if (rec[lo].n <= 1) rec[lo] = Rec{i.pixels, site, i.width, i.height, i.format, b, 1};
+}
+}
+#endif
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+// UI_SOURCE_LRU (crowd.mk; exact, render only): once sources[] is full, a new descriptor replaces the least recently
+// used entry instead of being re-hashed on every lookup. A replaced entry is a later descriptor, never a key change:
+// the key of a descriptor is still the hash of its texels (or its external identity) when first seen. An indexed
+// image cached this way also records an FNV of its palette bytes; a hit with a changed palette is hashed again
+// (exactly what the full path did). =2 (check build): every hit on a late entry hashes again and compares
+// ("UISRC" lines: bad must stay 0).
+unsigned source_used[kSourceCount],source_clock,source_evict,source_late_hits,source_bad;
+unsigned char source_late[kSourceCount];unsigned source_pal[kSourceCount];
+inline unsigned palette_fnv(const Re4dcUiImage& i){
+    unsigned h=2166136261U;const unsigned char* p=(const unsigned char*)i.palette;
+    for(unsigned n=0;n<i.palette_bytes;++n)h=(h^p[n])*16777619U;
+    return h;
+}
+void hash_bytes(Key& k,const void* ptr,unsigned size);
+inline Key full_hash(const Re4dcUiImage& image){
+    const unsigned metadata[]={image.width,image.height,image.format,image.palette_format,image.palette_bytes};
+    Key key={0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
+    hash_bytes(key,image.pixels,image_size(image));
+    if(image.palette_bytes) hash_bytes(key,image.palette,image.palette_bytes);
+    key.crc=~key.crc;return key;
+}
+// A hit on sources[n]: 0 = use it, 1 = an indexed late entry whose palette changed (take the full path).
+inline int source_hit(unsigned n,const Re4dcUiImage& image){
+    if(source_late[n]){
+        ++source_late_hits;
+        if(source_late[n]==2 && palette_fnv(image)!=source_pal[n])return 1;
+#if RE4DC_UI_SOURCE_LRU==2
+        if(source_late[n]!=3 && !(full_hash(image)==sources[n].key) && source_bad++<16)
+            re4dc_log("UISRC bad n=%u px=%08x %ux%u fmt=%u%s",n,(unsigned)reinterpret_cast<std::uintptr_t>(image.pixels),image.width,image.height,image.format,"\n");
+        if(!(source_late_hits&4095U))re4dc_log("UISRC check late_hits=%u evict=%u bad=%u%s",source_late_hits,source_evict,source_bad,"\n");
+#endif
+    }
+    source_used[n]=++source_clock;return 0;
+}
+// Insert (image, key): append while there is room (late = 0, as without the knob), else replace the LRU entry.
+// kind: 1 hashed texels, 2 hashed indexed texels (palette FNV kept), 3 external / self key (not re-hashable).
+inline void source_put(const Re4dcUiImage& image,const Key& key,unsigned hint,unsigned char kind){
+    unsigned n;
+    if(nsource<kSourceCount){n=nsource++;source_late[n]=0;}
+    else{
+        n=0;for(unsigned k=1;k<kSourceCount;++k)if(source_used[k]<source_used[n])n=k;
+        ++source_evict;source_late[n]=kind;if(kind==2)source_pal[n]=palette_fnv(image);
+    }
+    sources[n]={image,key};source_used[n]=++source_clock;source_hint[hint]=(unsigned char)(n+1);
+}
+#endif
 bool image_key(const Re4dcUiImage& image,Key& key) {
     Key external{};int native=0;
     const bool indexed=image.format==8 || image.format==9;
@@ -2313,8 +2387,18 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     const unsigned hint=source_slot(image);
     if(!native){
         const unsigned h=source_hint[hint];
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        int stale=-1;
+        if(h && h<=nsource && same_image(sources[h-1].image,image)){if(!source_hit(h-1,image)){key=sources[h-1].key;return true;}stale=int(h-1);}
+        if(stale<0)for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {
+            if(source_hit(n,image)){stale=int(n);break;}
+            source_hint[hint]=(unsigned char)(n+1);key=sources[n].key;return true;}
+        if(stale>=0){   // indexed late entry, palette changed: hash as the full path does and refresh this entry
+            key=full_hash(image);sources[stale].key=key;source_pal[stale]=palette_fnv(image);source_used[stale]=++source_clock;return true;}
+#else
         if(h && h<=nsource && same_image(sources[h-1].image,image)){key=sources[h-1].key;return true;}
         for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {source_hint[hint]=(unsigned char)(n+1);key=sources[n].key;return true;}
+#endif
     }
 #else
     if(!native)for(unsigned n=0;n<nsource;++n) if(same_image(sources[n].image,image)) {key=sources[n].key;return true;}
@@ -2323,7 +2407,9 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     if(native<0){re4dc_log("native source identity: incompatible descriptor rejected\n");return false;}
     if(native) {
         if(identity_hits++<3)re4dc_log("native source identity: %08x-%08x (no source-texel hash)\n",external.crc,external.fnv);
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        if(!indexed)source_put(image,external,hint,3);
+#elif RE4DC_COPY_LEAN
         if(!indexed && nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,external};}
 #else
         if(!indexed && nsource<kSourceCount)sources[nsource++]={image,external};
@@ -2340,7 +2426,9 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
             key={r[2],r[3]};
             if(selfkeys++<16 || !(selfkeys&1023U))re4dc_log("native UI: ref self-key %08x-%08x %ux%u fmt=%u pix=%08x n=%u\n",key.crc,key.fnv,
                 image.width,image.height,image.format,(unsigned)reinterpret_cast<std::uintptr_t>(image.pixels),selfkeys);
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+            source_put(image,key,hint,3);
+#elif RE4DC_COPY_LEAN
             if(nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,key};}
 #else
             if(nsource<kSourceCount)sources[nsource++]={image,key};
@@ -2350,11 +2438,16 @@ bool image_key(const Re4dcUiImage& image,Key& key) {
     }
 #endif
     const unsigned metadata[]={image.width,image.height,image.format,image.palette_format,image.palette_bytes};
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    hashdiag::note(image,image_size(image)+image.palette_bytes);if(nsource>=kSourceCount)++hashdiag::full;
+#endif
     key={0xffffffffU,2166136261U};hash_bytes(key,metadata,sizeof(metadata));
     hash_bytes(key,image.pixels,image_size(image));
     if(image.palette_bytes) hash_bytes(key,image.palette,image.palette_bytes);
     key.crc=~key.crc;
-#if RE4DC_COPY_LEAN
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+    source_put(image,key,hint,indexed?2:1);
+#elif RE4DC_COPY_LEAN
     if(nsource<kSourceCount){source_hint[hint]=(unsigned char)(nsource+1);sources[nsource++]={image,key};}
 #else
     if(nsource<kSourceCount) sources[nsource++]={image,key};
@@ -2580,9 +2673,15 @@ void close_entry(Entry& entry) {
 #if RE4DC_TEX_CHECK
 __attribute__((noinline))   // TEX_CHECK: texchk::site is this function's caller
 #endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+__attribute__((noinline))
+#endif
 Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=nullptr) {
 #if RE4DC_TEX_CHECK
     texchk::site=__builtin_return_address(0);
+#endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    hashdiag::site=__builtin_return_address(0);
 #endif
     RE4DC_PROFILE_SCOPE(TextureResolve);RE4DC_PROFILE_COUNT(TextureLookups,1);
     if(!image.pixels || !image_size(image) || !image.width || !image.height || image.width>1024 || image.height>1024) return nullptr;
@@ -4306,6 +4405,19 @@ extern "C" void re4dc_ui_begin(){
 #if RE4DC_KOS_HEAP_CHECK
     re4dc_heap_check();
 #endif
+#if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
+    if(++hashdiag::frames>=60){
+#if defined(RE4DC_UI_SOURCE_LRU) && RE4DC_UI_SOURCE_LRU
+        re4dc_log("uihash: lru evict=%u late_hits=%u bad=%u%s",source_evict,source_late_hits,source_bad,"\n");
+#endif
+        re4dc_log("uihash: frames=%u calls=%u bytes=%u full=%u nsource=%u/%u%s",hashdiag::frames,hashdiag::calls,hashdiag::bytes,
+            hashdiag::full,nsource,kSourceCount,"\n");
+        for(unsigned k=0;k<hashdiag::nrec;++k){const auto& r=hashdiag::rec[k];
+            re4dc_log("uihash:  site=%08x px=%08x %ux%u fmt=%u bytes=%u n=%u%s",(unsigned)reinterpret_cast<std::uintptr_t>(r.site),
+                (unsigned)reinterpret_cast<std::uintptr_t>(r.px),r.w,r.h,r.fmt,r.bytes,r.n,"\n");}
+        hashdiag::frames=hashdiag::calls=hashdiag::bytes=hashdiag::full=hashdiag::nrec=0;
+    }
+#endif
 #if RE4DC_DOOR_FREEZE && RE4DC_PVR_STREAM
     door_ui_mark=~0U;
 #if RE4DC_TEX_RESIDENT
@@ -4705,6 +4817,9 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0 && model_diagnostic==1)
         re4dc_log("native model rejection: capacity=%u state=%u texture=%u wrap=%u empty=%u scale_rebuild=%u\n",model_capacity_rejects,model_state_rejects,model_texture_rejects,model_wrap_rejects,model_empty_parts,model_scale_rebuilds);
     if(frame%120==0 && model_diagnostic==1)re4dc_log("native model alpha: material=%u vertex=%u faded=%u masks=unsupported\n",model_alpha_material,model_alpha_vertex,model_alpha_faded);
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+    if(frame%600==0)re4dc_model_drop_summary();
+#endif
     if(frame%120==0) re4dc_log("native UI: frame=%u quads=%u drawn=%u missing=%u unsupported=%u drops=%u vram=%u peak=%u staging=%u loads=%u freed=%u culled=%u fb=%08x,%08x black=%d\n",frame,nquad,drawn,missing,unsupported,dropped,used,peak,staging_peak,loads,reclaimed,culled,(unsigned)pvr_get_front_buffer(),(unsigned)pvr_get_back_buffer(),re4dc_vi_black());
 #if RE4DC_UI_VRAM
     if(frame%120==0) re4dc_log("native UI VRAM: frame=%u budget=%u used=%u free=%u rejects=%u retries=%u evicted=%u\n",frame,vram_budget,used,(unsigned)pvr_mem_available(),vram_rejects,vram_retries,reclaimed);
@@ -4884,7 +4999,61 @@ bool ensure_model_storage(){
     return model_packets!=nullptr;
 }
 }
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (game30.mk, diagnostic; lane crowd12 2026-10-14, ledger G5/G6): which model parts are refused and
+// why. One MODELDROP first line per (model, image, reason), then every 600 frames a MODELDROP sum line per row that
+// grew. Reasons: s state (with the reason bits), g TA guard, c packet slab full, m no packet storage, t texture not
+// loaded, w padded texture on a wrapping part (texture size, image size, key); actor rows a<inner> are the actor
+// path's resource rejects (native_actor_fast.cpp), inner p = packet left under kCacheSlots + 64, d = direct scratch.
+extern "C" unsigned re4dc_model_drop_describe(const void* model);  // model_bridge.cpp: kind<<24|id<<16|type<<8|nParts
+namespace {
+struct DropRow { unsigned desc, why, count, logged; const void* image; const void* info; unsigned short iw, ih, tw, th;
+                 unsigned crc, fnv, wrap, verts; };
+DropRow drop_rows[96]; unsigned drop_n, drop_lost, drop_last;
+}
+extern "C" void re4dc_model_drop(const Re4dcModelPart* p, unsigned why, unsigned a, unsigned b, unsigned crc,
+                                 unsigned fnv) {
+    if ((why & 0xffU) != 'a') drop_last = why;
+    if (!p) return;
+    const unsigned desc = re4dc_model_drop_describe(p->model);
+    for (unsigned i = 0; i < drop_n; ++i) {
+        DropRow& r = drop_rows[i];
+        if (r.desc == desc && r.why == why && r.image == p->image.pixels && r.info == p->info) { ++r.count; return; }
+    }
+    if (drop_n == 96) { ++drop_lost; return; }
+    DropRow& r = drop_rows[drop_n++];
+    r = DropRow{desc, why, 1, 0, p->image.pixels, p->info, (unsigned short) p->image.width,
+                (unsigned short) p->image.height, (unsigned short) a, (unsigned short) b, crc, fnv,
+                p->wrap_s << 8 | p->wrap_t, p->position_count};
+    re4dc_log("MODELDROP first frame=%u why=%c%c kind=%u id=%02x type=%u nparts=%u model=%08x info=%08x part=%08x "
+              "img=%08x %ux%u fmt=%u wrap=%u,%u tex=%ux%u key=%08x-%08x verts=%u blend=%u mat=%02x\n", frame,
+              why & 0xffU, (why >> 8) ? (why >> 8) & 0xffU : ' ', desc >> 24, (desc >> 16) & 0xffU, (desc >> 8) & 0xffU,
+              desc & 0xffU, (unsigned) p->model, (unsigned) p->info, (unsigned) p->part, (unsigned) p->image.pixels,
+              p->image.width, p->image.height, p->image.format, p->wrap_s, p->wrap_t, a, b, crc, fnv,
+              p->position_count, p->blend, p->material_flags);
+}
+extern "C" unsigned re4dc_model_drop_last() { return drop_last; }
+extern "C" void re4dc_model_drop_summary() {
+    for (unsigned i = 0; i < drop_n; ++i) {
+        DropRow& r = drop_rows[i];
+        if (r.count == r.logged) continue;
+        re4dc_log("MODELDROP sum frame=%u why=%c%c kind=%u id=%02x type=%u nparts=%u info=%08x img=%08x %ux%u wrap=%u,%u "
+                  "tex=%ux%u key=%08x-%08x verts=%u count=%u new=%u lost=%u\n", frame, r.why & 0xffU,
+                  (r.why >> 8) ? (r.why >> 8) & 0xffU : ' ', r.desc >> 24, (r.desc >> 16) & 0xffU,
+                  (r.desc >> 8) & 0xffU, r.desc & 0xffU, (unsigned) r.info, (unsigned) r.image, r.iw, r.ih,
+                  r.wrap >> 8, r.wrap & 0xffU, r.tw, r.th, r.crc, r.fnv, r.verts, r.count, r.count - r.logged,
+                  drop_lost);
+        r.logged = r.count;
+    }
+}
+#define RE4DC_DROP(pp, why, a, b, crc, fnv) re4dc_model_drop((pp), (why), (a), (b), (crc), (fnv))
+#define RE4DC_DROP_CLEAR() (drop_last = 0)
+#else
+#define RE4DC_DROP(pp, why, a, b, crc, fnv) do { } while (0)
+#define RE4DC_DROP_CLEAR() do { } while (0)
+#endif
 extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPacket* out){
+    RE4DC_DROP_CLEAR();
     unsigned reason=0;
     if(!frame_ready || !re4dc_model_diagnostic_enabled())reason|=1;
 #if RE4DC_PVR_STREAM
@@ -4905,20 +5074,20 @@ extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPack
 #if RE4DC_TA_GUARD && RE4DC_D349_RENDERER_STACK
     if(!reason && !guard_admit(draining_parts)){
         // Budget skip, not a state reject: the part is simply not drawn.
-        ++model_capacity_rejects;return 0;
+        RE4DC_DROP(p,'g',0,0,0,0);++model_capacity_rejects;return 0;
     }
 #endif
     if(!p->image.pixels)reason|=64;
     if(!p->image.width || !p->image.height || p->image.width>1024 || p->image.height>1024)reason|=128;
     if(reason){
-        ++model_state_rejects;
+        ++model_state_rejects;RE4DC_DROP(p,'s',reason,0,0,0);
         for(unsigned bit=0;bit<8;++bit)if(reason&(1U<<bit)){
             if(model_state_bits[bit]++<2)re4dc_log("native model state reject: reason=%02x model=%08x info=%08x part=%08x material=%02x blend=%u depth=%u wrap=%u,%u image=%08x %ux%u fmt=%u vertices=%u stream=%u\n",reason,(unsigned)p->model,(unsigned)p->info,(unsigned)p->part,p->material_flags,p->blend,p->depth_mode,p->wrap_s,p->wrap_t,(unsigned)p->image.pixels,p->image.width,p->image.height,p->image.format,p->position_count,p->stream_bytes);
         }
         return 0;
     }
-    if(!ensure_model_storage())return 0;
-    if(model_used+4>kModelPacketBytes/32){++model_capacity_rejects;return 0;}
+    if(!ensure_model_storage()){RE4DC_DROP(p,'m',0,0,0,0);return 0;}
+    if(model_used+4>kModelPacketBytes/32){RE4DC_DROP(p,'c',model_used,0,0,0);++model_capacity_rejects;return 0;}
     // Same default padding policy as convert_tpl; binding below checks the
     // actual package. A different native layout triggers exact UV preparation.
     unsigned width=8,height=8;
@@ -4971,7 +5140,7 @@ extern "C" int re4dc_model_header_preview(const Re4dcModelPart* p,void* out){
     Entry* handle=resolve_peek(p->image,(p->material_flags&4)?p:nullptr);
     if(!handle)return 0;
     const auto& t=handle->package.textures()[0];
-    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))return 0;
+    if(((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package))return 0;
     unsigned fmt=re4dc::texture::pvr_format(t);
     const pvr_list_t list=select_model_pass(p);
     pvr_poly_hdr_t header;
@@ -5039,7 +5208,7 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
     }else{
 #endif
 #if RE4DC_UI_HANDLES
@@ -5052,18 +5221,18 @@ if(!handle){++model_texture_rejects;return 0;}
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #else
     Entry* handle=resolve(p->image,masked,false);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #endif
 #else
     Key prepared{};const Key* key=nullptr;
 #if RE4DC_D349_RENDERER_STACK
-    if(p->material_flags&4){if(!model_mask_key(p,prepared)){++model_texture_rejects;return 0;}key=&prepared;}
+    if(p->material_flags&4){if(!model_mask_key(p,prepared)){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}key=&prepared;}
 #endif
 #if RE4DC_MESH_TEXTURES
     handle=load(p->image,false,key);
@@ -5074,7 +5243,7 @@ if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
-        ++model_texture_rejects;return 0;}
+        RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #else
     Entry* handle=load(p->image,false,key);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -5084,7 +5253,7 @@ if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
-        ++model_texture_rejects;return 0;}
+        RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #endif
 #endif
 #if RE4DC_MESH_TEXTURES
@@ -5097,9 +5266,9 @@ if(!handle){
     // Repeating a padded image would repeat its border. Reject, never change wrap.
 #if RE4DC_MESH_TEXTURES
     // A baked texture is addressed 0..1 as authored: no source image size to match.
-    if(!model_texture && ((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))){++model_wrap_rejects;return 0;}
+    if(!model_texture && (((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package))){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #else
-    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)){++model_wrap_rejects;return 0;}
+    if(((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package)){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #endif
     unsigned fmt=re4dc::texture::pvr_format(t);
     pvr_list_t list=PVR_LIST_TR_POLY;
