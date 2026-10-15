@@ -437,6 +437,7 @@ extern "C" void re4dc_sob_room_leave(){
 }
 #endif
 #if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+#include <stdio.h>
 // SOB_DUMP (crowd.mk, diagnostic): static etc object parts captured at first draw for the offline STATIC_OBJ_BAKE.
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);
 extern "C" void* re4dc_static_alloc(unsigned bytes);
