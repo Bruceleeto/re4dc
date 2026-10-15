@@ -416,7 +416,11 @@ ActorOwnedRecord* actor_acquire(cModel* m,const Re4dcActorPlan& p,
     if(p.appearance>=nmr::appearance_first &&
        (((RE4DC_NMR_SOURCE_LIGHT&1) && m->id==0x2B) || ((RE4DC_NMR_SOURCE_LIGHT&2) && m->id==0x2F) ||
         ((RE4DC_NMR_SOURCE_LIGHT&4) && (m->id==0x17 || m->id==0x16)) || ((RE4DC_NMR_SOURCE_LIGHT&16) && m->id==0x22) ||
-        ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23) || ((RE4DC_NMR_SOURCE_LIGHT&32) && m->id==0x18))) {
+        ((RE4DC_NMR_SOURCE_LIGHT&8) && m->id==0x23) || ((RE4DC_NMR_SOURCE_LIGHT&32) && m->id==0x18)
+#if RE4DC_NMR_POOL
+        || ((RE4DC_NMR_SOURCE_LIGHT&64) && p.pool)
+#endif
+        )) {
 #if RE4DC_ACTOR_GANADO_DEATH_FADE
         if(!captured)
 #endif

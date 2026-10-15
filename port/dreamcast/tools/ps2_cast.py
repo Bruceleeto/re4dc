@@ -180,16 +180,42 @@ PRESETS = {
     'zealot-em11-07': dict(archive='em11', sections=[(0x1fc, 'body'), (0x1fe, 'head'), (0x204, 'right-hand'), (0x208, 'left-hand')],
                            tpl=0x1fd, section_tpls={0x1fe: 0x201}, rooms=['r117'], types=[7], category='registry',
                            model_id=0x11, lit=True, subset_bones=True),
+    # NATIVE_MODEL_REGISTRY_POOL (lane ps2cast 2026-10-15): Em17Set type 0xc's whole section pool (body mot[1] 0x1CD /
+    # TPL mot[0] 0x1CE; head mot[2] 0x1CF and hit head mot[3] 0x1D0 with TPL mot[5] 0x1CE; em10HandSet right mot[6..10]
+    # 0x1C0..0x1C4 and left mot[11..14] 0x1C5..0x1C8, TPL mot[0]; em10SetAccesory whood mot[23] 0x1D3 with TPL mot[24]
+    # 0x1D4 (flag 0x400000) or mot[25] 0x1D5 (flag 0x40000)). Caps / glasses are separate Obj12 objects.
+    'ganado-em17-0cp': dict(archive='em17', sections=[
+        (0x1cd, 'body'), (0x1cf, 'head'), (0x1d0, 'head-hit'),
+        (0x1c0, 'right-hand'), (0x1c1, 'right-open'), (0x1c2, 'right-point'), (0x1c3, 'right-grip'), (0x1c4, 'right-scythe'),
+        (0x1c5, 'left-hand'), (0x1c6, 'left-open'), (0x1c7, 'left-point'), (0x1c8, 'left-grip'),
+        (0x1d3, 'whood', 0x1d4), (0x1d3, 'whood-b', 0x1d5)],
+        tpl=0x1ce, rooms=['r108', 'r113', 'r118'], types=[12], category='registry', model_id=0x17, lit=True,
+        subset_bones=True),
+    # NATIVE_MODEL_REGISTRY_POOL (lane ps2cast 2026-10-15): the type 7 zealot's whole section pool, so every spawn's
+    # source infos bind (em10ModelInit order: body, em10HeadSet head mot[2] / hit heads mot[3] / mot[4] with TPL mot[5];
+    # em10HandSet right mot[6..9] and left mot[11..15], TPL mot[0]; em10SetAccesory hoods mot[26] / mot[27] with TPL
+    # mot[0] and accessories mot[28..39] in BIN / TPL pairs). Not listed: the subArc TPL 0x220 accessory and the
+    # Wep_type 12 subArc hand (the actor then keeps its source path).
+    'zealot-em11-07p': dict(archive='em11', sections=[
+        (0x1fc, 'body'), (0x1fe, 'head'), (0x1ff, 'head-hit'), (0x200, 'head-hit2'),
+        (0x204, 'right-hand'), (0x205, 'right-open'), (0x206, 'right-point'), (0x207, 'right-grip'),
+        (0x208, 'left-hand'), (0x209, 'left-open'), (0x20a, 'left-point'), (0x20b, 'left-grip'), (0x20c, 'left-grip2'),
+        (0x202, 'hood'), (0x203, 'hood-up'),
+        (0x20d, 'acc0'), (0x20f, 'acc1'), (0x211, 'acc2'), (0x213, 'acc3'), (0x215, 'acc4'), (0x217, 'acc5')],
+        tpl=0x1fd, section_tpls={0x1fe: 0x201, 0x1ff: 0x201, 0x200: 0x201, 0x20d: 0x20e, 0x20f: 0x210, 0x211: 0x212,
+                                 0x213: 0x214, 0x215: 0x216, 0x217: 0x218},
+        rooms=['r117'], types=[7], category='registry', model_id=0x11, lit=True, subset_bones=True),
 }
 
 
 def section_specs(spec):
     """Source BIN/role/TPL selections; old single-TPL presets keep their order."""
     overrides = spec.get('section_tpls', {})
-    bins = {arc for arc, _ in spec['sections']}
+    bins = {x[0] for x in spec['sections']}
     if set(overrides) - bins:
         raise ValueError('section_tpls names a BIN outside the selected sections')
-    return [(arc, role, overrides.get(arc, spec['tpl'])) for arc, role in spec['sections']]
+    # a section may name its own TPL as a third element (the same BIN under two TPLs: em10SetAccesory's whood colours)
+    return [(x[0], x[1], x[2] if len(x) > 2 else overrides.get(x[0], spec['tpl'])) for x in spec['sections']]
 
 
 def tpl_wrap_modes(data, image):
@@ -280,7 +306,12 @@ def ps2_entry(ps2, arc, tag):
 
 def gc_skeleton(bin_bytes):
     mdl = modelbin.parse(bin_bytes)
-    mdl.check_tree()
+    try:
+        mdl.check_tree()
+    except ValueError:
+        # the stage-3 soldier bodies list some parents after their children (em1d BIN 0x22F: part 8 -> parent 27);
+        # the rest pose is the same accumulation, resolved parent first (acyclic checked)
+        return _gc_skeleton_any_order(mdl)
     bones = []
     for p in mdl.parts:
         m = np.eye(4)
@@ -289,6 +320,28 @@ def gc_skeleton(bin_bytes):
             m = np.asarray(bones[p.parent]['rest']) @ m
         bones.append(dict(id=p.no, parent=p.parent, attach=p.attach, translation=list(p.pos), rest=m.tolist(), capture=m.tolist()))
     return bones
+
+
+def _gc_skeleton_any_order(mdl):
+    # a section BIN with a partial skeleton (stage-3 soldier heads: 12 parts, attach ids 0-4 / 27-33) names its
+    # parents by attach id (the body's part number), so parts are resolved by attach
+    parts = {p.attach: p for p in mdl.parts}
+    assert len(parts) == len(mdl.parts), 'GC section parts share an attach id'
+    rest = {}
+
+    def resolve(a, depth=0):
+        if a in rest:
+            return rest[a]
+        assert depth <= len(parts) and a in parts, ('GC part parent not in the section', a)
+        p = parts[a]
+        m = np.eye(4)
+        m[:3, 3] = p.pos
+        if p.parent >= 0:
+            m = resolve(p.parent, depth + 1) @ m
+        rest[a] = m
+        return m
+    return [dict(id=p.no, parent=p.parent, attach=p.attach, translation=list(p.pos), rest=resolve(p.attach).tolist(),
+                 capture=resolve(p.attach).tolist()) for p in mdl.parts]
 
 
 def gc_mesh(bin_bytes):
@@ -421,8 +474,31 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
         m = pb.parse_bin(pbin)
         gsk = gc_skeleton(gbin)
         # skeleton identity: PS2 (id, parent, translation) == GC (attach, parent, translation)
-        assert len(gsk) == len(bones), (role, len(gsk), len(bones))
-        if len(m.bones) == len(gsk):
+        if len(gsk) != len(bones):
+            # a partial GC section skeleton (stage-3 soldier head / hands: the parts they weight, by attach id):
+            # each part must be the body bone of its attach id (parent, translation; a section root has parent -1);
+            # PS2 ids are attach ids too
+            # (em11 type 7 hands: 41 parts on the 37-bone body, two hand roots repeated by attach id)
+            assert spec.get('subset_bones'), (role, len(gsk), len(bones))
+            by_attach = {}
+            for g in gsk:
+                by_attach.setdefault(g['attach'], g)
+            for g in gsk:
+                b = bones[id_to_index[g['attach']]]
+                # a section root (parent -1) carries the body bone's rest position (model space)
+                want = b['translation'] if g['parent'] >= 0 else [r[3] for r in b['rest'][:3]]
+                assert g['parent'] in (b['parent'], -1) and max(abs(x - y) for x, y in zip(g['translation'], want)) <= bone_tol,                     (role, 'GC section part', g['id'], 'attach', g['attach'], 'differs from the body bone', g['translation'], want)
+            assert set(pb_['id'] for pb_ in m.bones) <= set(by_attach), (role, 'PS2 bones outside the GC section attach ids')
+            # a PS2 bone takes the GC part of its id with the same parent (a repeated hand root: parent -1)
+            cands = {}
+            for g in gsk:
+                cands.setdefault(g['attach'], []).append(g)
+            pairs = [(pb_, dict(next((g for g in cands[pb_['id']] if g['parent'] == pb_['parent']), cands[pb_['id']][0]),
+                                attach=pb_['id'])) for pb_ in m.bones]
+            id_parent = all((pb_['id'], pb_['parent']) == (g['attach'], g['parent']) for pb_, g in pairs)
+            dt = max(max(abs(x - y) for x, y in zip(pb_['pos'], g['translation'])) for pb_, g in pairs)
+            dt_body = 0.0
+        elif len(m.bones) == len(gsk):
             pairs = list(zip(m.bones, gsk))
         else:
             # a reduced PS2 bone table (lane ps2cast-4: the crow's wing BINs carry only the bones they weight): each
@@ -430,9 +506,10 @@ def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.
             # checked per bone; weight ids are GC part ids either way
             assert spec.get('subset_bones') and len(m.bones) < len(gsk), (role, len(m.bones), len(gsk))
             pairs = [(pb_, gsk[pb_['id']]) for pb_ in m.bones]
-        id_parent = all((pb_['id'], pb_['parent']) == (g['attach'], g['parent']) for pb_, g in pairs)
-        dt = max(max(abs(x - y) for x, y in zip(pb_['pos'], g['translation'])) for pb_, g in pairs)
-        dt_body = max(max(abs(x - y) for x, y in zip(g['translation'], b['translation'])) for g, b in zip(gsk, bones))
+        if len(gsk) == len(bones):
+            id_parent = all((pb_['id'], pb_['parent']) == (g['attach'], g['parent']) for pb_, g in pairs)
+            dt = max(max(abs(x - y) for x, y in zip(pb_['pos'], g['translation'])) for pb_, g in pairs)
+            dt_body = max(max(abs(x - y) for x, y in zip(g['translation'], b['translation'])) for g, b in zip(gsk, bones))
         assert id_parent and dt <= bone_tol, (role, id_parent, dt)
         tris = pb.triangles(m)
         for mat in m.materials:
