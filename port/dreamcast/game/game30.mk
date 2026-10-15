@@ -99,6 +99,19 @@ MOTION_PRESSURE_BYTES ?= 0
 ifneq ($(MOTION_PRESSURE_BYTES),0)
 $(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_PRESSURE_BYTES=$(MOTION_PRESSURE_BYTES)
 endif
+# MOTION_PRESSURE_GROW=<bytes> (test 14 r103 motion thrash, crash lane 10-15; needs MOTION_PRESSURE_BYTES; render and
+# I/O only, default 0 = image unchanged): a key load over the MOTION_PRESSURE_BYTES cap does not evict while heap 4
+# keeps at least <bytes> free after it (as MOTION_RESERVE_SPILL): the cap holds only under heap 4 pressure. The r103
+# farm's em12 Ganados cycle ~80 keys/s from the disc under the 256 KB cap (crowd12 bench-farm-probe3, Flycast);
+# the console waited 161 ms/s on those reads. An allocation that still fails takes MOTION_OOM_EVICT's path, a movie
+# MOVIE_HEAP_EVICT's (both evict LRU motion keys).
+MOTION_PRESSURE_GROW ?= 0
+ifneq ($(MOTION_PRESSURE_GROW),0)
+ifeq ($(MOTION_PRESSURE_BYTES),0)
+$(error MOTION_PRESSURE_GROW needs MOTION_PRESSURE_BYTES)
+endif
+$(OBJDIR)/platform/native_motion.o: PLATFORM_CPPFLAGS += -DRE4DC_MOTION_PRESSURE_GROW=$(MOTION_PRESSURE_GROW)
+endif
 # MOTION_OOM_EVICT=1 (native_motion.cpp, default 0): a motion key whose room-heap allocation fails evicts
 # LRU unpinned keys and retries instead of halting (r100 after-ambush HALT, 2026-09-28). Logic-neutral.
 MOTION_OOM_EVICT ?= 0

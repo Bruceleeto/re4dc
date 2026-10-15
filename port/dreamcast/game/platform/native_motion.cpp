@@ -238,6 +238,10 @@ void pressure_room_for(unsigned bytes) {
 #endif
     if(bytes>RE4DC_MOTION_PRESSURE_BYTES)fail("motion pressure clip exceeds budget");
     while(stats.resident_bytes>RE4DC_MOTION_PRESSURE_BYTES-bytes) {
+#if defined(RE4DC_MOTION_PRESSURE_GROW) && RE4DC_MOTION_PRESSURE_GROW
+        // MOTION_PRESSURE_GROW: over the cap, evict only while heap 4 would keep less than the margin after this key.
+        if(re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_PRESSURE_GROW))break;
+#endif
         Binding* victim=nullptr;unsigned index=0;
         std::uint64_t oldest=~std::uint64_t(0);
         for(auto& q:bindings) {
