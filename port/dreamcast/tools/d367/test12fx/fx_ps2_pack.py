@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """fx_ps2_pack.py: the PS2-sourced effect pack (test 12 fx lane, 10-14; runtime knob FX_PS2_PACK=1, TEX_PAL4_ALPHA=1).
 
-  fx_ps2_pack.py <in tex.pak> <out tex.pak> <gc source tree> --set GCCTX=PS2DAT:ENTRY[:id,id,...] ... [--report r.json]
+  fx_ps2_pack.py lib <ps2lib root> <converter tag> [--rooms r100,...] [--no-common]
+  fx_ps2_pack.py pack <in tex.pak> <out tex.pak> <ps2lib root> [--rooms common,r100,...]
 
-For each --set, the GameCube EFF texture table GCCTX (a le_mirror context such as etc/core.das:0#1 or st1/r101.arc#7)
-is paired with the EFF block ENTRY of the PS2 .dat file PS2DAT (Core.dat / r101.dat, read from the USA disc's
-BIO4DAT.AFS), by EFF texture id. For each selected id present in both, every GameCube picture's package (its key is
+lib converts once into the shared PS2 library (re4-assets-private/ps2lib, class effects-tex): common = GameCube
+etc/core.das EFF#1 vs PS2 Core.dat EFF#1; each room (default: the 17 disc 1 route rooms) = every top-level EFF of the
+decoded GameCube room archive (worldfx-cache rXXX.gc, converted as st1/rXXX.arc) paired with the PS2 rXXX.dat EFF that
+shares the most texture ids. Outputs: effects-tex/<room|common>/<crc>-<fnv>.re4tex, one INDEX.tsv row per GameCube
+texture id (ps2_source=NONE when the PS2 has no such id), effects-tex/NOTES.tsv. pack builds a tex.pak from the
+library (the disc fixture packs from here, never from a lane copy). For each id present in both, every GameCube picture's package (its key is
 prepare_native_ui.image_identity of the source TPL image, so the game's lookup is unchanged) is replaced by the PS2
 picture of the same frame: PSMT4 indices, PS2 CLUT alpha 0..0x80 -> 0..255, a transposed PS2 picture (TEX0 flag 1:
 the PS2 renderer swaps U and V) turned back to the GameCube orientation. Each id's frames share ONE 16-colour palette
@@ -46,6 +50,8 @@ def ps2_eff_textures(e):
     n = struct.unpack_from('<I', e, o)[0]
     ids = [struct.unpack_from('<H', e, o + 4 + 8 * i)[0] for i in range(n)]
     o = hdr[6]
+    if n == 0 or o == 0:
+        return {}
     if struct.unpack_from('<I', e, o)[0] != n:
         raise ValueError('PS2 EFF id / TPL table sizes differ')
     out = {}
@@ -80,7 +86,7 @@ def ps2_eff_textures(e):
     return out
 
 
-def gc_eff_tables(src, files):
+def gc_eff_tables(src, files, rel=None):
     """{ctx: [id]} and {ctx/tplN: [(key, w, h)]} for the GameCube EFF blocks in files (le_mirror's own traversal)."""
     ids, tpls = {}, {}
     orig = mirror.fmt_eff
@@ -110,14 +116,24 @@ def gc_eff_tables(src, files):
     try:
         for f in files:
             data = (Path(src) / f).read_bytes()
-            if f.endswith('.das') and f.startswith('st'):
-                mirror.prepare_room_archive(f, data)
+            name = rel or f
+            if name.endswith('.das') and name.startswith('st'):
+                mirror.prepare_room_archive(name, data)
             else:
-                mirror.convert_file(f, bytearray(data))
+                mirror.convert_file(name, bytearray(data))
     finally:
         mirror.fmt_eff, mirror.TPL_OBSERVER = orig, prev
         for tbl, k in patched:
             tbl[k] = orig
+    return ids, tpls
+
+
+def gc_eff_tables_files(files):
+    """gc_eff_tables over (le_mirror rel, path) pairs: a decoded room archive (.gc) is converted as its .arc."""
+    ids, tpls = {}, {}
+    for rel, path in files:
+        i, t = gc_eff_tables(path.parent, [path.name], rel)
+        ids.update(i); tpls.update(t)
     return ids, tpls
 
 
@@ -191,83 +207,153 @@ def package(w, h, px, palette, cover):
     return hdr + body, err / len(px)
 
 
+ROUTE = 'r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r11a r11b r117 r118 r119'.split()
+INDEX_HEAD = 'class\troom\tgc_id\tps2_source\tdc_format\tconverter\tsha256\tbytes\tgate\towner_lane'
+
+
+def convert_set(gc_ctx, gids, gc_tpls, ps2, ps2_name, outdir, keys_seen):
+    """Rows (one per GameCube texture id of gc_ctx) and the packages written under outdir."""
+    import hashlib
+    rows = []
+    for n, tid in enumerate(gids):
+        gpics = gc_tpls.get('%s/tpl%d' % (gc_ctx, n), [])
+        gid = '%s:0x%02x' % (gc_ctx, tid)
+        row = dict(gc_id=gid, ps2_source='NONE', dc_format='', sha256='', bytes=0, note='')
+        if tid not in ps2:
+            row['note'] = 'no PS2 counterpart in %s (%d GC pictures keep their package)' % (ps2_name if ps2_name != 'NONE' else 'any top-level PS2 EFF; nested ETS .eff files are not paired', len(gpics))
+            rows.append(row)
+            continue
+        row['ps2_source'] = ps2_name
+        ppics = ps2[tid]
+        if not gpics or any(p is None for p in ppics):
+            row['dc_format'] = 'NOT_CONVERTED'
+            row['note'] = 'PS2 picture is not a linear PSMT4 (swizzled or 8 bpp)' if gpics else 'no GC pictures'
+            rows.append(row)
+            continue
+        weights = {}
+        for w, h, px in ppics:
+            for c in px:
+                weights[c] = weights.get(c, 0) + 1
+        pal = palette16(weights)
+        h_all = hashlib.sha256()
+        total, errs = 0, []
+        for f, (key, gw, gh) in enumerate(gpics):
+            w, h, px = ppics[f % len(ppics)]
+            blob, err = package(w, h, px, pal, (w, h))
+            path = outdir / (key + '.re4tex')
+            if key in keys_seen and keys_seen[key] != blob:
+                raise SystemExit('key %s converted twice with different results (%s)' % (key, gid))
+            keys_seen[key] = blob
+            outdir.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(blob)
+            h_all.update(key.encode() + blob)
+            total += len(blob)
+            errs.append(err)
+        row.update(dc_format='PAL4_ARGB4444 %dx%d x%d (GC %dx%d x%d)' % (ppics[0][0], ppics[0][1], len(gpics),
+                   gpics[0][1], gpics[0][2], len(ppics)), sha256=h_all.hexdigest(), bytes=total,
+                   note='err %.2f, %d PS2 colours -> 16' % (sum(errs) / len(errs), len(weights)))
+        rows.append(row)
+    return rows
+
+
+def pair_effs(gc_ids, ps2_effs):
+    """[(gc ctx, ps2 entry)] for top-level EFFs: each GameCube table with the PS2 one sharing the most ids."""
+    out = []
+    for ctx, ids in gc_ids.items():
+        best, score = None, 0
+        for ent, t in ps2_effs.items():
+            s = len(set(ids) & set(t))
+            if s > score:
+                best, score = ent, s
+        out.append((ctx, best))
+    return out
+
+
+def lib_main(a):
+    """lib <libroot> <converter tag> [--rooms r100,...] [--no-common]: convert into ps2lib/effects-tex + INDEX.tsv rows."""
+    import subprocess
+    libroot, tag = Path(a[0]), a[1]
+    rooms = ROUTE
+    if '--rooms' in a:
+        rooms = a[a.index('--rooms') + 1].split(',')
+    common = '--no-common' not in a
+    cache = Path('/root/probe/worldfx-cache')
+    gc_tree = Path('/root/re4data')
+    ps2_core = Path('/root/probe/lanes-20261014/fx12/ps2/Core.dat')
+    out_root = libroot / 'effects-tex'
+    rows_all, keys_seen, summary = [], {}, []
+    jobs = []
+    if common:
+        jobs.append(('common', [('etc/core.das', gc_tree / 'etc/core.das')], ps2_core, 'Core.dat',
+                     {'etc/core.das:0#1'}))
+    for r in rooms:
+        jobs.append((r, [('st1/%s.arc' % r, cache / ('%s.gc' % r))], cache / ('%s.ps2' % r), '%s.dat' % r, None))
+    for room, files, ps2_path, ps2_label, only in jobs:
+        gc_ids, gc_tpls = gc_eff_tables_files(files)
+        if only:
+            gc_ids = {k: v for k, v in gc_ids.items() if k in only}
+        blob = ps2_path.read_bytes()
+        ps2_effs = {}
+        for k, (ty, s0, s1) in enumerate(dat_entries(blob)):
+            if ty == 'EFF':
+                ps2_effs[k] = ps2_eff_textures(blob[s0:s1])
+        outdir = out_root / room
+        nconv = nnone = nskip = 0
+        for ctx, ent in pair_effs(gc_ids, ps2_effs):
+            ps2 = ps2_effs.get(ent, {}) if ent is not None else {}
+            name = '%s:%d' % (ps2_label, ent) if ent is not None else 'NONE'
+            for row in convert_set(ctx, gc_ids[ctx], gc_tpls, ps2, name, outdir, keys_seen):
+                row['room'] = room
+                rows_all.append(row)
+                if row['ps2_source'] == 'NONE':
+                    nnone += 1
+                elif row['dc_format'] == 'NOT_CONVERTED':
+                    nskip += 1
+                else:
+                    nconv += 1
+        summary.append('%s: %d ids converted, %d no PS2 counterpart, %d not converted' % (room, nconv, nnone, nskip))
+    # INDEX.tsv: replace this class's rows, keep every other class's rows
+    idx = libroot / 'INDEX.tsv'
+    old = idx.read_text().splitlines() if idx.exists() else [INDEX_HEAD]
+    keep = [l for l in old[1:] if l and not l.startswith('effects-tex\t')]
+    new = ['\t'.join(['effects-tex', r['room'], r['gc_id'], r['ps2_source'], r['dc_format'] or ('-' if r['ps2_source'] == 'NONE' else ''),
+                      tag, r['sha256'] or '-', str(r['bytes']), 'UNGATED', 'fx12']) for r in rows_all]
+    idx.write_text('\n'.join([INDEX_HEAD] + keep + new) + '\n')
+    notes = out_root / 'NOTES.tsv'
+    notes.write_text('room\tgc_id\tps2_source\tnote\n' + ''.join('%s\t%s\t%s\t%s\n' % (r['room'], r['gc_id'], r['ps2_source'], r['note']) for r in rows_all))
+    print('\n'.join(summary))
+    print('fx_ps2_pack lib: %d rows, %d packages' % (len(rows_all), len(keys_seen)))
+
+
+def pack_main(a):
+    """pack <in tex.pak> <out tex.pak> <libroot> [--rooms common,r100,...]: replace the library's keys in a tex.pak."""
+    src, dst, libroot = a[0], a[1], Path(a[2])
+    dirs = sorted(p for p in (libroot / 'effects-tex').iterdir() if p.is_dir())
+    if '--rooms' in a:
+        sel = set(a[a.index('--rooms') + 1].split(','))
+        dirs = [d for d in dirs if d.name in sel]
+    pkgs = read_pak(Path(src).read_bytes())
+    n = absent = 0
+    for d in dirs:
+        for f in sorted(d.glob('*.re4tex')):
+            k = tuple(int(v, 16) for v in f.stem.split('-'))
+            if k not in pkgs:
+                absent += 1   # the source disc has no package for it either: added (the runtime reads it from the pack)
+            pkgs[k] = f.read_bytes()
+            n += 1
+    out, _ = texpack.build(pkgs)
+    texpack.verify(out)
+    Path(dst).write_bytes(out)
+    print('fx_ps2_pack pack: %d library packages from %s (%d not in the input pack)' % (n, ','.join(d.name for d in dirs), absent))
+
+
 def main():
     a = sys.argv[1:]
-    rep, sets = None, []
-    while '--report' in a:
-        i = a.index('--report'); rep = a[i + 1]; del a[i:i + 2]
-    while '--set' in a:
-        i = a.index('--set'); sets.append(a[i + 1]); del a[i:i + 2]
-    src_pak, dst_pak, gc_tree = a
-    specs = []
-    for s in sets:
-        ctx, rest = s.split('=', 1)
-        parts = rest.split(':')
-        sel = {int(v, 16) for v in parts[2].split(',')} if len(parts) > 2 and parts[2] else None
-        specs.append((ctx, parts[0], int(parts[1]), sel))
-    files = sorted({(c.split(':')[0].split('#')[0].replace('.arc', '.das')) for c, _, _, _ in specs})
-    gc_ids, gc_tpls = gc_eff_tables(gc_tree, files)
-    pkgs = read_pak(Path(src_pak).read_bytes())
-    report = {'sets': [], 'replaced': 0, 'bytes_before': 0, 'bytes_after': 0}
-    done = {}
-    for ctx, dat, ent, sel in specs:
-        blob = Path(dat).read_bytes()
-        ty, s0, s1 = dat_entries(blob)[ent]
-        if ty != 'EFF':
-            raise SystemExit('%s entry %d is %s, not EFF' % (dat, ent, ty))
-        ps2 = ps2_eff_textures(blob[s0:s1])
-        if ctx not in gc_ids:
-            raise SystemExit('no GameCube EFF table %s' % ctx)
-        gids = gc_ids[ctx]
-        entry = {'gc': ctx, 'ps2': '%s#%d' % (Path(dat).name, ent), 'ids': [],
-                 'gc_only': ['0x%x' % t for t in gids if t not in ps2],
-                 'ps2_only': ['0x%x' % t for t in ps2 if t not in gids]}
-        for n, tid in enumerate(gids):
-            if tid not in ps2 or (sel is not None and tid not in sel):
-                continue
-            gpics = gc_tpls.get('%s/tpl%d' % (ctx, n), [])
-            ppics = ps2[tid]
-            row = {'id': '0x%x' % tid, 'gc_frames': len(gpics), 'ps2_frames': len(ppics),
-                   'gc_size': '%dx%d' % gpics[0][1:] if gpics else '', 'ps2_size': ''}
-            if not gpics or any(p is None for p in ppics):
-                row['skipped'] = 'PS2 picture is not linear PSMT4' if gpics else 'no GameCube pictures'
-                entry['ids'].append(row)
-                continue
-            row['ps2_size'] = '%dx%d' % ppics[0][:2]
-            weights = {}
-            for w, h, px in ppics:
-                for c in px:
-                    weights[c] = weights.get(c, 0) + 1
-            pal = palette16(weights)
-            row['ps2_colours'] = len(weights)
-            errs, before, after = [], 0, 0
-            for f, (key, gw, gh) in enumerate(gpics):
-                k = tuple(int(v, 16) for v in key.split('-'))
-                if k not in pkgs:
-                    row.setdefault('not_in_pack', []).append(key)
-                    continue
-                w, h, px = ppics[f % len(ppics)]
-                if k in done and done[k] != (ctx, tid):
-                    raise SystemExit('key %s shared by %s and %s' % (key, done[k], (ctx, tid)))
-                blob2, err = package(w, h, px, pal, (w, h))
-                before += len(pkgs[k]); after += len(blob2)
-                pkgs[k] = blob2; done[k] = (ctx, tid); errs.append(err)
-            row.update(replaced=len(errs), bytes_before=before, bytes_after=after,
-                       mean_premul_err=round(sum(errs) / max(1, len(errs)), 2))
-            report['replaced'] += len(errs); report['bytes_before'] += before; report['bytes_after'] += after
-            entry['ids'].append(row)
-        report['sets'].append(entry)
-    out, _count = texpack.build(pkgs)
-    texpack.verify(out)
-    Path(dst_pak).write_bytes(out)
-    for e in report['sets']:
-        print('%s <- %s: gc-only %s ps2-only %s' % (e['gc'], e['ps2'], e['gc_only'], e['ps2_only']))
-        for r in e['ids']:
-            print('   ', json.dumps(r))
-    print('fx_ps2_pack: %d packages replaced, %d -> %d bytes' % (report['replaced'], report['bytes_before'],
-                                                                  report['bytes_after']))
-    if rep:
-        Path(rep).write_text(json.dumps(report, indent=1))
+    if a and a[0] == 'lib':
+        return lib_main(a[1:])
+    if a and a[0] == 'pack':
+        return pack_main(a[1:])
+    raise SystemExit(__doc__)
 
 
 if __name__ == '__main__':
