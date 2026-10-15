@@ -4528,6 +4528,42 @@ extern "C" void re4dc_callprof_part(const void* model, unsigned path);  // model
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
     return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
 }
+#if defined(RE4DC_G1_PART_CENSUS) && RE4DC_G1_PART_CENSUS
+// G1_PART_CENSUS (g1parts.mk, diagnostic only): how often the native per-part setup repeats work with the same inputs.
+// "G1PC actor" every 120 frames: parts (generic submit / one-chunk owner path), model changes between consecutive
+// parts, light builds and builds whose inputs (lighting record contents, modelview, centre, normal scale) equal the
+// previous build's, Frame (info) preparations.
+namespace g1pc {
+unsigned frame0, parts, chunks, models, lights, light_same, light_same_rec;
+const void* last_model;
+re4dc::render::SourceLighting last_rec; float last_mv[12], last_c[3], last_nq; bool have_last;
+void tick() {
+    if (frame_serial - frame0 < 120U) return;
+    re4dc_log("G1PC actor: frame=%u parts=%u chunks=%u models=%u lights=%u light_same=%u light_same_rec=%u infos=%u\n",
+              frame_serial, parts, chunks, models, lights, light_same, light_same_rec, stats.info_preparations);
+    frame0 = frame_serial; parts = chunks = models = lights = light_same = light_same_rec = 0;
+}
+void part(const Re4dcModelPart& p, bool chunk) {
+    tick();
+    if (chunk) ++chunks; else ++parts;
+    if (p.model != last_model) { ++models; last_model = p.model; }
+}
+void light(const Re4dcModelPart& p, const Frame& f, const float c[3]) {
+    ++lights;
+    const bool rec = have_last && !std::memcmp(&last_rec, p.lighting, sizeof(last_rec));
+    if (rec) ++light_same_rec;
+    if (rec && !std::memcmp(last_mv, p.modelview, sizeof(last_mv)) && !std::memcmp(last_c, c, sizeof(last_c)) &&
+        last_nq == f.nq) ++light_same;
+    std::memcpy(&last_rec, p.lighting, sizeof(last_rec)); std::memcpy(last_mv, p.modelview, sizeof(last_mv));
+    std::memcpy(last_c, c, sizeof(last_c)); last_nq = f.nq; have_last = true;
+}
+}
+#define G1PC_PART(p, chunk) g1pc::part(p, chunk)
+#define G1PC_LIGHT(p, f, c) g1pc::light(p, f, c)
+#else
+#define G1PC_PART(p, chunk) do { } while (0)
+#define G1PC_LIGHT(p, f, c) do { } while (0)
+#endif
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
 #if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
@@ -4561,6 +4597,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
 #endif
     if (!part || !qualifies(*part)) { ++stats.declined; RE4DC_CENSUS_DEC(part); return 0; }
     const Re4dcModelPart& p = *part;
+    G1PC_PART(p, false);
     const float near_distance = p.projection[6] / (p.projection[5] - 1.0f);
     const float far_distance = p.projection[6] / p.projection[5];
     if (!re4dc::render::is_finite(near_distance) || !re4dc::render::is_finite(far_distance) ||
@@ -4798,6 +4835,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     e.cache.oc = reinterpret_cast<u8*>(e.cache.v + kMaxVertices);
 
     Lights lights;
+    G1PC_LIGHT(p, f, blob->center);
     if (!RE4DC_PART_LIGHTS(p, f, blob->center, lights)) lights.prepared = re4dc::render::prepare_actor_lights(*p.lighting);
     lights.source = p.lighting;
     const unsigned tier = crowd_class > 0 ? crowd_tier(p, crowd_class) : kTierFull;
@@ -5365,7 +5403,9 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     const SourceLighting& S = *p.lighting;
     const bool constant_source = !S.enable && !S.ambient_vertex && !S.material_vertex;
     Lights* lp = constant_source ? &w.lights : &w.lit;
+    G1PC_PART(p, true);
     if (!constant_source || !w.lights_ready || w.lights.source != p.lighting) {
+        G1PC_LIGHT(p, f, blob->center);
         if (!RE4DC_PART_LIGHTS(p, f, blob->center, *lp)) lp->prepared = re4dc::render::prepare_actor_lights(*p.lighting);
         lp->source = p.lighting;
         w.lights_ready = constant_source;

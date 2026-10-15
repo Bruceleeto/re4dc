@@ -36,6 +36,15 @@ void re4dc_model_alpha_material(const void* texture_object,unsigned ref,unsigned
 void re4dc_draw_model_part(const void* model,const void* info,const void* part,
                           const float modelview[3][4],unsigned pass);
 }
+#if defined(RE4DC_G1_DIAG_INLINE) && RE4DC_G1_DIAG_INLINE
+// G1_DIAG_INLINE (g1parts.mk; exact): the per-part callers read the latched flag inline; the first call (-1) still
+// opens /cd/dc/model-diagnostic.flag through re4dc_model_diagnostic_enabled(), which sets the latch.
+extern "C" int re4dc_model_diag_latch;
+static inline int re4dc_model_diag(){const int s=re4dc_model_diag_latch;return s>=0?s:re4dc_model_diagnostic_enabled();}
+#define RE4DC_MODEL_DIAG() re4dc_model_diag()
+#else
+#define RE4DC_MODEL_DIAG() re4dc_model_diagnostic_enabled()
+#endif
 
 // Adapter/owner interface. Returned storage belongs to the one native frame,
 // reserves header space, and is committed only after a complete part succeeds.
