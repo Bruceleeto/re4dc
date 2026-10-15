@@ -3,7 +3,8 @@
 #   T11REC, unchanged) + the test 12 knobs ($T12), built from branch t12/rc-dry (lane/t11 20a3b047 + the READY lanes,
 #   see C:\Game Dev\Emulators\TEST12-RC-DRYRUN.md). Every test 12 knob is default 0 in the Makefiles: with T12=""
 #   (arm kP) the play image must be byte-identical to lane/t11's play image (arm cP, built from a lane/t11 checkout).
-# Arms: tP play (packaged), tW warp, mW warp + MCHECK_LEONGC=1 TEX_CHECK=2, tT trace,
+# Arms: pP preview play = tP + DCINV_PURGE=1 (T12 Preview console disc, 10-15; not the release recipe yet),
+#       tP play (packaged), tW warp, mW warp + MCHECK_LEONGC=1 TEX_CHECK=2, tT trace,
 #       kP knob-off play (identity vs cP), kT knob-off trace (STRICT control), cP lane/t11 control play (tree $CT).
 # Env: T (tree, default $K/tree), CT (lane/t11 control tree, default $K/ctl), LP (label prefix, default t12rc),
 #      T12 (test 12 knobs, default the recipe below), XON (extra knobs, test only), PAD_T / PAD_K (trace image pads).
@@ -30,8 +31,10 @@ T11REC="PS2_R100_SMX=1 PS2_R100_TR4=1 LAKE_ZBIAS=1.001 WORLD_HOLE_FIX=1 SPEED_VM
 # EFM_PS2_CUT=1 (lane items 24526dfb): the debris models the PS2 deleted are not drawn (render only; data items12).
 # acc12 (fdc16424) and items are data: T12_DATA items12 + acc12d, packages in tex-t12c.pak. DCINV_PURGE (d6c6337f) stays
 # 0 until the console confirms it (coordinator 10-15); DISC_READ_VERIFY / DISC_GD_ATOMIC stay 0 (their discs crash).
+# STATIC_OBJ_BATCH=2 (lane crowd12 76ffb399, coordinator 10-15): static object display lists batched per lit group
+# (render only; -1.74 ms MODELLED at cap 6; +2,368 B image, which ARENA_FIT takes from heap 4, not KOS).
 # R101_ALIVE_CAP=6 (user rule 10-15: "Ganados at 6 instead should be the rule"; was 8).
-T12REC="UI_SOURCE_LRU=1 HW_FOG_HAZE=1 FX_SPRITE_TRIM=2 TEX_PAL4_ALPHA=1 FX_PS2_PACK=1 FX_FLIPBOOK=2 R101_ALIVE_CAP=6 TEX_WRAP_SAFE=1 PS2_CAST_MERCHANT=1 ACTOR_GANADO_APP0_GRIP=1 RENDER_FSAA=1 GC_STUB_SKIP=1 OWNER_SETUP_LEAN=1 TEX_IDENT_LEAN=1 PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1 LEON_LIGHT_FILL=45 VRAM_ROOM_LOG=1 EFM_PS2_CUT=1"
+T12REC="UI_SOURCE_LRU=1 HW_FOG_HAZE=1 FX_SPRITE_TRIM=2 TEX_PAL4_ALPHA=1 FX_PS2_PACK=1 FX_FLIPBOOK=2 R101_ALIVE_CAP=6 TEX_WRAP_SAFE=1 PS2_CAST_MERCHANT=1 ACTOR_GANADO_APP0_GRIP=1 RENDER_FSAA=1 GC_STUB_SKIP=1 OWNER_SETUP_LEAN=1 TEX_IDENT_LEAN=1 PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1 LEON_LIGHT_FILL=45 VRAM_ROOM_LOG=1 EFM_PS2_CUT=1 STATIC_OBJ_BATCH=2"
 T12=${T12-$T12REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 MC="MCHECK_LEONGC=1 TEX_CHECK=2"
@@ -47,6 +50,7 @@ b() { lab=$1; tree=$2; shift 2; t0=$(date +%s); echo "== $lab $(date +%T) tree=$
 L=${LP:-t12rc}
 for x in "$@"; do case $x in
   tP)  b ${L}tP  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $PL ;;
+  pP)  b ${L}pP  $T $ON $T11REC $T12 DCINV_PURGE=1 IMAGE_PAD_BYTES=0 $PL ;;
   tW)  b ${L}tW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP ${XON:-} ;;
   mW)  b ${L}mW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP $MC ${XON:-} ;;
   tT)  b ${L}tT  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=${PAD_T:-0} $TR ${XON:-} ;;
