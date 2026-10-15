@@ -7257,6 +7257,15 @@ static void ps2_sky_header(pvr_poly_hdr_t& header){
     hw[2]=(hw[2]&~std::uint32_t(PVR_TA_PM2_FOG))|FIELD_PREP(PVR_TA_PM2_FOG,PVR_FOG_DISABLE);
 }
 #endif
+#if defined(RE4DC_PS2_PLACE_GATE) && RE4DC_PS2_PLACE_GATE
+// PS2_PLACE_GATE (native_static.cpp re4dc_ps2_place_ready): is this key's texture resident now? Lookup only: no load,
+// no LRU touch. A scan of the entries: call it at room setup / until ready, not per frame.
+extern "C" int re4dc_ui_texture_resident(unsigned crc,unsigned fnv){
+    const Key key{crc,fnv};
+    for(const auto& e:entries)if(e.valid && e.key==key)return 1;
+    return 0;
+}
+#endif
 extern "C" int re4dc_ps2_world_direct_begin(const unsigned* k,Re4dcModelDirect* out){
 #if RE4DC_TA_MATERIAL_DIAG
     tamat::Scope source_scope(1);

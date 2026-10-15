@@ -3529,6 +3529,25 @@ void set_room(unsigned r){
 }
 }
 extern "C" void re4dc_ps2_place_prepare_fn(unsigned room,void (*fn)(unsigned room)){gate::prep=fn;gate::prep_room=room;}
+extern "C" int re4dc_ui_texture_resident(unsigned crc,unsigned fnv);
+// 1 when room's package is open, has this placement and every part texture of its mesh is resident (tex.pak key,
+// lookup only); 0 otherwise. The baking lane owns a placement only once it is ready (call it at room setup, or from
+// the prepare callback until it says 1): a missing key then only ever means the object's live draw.
+extern "C" int re4dc_ps2_place_ready(unsigned room,unsigned placement){
+    if(!ps2w.storage || !ps2w.parts || ps2w.room!=room)return 0;
+    const auto& pk=ps2w.package;bool found=false;
+    for(unsigned i=0;i<ps2w.nplacements;++i){
+        const auto& pl=ps2w.placements[i];
+        if(pl.placement!=placement)continue;
+        found=true;
+        const auto& mesh=pk.meshes()[pl.mesh];
+        for(unsigned k=0;k<mesh.part_count;++k){
+            const auto& q=ps2w.parts[mesh.first_part+k];
+            if(!re4dc_ui_texture_resident(q.crc,q.fnv))return 0;
+        }
+    }
+    return found?1:0;
+}
 extern "C" void re4dc_ps2_place_own(unsigned room,unsigned placement){
     gate::set_room(room);
     if(placement>=gate::kMax){re4dc_log("PS2GATE room=%03x placement=%u out of range\n",room,placement);return;}
@@ -3544,7 +3563,8 @@ extern "C" void re4dc_ps2_place_gate(unsigned room,unsigned placement,int draw_w
 void gate::diag(unsigned r){
     const unsigned f=re4dc_ui_frame();
     for(unsigned p=0;p<kMax;p+=8){re4dc_ps2_place_own(r,p);re4dc_ps2_place_gate(r,p,(f>>6)&1U);}
-    if(!(f%300U))re4dc_log("PS2GATE diag room=%03x frame=%u owned=%u state=%u skipped=%u\n",r,f,owned_n,(f>>6)&1U,skipped);
+    if(!(f%300U))re4dc_log("PS2GATE diag room=%03x frame=%u owned=%u state=%u skipped=%u ready0=%d ready8=%d\n",r,f,owned_n,
+                           (f>>6)&1U,skipped,re4dc_ps2_place_ready(r,0),re4dc_ps2_place_ready(r,8));
 }
 #endif
 #endif

@@ -2694,6 +2694,7 @@ ifeq ($(PS2_WORLD_ROOMS),0)
 $(error PS2_PLACE_GATE needs PS2_WORLD_ROOMS=1 or 2)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PLACE_GATE=$(PS2_PLACE_GATE)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PLACE_GATE=$(PS2_PLACE_GATE)
 endif
 # PS2_AREA_HIDE=1 (render only, default 0; lane objs 2026-10-15, PS2-ENEMY-CODE-DIFF-20261015 item 11): the PS2 room
 # code's per-area scenery hiding on the PS2 world placements. r107: PS2 R107Main shows / hides SMD groups 50..100 on
