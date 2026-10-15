@@ -378,15 +378,38 @@ Lane light-p3 (branch `lane/light-p3`, for test 12). Both changes are render onl
     cModels. Only their hair uses a doubled key; the body and face use GameCube keys that are not doubled.
   - `LEON_HR source part 64x128 x0.5` is logged in the door103 call run and in the source-fallback run (warp
     `late 0x10`, 12 hits). It is not logged in the owner runs (house, r101F).
-- **Gates on light-p3** (evidence `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\gates\t12*`). The arms are l12baseptT,
-  lane/t11 `c4f7c78e` padded to `_end` 8c415edc, against l12f45tT, light-p3 with `LEON_LIGHT_FILL=45`.
-  - H2: STRICT, decisions MUST-IDENTICAL, drift 0. This is PARTIAL: the C: capacity guard stopped the control at tick
-    4412 of 4700, so the compare covers 4413 ticks.
-  - s30: 340/340 in both arms.
-  - LEON-GC PASS 3/3 and TEXCHK PASS 3/3. The h2 and boat logs were also stopped by the capacity guard.
-  - Reruns of the control and the h2 / boat MCHECK runs are pending.
-- **Look:** sheet `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\t12\leon-fill-sheet.png` (tmp/lp3/sheet12.py). Partial so
-  far. The fill 30/45/60 stills and the modelled ms of the call screen are pending.
+- **Gates on light-p3** (evidence `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\gates\t12*`; test 11 recipe and data):
+  - Knob-off identity: PASS (lfoffP vs p3baseP / p3off2P). `LEON_LIGHT_FILL=0` (lf0W) vs the eeef15ae-only build
+    p3hr2W: PASS, so the fill code adds nothing when it is off.
+  - H2 STRICT, t12h2b4 (l12baseptT: lane/t11 `c4f7c78e`, padded to `_end` 8c415edc) vs t12h2c (l12f45tT: eeef15ae +
+    `LEON_LIGHT_FILL=45`), stop tick 4700, trace_lock, 0 overruns: STRICT over 4701 ticks; decisions MUST-IDENTICAL,
+    drift 0. The candidate carries both changes, so this covers eeef15ae alone too (render only; the fill is the only
+    other difference).
+  - s30: 340/340 shown, 0 dropped, in both arms.
+  - LEON-GC PASS on h2 / boat / square (t12mh2d, t12mboatd, t12msq; l12f45mW); TEXCHK PASS 3/3.
+  - Earlier runs cut by the C: capacity guard (t12h2b, t12h2b2, t12h2b3, t12mh2, t12mboat, t12mh2c, t12mboatc) are
+    superseded.
+- **Cost of the call screen (SH-4 hardware model, MODELLED, not console).** hwproject on the door103 radio call, frames
+  400..479 (the sub screen is open from about frame 250 to the end of the run), 12 traced frames:
+  - l12h0tW (test 11 recipe + eeef15ae, half_post on Leon's hair): 40.79 ms/frame (what-if 35.8..48.1).
+  - l12basetW (lane/t11 `c4f7c78e`): 42.75 ms/frame (what-if 37.4..50.5).
+  - The difference is within layout noise. half_post halves the vertex colours of a few hair parts after the pass,
+    and no cost can be measured.
+- **Look:** sheet `C:\Flycast-Evidence\re4-dreamcast\lp2-20261014\t12\leon-fill-sheet.png` (tmp/lp3/sheet12.py),
+  with the values in `leon-fill-sheet.json`.
+  - Hair Y mean/p90. Call portrait: test 10 40/70, test 11 81/139, test 12 48/77; the test 12 frame is 1 s earlier in
+    the head animation. Inventory: test 10 26/49, test 11 46/78, test 12 26/49.
+  - Source fallback, jacket 28/48.
+  - Fill, jacket Y mean/p90:
+
+    | Scene | Test 10 flat | Fill 0 (test 11) | Fill 30 | Fill 45 | Fill 60 | GameCube |
+    |---|---|---|---|---|---|---|
+    | r100 house | 36/52 | 27/58 | 42/80 | (run cut) | 56/98 | 48/76 |
+    | r101 F | 43/58 | 24/42 | 33/56 | 38/63 | 43/70 | 45/70 |
+    | r10b start | 32/43 | 23/43 | 34/56 | 39/64 | 44/70 | 36/69 |
+
+  - **Test 12 ships eeef15ae only** (user, 2026-10-14). `LEON_LIGHT_FILL` waits for the user's choice of strength in a
+    later batch (test 14).
 
 ## Recommendation
 
