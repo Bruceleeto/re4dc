@@ -515,13 +515,22 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     const bool encoded=re4dc_actor_stream_encoded(p.stream,p.stream_bytes)!=0;
     const unsigned stride=(p.flags&0x80000000U)?8U:6U;
     unsigned nuv=0,nclr=0;
-    if(!encoded){
-        unsigned o=0;const unsigned char* s=p.stream;
-        while(o<p.stream_bytes){
+    const unsigned char* raw=encoded?nullptr:p.stream;unsigned raw_bytes=encoded?0U:p.stream_bytes;
+    if(encoded){  // the part's raw copy (SOBL record: magic, total, model, data, part, bytes, index, list)
+        for(unsigned o=0;o+28<=S->used && o+28<=kBytes;){
+            unsigned mg,tot,q;memcpy(&mg,S->data+o,4);memcpy(&tot,S->data+o+4,4);
+            if(tot<8)break;
+            if(mg==0x4C424F53U){memcpy(&q,S->data+o+16,4);if(q==(unsigned)(size_t)pt){memcpy(&raw_bytes,S->data+o+20,4);raw=S->data+o+28;break;}}
+            o+=tot;
+        }
+    }
+    if(raw){
+        unsigned o=0;const unsigned char* s=raw;
+        while(o<raw_bytes){
             const unsigned op=s[o++];if(!op)continue;
-            if(p.stream_bytes-o<2)break;
+            if(raw_bytes-o<2)break;
             const unsigned n=(s[o]<<8)|s[o+1];o+=2;
-            if(n>(p.stream_bytes-o)/stride)break;
+            if(n>(raw_bytes-o)/stride)break;
             for(unsigned k=0;k<n;++k){
                 const unsigned char* t=s+o+k*stride;
                 const unsigned uv=(t[stride-2]<<8)|t[stride-1];if(uv+1>nuv)nuv=uv+1;
