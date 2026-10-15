@@ -43,7 +43,9 @@ No BIOS or personal VMU saves are included; keep your existing saves separately.
 | Pause / options | START |
 | Speed display: Off → VMU → Screen | Hold R, press START |
 
-Options has the Frame pacing row (Fast is the default); the game always draws the full picture.
+Options has the Frame pacing row (Fast is the default) and the Rendering row: Standard (the default, the full
+640x480 picture) or FSAA, which smooths edges by drawing twice the pixels and is slower in busy scenes. FSAA lasts
+until the console is switched off; every boot starts in Standard.
 The speed display shows the frame rate and game speed on a VMU in controller slot 1 or on screen, and the setting is saved.
 In Off and Screen the VMU shows Leon, Ashley, Hunnigan and Luis pages.
 
