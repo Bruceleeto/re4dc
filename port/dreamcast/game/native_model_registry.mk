@@ -358,6 +358,26 @@ $(error PS2_CAST_MERCHANT=1 needs NATIVE_MODEL_REGISTRY_BONES >= 64 (61-bone mer
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_MERCHANT=1 -DRE4DC_NMR_PARK_UNRELOCATED=1
 endif
+# PS2_CAST_BOAT=1 (lane ps2cast 2026-10-15; default 0; render only): the lake boat (pl0f, model id 0x0f; r10b, then r11b)
+#              through the registry owner path with its PS2 mesh (boat-pl0f-00: 1,210 tris as GC, position shift 3, the PS2
+#              atlas; tools/d367/model-registry/ps2-boat-r10b.json = the released Del Lago descriptor + the boat). Its GC
+#              material needs bump and the alternate specular (flag 0x80): both reach only GX stubs on the DC source path,
+#              so the certificate accepts their absence for registry model 0x0f (RE4DC_NMR_BOAT, the twin of
+#              model_registry.py source_drops "bump", "alt-specular"; the crow's rule). Leon's harpoon hand (pl0f ARC 8,
+#              cPlBody::initWepHand) is already the PS2 hand of LEON_HAND_PACK (pose 7). Disc data: dc/native/r10b/
+#              registry.re4nmr (80,448 B, heap-4 arena 84,176 B) + the boat atlas, and em/pl0f.drs texture-prepared
+#              (prepare_enemy_motions.py SMALL, textures only; heap-4 body 807,520 -> 757,664 B). Without the package the
+#              boat keeps the source path. Needs PS2_DELLAGO=1 (the bump drop rule block and position shift).
+PS2_CAST_BOAT ?= 0
+ifeq ($(filter $(PS2_CAST_BOAT),0 1),)
+$(error PS2_CAST_BOAT must be 0 or 1)
+endif
+ifeq ($(PS2_CAST_BOAT),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK)$(PS2_DELLAGO),11)
+$(error PS2_CAST_BOAT=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_BOAT=1
+endif
 # PS2_ASHLEY=1|2 (lane ps2cast 2026-10-14; default 0; render only): Ashley (pl11, the partner pSUB, model id 3; r117
 #              first) through the registry owner path with her PS2 mesh (tools/ps2_ashley.py: PS2 geometry / UVs / weights,
 #              the PS2 cloth influences moved onto the GC cloth links the source solver already moves - no second solver,

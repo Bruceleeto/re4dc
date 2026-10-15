@@ -230,6 +230,9 @@ namespace re4dc_material {
 #if RE4DC_NMR_CROW
 bool crow_rows;  // PS2_CROW: compare() is proving a registry crow (model id 0x23) plan
 #endif
+#if RE4DC_NMR_BOAT
+bool boat_rows;  // PS2_CAST_BOAT: compare() is proving a registry boat (pl0f, model id 0x0f) plan
+#endif
 #if RE4DC_ACTOR_MATERIAL_RECORD
 // archive=false: a record hit; the archive verdict (TPL and ModelPart header bytes, checked last) is the record's.
 Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic,bool archive) {
@@ -318,11 +321,17 @@ Error info(cModelInfo* i,const Role& row,Result& out,bool diagnostic) {
         if(f&0x13)out.required|=Specular;
         // All material bytes, including alphaRef/specType/specPow/specTexOrg,
         // already matched. Unknown source flag programs remain unsupported.
-#if RE4DC_NMR_CROW
+#if RE4DC_NMR_CROW && RE4DC_NMR_BOAT
+        // PS2_CROW + PS2_CAST_BOAT: the crow's and the boat's flag 0x80, as below.
+        if(f&~((crow_rows || boat_rows)?0x87u:7u))return Error::Material;
+#elif RE4DC_NMR_CROW
         // PS2_CROW (Phase 2 A3): the crow body's flag 0x80 (specularSetup2) is GX only on the DC source path, so a crow
         // registry plan (crow_rows, set by compare for model id 0x23) drawing none is the source image (model_registry.py
         // source_drops "alt-specular").
         if(f&~(crow_rows?0x87u:7u))return Error::Material;
+#elif RE4DC_NMR_BOAT
+        // PS2_CAST_BOAT: the boat's flag 0x80 (specularSetup2) is GX only on the DC source path (as the crow's).
+        if(f&~(boat_rows?0x87u:7u))return Error::Material;
 #else
         if(f&~7u)return Error::Material;
 #endif
@@ -374,6 +383,9 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     const bool registry=re4dc_registry_sections(p->appearance)!=0;
 #if RE4DC_NMR_CROW
     crow_rows=registry && m->id==0x23;
+#endif
+#if RE4DC_NMR_BOAT
+    boat_rows=registry && m->id==0x0f;
 #endif
     if(registry ? !re4dc_registry_model(m,p) :
        ((leon && (p->count!=(RE4DC_ACTOR_PL08 && p->appearance==0x108u?9u:8u) || m!=(cModel*)pPL || m->id || RE4DC_LEON_OT_BAD(m))) ||
@@ -546,6 +558,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // is what the source path draws too (trans.cpp bumpSetup only reaches the GX stubs; model_bridge binds the colour
     // texture alone), so the bump need is met by the same image (model_registry.py "source_drops").
     if(registry && m->id==0x2F)implemented|=Bump;
+#if RE4DC_NMR_BOAT
+    // PS2_CAST_BOAT: the lake boat's (pl0f, model 0x0f) source bump setup reaches the same GX stubs as Del Lago's
+    // (model_registry.py source_drops "bump", "alt-specular").
+    if(registry && m->id==0x0fu)implemented|=Bump;
+#endif
 #if defined(RE4DC_NMR_ASHLEY) && RE4DC_NMR_ASHLEY
     // PS2_ASHLEY: the partner Ashley's (pSUB, model 3) source bump setup reaches the same GX stubs (model_registry.py
     // source_drops "bump"); =2 also draws her head at the PS2 rest face (the GC shapes are not shown; user look decision

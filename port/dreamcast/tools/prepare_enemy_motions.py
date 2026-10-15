@@ -29,7 +29,12 @@ MAX_CLIP=32768
 # em10_tmpl.cpp, em11_set.cpp, the same three units; its 5.8 MB GC archive did not fit r117's heap 4 (largest cell
 # 3.1 MB: DVD: Memory allocate failed, readEmData em/em11.drs).
 GANADO=('em12.drs','em15.drs','em13.drs','em17.drs','em11.drs')
-SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs','em23.drs','em18.drs','pl11.drs')
+SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs','em23.drs','em18.drs','pl11.drs','pl0f.drs')
+# pl0f (the lake boat, r10b r11b; lane ps2cast 2026-10-15, PS2_CAST_BOAT discs): textures only (--keep-motion-resident),
+# the em2f contract. Its one model TPL (ARC 6) reaches only modelInit (src/pl0f/pl0f.cpp pl0f_R0_Init, modelInit(ARC 5,
+# ARC 6)); the source path uploads its colour texels and never reads them on the CPU. ARC 8 (Leon's harpoon hand BIN,
+# cPlBody::initWepHand) and ARC 7 are BINs (unchanged). Its EFF slot (ARC 4, EspDataLoad) keeps its own textures
+# (top-level TPLs only are selected). The registry owner path proves its texture rows only on a texture-prepared archive.
 # pl11 (Ashley, cSubAshley; r117 first; lane ps2cast 2026-10-14, PS2_ASHLEY discs): textures only
 # (--keep-motion-resident), the em18 contract. Her model TPLs (ARC 5 body / extras / hands, ARC 8 hair, ARC 0xB head)
 # reach only modelInit and ModInfoMgr.create (src/pl11/pl11.cpp cSubAshley::modelSet / setHand); the source path
@@ -159,7 +164,8 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
         if not texture_ranges:raise ValueError('no qualified enemy textures selected')
     # em2f: its DMY entries keep le_mirror's whole-file qualification from stripping the static REL (today's disc
     # carries the whole REL too); it moves intact behind the tables like the 64-byte descriptor does.
-    if rel and rel+64!=len(body) and name!='em2f.drs':raise ValueError('expected retained 64-byte static REL descriptor')
+    # pl0f: the release disc carries its whole REL too (pl0f is in no static / overlay module list); it moves intact.
+    if rel and rel+64!=len(body) and name not in ('em2f.drs','pl0f.drs'):raise ValueError('expected retained 64-byte static REL descriptor')
     original_size,original_base=struct.unpack_from('>I4xI',original,slot+4)
     codec=mirror.motion_codec();ranges=[];entries=[];files={};oversized=[]
     for off in ([] if keep_motion_resident else sorted(set(offsets))):
