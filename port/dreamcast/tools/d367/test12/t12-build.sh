@@ -3,7 +3,9 @@
 #   T11REC, unchanged) + the test 12 knobs ($T12), built from branch t12/rc-dry (lane/t11 20a3b047 + the READY lanes,
 #   see C:\Game Dev\Emulators\TEST12-RC-DRYRUN.md). Every test 12 knob is default 0 in the Makefiles: with T12=""
 #   (arm kP) the play image must be byte-identical to lane/t11's play image (arm cP, built from a lane/t11 checkout).
-# Arms: pP preview play = tP + DCINV_PURGE=1 (T12 Preview console disc, 10-15; not the release recipe yet),
+# Arms: hP / hW = T12 Phases disc (tP + METER_ROWS=1 GAME_TICK_LOG=60 PHASE_METER=1 + XON) play / warp,
+#       eP / eW = T12 Meter disc (pP + SPEED_VMU_OFF=0 METER_ROWS=1) play / warp,
+#       pP preview play = tP + DCINV_PURGE=1 (T12 Preview console disc, 10-15; not the release recipe yet),
 #       tP play (packaged), tW warp, mW warp + MCHECK_LEONGC=1 TEX_CHECK=2, tT trace,
 #       kP knob-off play (identity vs cP), kT knob-off trace (STRICT control), cP lane/t11 control play (tree $CT).
 # Env: T (tree, default $K/tree), CT (lane/t11 control tree, default $K/ctl), LP (label prefix, default t12rc),
@@ -62,6 +64,10 @@ L=${LP:-t12rc}
 for x in "$@"; do case $x in
   tP)  b ${L}tP  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $PL ;;
   pP)  b ${L}pP  $T $ON $T11REC $T12 DCINV_PURGE=1 IMAGE_PAD_BYTES=0 $PL ;;
+  eP)  b ${L}eP  $T $ON $T11REC $T12 DCINV_PURGE=1 SPEED_VMU_OFF=0 METER_ROWS=1 IMAGE_PAD_BYTES=0 $PL ;;
+  hP)  b ${L}hP  $T $ON $T11REC $T12 METER_ROWS=1 GAME_TICK_LOG=60 PHASE_METER=1 IMAGE_PAD_BYTES=0 $PL ${XON:-} ;;
+  hW)  b ${L}hW  $T $ON $T11REC $T12 METER_ROWS=1 GAME_TICK_LOG=60 PHASE_METER=1 IMAGE_PAD_BYTES=0 $WP ${XON:-} ;;
+  eW)  b ${L}eW  $T $ON $T11REC $T12 DCINV_PURGE=1 SPEED_VMU_OFF=0 METER_ROWS=1 IMAGE_PAD_BYTES=0 $WP ;;
   tW)  b ${L}tW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP ${XON:-} ;;
   mW)  b ${L}mW  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $WP $MC ${XON:-} ;;
   tT)  b ${L}tT  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=${PAD_T:-0} $TR ${XON:-} ;;

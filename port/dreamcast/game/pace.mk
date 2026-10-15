@@ -143,3 +143,60 @@ $(OBJDIR)/pace.o: pace.cpp
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -include $(OBJDIR)/pace.h -MMD -MP -c $< -o $@
 -include $(OBJDIR)/pace.d
 endif
+
+# METER_ROWS=1 (T12 Meter disc, 2026-10-15; display / log only, default 0 = image unchanged; needs PACE_VMU_GPU=1): the VMU
+# speed page's last row shows the pacing mode and the render mode (STD / FSAA), and a "PACE meter:" log line follows each
+# "PACE vmu" line with the render mode and the PVR stats (TA vertex buffer last / peak, frame / registration / render ms).
+METER_ROWS ?= 0
+ifneq ($(filter $(METER_ROWS),0 1),$(METER_ROWS))
+$(error METER_ROWS must be 0 or 1)
+endif
+ifeq ($(METER_ROWS),1)
+ifneq ($(PACE_VMU_GPU),1)
+$(error METER_ROWS=1 needs PACE_VMU_GPU=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_METER_ROWS=1
+endif
+
+# PHASE_METER=1 (T12 Phases disc, 2026-10-15; display / log only, default 0 = image unchanged; needs GAME_TICK_LOG=N,
+# PACE_VMU_GPU=1, RENDER_OPTION=1, RENDER_FSAA=1): next to the on-screen speed counter a column of 0.1 ms values (GPU render, render
+# mode, logic, effects move, effects trans, objects trans, other trans, post, draw remain, vblank wait, total) from the
+# game's ProcessTickGet stamps (tick_log.cpp window), and a "PHASES:" log line per window. Legend: native_ui.cpp.
+PHASE_METER ?= 0
+ifneq ($(filter $(PHASE_METER),0 1),$(PHASE_METER))
+$(error PHASE_METER must be 0 or 1)
+endif
+ifeq ($(PHASE_METER),1)
+ifeq ($(GAME_TICK_LOG),0)
+$(error PHASE_METER=1 needs GAME_TICK_LOG=N)
+endif
+ifneq ($(PACE_VMU_GPU),1)
+$(error PHASE_METER=1 needs PACE_VMU_GPU=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_PHASE_METER=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PHASE_METER=1
+endif
+
+# PMC_ROW=1 (T12 Phases disc, 2026-10-15; display / log only, default 0; needs PHASE_METER=1): one more row under the phase
+# column from the SH-4 performance counter 2 (KOS keeps counter 1 for its ns timer). One event per one-second window,
+# in turn: 0x25 pipeline freeze by D-cache miss, 0x24 freeze by I-cache miss (cycles, shown in 0.1 ms per drawn
+# frame), 0x04 operand-cache read misses, 0x05 operand-cache write misses, 0x08 instruction-cache misses (shown in
+# 0.1 k per drawn frame). The event code is drawn left of the value (25, 24, 4, 5, 8). A whole window per event
+# (not a per-tick rotation), so draw / skip ticks cannot alias with the event (10-04 hwcal trap). "PMC:" log line.
+PMC_ROW ?= 0
+ifneq ($(filter $(PMC_ROW),0 1),$(PMC_ROW))
+$(error PMC_ROW must be 0 or 1)
+endif
+ifeq ($(PMC_ROW),1)
+ifneq ($(PHASE_METER),1)
+$(error PMC_ROW=1 needs PHASE_METER=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_PMC_ROW=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PMC_ROW=1
+endif
+# DISC_READ_METER (Makefile, next to DVD_READ_SAFE) draws in the PHASE_METER column.
+ifeq ($(DISC_READ_METER),1)
+ifneq ($(PHASE_METER),1)
+$(error DISC_READ_METER=1 needs PHASE_METER=1)
+endif
+endif

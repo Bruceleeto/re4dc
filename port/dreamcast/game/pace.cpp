@@ -304,7 +304,44 @@ void vmu_try()
 }
 
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
-unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;  // the last one-second window (on-screen counter)
+unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+unsigned speed_gpu10;   // PHASE_METER: the window's mean render time, 0.1 ms
+#endif  // the last one-second window (on-screen counter)
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+extern "C" void re4dc_disc_meter_window(void);  // platform/dvd_read_safe.cpp
+#endif
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+extern "C" void re4dc_bench_window(unsigned drawn, unsigned ticks, unsigned vblanks, unsigned long long rnd_sum_ns,
+                                   unsigned rnd_n);  // bench.cpp (bench.mk BENCHMARK)
+#endif
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+#include <dc/perfctr.h>
+namespace {
+// PMC_ROW (pace.mk): SH-4 performance counter 2, one event per one-second window.
+const unsigned kPmcEv[5] = {0x25, 0x24, 0x04, 0x05, 0x08};
+unsigned pmc_idx, pmc_ev, pmc_val10, pmc_started;
+void pmc_window(unsigned drawn)
+{
+    const unsigned long long c = perf_cntr_count(PRFC1);
+    if (pmc_started) {
+        const unsigned ev = kPmcEv[pmc_idx];
+        const unsigned long long per = drawn ? c / drawn : 0;
+        // cycle events: 20,000 cycles = 0.1 ms at 200 MHz; count events: 0.1 k
+        pmc_val10 = unsigned(ev >= 0x21 ? (per + 10000) / 20000 : (per + 50) / 100);
+        pmc_ev = ev;
+        re4dc_log("PMC: ev=%02x per_drawn=%llu total=%llu drawn=%u (%s)\n", ev, per, c, drawn,
+                  ev == 0x25 ? "D-miss freeze cycles" : ev == 0x24 ? "I-miss freeze cycles" : ev == 0x04 ? "OC read misses"
+                  : ev == 0x05 ? "OC write misses" : "IC misses");
+        pmc_idx = (pmc_idx + 1) % 5;
+    }
+    perf_cntr_stop(PRFC1);
+    perf_cntr_clear(PRFC1);
+    perf_cntr_start(PRFC1, (perf_cntr_event_t) kPmcEv[pmc_idx], PMCR_COUNT_CPU_CYCLES);
+    pmc_started = 1;
+}
+}  // namespace
+#endif
 #if RE4DC_SPEED_VMU_OFF
 #if RE4DC_SPEED_VMU_OFF >= 2
 // SPEED_VMU_OFF=2 (pace.mk, user 2026-10-14: off unless toggled on): Off or Screen only; a stored Screen or Both
@@ -353,6 +390,12 @@ void vmu_window(unsigned cost, u32 now)
         g_gpu = GpuAcc{};
         irq_restore(irq);
     }
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+    speed_gpu10 = a.rnd_n ? unsigned((a.rnd_sum / a.rnd_n + 50000) / 100000) : 0;
+#endif
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    re4dc_bench_window(v_drawn, v_ticks, dvb, (unsigned long long) a.rnd_sum, a.rnd_n);   // bench.cpp (bench.mk)
+#endif
     // GPU <mean>/<max>: ms per render (rounded, capped at 999) over the renders completed in this window.
     char gpu[16];
     if (a.rnd_n) {
@@ -401,6 +444,12 @@ void vmu_window(unsigned cost, u32 now)
     }
 #if RE4DC_VMU_CONTEXT
     else re4dc_vmu_speed(nullptr, 0);
+#endif
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+    pmc_window(v_drawn);
+#endif
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    re4dc_disc_meter_window();
 #endif
     v_vb0 = now; v_ticks = v_drawn = 0; v_cost_us = 0;
 }
@@ -492,6 +541,19 @@ extern "C" int re4dc_speed_note(int* speed)
     return speed_note_until && (int) (speed_note_until - re4dc_vi_retrace_count()) > 0;
 }
 // 1 while the counter shows: v[0] drawn fps x10, v[1] game speed %, v[2] CPU % of a tick.
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+extern "C" unsigned re4dc_speed_gpu10(void) { return speed_gpu10; }
+#endif
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+// PMC_ROW: the last window's event code (as its hex digits read in decimal: 25, 24, 4, 5, 8) and value (0.1 units).
+extern "C" int re4dc_pmc_row(unsigned* code, unsigned* val10)
+{
+    if (!pmc_ev) return 0;
+    *code = (pmc_ev >> 4) * 10 + (pmc_ev & 15);
+    *val10 = pmc_val10;
+    return 1;
+}
+#endif
 extern "C" int re4dc_speed_screen(unsigned v[3])
 {
     if (!(speed_setting() & RE4DC_SPEED_SCREEN) || !speed_valid || !context_ok()) return 0;

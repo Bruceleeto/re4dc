@@ -826,6 +826,9 @@ void image_check()
 }
 }  // namespace
 #endif
+#if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
+extern "C" void re4dc_kos_squeeze(void);  // below
+#endif
 void OSInit(void)
 {
     static int done;
@@ -846,6 +849,9 @@ void OSInit(void)
     thd_set_prio(thd_current, 16);
     g_mainThread.state = OS_THREAD_STATE_RUNNING;
     re4dc_mem_init();
+#if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
+    re4dc_kos_squeeze();  // KOS_SQUEEZE=1 (Makefile, diagnostic): hold part of what the arena left to KOS
+#endif
     g_arenaLo = (void*) re4dc_mem.arena_lo;
     g_arenaHi = (void*) re4dc_mem.arena_hi;
     re4dc_log("OSInit: arena %08lx-%08lx (%lu KB)\n", re4dc_mem.arena_lo, re4dc_mem.arena_hi,
@@ -992,6 +998,49 @@ unsigned re4dc_vram_free(void)
 {
     return (unsigned) pvr_mem_available();
 }
+
+#if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
+// KOS_SQUEEZE=1 (Makefile; diagnostic, test builds only): hold part of the KOS heap for the whole run.
+static void* g_squeeze[64];
+int re4dc_fixture_read(const char* path, char* buffer, unsigned size);  // below
+void re4dc_kos_squeeze(void)
+{
+    unsigned bytes = RE4DC_KOS_SQUEEZE_BYTES, frag = RE4DC_KOS_SQUEEZE_FRAG;
+    static char text[2048];
+    const int n = re4dc_fixture_read("/cd/dc/warp.txt", text, sizeof(text) - 1);
+    if (n > 0) {
+        text[n] = 0;
+        for (char* line = text; line && *line;) {
+            char* next = strchr(line, '\n');
+            if (next) *next++ = 0;
+            if (!strncmp(line, "squeeze ", 8)) {
+                unsigned b = 0, f = 0;
+                const int got = sscanf(line + 8, "%u %u", &b, &f);
+                if (got >= 1) { bytes = b; frag = got >= 2 ? f : 0; }
+            }
+            line = next;
+        }
+    }
+    unsigned f0 = 0, u0 = 0, b0 = 0, f1 = 0, u1 = 0, b1 = 0, pieces = 0, held = 0;
+    re4dc_kos_heap_state(&f0, &u0, &b0);
+    if (bytes && !frag) {
+        if ((g_squeeze[0] = malloc(bytes)) != nullptr) { held = bytes; pieces = 1; }
+    } else if (bytes) {
+        void* gap[64] = {};
+        const unsigned want = bytes / 4096 < 64 ? bytes / 4096 : 64;
+        for (unsigned i = 0; i < want; ++i) {
+            if (!(g_squeeze[i] = malloc(4096))) break;
+            held += 4096; ++pieces;
+            gap[i] = malloc(4096);
+        }
+        for (unsigned i = 0; i < want; ++i) free(gap[i]);
+    }
+    for (unsigned i = 0; i < pieces; ++i) memset(g_squeeze[i], 0x5a, frag ? 4096 : held);  // really in use
+    re4dc_kos_heap_state(&f1, &u1, &b1);
+    re4dc_log("kos squeeze: held=%u requested=%u frag=%u pieces=%u headroom %u -> %u (free %u -> %u, break %u -> %u)\n",
+              held, bytes, frag, pieces, f0 + b0, f1 + b1, f0, f1, b0, b1);
+}
+#endif
 
 // Optional disc fixture (test-only inputs such as /cd/dc/roomcycle.txt);
 // bytes read, or -1 when the file is absent.

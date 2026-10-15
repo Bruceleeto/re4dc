@@ -2094,11 +2094,60 @@ void hud_number(HudBatch& b,float x,float y,unsigned value,bool tenths,std::uint
 extern "C" int re4dc_speed_screen(unsigned v[3]);
 extern "C" int re4dc_speed_note(int* speed);
 HudBatch speed_batch;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+// PHASE_METER=1 (T12 Phases disc, 2026-10-15; display / log only): a second column left of the speed counter, in
+// 0.1 ms (mean over the GAME_TICK_LOG window, the game's own ProcessTickGet stamps, tick_log.cpp), top to bottom:
+//   GPU render (PACE_VMU_GPU), render mode (0 Standard, 1 FSAA),
+//   logic (setup .. TaskScheduler without EspMove), effects move (EspMove), effects trans (EspTrans),
+//   objects / actors trans (objTrans + ShadowTrans + MirrorTrans + ClothTrans), other trans (IdSys, Trans rest, Dvd,
+//   sound), post (messages, fades, OT draw), draw remain (iTask + Render_done: TA end / PVR wait), vblank wait + swap,
+//   frame total. One "PHASES:" log line per window carries the same values by name.
+extern "C" int re4dc_tick_log_snapshot(const char** name, unsigned* avg_us, unsigned* max_us, int max, unsigned* seq);
+extern "C" unsigned re4dc_speed_gpu10(void);
+extern "C" int re4dc_quality_render(void);
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+extern "C" int re4dc_pmc_row(unsigned* code, unsigned* val10);  // pace.cpp
+#endif
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* music, unsigned* rate, unsigned* load_ms);  // dvd_read_safe.cpp
+extern "C" int re4dc_disc_meter_loading(void);
+#endif
+constexpr int kPhaseRows=11;
+unsigned phase_v[kPhaseRows];unsigned phase_seq=~0U;
+void phase_refresh(){
+    const char* nm[32];unsigned avg[32];unsigned seq=0;
+    const int n=re4dc_tick_log_snapshot(nm,avg,nullptr,32,&seq);
+    if(seq==phase_seq || n<=0)return;
+    phase_seq=seq;
+    auto get=[&](const char* k)->unsigned{for(int i=0;i<n;++i)if(nm[i] && !std::strcmp(nm[i],k))return avg[i];return 0U;};
+    const unsigned logic=get("logic"),esp_move=get("EspMove"),esp_trans=get("EspTrans");
+    const unsigned objs=get("objTrans")+get("ShadowTrans")+get("MirrorTrans")+get("ClothTrans");
+    const unsigned trans=get("trans"),post=get("post"),cpu=get("cpu"),remain=get("remain"),total=get("total");
+    const unsigned other=trans>esp_trans+objs?trans-esp_trans-objs:0;
+    const unsigned draw=remain>cpu?remain-cpu:0,vbl=total>remain?total-remain:0;
+    auto ms10=[](unsigned us)->unsigned{return (us+50)/100;};
+    phase_v[0]=re4dc_speed_gpu10();
+    phase_v[1]=unsigned(re4dc_quality_render()==1);
+    phase_v[2]=ms10(logic>esp_move?logic-esp_move:0);phase_v[3]=ms10(esp_move);phase_v[4]=ms10(esp_trans);
+    phase_v[5]=ms10(objs);phase_v[6]=ms10(other);phase_v[7]=ms10(post);phase_v[8]=ms10(draw);phase_v[9]=ms10(vbl);
+    phase_v[10]=ms10(total);
+    re4dc_log("PHASES: gpu=%u render=%u logic=%u fxmove=%u fxtrans=%u objs=%u other=%u post=%u draw=%u vblank=%u total=%u (0.1 ms)\n",
+        phase_v[0],phase_v[1],phase_v[2],phase_v[3],phase_v[4],phase_v[5],phase_v[6],phase_v[7],phase_v[8],phase_v[9],phase_v[10]);
+}
+#endif
 void speed_draw(){
     unsigned v[3];
     int s;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+    phase_refresh();   // the PHASES: log line each window, also while the counter is off
+#endif
     const bool counter=re4dc_speed_screen(v)!=0,note=re4dc_speed_note(&s)!=0;
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    const bool meter_load=re4dc_disc_meter_loading()!=0;
+    if(!counter && !note && !meter_load)return;
+#else
     if(!counter && !note)return;
+#endif
     HudBatch& b=speed_batch;b.n=1;
     pvr_poly_cxt_t c;pvr_poly_cxt_col(&c,PVR_LIST_TR_POLY);
     c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
@@ -2117,7 +2166,38 @@ void speed_draw(){
 #if RE4DC_PACE_DEBUG
         hud_number(b,566,SY+36,v[2],false,0xe0a0d0ffU);
 #endif
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+        phase_refresh();
+        static const std::uint32_t kPhaseColour[kPhaseRows]={0xe080ff80U,0xe0ffff60U,0xe0ffffffU,0xe0ff9060U,0xe0ffb090U,
+            0xe0a0d0ffU,0xe0c0c0c0U,0xe0e0a0ffU,0xe080ffffU,0xe0909090U,0xe0ffffffU};
+        for(int k=0;k<kPhaseRows;++k)hud_number(b,500,SY+k*18,phase_v[k],k!=1,kPhaseColour[k]);
+#endif
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+        {   // PMC_ROW: event code (25 D-miss freeze, 24 I-miss freeze, 4 / 5 OC read / write misses, 8 IC misses), value
+            unsigned code=0,val=0;
+            if(re4dc_pmc_row(&code,&val)){
+                hud_number(b,440,SY+kPhaseRows*18,code,false,0xe0ff6060U);
+                hud_number(b,500,SY+kPhaseRows*18,val,true,0xe0ff6060U);
+            }
+        }
+#endif
     }
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    if(counter || meter_load){   // DISC_READ_METER: also during room loads, where the speed counter hides
+        // the read marker (green: a GD-ROM read in flight, orange: one ran since the last drawn frame, dim: none) with
+        // the music stream's reads as a blue bar under it, then reads/s, KB/s and game blocked ms/s (without the music
+        // stream), then the room-entry load time in ms (5 s); during a load: reads, KB, blocked ms and ms so far
+        unsigned lit=0,music=0,rate[3]={},load=0;
+        const int room=re4dc_disc_meter_hud(&lit,&music,rate,&load);
+        hud_rect(b,40,64,20,20,lit==2?0xf040ff40U:lit==1?0xf0ffa020U:0x40ffffffU);
+        if(music)hud_rect(b,40,86,20,4,0xf04080ffU);
+        constexpr float RY=SY+(kPhaseRows+1)*18;
+        hud_number(b,380,RY,rate[0],false,0xe060ff60U);
+        hud_number(b,440,RY,rate[1],false,0xe060ff60U);
+        hud_number(b,500,RY,rate[2],false,0xe060ff60U);
+        if(room)hud_number(b,500,RY+18,load,false,0xe0ffff60U);
+    }
+#endif
 #if defined(RE4DC_SPEED_VMU_OFF) && RE4DC_SPEED_VMU_OFF
     const int boxes=2;   // SPEED_VMU_OFF (pace.mk, issue #29): Off, Screen
 #elif defined(RE4DC_VMU_CONTEXT) && RE4DC_VMU_CONTEXT
@@ -2128,6 +2208,43 @@ void speed_draw(){
     if(note)for(int k=0;k<boxes;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
     hud_flush(b);
 }
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+// BENCHMARK=1 (bench.mk; benchmark disc only): the banner "BENCHMARK DISC - NOT THE GAME" on every presented frame,
+// white BIOS font (bfont 12x24) on red in a 512x32 RGB565 texture (32 KiB of VRAM, written once at the first frame
+// straight into texture memory with 16-bit stores, as KOS's pvr_txr_load_ex does: no RAM copy, the image does not
+// grow; no banner if the allocation fails), one quad at the top centre, inside the top letterbox bar and below tile
+// row 0 (y 32..60: LETTERBOX_CLIP renders no translucent list in row 0).
+extern "C" const char* re4dc_bench_banner(void);   // bench.cpp
+pvr_ptr_t bench_vram;bool bench_failed;unsigned bench_w;
+void bench_banner_draw(){
+    constexpr unsigned W=512,H=32;
+    if(bench_failed)return;
+    if(!bench_vram){
+        bench_vram=pvr_mem_malloc(W*H*2);
+        if(!bench_vram){bench_failed=true;re4dc_log("bench banner: no VRAM\n");return;}
+        volatile unsigned short* t=reinterpret_cast<volatile unsigned short*>(bench_vram);
+        for(unsigned i=0;i<W*H;++i)t[i]=0x9000U;
+        const char* text=re4dc_bench_banner();
+        bfont_draw_str_ex(reinterpret_cast<unsigned short*>(bench_vram)+4*W+8,W,0xFFFFU,0x9000U,16,1,text);
+        bench_w=std::min(W,unsigned(strlen(text))*12U+16U);
+        re4dc_log("bench banner: '%s' vram=%p w=%u frame=%u\n",text,(void*)bench_vram,bench_w,frame);
+    }
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565|PVR_TXRFMT_NONTWIDDLED,W,H,bench_vram,PVR_FILTER_NONE);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    c.blend.src=PVR_BLEND_ONE;c.blend.dst=PVR_BLEND_ZERO;c.gen.fog_type=PVR_FOG_DISABLE;
+    alignas(32) unsigned char packet[sizeof(pvr_poly_hdr_t)+4*sizeof(pvr_vertex_t)];
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(packet),&c);
+    auto* v=reinterpret_cast<pvr_vertex_t*>(packet+sizeof(pvr_poly_hdr_t));
+    const float w=float(bench_w),x0=(640.0f-w)*0.5f,y0=32,h=28,u1=w/float(W),v0=2.0f/H,v1=30.0f/H;
+    const float xs[4]={x0,x0,x0+w,x0+w},ys[4]={y0+h,y0,y0+h,y0},us[4]={0,0,u1,u1},vs[4]={v1,v0,v1,v0};
+    const float layer=overlay_depth();
+    for(unsigned k=0;k<4;++k){
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=RE4DC_UI_X(xs[k]);v[k].y=RE4DC_UI_Y(ys[k]);v[k].z=layer;
+        v[k].u=us[k];v[k].v=vs[k];v[k].argb=0xffffffffU;v[k].oargb=0;
+    }
+    stream_send(packet,sizeof(packet));
+}
+#endif
 #if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
 // MCHECK_SAFE=1 (mcheck.mk, test builds only): the bounding box (screen pixels) of every quad the speed display
 // flushes in a scene, logged at scene close with the render size, the tile grid and the tile rows LETTERBOX_CLIP
@@ -5046,6 +5163,9 @@ extern "C" void re4dc_ui_present(){
 #endif
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION && RE4DC_PVR_STREAM
     if(!re4dc_vi_black())speed_draw();
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    if(!re4dc_vi_black() && !stream_aborted)bench_banner_draw();   // bench.mk: on every presented frame
+#endif
 #endif
 #if RE4DC_PERF_HUD
     if(!re4dc_vi_black()){
@@ -5095,7 +5215,12 @@ extern "C" void re4dc_ui_present(){
         const unsigned head = kf + kb;
         if (head + 2048 <= kw_min || frame % 60 == 0) {
             if (head < kw_min) kw_min = head;
-            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u\n", frame, kf, ku, kb, head, kw_min);
+            // top: the largest block KOS can still hand out in one piece (sbrk room + the top chunk); holes: free
+            // chunks below the top (smaller pieces only)
+            const struct mallinfo mi = mallinfo();
+            const unsigned keep = (unsigned) mi.keepcost;
+            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u top=%u holes=%u\n", frame, kf, ku, kb, head,
+                      kw_min, kb + keep, kf > keep ? kf - keep : 0u);
         }
     }
 #endif
@@ -7925,6 +8050,9 @@ extern "C" int re4dc_ui_movie_present_now(){
 #endif
     stream_open();
     movie_draw();
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    bench_banner_draw();   // bench.mk: the banner over movie pictures too (same TR list as movie_draw)
+#endif
     stream_close(true);
 #if RE4DC_D349_RENDERER_STACK
     desired_list=list;

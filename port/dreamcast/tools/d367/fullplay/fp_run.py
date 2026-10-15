@@ -148,6 +148,8 @@ def main():
     cfg = (cap / 'emu.cfg').read_text()
     cfg = re.sub(r'(?m)^Debug.GDBPort = \d+', 'Debug.GDBPort = %d' % port, cfg)
     cfg = cfg.replace('rend.vsync = yes', 'rend.vsync = no')
+    if os.environ.get('FP_NOLIMIT') == '1':  # unthrottled JIT (emulated time unchanged; movies stay wall-timed)
+        cfg = re.sub(r'(?m)^aica\.LimitFPS = \w+\n', '', cfg).replace('[config]\n', '[config]\naica.LimitFPS = no\n', 1)
     env = None
     if a.align:  # as hwready/mk-run-variant.py align (route-hw.sh): hwmodel exe, interpreter, HWTRACE_ALIGN=1
         hw = Path(os.environ.get('HW_FLYCAST', r'C:\Game Dev\Emulators\flycast-hwmodel\build-hwtrace\flycast.exe'))
