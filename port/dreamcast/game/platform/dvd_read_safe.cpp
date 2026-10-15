@@ -161,22 +161,18 @@ extern "C" void re4dc_bench_disc(unsigned reads, unsigned long long block_us, un
 #if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
 #include "native_motion.h"
 extern "C" int re4dc_static_heap_free();             // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
-extern "C" unsigned long long re4dc_motion_wait_total_us;   // native_motion.cpp
 namespace {
 // MOTION_STATS_LOG (Makefile): the native motion cache per DISCRD window.
 void motion_stats_window(unsigned window_ms)
 {
     static Re4dcMotionStats last;
-    static unsigned long long last_wait;
     Re4dcMotionStats s;
     re4dc_motion_get_stats(&s);
-    const unsigned long long wait = re4dc_motion_wait_total_us;
-    re4dc_log("MOTSTAT: window_ms=%u misses=%u evictions=%u kb=%u wait_ms=%u hits=%u resident=%u peak=%u hot=%u heap4=%d\n",
+    re4dc_log("MOTSTAT: window_ms=%u misses=%u evictions=%u kb=%u hits=%u resident=%u peak=%u hot=%u heap4=%d\n",
               window_ms, s.misses - last.misses, s.evictions - last.evictions, (unsigned) ((s.bytes_read - last.bytes_read) / 1024),
-              (unsigned) ((wait - last_wait) / 1000), s.hits - last.hits, s.resident_bytes, s.peak_cache_bytes, s.hot_bytes,
+              s.hits - last.hits, s.resident_bytes, s.peak_cache_bytes, s.hot_bytes,
               re4dc_static_heap_free());
     last = s;
-    last_wait = wait;
 }
 }  // namespace
 #endif

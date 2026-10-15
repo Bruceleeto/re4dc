@@ -880,7 +880,7 @@ $(error DISC_READ_METER must be 0 or 1)
 endif
 # MOTION_STATS_LOG=1 (test 14 r103 motion thrash, crash lane 10-15; log only, default 0 = image unchanged; needs
 # DISC_READ_METER=1): at each DISCRD window close, one "MOTSTAT:" line with the native motion cache's counters for the
-# window (misses = key loads from the disc, evictions, KB read, ms waited in motion reads) and its state (resident
+# window (misses = key loads from the disc, evictions, KB read) and its state (resident
 # bytes, the pressure cap, heap 4 free bytes).
 MOTION_STATS_LOG ?= 0
 ifneq ($(MOTION_STATS_LOG),0)
