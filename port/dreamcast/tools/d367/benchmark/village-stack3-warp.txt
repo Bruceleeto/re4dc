@@ -1,0 +1,11 @@
+name r101-village-stack3
+# STACK v3 village console disc (crowd12, 10-15; the fx12 village disc warp): boot straight into the r101 square at the shared benchmark-r101 spot
+# (lane crowd12 e8776749 benchmark-r101-warp.txt without alivelog): Leon by the pyre / cross facing the square, 12
+# Ganados alive, alert 30 = the whole crowd hunts him from room frame 30; god mode so a view can be held.
+room 0x101
+pos -7914 0 2000
+ang 1.5708
+find 0x00002000
+inv default
+god
+alert 30

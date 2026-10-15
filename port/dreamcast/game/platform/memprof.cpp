@@ -29,6 +29,10 @@ inline void note(unsigned kind,void* ra,std::size_t n){
 }
 }
 extern "C" void* __wrap_memset(void* d,int c,std::size_t n){note(0,__builtin_return_address(0),n);return __real_memset(d,c,n);}
+// A raw (unprefixed) "memset" reference (src/game/route_ck.cpp's asm) is wrapped to the raw symbol "__wrap_memset";
+// without this alias it linked to a silent missing-symbol stub (obj/missing.txt "__wrap_memset").
+extern "C" void* raw_wrap_memset(void* d,int c,std::size_t n) __asm__("__wrap_memset");
+extern "C" void* raw_wrap_memset(void* d,int c,std::size_t n){note(0,__builtin_return_address(0),n);return __real_memset(d,c,n);}
 extern "C" void* __wrap_memcpy(void* d,const void* s,std::size_t n){note(1,__builtin_return_address(0),n);return __real_memcpy(d,s,n);}
 extern "C" void re4dc_memprof_log(unsigned frame,unsigned frames){
     logging=true;
