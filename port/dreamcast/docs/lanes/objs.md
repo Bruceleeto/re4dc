@@ -267,3 +267,39 @@ frames). What is left is the group test (sg_select 1.04 + box_mask 0.61 hw ms); 
   tex14/r119 PS2 pictures (3e0bf632-0f5d6eba tree, 058ec2b1-11e00663 box; both seen loading) do NOT change it (sheets
   r119-tex14.png, r119-shard-zoom.png: identical shard with GC or PS2 pictures), so it is not the picture: suspect the
   PS2 et1100 fragment part's UVs / normals / colour as converted. Open; r119 stays BIN 0x22 only (r119c) until then.
+
+## Breakables stay GameCube (10-15 ~02:40; coordinator: documented exception "game logic reads the model's geometry")
+
+- r119's dark block = the converted wood box et1100 (SetBox type 3): a run with only et1100 PS2 (GC pictures, r119-box,
+  r119e-m) draws a flat dark shard at the break where GC draws white splinters (sheets r119-box-only.png). Not the
+  picture (tex14 PS2 pictures: same), not the UV range (--uv-fold, u -0.96..-0.02 shifted into [0, 1]: same, r119f-m),
+  not the normals (all outward). The box's break spawns effect models of et11.eff (EFM 0x09 / 0x19 / 0x2b, owner = the
+  box cEm: EfmSetObj04(parent)); the GC box has 164 triangles (24 inward splinter faces), the PS2 box 68 (all outward).
+  The exact coupling is not found yet (grep: no game code reads ModelData vertices outside rendering, shadows, bounds
+  and debug); treated as the class below.
+- Exception class (EtcModel.cpp, cEmBox / cEmBarrel): et0100 et0200 et1100 et1200 et1e00 et1f00 et2d00 et2e00/01
+  et2f00/01 et3c00 stay GameCube in every room. In the converted sets: r100 et0100 et0200; r101 et0100 et0200 et1100
+  et1e00; r102 et0100 et1100; r103 et0100 et0200 et1100; r104 et1100 et1200; r105 et0200 et1100 et1f00; r106 et0100
+  et0200 et1100 et1f00; r107 et1100; r108 et0100 et1f00; r109 et1100; r10a / r10b / r11a et0100 et1100 et1f00; r117
+  et1100; r118 et0100 et1f00; r11b et0100 et1100 et1f00; r119 et1100. The items lane's PS2 debris models
+  (ps2lib breakables, e.g. r101 et11_efm09 / 19 / 2b) were gated with GC boxes and are unaffected.
+- Test 12 data set objs12b (t11-fix.py; objs-20261014/r100b + r101b = ps2_objects.py with the r100o / r101o arguments
+  minus the class; every other object identical): r100b sha256 c0eced0b..., payload 1,606,688 B (r100o 1,604,832; the
+  GC source 1,918,528, so heap 4 / s30 is no worse than test 11); r101b fbb12e34..., payload 1,745,152 B.
+- Gates (short runs, test 11 build objstT / objsmW, data test 11 + objs12b, 10-15 02:40-02:45):
+  r101 v101 warp trace n101-c vs b101-t: 570 ticks MUST-IDENTICAL; b101-m TEX_CHECK=2 PASS, LEON-GC PASS, pair
+  missing 0, halt 0. r100 w100 warp b100-c vs b100-t: 602 ticks MUST-IDENTICAL; b100-m TEX_CHECK PASS, LEON-GC PASS,
+  pair missing 0, halt 0. (objs12n, r101 minus et1100 only: n101 570 ticks MUST-IDENTICAL, n101-m PASS / PASS.)
+- Later (not test 12): the PS2 builds the box break from its own et11.eff (EFM 0x09 PS2 entry 19,424 B vs GC 12,512 B)
+  with the 68-triangle box: converting the box together with the items lane's PS2 EFM debris (and checking the PS2
+  break routine) is the way to make et1100 PS2.
+- ps2_objects.py / ps2_objects_tex.py --uv-fold (cca4f2bf, default off): kept as an option (clamp-sampled objects).
+
+## Place gate hook + world append (lane/objs-w; crowd12 STATIC_OBJ_BAKE)
+
+- PS2_PLACE_GATE (7e3cc846, render only, default 0): re4dc_ps2_place_prepare_fn / _own / _gate; =2 diagnostic.
+  Knob-off image identical (de566ad4); STRICT r101 gate=2 vs off (v101, pg-S / pg-2) 1802 ticks MUST-IDENTICAL.
+- re4dc_ps2_place_ready (e818c023): lookup-only residency of a placement's part textures (r101: ready(0)=1, ready(8)=0).
+- tools/ps2_world_append.py (c6cc9e59): baked COLOR OBJ groups + tex.pak-key materials appended to the shipped
+  package (base tables byte-identical, selftest), then ps2_strip_groups.py (base region = ps2lib r101-sg4). Runtime
+  check pa-3 (60 s): placements 212, PS2SG ok, boxes textured + tinted (sheets append-boxes.png).
