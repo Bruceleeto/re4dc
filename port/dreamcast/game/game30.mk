@@ -2894,8 +2894,13 @@ endif
 KOS_CENSUS ?= 0
 ifneq ($(KOS_CENSUS),0)
 GAME_LDFLAGS += -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=memalign -Wl,--wrap=free -Wl,--wrap=_Znwj -Wl,--wrap=_Znaj
-$(OBJDIR)/platform/kos_census.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_CENSUS=1
-$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_CENSUS=1
+# KOS_CENSUS=2 (lane ramreclaim): also aligned_alloc (KOS thread records and stacks, fs_iso9660 caches, maple DMA), the
+# peak census per 150 room frames ("kos peak:") and the KOS thread stack high-water marks ("kos thread:").
+ifeq ($(KOS_CENSUS),2)
+GAME_LDFLAGS += -Wl,--wrap=aligned_alloc
+endif
+$(OBJDIR)/platform/kos_census.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_CENSUS=$(KOS_CENSUS)
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_CENSUS=$(KOS_CENSUS)
 endif
 # UI_HUD_LENS_ALPHA (render only, needs UI_HUD_MASK=1; 0 = the source alpha 0xa5): the HUD lens backing's
 # minimum alpha (0..255). User, 2026-09-28: more opaque, so the unlit ammo segments stop reading "88".
