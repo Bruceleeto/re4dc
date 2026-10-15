@@ -227,6 +227,19 @@ def gc_tpl_records(pay, tpl):
     return out
 
 
+def tpl_header(pay, tpl, i):
+    """payload offset of image i's header (u16 height, u16 width, u32 format, u32 data ...) in the TPL at pay[tpl:]."""
+    num, desc = struct.unpack_from('<II', pay, tpl + 4)
+    tex, clut = struct.unpack_from('<II', pay, tpl + desc + 8 * i)
+    return tpl + tex
+
+
+def resample_smooth(img, h, w):
+    """bilinear resize (PIL) of an RGBA ndarray: the PS2 GS filtered its small pictures bilinearly."""
+    from PIL import Image
+    return np.asarray(Image.fromarray(np.ascontiguousarray(img), 'RGBA').resize((w, h), Image.BILINEAR))
+
+
 def ps2_images(d, off):
     """PS2 TPL at d[off:] -> {entry: (w, h, rgba ndarray)} (base level), via ps2_tpl_decode."""
     t = wr.tpl
@@ -299,6 +312,8 @@ def main():
     ap.add_argument('--gc-iso', default=GC_ISO); ap.add_argument('--ps2-iso', default=PS2_ISO); ap.add_argument('--gc-room')
     ap.add_argument('--pak', help='dc/tex.pak: a pair is built only when the GC pair (GC colour + mask key) is in it')
     ap.add_argument('--uv-fold', action='store_true', help='ps2_objects converter v3: fold PS2 triangle UVs into [0, 1]')
+    ap.add_argument('--upscale-mismatch', action='store_true',
+                    help='a PS2 picture of another size than the GC image is upscaled (bilinear) instead of declared')
     ap.add_argument('--share-gc-pictures', action='store_true',
                     help='old behaviour: also swap an ETM TPL image that an unconverted (GameCube) etc model draws')
     a = ap.parse_args()
@@ -501,14 +516,30 @@ def main():
                 if d not in pimg or pimg[d][0] == 'error':
                     raise ValueError('PS2 TPL image %d missing or undecodable: %s' % (d, pimg.get(d)))
                 w, h, rgba, il = pimg[d]
+                # image-order check (tex_size_check.py reads it): the PS2 image the triangles use has another size than
+                # the GC image while another PS2 image of the same TPL has the GC size -> the PS2 TPL lists the images
+                # in another order; ps2_objects.TEX_MAPS must remap the model (r104 et1700, 10-15)
+                same = (w, h) in ((gw, gh), (gh, gw))
+                order_suspect = [] if same else [j for j, v in sorted(pimg.items())
+                                                 if j != d and v[0] != 'error' and (v[0], v[1]) in ((gw, gh), (gh, gw))]
                 gk = gc_image(gsrc, k)
                 rgba, how, err = orient(rgba, gk, il & 1)
+                declare = None
                 if rgba.shape[0] != gh or rgba.shape[1] != gw:
-                    # the runtime checks a package against the record's TPL header (width / height / format): a PS2
-                    # picture of another size is not drawn (objs13 look check 10-15: r119 tree, r10b / r11b island,
-                    # r104 gate hidden). Resample (nearest) the PS2 picture to the GC image size: PS2 texels, GC size.
-                    how += ', resampled %dx%d -> %dx%d' % (rgba.shape[1], rgba.shape[0], gw, gh)
-                    rgba = resample(rgba, gh, gw)
+                    # The runtime draws a model part with u/v scale = TPL header size / package size and drops a
+                    # wrapping part whose package size differs from the header (native_ui.cpp, `wrap=` rejections):
+                    # a PS2 picture of another size was not drawn (objs13 look check 10-15: r119 tree, r10b / r11b
+                    # island). v5 (coordinator 10-15, the user saw 4x4 blocks from the nearest upscale):
+                    # - default: declare the PS2 size, i.e. the TPL image header and the record carry the PS2 width /
+                    #   height (render data only; the payload layout does not move) and the package stays PS2-sized;
+                    # - a colour image with material-pair masks (the mask must have the colour's size) or an indexed
+                    #   R4PREF record: smooth (bilinear) upscale of the PS2 picture to the GC size.
+                    if pair_of.get(k) or magic == b'R4PREF\0\0' or a.upscale_mismatch:
+                        how += ', bilinear %dx%d -> %dx%d' % (rgba.shape[1], rgba.shape[0], gw, gh)
+                        rgba = resample_smooth(rgba, gh, gw)
+                    else:
+                        declare = (rgba.shape[1], rgba.shape[0])
+                        how += ', PS2 size %dx%d declared (GC %dx%d)' % (declare[0], declare[1], gw, gh)
                 pair_jobs, why = plan_pairs(k, pair_of.get(k, ()), d, rgba.shape[:2])
                 if why:
                     entry.setdefault('kept_gc_images', []).append(dict(image=k, why=why + ' (pair not built: colour kept GC)'))
@@ -522,7 +553,8 @@ def main():
                 meta['pairs'] = write_pairs(k, rgba, key, pair_jobs, entry['name'])
                 built[rec] = {j[0] for j in pair_jobs}
                 done_img[rec] = (rgba, key, d)
-                meta.update(orient=how, mean_abs_diff_vs_gc=err)
+                meta.update(orient=how, mean_abs_diff_vs_gc=err, ps2_size=[w, h], order_suspect=order_suspect,
+                            tex_map=bool(po.TEX_MAPS.get(str(entry['name']).lower())))
                 (texdir / (key + '.re4tex')).write_bytes(data)
                 crc, fnv = (int(x, 16) for x in key.split('-'))
                 if native:
@@ -535,6 +567,11 @@ def main():
                     old = (0, 0)
                     struct.pack_into('<8s6I', pay, rec, b'R4NREF\0\0', crc, fnv, gw, gh, gfmt, 0)
                     meta['selfkey_record'] = True
+                if declare:
+                    hdr = tpl_header(pay, gtpl, k)
+                    struct.pack_into('<HH', pay, hdr, declare[1], declare[0])      # TPL image header: height, width
+                    struct.pack_into('<II', pay, rec + 16, declare[0], declare[1])  # record: width, height
+                    meta['declared_size'] = list(declare)
                 done[rec] = key
                 report['images'].append(dict(model=entry['name'], image=k, ps2_image=d, record=rec, old_key='%08x-%08x' % old, key=key,
                                              gc=dict(width=gw, height=gh, format=gfmt), ps2=meta,

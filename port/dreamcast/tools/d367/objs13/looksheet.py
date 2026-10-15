@@ -17,8 +17,8 @@ os.makedirs(os.path.join(E, 'sheets'), exist_ok=True)
 for i, r in enumerate(rooms):
     pair = []
     for arm, lab in (('c', 'test 12'), ('t', 'objs13')):
-        if arm == 't':  # the latest objs13 arm: t3 (pictures resampled to the GC size), t2 (r104 image remap), t
-            arm = next(a for a in ('t3', 't2', 't') if os.path.isdir(os.path.join(E, 'g16L-%s-%s' % (r, a))))
+        if arm == 't':  # the latest objs13 arm: t4 (v5: PS2 size declared or bilinear), t3 (nearest resample), t2 (r104 image remap), t
+            arm = next(a for a in ('t4', 't3', 't2', 't') if os.path.isdir(os.path.join(E, 'g16L-%s-%s' % (r, a))))
             lab = 'objs13 (%s)' % arm
         d = os.path.join(E, 'g16L-%s-%s' % (r, arm), 'capture', 'shots')
         if not os.path.isdir(d):

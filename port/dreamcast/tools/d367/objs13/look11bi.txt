@@ -1,0 +1,9 @@
+name look11bi
+# objs13 v5 look: Leon 7000 from BIN 0x1f island (12708 -1300 33719, r11b.cpp 2nd SetFloatIsland), facing it (r10b look pose)
+room 0x11b
+rsf 0x11b 0
+inv default
+pos 6899 0 29812
+ang 0.9787
+god
+freeze 1200

@@ -465,3 +465,58 @@ drawn, silently):
 
 The earlier 4-room still (sheets/t13-objs.png, wall-clock shots) is superseded by t13-look.png.
 
+
+### v5: PS2 picture size declared instead of the nearest upscale (coordinator 10-15, user on r10b)
+
+The user saw 4x4 blocks on the r10b float island in t13-look-10b.png: v4 upscaled the 64x64 PS2 picture to the GC
+256x256 by nearest neighbour, and the DC then filtered the blocks. The PS2 GS filtered the 64x64 bilinearly. v5
+(ps2_objects_tex.py), for a PS2 picture whose size differs from the GC image:
+- default: DECLARE the PS2 size. The TPL image header (u16 height, width) and the R4NREF record carry the PS2 size and
+  the package stays PS2-sized; the model path's u/v scale (TPL header / package) is then 1 and the wrap check passes.
+  Render data only: the payload layout does not move, and STRICT shows no logic reads it.
+- bilinear upscale to the GC size (PIL BILINEAR) where the header cannot change on its own: a colour image with a
+  material-pair mask (the runtime requires mask size = colour size, and the GC mask is the graded alpha), or an indexed
+  R4PREF record. `--upscale-mismatch` forces it everywhere.
+
+| room / model | image | PS2 | GC | v5 | VRAM v4 -> v5 (room pictures) |
+|---|---|---|---|---|---|
+| r10b BIN 0x1e island | 0 (+ mask pair) | 64x64 | 256x256 | bilinear | 28,672 -> 25,600 B |
+| | 2 (+ mask pair) | 32x128 | 64x128 | bilinear | |
+| | 5 | 64x64 | 128x128 | declared 64x64 | |
+| r11b BIN 0x1f island | 0 / 2 / 5 | as r10b | | as r10b | 38,912 -> 35,840 B |
+| r119 BIN 0x22 tree | 0 | 64x256 | 128x512 | declared 64x256 | 21,504 -> 9,216 B |
+
+Gates (published test 12 builds, 60 s each, one Flycast): g16-<r>-t4 (t12c2tT, trace stop 600, trace_lock) vs control
+g16-<r>-c: r10b 602 / r11b 601 / r119 382 ticks STRICT, MUST-IDENTICAL; g16-<r>-m4 (t12c2mW TEX_CHECK=2 + LEON-GC):
+PASS / PASS, pair missing 0, halt 0, `native model rejection ... wrap=0`; look runs g16L-<r>-t4 the same.
+Before / after (frozen frame, freeze 1200, t0030): sheets/t13-v5.png (rows r10b island, r11b island, r11b et0300,
+r119 tree; columns test 12 / v4 nearest / v5) and t13-v5-<r>.png. The r11b island row uses a new warp
+(objs13/look11bi.txt: r10b's island pose in r11b; r11b.cpp places the same island positions), runs g16L-11bi-{c,t3,t4}.
+Every other room's dar and pictures are byte-identical to the gated ones. Stored dars: r10b 39bd07e1, r11b d8a5fcfa,
+r119 5131adf9 (others unchanged); merged pak work/tex-t13o.pak (tex-t12d + 32 objs13 pictures, 4,511 packages)
+now sha256 06e18e13... (v4 b67fa060... deleted, rebuildable).
+
+### Standing picture-size gate: tools/d367/tex_size_check.py (coordinator 10-15)
+
+Offline: every texture record (R4NREF / R4PREF in dars, .das, .drs, ...; R4PW world part tables) against its package
+(pak, then loose texdir): OK / WRAPSAFE (flags bit 30) / COVER (bit 31, FX sprite cover) / PAD (pow2 padding) /
+MISMATCH (FAIL; the model path drops a wrapping part, the world packet refuses any difference) / MISSING (TEX_CHECK's
+job). `--keys` checks a KEYS.tsv; `--objects-report` checks ps2_objects_tex.py tex.json for a PS2 TPL image order
+that differs from GC without a ps2_objects.TEX_MAPS entry (ORDER FAIL). Runtime half: the last `native model
+rejection ... wrap=N` must be 0 (all controls are 0; objs13/evm.sh prints it). In the re4-dreamcast-testing checklist.
+
+Negative tests: tex14 r119 (pre-v4 pictures) FAIL MISMATCH 2 (058ec2b1 32x128 vs 32x64, 3e0bf632 128x512 vs 64x256);
+r104 rebuilt with TEX_MAPS cleared (objs13/notexmap.py) FAIL ORDER 2 (et1700 images 0/1).
+
+Results 10-15 (pak tex-t12d.pak unless named):
+| data set | result |
+|---|---|
+| objs13 v5 (15 dars + tex.json, pak tex-t13o.pak) | PASS: OK 754, COVER 27, PAD 1, MISSING 192; ORDER 41 images clean |
+| test 12 items dars | PASS: OK 946, COVER 34, PAD 4, MISSING 195 |
+| ps2lib objects | PASS: OK 909, COVER 27, PAD 1, MISSING 192 |
+| ps2lib effects-tex KEYS.tsv (fx12) | PASS: OK 393, COVER 254, PAD 2, MISSING 79 (121 without the pak) |
+| ps2lib world r200..r22c (castle VQ, R4PW parts) | PASS: 43 rooms, every part OK (34..135 per room); r101-sg4 has no R4PW |
+| ps2lib cast | PASS: acc12 .drs OK 59, merchant-em18 OK 16, ashley-pl11 OK 4 + MISSING 20 (its keys are not in tex-t12d), boat-pl0f MISSING 7; baked cast models (castmodel atlas, info0.*) carry no size records (atlas UVs, no TPL header check): not applicable |
+| ps2lib items / breakables (library form) | no records (GC .bin + pictures; records are written when packed): checked in the packed dars above |
+MISSING records exist in the shipped test 12 dars too (195), so they are not an objs regression; they are GC images the runtime never
+looks up from tex.pak in these windows (TEX_CHECK=2 passes).
