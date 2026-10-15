@@ -415,10 +415,12 @@ extern "C" int re4dc_aliveCapFarDrop(int max, int clearAlive)
 // entry goes back to "alive, not set" and into the hold, so it counts as alive (SceCountEmAlive), is released again
 // below the cap and no kill / death link is recorded. Only an unhurt Ganado in its plain AI routine, created from a
 // list entry of this room, not a kept entry, and not in a room whose code holds enemy pointers of its sends (r101 has
-// its own cap; r104 / r10a / r10c / r10f / r11c / r11d wrappers or batches).
+// its own cap; r100 the ambush pointer list W->ems[0..6]; r104 / r10a / r10c / r10f / r11c / r11d wrappers or batches).
 static int aliveCapParkRoom()
 {
     switch (pG->stage_no << 8 | pG->room_no) {
+    case 0x100:   // r100_em_set keeps W->ems[0..6] (lists 3-5, 0x12, 0x13, 0x26, 0x27) and reads them later: a park
+                  // there freed live pointers (heap 4 corruption from the s20 ambush, test 13 RC H2 gate)
     case 0x101: case 0x104: case 0x10A: case 0x10C: case 0x10F: case 0x11C: case 0x11D:
         return 0;
     }
