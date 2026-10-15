@@ -1801,9 +1801,12 @@ unsigned owner_tests=0,owner_hid=0; // PS2_INTERIOR_ACTORS=2: owner-path Ganados
 //    words) and the walks touch it inside a pass.
 //  8 (diagnostic) checks 2 and 4: every skipped box test is run anyway and every reused prime word is read back;
 //    disagreements counted in the PS2LEAN line (check_bad / prime_bad must stay 0).
+#pragma GCC push_options
+#pragma GCC optimize("O2")
 namespace lean {
 constexpr unsigned kMode=RE4DC_PS2_WORLD_LEAN;
-struct Stats { unsigned pre_culled,pl_inside,cl_inside,skipped,prime_reuse,check_bad,prime_bad,dyn_fast,class_diff; } st;
+struct Stats { unsigned pre_culled,pl_inside,cl_inside,skipped,prime_reuse,check_bad,prime_bad,dyn_fast,class_diff;
+               unsigned sg_tests,sg_culled,sg_meshlets,sg_vskip; } st;
 const pvr_vertex_t* prime_at=nullptr; unsigned primed=0;
 // native_static.cpp is built at -O1 (no unrolling): these are written out by hand (the hw model priced the loop forms
 // at ~2x group_visible).
@@ -1882,7 +1885,77 @@ inline void concat_u(const float* a,const float* b,float* o){
     RE4DC_LEAN_ROW(0) RE4DC_LEAN_ROW(1) RE4DC_LEAN_ROW(2)
 #undef RE4DC_LEAN_ROW
 }
+#if RE4DC_PS2_STRIP_GROUPS
+// PS2_STRIP_GROUPS: a meshlet's box against the cull planes. -1 outside (group_visible's rejection, same planes and
+// slack), else a mask of the planes the box crosses: bits 0..3 the screen edges (side order), bit 4 near.
+inline int box_mask(const float lo[3],const float hi[3],const float* m,const float* am,float near_distance,float far_distance){
+    const float cx=(lo[0]+hi[0])*0.5f,cy=(lo[1]+hi[1])*0.5f,cz=(lo[2]+hi[2])*0.5f;
+    const float ex=(hi[0]-lo[0])*0.5f,ey=(hi[1]-lo[1])*0.5f,ez=(hi[2]-lo[2])*0.5f;
+    const float vz=m[8]*cx+m[9]*cy+m[10]*cz+m[11],rz=am[6]*ex+am[7]*ey+am[8]*ez;
+    if(-vz+rz<near_distance || -vz-rz>far_distance)return -1;
+    const float vx=m[0]*cx+m[1]*cy+m[2]*cz+m[3],rx=am[0]*ex+am[1]*ey+am[2]*ez;
+    const float vy=m[4]*cx+m[5]*cy+m[6]*cz+m[7],ry=am[3]*ex+am[4]*ey+am[5]*ez;
+    const Side& S=side;int mask=0;
+    for(unsigned k=0;k<4;++k){
+        const float v=k<2?vx:vy,r=k<2?rx:ry;
+        const float sv=S.a[k]*v+S.c[k]*vz,t=S.aa[k]*r+S.ac[k]*rz;
+        if(sv+t<-0.0001f)return -1;
+        if(!(sv-t>0.0f))mask|=1<<k;
+    }
+    if(!(-vz-rz>near_distance))mask|=16;
+    return mask;
 }
+// Per part (mvq): the five planes a group can be culled by (4 screen edges in side order, near) as grid-space linear
+// forms n.g + d >= 0 inside, split into P = max(n, 0) and Q = min(n, 0), so a box's largest value is P.hi + Q.lo + d.
+// 8 floats per plane: P[3] Q[3] d pad (read in order through one pointer: SH-4 fmov has no displacement form).
+inline void sg_coef(const float* m,float near_distance,float* out){
+    const Side& S=side;
+    for(unsigned k=0;k<5;++k,out+=8){
+        float n[3],d;
+        if(k<4){
+            const float* r=m+(k<2?0:4);
+            for(unsigned a=0;a<3;++a)n[a]=S.a[k]*r[a]+S.c[k]*m[8+a];
+            d=S.a[k]*r[3]+S.c[k]*m[11];
+        }else{
+            for(unsigned a=0;a<3;++a)n[a]=-m[8+a];
+            d=-m[11]-near_distance;
+        }
+        for(unsigned a=0;a<3;++a){out[a]=n[a]>0.0f?n[a]:0.0f;out[3+a]=n[a]<0.0f?n[a]:0.0f;}
+        out[6]=d;out[7]=0.0f;
+    }
+}
+// One meshlet's group records g (n x 16 bytes: grid lo[3] hi[3], strip end, first | last corner << 8) against only the
+// planes the meshlet crosses (mask bits 0..4 from box_mask; coef from sg_coef): a group whose box is wholly outside one
+// of them by more than a unit is culled (every strip in it would have been culled after the transform). Returns the
+// visible groups' strip ranges r0..r1, their corner range lo..hi and how many are left; counts culled.
+__attribute__((noinline)) unsigned sg_select(const std::uint16_t* g,unsigned n,const float* coef,unsigned mask,
+        std::uint16_t* r0,std::uint16_t* r1,unsigned& lo,unsigned& hi,unsigned& culled){
+    unsigned prev=0,nr=0,vlo=255,vhi=0,cut=0;
+    for(unsigned i=0;i<n;++i,g+=8){
+        const unsigned gend=g[6];
+        if(gend==prev)continue;
+        const float l0=float(g[0]),l1=float(g[1]),l2=float(g[2]),h0=float(g[3]),h1=float(g[4]),h2=float(g[5]);
+        bool out=false;
+        const float* q=coef;
+        for(unsigned k=0;k<5 && !out;++k,q+=8){
+            if(!((mask>>k)&1U))continue;
+            const float* c=q;
+            const float P0=*c++,P1=*c++,P2=*c++,Q0=*c++,Q1=*c++,Q2=*c++,D=*c;
+            out=P0*h0+P1*h1+P2*h2+Q0*l0+Q1*l1+Q2*l2+D<-1.0f;
+        }
+        if(out){++cut;prev=gend;continue;}
+        r0[nr]=std::uint16_t(prev);r1[nr]=std::uint16_t(gend);++nr;
+        const unsigned v0=g[7]&255U,v1=g[7]>>8;
+        if(v0<vlo)vlo=v0;
+        if(v1>vhi)vhi=v1;
+        prev=gend;
+    }
+    lo=vlo;hi=vhi;culled=cut;
+    return nr;
+}
+#endif
+}
+#pragma GCC pop_options
 #endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
@@ -1893,6 +1966,12 @@ struct MeshDraw : Emitter {
     bool lean_inside=false; // PS2_WORLD_LEAN bit 2: the placement box is inside every plane (no cluster / meshlet tests)
     bool lean_part=false;   // PS2_WORLD_LEAN: a ps2_pass part (bit 2 cluster classes; bit 4 the cache prime kept across the pass)
     const float* lean_am=nullptr; // bit 2: |mvq| 3x3 (lean::abs9), set by ps2_pass
+#if RE4DC_PS2_STRIP_GROUPS
+    const std::uint8_t* sg=nullptr; unsigned sg_groups=0; // PS2_STRIP_GROUPS: the package's group records (ps2_pass)
+    bool sg_whole=false; // this meshlet's cluster / placement is inside every plane: no group tests
+    unsigned sg_mask=0;  // the planes the meshlet's box crosses (lean::box_mask)
+    bool sg_coef_ok=false; float sg_coef[40] __attribute__((aligned(8))); // lean::sg_coef for this part's mvq
+#endif
 #endif
 #if RE4DC_PS2_INTERIOR_CULL
     // PS2_INTERIOR_CULL: pc_mode 0 no test, 1 skip hidden geometry, 2 draw only hidden geometry (the =2 check run);
@@ -1986,6 +2065,35 @@ struct MeshDraw : Emitter {
 #if RE4DC_PS2_WORLD_LEAN
             if(lean_part){lean::prime_at=cache;lean::primed=primed;}
 #endif
+        }
+#endif
+#if RE4DC_PS2_STRIP_GROUPS
+        // PS2_STRIP_GROUPS: a straddling meshlet tests its strip groups' grid boxes (outside one screen edge or nearer
+        // than near: every strip of the group would be culled after the transform), transforms only the corner
+        // range of the groups left and walks only their strips (in stored order). All groups left: the whole path.
+        if(sg && !sg_whole && checks==vp::kChecksAll && sq && lean_am){
+            const auto* g=reinterpret_cast<const std::uint16_t*>(sg+16U*sg_groups*unsigned(&l-package.meshlets()));
+            unsigned lo,hi,culled;std::uint16_t r0[8],r1[8];
+            if(!sg_coef_ok){lean::sg_coef(mvq,near,sg_coef);sg_coef_ok=true;}
+            const unsigned nr=lean::sg_select(g,sg_groups,sg_coef,sg_mask,r0,r1,lo,hi,culled);
+            ++lean::st.sg_tests;
+            if(culled){
+                lean::st.sg_culled+=culled;++lean::st.sg_meshlets;
+                if(!nr){lean::st.sg_vskip+=l.vertex_count;return 1;}
+                const unsigned vn=hi-lo+1U;lean::st.sg_vskip+=l.vertex_count-vn;
+#if RE4DC_MESH_VP_SCHED==1
+                vp::transform_sched<vp::kChecksAll>(in+lo,vn,cache+lo,outcodes+lo,k);
+#else
+                vp::transform<vp::kChecksAll>(in+lo,vn,cache+lo,outcodes+lo,k);
+#endif
+                const std::uint8_t* const sb=package.strip_begin(l);
+                for(unsigned i=0;i<nr;++i){
+                    int result=1;
+                    strips_lean(sb+r0[i],sb+r1[i],base,batch,result);
+                    if(result<=0)return result;
+                }
+                return 1;
+            }
         }
 #endif
         if(checks==vp::kChecksNone)vp::transform<vp::kChecksNone>(in,l.vertex_count,cache,outcodes,k);
@@ -2154,10 +2262,22 @@ struct MeshDraw : Emitter {
             }
         }else{
 #endif
+#if RE4DC_PS2_STRIP_GROUPS
+        if(sg && lean_am){
+            const float blo[3]={float(l.bounds_min[0]),float(l.bounds_min[1]),float(l.bounds_min[2])};
+            const float bhi[3]={float(l.bounds_max[0]),float(l.bounds_max[1]),float(l.bounds_max[2])};
+            const int mk=lean::box_mask(blo,bhi,mvq,lean_am,near,cull_far);
+            if(mk<0){++stats.groups_culled;return 1;}
+            sg_mask=unsigned(mk);
+        }else{
+#endif
         const re4dc::render::DrawBounds bounds{
             {float(l.bounds_min[0]),float(l.bounds_min[1]),float(l.bounds_min[2])},
             {float(l.bounds_max[0]),float(l.bounds_max[1]),float(l.bounds_max[2])}};
         if(!re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)){++stats.groups_culled;return 1;}
+#if RE4DC_PS2_STRIP_GROUPS
+        }
+#endif
 #if RE4DC_PS2_WORLD_LEAN
         }
 #endif
@@ -2169,6 +2289,10 @@ struct MeshDraw : Emitter {
         // A slab too small to lend the cache behaves like any other
         // capacity failure: generic fallback, or abort once published.
         if(!borrow()){++stats.reserve_rejects;return submitted?-1:0;}
+#if RE4DC_PS2_STRIP_GROUPS
+        sg_whole=known || !sg_mask;
+        if(known)sg_mask=0;
+#endif
         return meshlet(l,batch);
 #else
         const auto* base=corners(l);
@@ -3307,6 +3431,9 @@ struct Ps2World {
     static constexpr unsigned kMaskPlacements=2048;
     std::uint8_t pass_mask[kMaskPlacements]{}; bool masked=false;
 #endif
+#if RE4DC_PS2_STRIP_GROUPS
+    unsigned char* sg_block=nullptr; const std::uint8_t* sg=nullptr; unsigned sg_groups=0; // ps2-world.r4sg (heap 4)
+#endif
 } ps2w;
 #if RE4DC_PS2_WORLD_R11F_OWNER
 unsigned r11fPackageGeneration=1,r11fSidecarCrc;
@@ -3658,6 +3785,31 @@ bool ps2_open(){
                         ps2_crc32(s+mbytes,psize),movie_world::fnv(s+mbytes,psize)};
     }
 #endif
+#if RE4DC_PS2_STRIP_GROUPS
+    {
+        // PS2_STRIP_GROUPS: tools/ps2_strip_groups.py's group records for this exact package (mesh crc / bytes, R4PW
+        // crc, record crc). Absent or not matching: no groups (the whole-meshlet path).
+        char gpath[48];snprintf(gpath,sizeof(gpath),"/cd/dc/native/r%03x/ps2-world.r4sg",ps2w.room);
+        const file_t fg=fs_open(gpath,O_RDONLY);
+        const unsigned gsize=fg!=FILEHND_INVALID?unsigned(fs_total(fg)):0U;
+        const char* gwhy=fg==FILEHND_INVALID?"absent":nullptr;
+        unsigned char* gb=nullptr;
+        if(!gwhy && (gsize<32U || gsize>262144U || (gsize&15U)))gwhy="size";
+        if(!gwhy && !(gb=static_cast<unsigned char*>(re4dc_static_alloc((gsize+31U)&~31U))))gwhy="heap";
+        if(!gwhy && fs_read(fg,gb,gsize)!=ssize_t(gsize))gwhy="read";
+        if(fg!=FILEHND_INVALID)fs_close(fg);
+        std::uint32_t w[8]={};
+        if(!gwhy){
+            std::memcpy(w,gb,32);
+            if(std::memcmp(gb,"R4SG",4) || w[1]!=1U || w[2]!=mh.meshlet_count || !w[3] || w[3]>8U || w[4]!=mh.crc ||
+               w[5]!=mh.bytes || w[6]!=h.crc || gsize!=32U+16U*w[2]*w[3] || ps2_crc32(gb+32,gsize-32U)!=w[7])gwhy="header";
+        }
+        if(gwhy){if(gb)re4dc_static_free(gb);}
+        else {ps2w.sg_block=gb;ps2w.sg=gb+32;ps2w.sg_groups=w[3];}
+        re4dc_log("PS2SG room=%03x groups=%s per_meshlet=%u bytes=%u heap=%d\n",ps2w.room,gwhy?gwhy:"ok",unsigned(w[3]),gsize,
+                  re4dc_static_heap_free());
+    }
+#endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
 #if RE4DC_PS2_VERTEX_ALPHA
@@ -3866,9 +4018,10 @@ int ps2_pass(unsigned pass,float zfar){
     lean::prime_at=nullptr;lean::primed=0; // bit 4: the prime holds within this pass only
     if(!pass){
         const unsigned f=re4dc_ui_frame();
-        if(!(f%120))re4dc_log("PS2LEAN frame=%u mode=%u pre_culled=%u pl_inside=%u cl_inside=%u skipped=%u prime_reuse=%u check_bad=%u prime_bad=%u dyn_fast=%u class_diff=%u\n",
+        if(!(f%120))re4dc_log("PS2LEAN frame=%u mode=%u pre_culled=%u pl_inside=%u cl_inside=%u skipped=%u prime_reuse=%u check_bad=%u prime_bad=%u dyn_fast=%u class_diff=%u sg_tests=%u sg_culled=%u sg_meshlets=%u sg_vskip=%u\n",
             f,lean::kMode,lean::st.pre_culled,lean::st.pl_inside,lean::st.cl_inside,lean::st.skipped,lean::st.prime_reuse,
-            lean::st.check_bad,lean::st.prime_bad,lean::st.dyn_fast,lean::st.class_diff);
+            lean::st.check_bad,lean::st.prime_bad,lean::st.dyn_fast,lean::st.class_diff,lean::st.sg_tests,lean::st.sg_culled,
+            lean::st.sg_meshlets,lean::st.sg_vskip);
     }
 #endif
 #if RE4DC_PS2_WORLD_DYNAMIC
@@ -4112,6 +4265,9 @@ int ps2_pass(unsigned pass,float zfar){
             d.part_index=index;d.lod_scale=lod_scale;
 #if RE4DC_PS2_WORLD_LEAN
             d.lean_inside=lean_in==2;d.lean_part=true;d.lean_am=(lean::kMode&2U)?amq:nullptr;
+#if RE4DC_PS2_STRIP_GROUPS
+            d.sg=ps2w.sg;d.sg_groups=ps2w.sg_groups;
+#endif
 #endif
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
@@ -4479,6 +4635,10 @@ extern "C" void re4dc_ps2_mesh_retire(){
 #if RE4DC_PS2_PASS_MASK
     ps2w.masked=false;
 #endif
+#if RE4DC_PS2_STRIP_GROUPS
+    if(ps2w.sg_block)re4dc_static_free(ps2w.sg_block);
+    ps2w.sg_block=nullptr;ps2w.sg=nullptr;ps2w.sg_groups=0;
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC
     dyn::reset();
 #endif
@@ -4667,6 +4827,10 @@ extern "C" int re4dc_ps2_mesh_texture(unsigned i,unsigned out[4]){
     out[0]=q.crc;out[1]=q.fnv;out[2]=q.width;out[3]=q.height;
     return 1;
 }
+#endif
+#if defined(RE4DC_PS2_ROOM_PIN) && RE4DC_PS2_ROOM_PIN
+// PS2_ROOM_PIN (native_ui.cpp preload): the open package's room, 0 when none is open.
+extern "C" unsigned re4dc_ps2_mesh_room(){return ps2w.storage?ps2w.room:0U;}
 #endif
 // The room the next ps2_open serves (native_ps2_world.cpp, before each draw).
 extern "C" void re4dc_ps2_mesh_select(unsigned room){

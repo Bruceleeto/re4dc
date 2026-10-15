@@ -310,6 +310,19 @@ bool fx_pool_pin[kTextureCount];unsigned fx_pool_size[kTextureCount],fx_pool_byt
 #else
 #define RE4DC_FX_POOL_PINNED(e) false
 #endif
+#if defined(RE4DC_PS2_ROOM_PIN) && RE4DC_PS2_ROOM_PIN
+// PS2_ROOM_PIN=1 (game30.mk, render only; lane objs 2026-10-15): a large PS2 world texture of a room stays resident for
+// the whole visit (no LRU eviction), so it never has to load again late into a fragmented pool. r101: 9fe00ef7-6123f7d5
+// (256x256, 128 KB): evicted when out of view and reloaded at frame 1228 into a fragmented pool on the test 11 village
+// runs ("PVR texture allocation failed" / frag-latched, TEX_CHECK). Set at each room-entry preload (re4dc_ps2_mesh_room).
+extern "C" unsigned re4dc_ps2_mesh_room(); // native_static.cpp: the open PS2 world package's room (0: none)
+struct RoomPin { unsigned room; Key key; };
+constexpr RoomPin kRoomPins[]={{0x101,{0x9fe00ef7U,0x6123f7d5U}}};
+Key room_pin_key{};
+#define RE4DC_ROOM_PINNED(e) ((room_pin_key.crc|room_pin_key.fnv) && (e).key==room_pin_key)
+#else
+#define RE4DC_ROOM_PINNED(e) false
+#endif
 #if defined(RE4DC_TEX_WRAP_SAFE) && RE4DC_TEX_WRAP_SAFE
 // TEX_WRAP_SAFE=1 (game30.mk; render only): a package whose texels are all one colour carries header flags bit 30
 // (tools/d367/tex_wrapsafe.py). Sampling it gives that colour whatever the wrap, padding or UV scale, so a wrapping
@@ -320,9 +333,9 @@ bool fx_pool_pin[kTextureCount];unsigned fx_pool_size[kTextureCount],fx_pool_byt
 #endif
 #if RE4DC_ACTOR_TRANSACTION
 re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)) || RE4DC_FX_POOL_PINNED(e))
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)) || RE4DC_FX_POOL_PINNED(e) || RE4DC_ROOM_PINNED(e))
 #else
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || RE4DC_FX_POOL_PINNED(e))
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || RE4DC_FX_POOL_PINNED(e) || RE4DC_ROOM_PINNED(e))
 #endif
 // EFFECT_SPRITES=1 (effects30.mk; default off = previous image): native effect sprites
 // (re4dc_effect_sprite below).
@@ -3189,6 +3202,13 @@ void preload_identities(){
     frag_release("room");frag_want=0;
 #endif
     frag_key=Key{}; // a new room: the pool has a new shape
+#endif
+#if defined(RE4DC_PS2_ROOM_PIN) && RE4DC_PS2_ROOM_PIN
+    {
+        const unsigned r=re4dc_ps2_mesh_room();room_pin_key=Key{};
+        for(const auto& q:kRoomPins)if(q.room==r)room_pin_key=q.key;
+        if(room_pin_key.crc)re4dc_log("PS2PIN room=%03x key=%08x-%08x\n",r,room_pin_key.crc,room_pin_key.fnv);
+    }
 #endif
     const std::uint64_t start=timer_us_gettime64();
     const unsigned loads=preload_loads,skipped=preload_skipped;

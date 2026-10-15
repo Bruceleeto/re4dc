@@ -2681,6 +2681,32 @@ $(error PS2_WORLD_LEAN must be 0..31)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_LEAN=$(PS2_WORLD_LEAN)
 endif
+# PS2_ROOM_PIN=1 (native_ui.cpp, render only, default 0; lane objs 2026-10-15): a room's large PS2 world texture stays
+# resident for the visit (no LRU eviction), so it cannot load again late into a fragmented pool. Table kRoomPins:
+# r101 9fe00ef7-6123f7d5 (256x256, 128 KB; the test 11 village TEX_CHECK frag-latched key).
+PS2_ROOM_PIN ?= 0
+ifneq ($(PS2_ROOM_PIN),0)
+ifneq ($(PS2_ROOM_PIN),1)
+$(error PS2_ROOM_PIN must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_ROOM_PIN=1
+endif
+# PS2_STRIP_GROUPS=1 (native_static.cpp, render only, default 0; lane objs 2026-10-15): reads dc/native/rNNN/
+# ps2-world.r4sg (tools/ps2_strip_groups.py: up to 4 spatial strip groups per meshlet, corners renumbered per group, in
+# a re-ordered ps2-world.re4mesh of the same size) into heap 4 (r101: 110,496 B). A meshlet that straddles the frustum
+# tests its groups' boxes; a group wholly outside a screen edge (or nearer than near) is neither transformed nor
+# walked: those strips were culled after the transform before. Rooms without the file: unchanged. Needs
+# PS2_WORLD_LEAN with bit 2 (the per-pass planes and |mvq|) and MESH_STRIP_LEAN=1.
+PS2_STRIP_GROUPS ?= 0
+ifneq ($(PS2_STRIP_GROUPS),0)
+ifneq ($(PS2_STRIP_GROUPS),1)
+$(error PS2_STRIP_GROUPS must be 0 or 1)
+endif
+ifeq ($(filter 2 3 6 7 10 11 14 15 18 19 22 23 26 27 30 31,$(PS2_WORLD_LEAN)),)
+$(error PS2_STRIP_GROUPS=1 needs PS2_WORLD_LEAN with bit 2)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_STRIP_GROUPS=1
+endif
 # MESH_CLASSIFY=1 (native_static.cpp, default 0): the meshlet fast path classifies each meshlet's box
 # first and skips per-vertex outcodes (and strip code scans) in wholly visible meshlets (+~1.5 KiB image).
 MESH_CLASSIFY ?= 0
