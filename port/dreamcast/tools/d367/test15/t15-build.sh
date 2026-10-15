@@ -79,15 +79,21 @@ T14=${T14-$T14REC}
 #   2  GC_CENSUS_TRIM=1 (lane t2exact 4633156c, A2b; exact: GX state getters inline, coarse hook lookups by range)
 #   7  PS2_CAST_CH1=1 PS2_CAST_BOAT=1 ACTOR_PALETTE_BANK=40 NATIVE_MODEL_REGISTRY_POOL=1 (lane ps2cast14 b00f9a43; render
 #      only; data cast15; r117 PS2 zealot pool chosen by the user 10-15)
+#   R  KOS_SBRK_LAST_PAGE=1 (lane ramreclaim 464aada4; exact, +4,096 B usable KOS; gates: identity, squeeze 10/10, STRICT
+#      fight/bell/door103, align 0; RAM-BUDGET-20261015.md). ARENA_FIT_KOS_BYTES stays 196608 (the +16 KiB waits on the
+#      heap-4 reclaims: it costs the r100 s30 movie heap 4). KOS_CENSUS=2 merged as a diagnostic (default 0).
 #   Merged, default 0, NOT in T15REC yet (waiting on their lanes' gates / decisions):
-#     9  UI_OT_CACHE (lane uicoll 084a74c6; levels 1..3)
 #     -  SG_SELECT_LEAN (lane t2exact 866edc60); HOT_COLD_SPLIT (B5, d11ac47e: layout, off unless console A/B); PS2_PVS
-#     4  LEON_LOD / GANADO_LOD (lane leonlod e9fb332f; the user picks the level)
-#   Not merged: LINK_ORDER (console crash under investigation), worldlod, LOGIC_WASTE_MASK (lane logicwaste, no commit
-#   yet), SKIN_SH4ZAM (lane sh4zam, no commit yet).
+#     4  GANADO_LOD=2 (lane leonlod e9fb332f + fa799f12 cutscene full models; needs PS2_GANADO=1). LEON_LOD stays 0
+#        (user 10-15 evening: Leon keeps the default full model)
+#     10 LOGIC_WASTE / LOGIC_APPROX_MASK (lane logicwaste 1d2e2f38)
+#     -  SUB_EM_FUNC, MOVIE_POLL_SETTLE (lane ch22-1014 9b401bc0 / 4835a107; stability fixes, on after their STRICT gates)
+#   Dropped: UI_OT_CACHE (reverted 35be27e8). Not merged: LINK_ORDER (console crash under investigation), worldlod,
+#   SKIN_SH4ZAM (lane sh4zam, no commit yet).
 T15_2="GC_CENSUS_TRIM=1"
 T15_7="PS2_CAST_CH1=1 PS2_CAST_BOAT=1 ACTOR_PALETTE_BANK=40 NATIVE_MODEL_REGISTRY_POOL=1"
-T15REC="$T15_2 $T15_7"
+T15_R="KOS_SBRK_LAST_PAGE=1"
+T15REC="$T15_2 $T15_7 $T15_R"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

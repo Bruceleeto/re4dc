@@ -143,3 +143,11 @@ One hardware session calibrates the penalties. Run five microbenchmarks:
 5. an FDIV chain.
 
 Put the results into `--fill-*`, `--wb-*` and `--sq-cost`.
+
+## Console column (refit 2026-10-15, lane storemiss)
+`hwsim --console-fit` (hwproject's "console" column) is the refit **D fill +6, I fill +5, store miss 0**, constrained by
+the console Bench A (ACTOR_MOVCA, no change) and Bench B (MEM_MOVCA, +0.5 ms house) pairs; `--console-fit-w70` keeps the
+first fit (D 0, I 4, store miss 70) for comparison only. Label results "MODELLED console-fit". Render parts are still
+under-priced by a cause the model does not simulate (console/model: actor draw 1.11-1.19, world 1.07-1.19; logic
+0.96-1.03). MOVCA / store-miss levers are CLOSED: no store-miss lever is above 0.13 ms. Tools: miss/storemiss/refit.py,
+miss/reprice.py (default = refit, `--w70` = first fit).
