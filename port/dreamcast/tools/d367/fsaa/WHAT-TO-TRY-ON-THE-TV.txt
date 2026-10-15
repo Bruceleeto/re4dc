@@ -1,3 +1,6 @@
+2026-10-15 (test 12 D3): FSAA LITE was dropped; the Rendering row is STANDARD / FSAA. The notes below are the
+original console trial and still name LITE.
+
 RE4 Dreamcast - edge smoothing (FSAA) test disc, 2026-10-14
 Private test, not a release. Test 10 plus one change: the Rendering row is back in Options.
 
