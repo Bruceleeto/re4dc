@@ -93,7 +93,12 @@ T14=${T14-$T14REC}
 T15_2="GC_CENSUS_TRIM=1"
 T15_7="PS2_CAST_CH1=1 PS2_CAST_BOAT=1 ACTOR_PALETTE_BANK=40 NATIVE_MODEL_REGISTRY_POOL=1"
 T15_R="KOS_SBRK_LAST_PAGE=1"
-T15REC="$T15_2 $T15_7 $T15_R"
+#   4  GANADO_LOD=1 GANADO_LOD_LEVEL=2 (g70; lane leonlod fa799f12, lean gates 4988dacb; render only; cutscenes switch to
+#      level 0 by themselves). LEON_LOD stays 0. Needs PS2_GANADO=1 and the package on the disc: data set glod
+#      (dc/native/ganado/ganado_lod.re4gl, sha256 46566154; in T15_DATA). Check the candidate's boot log for
+#      "GANADOLOD level=2 name=g70" in r101 and "level=0" at the r101s30 event. _end +928 B.
+T15_4="GANADO_LOD=1 GANADO_LOD_LEVEL=2 GANADO_LOD_PACK=/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl"
+T15REC="$T15_2 $T15_7 $T15_R $T15_4"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

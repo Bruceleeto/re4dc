@@ -286,7 +286,11 @@ for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f'):
 C15T118 = os.environ.get('C15T118', '/root/probe/lanes-20261015/t15k/data/reg-118pc-tex')
 DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' else C15T118 for g in _C15R.values()] + \
     ['%s/prep14/%s' % (C15D, _n) for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f')]
-T15_DATA = T14_DATA + ',cast15'
+# Test 15 GANADO_LOD=1 GANADO_LOD_LEVEL=2 (lane leonlod): the Ganado LOD package (glod_pack.py; sha256 46566154). Without it
+# on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
+GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
+DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
+T15_DATA = T14_DATA + ',cast15,glod'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
