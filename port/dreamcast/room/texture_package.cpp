@@ -166,8 +166,15 @@ int SourceIdentityTable::lookup(const void* pixels,unsigned width,unsigned heigh
     const auto offset=address-base;
     for(unsigned i=0;i<count_;++i) {
         const auto start=word(table_+12*i);
+#if defined(RE4DC_TEX_IDENT_LEAN) && RE4DC_TEX_IDENT_LEAN
+        // TEX_IDENT_LEAN (crowd.mk): the bounds first; the tag only for an entry within 64 bytes.
+        if(offset<start || offset-start>=64U) continue;
+        const bool indexed=!std::memcmp(data_+start,"R4PREF\0",8);
+        if(!indexed && offset-start>=32U) continue;
+#else
         const bool indexed=!std::memcmp(data_+start,"R4PREF\0",8);
         if(offset<start || offset-start>=(indexed?64U:32U)) continue;
+#endif
         if(offset!=start) return -1;
         const auto* p=data_+offset;
         if(word(p+16)!=width || word(p+20)!=height || word(p+24)!=format) return -1;

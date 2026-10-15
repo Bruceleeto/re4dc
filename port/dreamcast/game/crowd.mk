@@ -571,3 +571,10 @@ ifneq ($(OWNER_SETUP_LEAN),0)
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
 $(OBJDIR)/coarse_ganado_cast.o: GAME_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
 endif
+
+# TEX_IDENT_LEAN=1 (lane crowd12 2026-10-15; render only, exact; default 0): texture identity lookups
+# (room/texture_package.cpp SourceIdentityTable::lookup) test an entry's bounds before reading its tag.
+TEX_IDENT_LEAN ?= 0
+ifneq ($(TEX_IDENT_LEAN),0)
+$(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_IDENT_LEAN=$(TEX_IDENT_LEAN)
+endif
