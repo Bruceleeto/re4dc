@@ -62,3 +62,15 @@ placements, 99 converted. No PS2 model (ps2_source=NONE): r101 0x02, r106 0x5a, 
 
 See PS2-ITEMS-20261014.md "Results" for the run table (knob-off identity, warp STRICT + decision_cmp per room, H2 +
 s30, TEX_CHECK=2, ITEMS-CENSUS, VRAM, look sheets).
+
+## Results (2026-10-15, data ps2_items-v2@421b7251, code ed79dd0c)
+
+- Knob-off identity: itemstP (ed79dd0c) vs t11htP IDENTITY PASS.
+- 17 rooms (h2, objs sq101 / w102..w11b, p2b w119), check arm itemsmW: TEXCHK=2 PASS, ITEMS-CENSUS PASS (0 GC), no
+  "no contiguous block", 0 pair missing, 0 upload FAILED, halt / missing / fault / LEONGC / overrun 0.
+- STRICT + decision_cmp vs lane objs' objstT controls: MUST-IDENTICAL in all 17 rooms (2401-2402 ticks; h2 4702 with
+  s30 340/340; r108 1100 ticks: both arms hit the 600 s deadline). ed79dd0c re-traced h2 / sq101 / wi119 / wi11a:
+  MUST-IDENTICAL.
+- v1 failed TEXCHK on one material pair (core efm25): fixed by v2 (masks + pair packages).
+- Not exercised in a run: an Efm cut firing (no warp breaks anything), SS/cmn pick-up zoom models; both covered by
+  offline look sheets (sheets/offline-look3.png: GC | ours | PS2 BIN direct).

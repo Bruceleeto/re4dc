@@ -10,6 +10,7 @@ sys.path[:0] = ['/root/probe/lanes-20261014/items/tree/port/dreamcast/tools', '/
                 '/root/probe/lanes-20261014/items/work']
 import ps2_items as pi  # noqa
 import pakmerge as pm  # noqa
+import prepare_native_ui as pnu  # noqa
 
 W = Path('/root/probe/lanes-20261014/items/work')
 PAK = pm.read_pak(Path('/root/probe/lanes-20261014/t11/data/tex-t11.pak').read_bytes())
@@ -85,9 +86,17 @@ def main():
                             tpls.append((a, base + efm[a['locator']['id']][1]))
         for a, tpl in tpls:
             for s in a.get('swaps', []):
+                if s.get('role') == 'mask':
+                    continue
                 k = gc_key(pay, recs, tpl, s['j'])
                 gc[k] = pkg_vram(PAK[k]) if k in PAK else 0
                 ps2[s['key']] = ps2tex[s['key']]
+            for pr in a.get('pairs', []):
+                kc, km = gc_key(pay, recs, tpl, pr['color']), gc_key(pay, recs, tpl, pr['mask'])
+                pk = pnu.material_pair_identity('%08x-%08x' % kc, '%08x-%08x' % km)
+                k = tuple(int(x, 16) for x in pk.split('-'))
+                gc[k] = pkg_vram(PAK[k]) if k in PAK else 0
+                ps2[pr['key']] = ps2tex[pr['key']]
         g, p = sum(gc.values()), sum(ps2.values())
         tot[0] += g; tot[1] += p
         miss = sum(1 for v in gc.values() if v == 0)

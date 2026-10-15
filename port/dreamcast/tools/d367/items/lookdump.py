@@ -18,7 +18,7 @@ def tris(b):
     out = []
     for p in m.parts:
         for t in p['tris']:
-            out.append(dict(tex=p['hdr'][0x0C], p=[m.p(r[0]) for r in t], uv=[m.uv(r[-1]) for r in t]))
+            out.append(dict(tex=p['hdr'][0x0C], mask=p['hdr'][0x0E] if p['hdr'][0x0B] & 4 else None, p=[m.p(r[0]) for r in t], uv=[m.uv(r[-1]) for r in t]))
     return out
 
 
@@ -49,7 +49,8 @@ def main():
             pics['ps2_%d' % s['j']] = str(lib / cls / room / s['png'])
         pm = pi.pb.parse_bin(pbn)
         ptex = [x['diffuse'] for x in pm.materials]
-        ps2 = [dict(tex=ptex[t], p=[c['p'] for c in cs], uv=[c['uv'] for c in cs]) for t, cs in pi.pb.triangles(pm)]
+        pmask = [x['opacity'] if (x['flag'] & 4 and x['opacity'] != 255) else None for x in pm.materials]
+        ps2 = [dict(tex=ptex[t], mask=pmask[t], p=[c['p'] for c in cs], uv=[c['uv'] for c in cs]) for t, cs in pi.pb.triangles(pm)]
         (out / ('%s_%s.json' % (room, name))).write_text(json.dumps(dict(room=room, name=name, gc=tris(gb), ours=tris(new), ps2=ps2,
                                                                         pics=pics, swaps=man.get('swaps', [])), indent=0))
         print(room, name, len(tris(gb)), len(tris(new)))

@@ -59,6 +59,12 @@ def render(tris, pics, R, box):
             tx = (np.floor(u * w).astype(int)) % w
             ty = (np.floor(v * h).astype(int)) % h
             col = pic[ty, tx, :3].astype(float)
+            mk = pics.get(t.get('mask')) if t.get('mask') is not None else None
+            if mk is not None:
+                mh, mw = mk.shape[:2]
+                al = mk[(np.floor(v * mh).astype(int)) % mh, (np.floor(u * mw).astype(int)) % mw, 0].astype(float) / 255
+                m = m & (al >= 0.25)
+                col = col * al[..., None] + 40 * (1 - al[..., None])
         zz = zb[y0:y1 + 1, x0:x1 + 1]
         upd = m & (z > zz)
         zz[upd] = z[upd]
