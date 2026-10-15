@@ -29,6 +29,9 @@ triangle is oriented so its face normal agrees with its corner normals in the sa
                        already draws it): the GC copy keeps its header, joints and part headers with no triangles
                        (empty parts; one unused vertex so no array is empty). r101 BIN 0x20 = the burning stake
                        (SetObj00), PS2 SMD_016 / SMD_120.
+     --etm-from et1000.bin=r109,...  an etc model absent from this room's PS2 ETM, taken from that room's PS2 ETM;
+                       refused unless this room's GC model is byte-identical to that room's (the same object). r11a
+                       et1000 (torch type 4) = r109's.
   ps2_objects.py selftest <gc.bin>   (rebuild with the GC geometry itself as the "PS2" input; layout check)
 """
 import argparse
@@ -261,6 +264,7 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
 
     verts, vmap, nrms, nmap, uvs, umap = [], {}, [], {}, [], {}
     part_tris = [[] for _ in m.parts]
+    part_ps2_tex = {}  # GC part -> the PS2 material images its triangles came from (ps2_objects_tex.py)
     lim = 32767
     for tex, cs in ps2:
         P = [c[0] for c in cs]
@@ -308,6 +312,7 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
             corner = (vmap[vk], nmap[nk]) + ((rec[2],) if m.stride == 8 else ()) + (umap[uq],)
             tri.append(corner)
         part_tris[k].append(tuple(tri))
+        part_ps2_tex.setdefault(k, set()).add(tex)
     if not verts:
         if not allow_empty:
             raise ValueError('no PS2 triangle (placeholder model)')
@@ -396,6 +401,7 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
     new = bytes(out)
     # parse back with the converter's reader (exactness of the written layout)
     r = cc.parse_geometry(new)
+    stats['part_images'] = {str(k): [part_tex[k], sorted(v)] for k, v in sorted(part_ps2_tex.items())}
     stats.update(out_tris=len(r[9]) // 3, out_vertices=len(verts), out_normals=len(nrms), out_uvs=len(uvs),
                  out_weights=len(pal), out_bytes=len(new), **stream_stats,
                  empty_parts=sum(1 for t in part_tris if not t))
@@ -585,6 +591,27 @@ def room(args):
         pbm = next(b for t, b in pe.values() if t == 'ETM')
         gents = etm_entries(gb, '>'); lents = etm_entries(bytes(lb), '<')
         pents = {nm: pbm[s + 0x40:e] for nm, s, e in etm_entries(pbm, '<')}
+        ps2_from = {}
+        for spec in [x for x in (args.etm_from or '').split(',') if x]:
+            # --etm-from et1000.bin=r109: an etc model absent from this room's PS2 ETM taken from another PS2 room's
+            # ETM, only when this room's GC model is byte-identical to that room's GC model (the same object).
+            nm, src_room = spec.split('=')
+            sk = next((k for rr, k in g.rooms() if rr == src_room), None)
+            sgd = g.read(sk)
+            if sgd[:32] == rs.CONTAINER_MAGIC:
+                sgd = rs.decode_das(sgd)
+            sge = rs.tagged_entries(sgd, '>')
+            sgb = next(sgd[s:e] for t, s, e in sge if t.rstrip(b'\0') == b'ETM')
+            sg = {n: sgb[s + 0x40:e] for n, s, e in etm_entries(sgb, '>')}
+            mine = {n: gb[s + 0x40:e] for n, s, e in etm_entries(gb, '>')}
+            if nm not in mine or nm not in sg or mine[nm] != sg[nm]:
+                raise ValueError('--etm-from %s: GC %s differs from (or is absent in) %s' % (spec, nm, src_room))
+            spe = {i + 4: (t, b) for i, t, b in pb.dat_entries(pb.afs_read(args.ps2_iso, src_room + '.dat', pb.afs_index(args.ps2_iso)))}
+            spbm = next(b for t, b in spe.values() if t == 'ETM')
+            sp = {n: spbm[s + 0x40:e] for n, s, e in etm_entries(spbm, '<')}
+            if nm in pents or nm not in sp:
+                raise ValueError('--etm-from %s: %s is in this room\'s PS2 ETM or absent in %s' % (spec, nm, src_room))
+            pents[nm] = sp[nm]; ps2_from[nm] = src_room
         want = None if args.etm == 'all' else set(args.etm.split(','))
         pieces = []
         if lents[-1][2] != len(lb) or lents[0][1] != 0x20:
@@ -610,6 +637,8 @@ def room(args):
                         struct.pack_into('<I', h, 0, size if struct.unpack_from('<I', h, 0)[0] else 0)
                         nb = bytes(h) + nl + bytes(size - 0x40 - len(nl))
                         st.update(kind='etc', name=nm, le_bytes_before=len(body), le_bytes_after=len(nb))
+                        if nm in ps2_from:
+                            st['ps2_from'] = ps2_from[nm] + '.dat:ETM/' + nm
                         report['objects'].append(st)
                         body = nb
                 except ValueError as ex:
@@ -654,7 +683,7 @@ def main():
     a = sp.add_parser('room')
     a.add_argument('--dar', required=True); a.add_argument('--room', required=True); a.add_argument('--pairs')
     a.add_argument('--etm'); a.add_argument('--pad-to'); a.add_argument('--out', required=True); a.add_argument('--json')
-    a.add_argument('--keep-larger', action='store_true'); a.add_argument('--world-owned')
+    a.add_argument('--keep-larger', action='store_true'); a.add_argument('--world-owned'); a.add_argument('--etm-from')
     a.add_argument('--gc-iso', default=GC_ISO); a.add_argument('--ps2-iso', default=PS2_ISO)
     args = ap.parse_args()
     if args.cmd == 'bin':
