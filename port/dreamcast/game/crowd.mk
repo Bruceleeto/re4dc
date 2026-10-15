@@ -612,6 +612,16 @@ STATIC_OBJ_BATCH ?= 0
 ifneq ($(STATIC_OBJ_BATCH),0)
 $(OBJDIR)/model_bridge.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BATCH=$(STATIC_OBJ_BATCH)
 endif
+# STATIC_OBJ_BATCH_WORDCMP=1 (lane crowd12 5149da0a, put behind a knob by the test 13 RC so that the 12.2 recipe's image
+# stays byte-identical; render only, exact, default 0): sob::same compares the held record and the lighting record with
+# a word loop instead of newlib memcmp (a byte loop; ~0.2 ms MODELLED at r101), same equality. Needs STATIC_OBJ_BATCH.
+STATIC_OBJ_BATCH_WORDCMP ?= 0
+ifneq ($(STATIC_OBJ_BATCH_WORDCMP),0)
+ifeq ($(STATIC_OBJ_BATCH),0)
+$(error STATIC_OBJ_BATCH_WORDCMP needs STATIC_OBJ_BATCH=1 or 2)
+endif
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_SOB_WORDCMP=1
+endif
 
 # KOS_TRACE=N (diagnostic only, lane crowd12 2026-10-15; default 0): "kos trace:" every N room frames (KOS malloc free
 # and sbrk room), to read the headroom after events such as the r101 bell. No static data.

@@ -314,6 +314,7 @@ inline bool static_class(const cModel* m){
 inline bool centre_lit(const re4dc::render::SourceLighting& L){
     return L.enable && !L.ambient_vertex && !L.material_vertex && L.diffuse==2 && L.mask;
 }
+#if defined(RE4DC_SOB_WORDCMP) && RE4DC_SOB_WORDCMP
 // Word compare (newlib memcmp is a byte loop): both records are word-aligned structs of whole words.
 inline bool words_equal(const void* x,const void* y,unsigned bytes){
     const unsigned* a=(const unsigned*)x;const unsigned* b=(const unsigned*)y;
@@ -327,6 +328,13 @@ inline bool same(const Re4dcModelPart& a,const Re4dcModelPart& b){
     Re4dcModelPart t=b;t.stream=a.stream;t.stream_bytes=a.stream_bytes;t.part=a.part;t.lighting=a.lighting;
     return words_equal(&a,&t,sizeof t);
 }
+#else
+// Records equal but for the stream, its size, the part header and the lighting address; lighting content equal.
+inline bool same(const Re4dcModelPart& a,const Re4dcModelPart& b){
+    Re4dcModelPart t=b;t.stream=a.stream;t.stream_bytes=a.stream_bytes;t.part=a.part;t.lighting=a.lighting;
+    return !memcmp(&a,&t,sizeof t) && !memcmp(a.lighting,b.lighting,sizeof(re4dc::render::SourceLighting));
+}
+#endif
 inline const unsigned char* list_of(const ModelPart* q){return (const unsigned char*)q+0x20;}
 void new_frame(){
     seen_frame=pG->Frame_cnt;
