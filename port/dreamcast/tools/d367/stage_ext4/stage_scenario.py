@@ -205,6 +205,20 @@ def file_sha(src):
     return h
 for dest, src in changes.items():
     if dest not in digests: digests[dest] = file_sha(src)
+# Route overlays (lane r118fault, 2026-10-15). A dc/<m>.ovl (pl0f, em2f, em22, em2b, pl11, ...) is linked against ONE
+# game image: routeOverlayLoad (platform/modules.cpp) relocates only the overlay's own code and data, so its calls and
+# stores into the image (EmInitFunc, Em10SetFunc, ...) keep the addresses of the build it came from. t11-fix.py keeps the
+# program label a fixture was made for: mx-r118.json (made for t14drW) staged t14drW's pl11.ovl with t14idrW / t14hdrW /
+# t14rcrW, pl11's _prolog stored Pl11Init at t14drW's EmInitFunc address, Ashley was built with the stale Em17Init and
+# the r118 entry faulted (FAULT 780 in a KOS vblank node / FAULT 180; t14gdrW passed by luck of layout). A staged overlay
+# must be the arm's own build whenever the arm has one; retarget a fixture with texchk/fixture_arm.py.
+# RE4DC_STAGE_OVL_ANY=1 skips the check (never for a gate).
+own_ovl = {'dc/' + n: f['sha256'] for n, f in program['files'].items() if n.endswith('.ovl')}
+foreign = sorted(d for d in own_ovl if d in changes and digests[d] != own_ovl[d])
+if foreign and os.environ.get('RE4DC_STAGE_OVL_ANY') != '1':
+    sys.exit('STAGE REFUSED: the fixture %s stages %s built for another program than arm %s (a route overlay is linked '
+             'against one game image); retarget it: port/dreamcast/tools/d367/texchk/fixture_arm.py <fixture> <out> <label>'
+             % (a.fixture, ', '.join(foreign), a.arm))
 upper = BASE.stat().st_size + sum(f.stat().st_size for f in changes.values()) + 1024 ** 2
 reserve = a.capture_reserve_mib * 1024 ** 2
 key = hashlib.sha256(json.dumps(dict(base=BASE_SHA, derived=DERIVED_SHA, pycdlib=getattr(pycdlib, '__version__', '?'),
