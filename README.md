@@ -57,6 +57,7 @@ up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
+* Test 14: a disc read fix for the GDEMU freezes and crashes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); the village keeps all its textures in graphics memory; the farm (r103) reads the disc far less; less work per frame.
 * Test 13: the PS2 enemy rules in every chapter 1 room, with at most 6 villagers active at once; PS2 room
   objects from r102 to r11b with the GameCube breakable boxes (no more dark debris); the PS2 Ashley; less work per
   frame in the village; fewer disc reads in r103 and r100 after the village.
