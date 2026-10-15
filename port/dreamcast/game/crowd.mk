@@ -595,3 +595,10 @@ STATIC_OBJ_BATCH ?= 0
 ifneq ($(STATIC_OBJ_BATCH),0)
 $(OBJDIR)/model_bridge.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BATCH=$(STATIC_OBJ_BATCH)
 endif
+
+# KOS_TRACE=N (diagnostic only, lane crowd12 2026-10-15; default 0): "kos trace:" every N room frames (KOS malloc free
+# and sbrk room), to read the headroom after events such as the r101 bell. No static data.
+KOS_TRACE ?= 0
+ifneq ($(KOS_TRACE),0)
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_TRACE=$(KOS_TRACE)
+endif

@@ -480,6 +480,13 @@ extern "C" int re4dc_room_cycle_poll(){
     re4dc_w11_room_poll(generation);                    // death / life fixture (sscrn_bridge.cpp)
 #endif
     ++room_frames;
+#if defined(RE4DC_KOS_TRACE) && RE4DC_KOS_TRACE
+    if(room_frames%RE4DC_KOS_TRACE==0){  // KOS_TRACE (crowd.mk, diagnostic): KOS malloc headroom through the room
+        unsigned kf=0,ku=0,kb=0;re4dc_kos_heap_state(&kf,&ku,&kb);
+        re4dc_log("kos trace: room=%03x frame=%u tick=%u kos_free=%u kos_break=%u sum=%u\n",unsigned(pG?pG->room_id:0),
+            room_frames,unsigned(pG?pG->Frame_cnt:0),kf,kb,kf+kb);
+    }
+#endif
 #if RE4DC_DBG_WARP
     re4dc_warp_poll();                                  // test warp rig: placement log, area dump
 #endif
