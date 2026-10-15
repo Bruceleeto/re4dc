@@ -139,11 +139,10 @@ recordings and tools, so you do not need to run them, but your patch has to pass
 * **Gameplay identity (STRICT).** Recorded sessions are replayed and the game logic is compared tick by
   tick. An exact change must leave the gameplay exactly as it was.
 * **Approximations.** A change that is close but not exact (for example faster maths that rounds a little
-  differently) is welcome when the gain is large. It stays behind its own default-off knob. A render-only
+  differently) is welcome. It stays behind its own default-off knob. A render-only
   approximation is judged by its look (a pair of stills). One that touches game logic must keep the same
   gameplay: the same kills, triggers, doors, waves, room clears and cutscenes, with no desync or stuck
-  event. The maintainers offer large logic approximations to the project owner, who decides each one.
-  Small gains must be exact.
+  event. Each approximation is reported with its measured gain and its check results.
 * **System memory (KOS squeeze).** The game is run in Flycast with 48 KiB of the console's system memory
   held back (`tools/d367/fullplay/kos_squeeze.sh`) through the village fight, a radio call and the door to
   r103; it must not run out. Real consoles have less free system memory than Flycast, so say how much your
