@@ -367,3 +367,14 @@ extern "C" void re4dc_actor_census_describe(const void* model, unsigned verts) {
               w ? int(w[3]) : 0, w ? int(w[7]) : 0, w ? int(w[11]) : 0);
 }
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (native_ui.cpp): a refused part's model as kind<<24 | id<<16 | type<<8 | nParts (low byte), or
+// 0xffffffff when the part has no model pointer in main RAM.
+extern "C" unsigned re4dc_model_drop_describe(const void* model) {
+    const unsigned a = (unsigned) model & 0x1fffffffU;
+    if (!model || ((unsigned) model & 3U) || a < 0x0c000000U || a >= 0x0d000000U) return 0xffffffffU;
+    const cModel* m = static_cast<const cModel*>(model);
+    return (unsigned(m->kindid) & 0xffU) << 24 | (unsigned(m->id) & 0xffU) << 16 | (unsigned(m->type) & 0xffU) << 8 |
+           (unsigned(m->nParts) & 0xffU);
+}
+#endif

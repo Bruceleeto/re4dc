@@ -261,6 +261,9 @@ extern "C" int re4dc_fixture_read(const char* path,char* buffer,unsigned size); 
 extern "C" void re4dc_lbx_open(int list,void (*send)(const void*,unsigned)); // platform/letterbox_clip.cpp
 extern "C" void re4dc_lbx_close(void);
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+extern "C" void re4dc_model_drop_summary();  // MODEL_DROP_LOG, defined above re4dc_model_packet_reserve
+#endif
 namespace {
 constexpr unsigned kQuadCount=256, kTextureCount=RE4DC_TEX_RESIDENT?RE4DC_TEX_SLOTS:RE4DC_PVR_STREAM?80:48, kSourceCount=RE4DC_PVR_STREAM?128:256, kVramBudget=4*1024*1024;
 #if RE4DC_UI_VRAM
@@ -4775,6 +4778,9 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0 && model_diagnostic==1)
         re4dc_log("native model rejection: capacity=%u state=%u texture=%u wrap=%u empty=%u scale_rebuild=%u\n",model_capacity_rejects,model_state_rejects,model_texture_rejects,model_wrap_rejects,model_empty_parts,model_scale_rebuilds);
     if(frame%120==0 && model_diagnostic==1)re4dc_log("native model alpha: material=%u vertex=%u faded=%u masks=unsupported\n",model_alpha_material,model_alpha_vertex,model_alpha_faded);
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+    if(frame%600==0)re4dc_model_drop_summary();
+#endif
     if(frame%120==0) re4dc_log("native UI: frame=%u quads=%u drawn=%u missing=%u unsupported=%u drops=%u vram=%u peak=%u staging=%u loads=%u freed=%u culled=%u fb=%08x,%08x black=%d\n",frame,nquad,drawn,missing,unsupported,dropped,used,peak,staging_peak,loads,reclaimed,culled,(unsigned)pvr_get_front_buffer(),(unsigned)pvr_get_back_buffer(),re4dc_vi_black());
 #if RE4DC_UI_VRAM
     if(frame%120==0) re4dc_log("native UI VRAM: frame=%u budget=%u used=%u free=%u rejects=%u retries=%u evicted=%u\n",frame,vram_budget,used,(unsigned)pvr_mem_available(),vram_rejects,vram_retries,reclaimed);
@@ -4950,7 +4956,61 @@ bool ensure_model_storage(){
     return model_packets!=nullptr;
 }
 }
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (game30.mk, diagnostic; lane crowd12 2026-10-14, ledger G5/G6): which model parts are refused and
+// why. One MODELDROP first line per (model, image, reason), then every 600 frames a MODELDROP sum line per row that
+// grew. Reasons: s state (with the reason bits), g TA guard, c packet slab full, m no packet storage, t texture not
+// loaded, w padded texture on a wrapping part (texture size, image size, key); actor rows a<inner> are the actor
+// path's resource rejects (native_actor_fast.cpp), inner p = packet left under kCacheSlots + 64, d = direct scratch.
+extern "C" unsigned re4dc_model_drop_describe(const void* model);  // model_bridge.cpp: kind<<24|id<<16|type<<8|nParts
+namespace {
+struct DropRow { unsigned desc, why, count, logged; const void* image; const void* info; unsigned short iw, ih, tw, th;
+                 unsigned crc, fnv, wrap, verts; };
+DropRow drop_rows[96]; unsigned drop_n, drop_lost, drop_last;
+}
+extern "C" void re4dc_model_drop(const Re4dcModelPart* p, unsigned why, unsigned a, unsigned b, unsigned crc,
+                                 unsigned fnv) {
+    if ((why & 0xffU) != 'a') drop_last = why;
+    if (!p) return;
+    const unsigned desc = re4dc_model_drop_describe(p->model);
+    for (unsigned i = 0; i < drop_n; ++i) {
+        DropRow& r = drop_rows[i];
+        if (r.desc == desc && r.why == why && r.image == p->image.pixels && r.info == p->info) { ++r.count; return; }
+    }
+    if (drop_n == 96) { ++drop_lost; return; }
+    DropRow& r = drop_rows[drop_n++];
+    r = DropRow{desc, why, 1, 0, p->image.pixels, p->info, (unsigned short) p->image.width,
+                (unsigned short) p->image.height, (unsigned short) a, (unsigned short) b, crc, fnv,
+                p->wrap_s << 8 | p->wrap_t, p->position_count};
+    re4dc_log("MODELDROP first frame=%u why=%c%c kind=%u id=%02x type=%u nparts=%u model=%08x info=%08x part=%08x "
+              "img=%08x %ux%u fmt=%u wrap=%u,%u tex=%ux%u key=%08x-%08x verts=%u blend=%u mat=%02x\n", frame,
+              why & 0xffU, (why >> 8) ? (why >> 8) & 0xffU : ' ', desc >> 24, (desc >> 16) & 0xffU, (desc >> 8) & 0xffU,
+              desc & 0xffU, (unsigned) p->model, (unsigned) p->info, (unsigned) p->part, (unsigned) p->image.pixels,
+              p->image.width, p->image.height, p->image.format, p->wrap_s, p->wrap_t, a, b, crc, fnv,
+              p->position_count, p->blend, p->material_flags);
+}
+extern "C" unsigned re4dc_model_drop_last() { return drop_last; }
+extern "C" void re4dc_model_drop_summary() {
+    for (unsigned i = 0; i < drop_n; ++i) {
+        DropRow& r = drop_rows[i];
+        if (r.count == r.logged) continue;
+        re4dc_log("MODELDROP sum frame=%u why=%c%c kind=%u id=%02x type=%u nparts=%u info=%08x img=%08x %ux%u wrap=%u,%u "
+                  "tex=%ux%u key=%08x-%08x verts=%u count=%u new=%u lost=%u\n", frame, r.why & 0xffU,
+                  (r.why >> 8) ? (r.why >> 8) & 0xffU : ' ', r.desc >> 24, (r.desc >> 16) & 0xffU,
+                  (r.desc >> 8) & 0xffU, r.desc & 0xffU, (unsigned) r.info, (unsigned) r.image, r.iw, r.ih,
+                  r.wrap >> 8, r.wrap & 0xffU, r.tw, r.th, r.crc, r.fnv, r.verts, r.count, r.count - r.logged,
+                  drop_lost);
+        r.logged = r.count;
+    }
+}
+#define RE4DC_DROP(pp, why, a, b, crc, fnv) re4dc_model_drop((pp), (why), (a), (b), (crc), (fnv))
+#define RE4DC_DROP_CLEAR() (drop_last = 0)
+#else
+#define RE4DC_DROP(pp, why, a, b, crc, fnv) do { } while (0)
+#define RE4DC_DROP_CLEAR() do { } while (0)
+#endif
 extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPacket* out){
+    RE4DC_DROP_CLEAR();
     unsigned reason=0;
     if(!frame_ready || !re4dc_model_diagnostic_enabled())reason|=1;
 #if RE4DC_PVR_STREAM
@@ -4971,20 +5031,20 @@ extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPack
 #if RE4DC_TA_GUARD && RE4DC_D349_RENDERER_STACK
     if(!reason && !guard_admit(draining_parts)){
         // Budget skip, not a state reject: the part is simply not drawn.
-        ++model_capacity_rejects;return 0;
+        RE4DC_DROP(p,'g',0,0,0,0);++model_capacity_rejects;return 0;
     }
 #endif
     if(!p->image.pixels)reason|=64;
     if(!p->image.width || !p->image.height || p->image.width>1024 || p->image.height>1024)reason|=128;
     if(reason){
-        ++model_state_rejects;
+        ++model_state_rejects;RE4DC_DROP(p,'s',reason,0,0,0);
         for(unsigned bit=0;bit<8;++bit)if(reason&(1U<<bit)){
             if(model_state_bits[bit]++<2)re4dc_log("native model state reject: reason=%02x model=%08x info=%08x part=%08x material=%02x blend=%u depth=%u wrap=%u,%u image=%08x %ux%u fmt=%u vertices=%u stream=%u\n",reason,(unsigned)p->model,(unsigned)p->info,(unsigned)p->part,p->material_flags,p->blend,p->depth_mode,p->wrap_s,p->wrap_t,(unsigned)p->image.pixels,p->image.width,p->image.height,p->image.format,p->position_count,p->stream_bytes);
         }
         return 0;
     }
-    if(!ensure_model_storage())return 0;
-    if(model_used+4>kModelPacketBytes/32){++model_capacity_rejects;return 0;}
+    if(!ensure_model_storage()){RE4DC_DROP(p,'m',0,0,0,0);return 0;}
+    if(model_used+4>kModelPacketBytes/32){RE4DC_DROP(p,'c',model_used,0,0,0);++model_capacity_rejects;return 0;}
     // Same default padding policy as convert_tpl; binding below checks the
     // actual package. A different native layout triggers exact UV preparation.
     unsigned width=8,height=8;
@@ -5105,7 +5165,7 @@ extern "C" int re4dc_model_packet_begin(const Re4dcModelPart* p,Re4dcModelPacket
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
     }else{
 #endif
 #if RE4DC_UI_HANDLES
@@ -5118,18 +5178,18 @@ if(!handle){++model_texture_rejects;return 0;}
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #else
     Entry* handle=resolve(p->image,masked,false);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return 0;}
 #endif
-if(!handle){++model_texture_rejects;return 0;}
+if(!handle){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #endif
 #else
     Key prepared{};const Key* key=nullptr;
 #if RE4DC_D349_RENDERER_STACK
-    if(p->material_flags&4){if(!model_mask_key(p,prepared)){++model_texture_rejects;return 0;}key=&prepared;}
+    if(p->material_flags&4){if(!model_mask_key(p,prepared)){RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}key=&prepared;}
 #endif
 #if RE4DC_MESH_TEXTURES
     handle=load(p->image,false,key);
@@ -5140,7 +5200,7 @@ if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
-        ++model_texture_rejects;return 0;}
+        RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #else
     Entry* handle=load(p->image,false,key);
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
@@ -5150,7 +5210,7 @@ if(!handle){
 #if RE4DC_D349_RENDERER_STACK
         if(key)log_pair_miss(p,*key);
 #endif
-        ++model_texture_rejects;return 0;}
+        RE4DC_DROP(p,'t',0,0,0,0);++model_texture_rejects;return 0;}
 #endif
 #endif
 #if RE4DC_MESH_TEXTURES
@@ -5163,9 +5223,9 @@ if(!handle){
     // Repeating a padded image would repeat its border. Reject, never change wrap.
 #if RE4DC_MESH_TEXTURES
     // A baked texture is addressed 0..1 as authored: no source image size to match.
-    if(!model_texture && ((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))){++model_wrap_rejects;return 0;}
+    if(!model_texture && ((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #else
-    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)){++model_wrap_rejects;return 0;}
+    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #endif
     unsigned fmt=re4dc::texture::pvr_format(t);
     pvr_list_t list=PVR_LIST_TR_POLY;

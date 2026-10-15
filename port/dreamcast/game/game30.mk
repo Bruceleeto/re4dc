@@ -2731,6 +2731,11 @@ GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
 $(OBJDIR)/platform/memprof.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMPROF=1
 endif
 
+# MODEL_DROP_LOG=1 (diagnostic, lane crowd12 2026-10-14; ledger G5/G6): MODELDROP lines, one per refused model
+# part (model, image, reason: state / guard / slab / texture / padded wrap / actor packet), with 600-frame sums.
+MODEL_DROP_LOG ?= 0
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_MODEL_DROP_LOG=$(MODEL_DROP_LOG)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_MODEL_DROP_LOG=$(MODEL_DROP_LOG)
 # ACTOR_CENSUS=1 (diagnostic): ACENSUS log lines, the models reaching re4dc_actor_submit per 120 frames.
 ACTOR_CENSUS ?= 0
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_CENSUS=$(ACTOR_CENSUS) -DRE4DC_ACTOR_CENSUS_SKIP_OBJ00=$(ACTOR_CENSUS_SKIP_OBJ00)

@@ -4440,6 +4440,16 @@ void census_note(const Re4dcModelPart& p) {
 #else
 #define RE4DC_CENSUS_DEC(pp) do { } while (0)
 #endif
+#if defined(RE4DC_MODEL_DROP_LOG) && RE4DC_MODEL_DROP_LOG
+// MODEL_DROP_LOG (native_ui.cpp): an actor-path resource reject, with the inner reason native_ui noted (else p =
+// packet capacity left under kCacheSlots + 64, d = direct scratch under kCacheSlots).
+extern "C" void re4dc_model_drop(const Re4dcModelPart*, unsigned, unsigned, unsigned, unsigned, unsigned);
+extern "C" unsigned re4dc_model_drop_last();
+#define RE4DC_DROP_ACTOR(pp, inner, cap) \
+    re4dc_model_drop((pp), 'a' | ((inner) ? (inner) : (re4dc_model_drop_last() & 0xffU) ? re4dc_model_drop_last() & 0xffU : 'p') << 8, (cap), 0, 0, 0)
+#else
+#define RE4DC_DROP_ACTOR(pp, inner, cap) do { } while (0)
+#endif
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
     return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
 }
@@ -4657,7 +4667,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     Part e{p, f, {p.projection, p.viewport}, {near_distance, far_distance, RE4DC_SCREEN_WF, RE4DC_SCREEN_HF, project, nullptr}};
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
-    if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
+    if (!re4dc_model_packet_reserve(&p, &e.packet)) { RE4DC_DROP_ACTOR(&p, 0, 0); re4dc_model_result(2, 0, 0); return 1; }
 #if RE4DC_ACTOR_UV16
     // Consumed by the begin call below (direct or packet), whatever its result.
     e.uv16 = uv16_safe(p, *blob);
@@ -4670,7 +4680,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     if (re4dc_model_direct_enabled() && re4dc_model_direct_begin(&p, &direct)) {
         if (direct.scratch_capacity < kCacheSlots) {
             // Nothing sent yet beyond the header: an empty part.
-            re4dc_model_direct_end(0); re4dc_model_result(2, 0, 0); return 1;
+            re4dc_model_direct_end(0); RE4DC_DROP_ACTOR(&p, 'd', 0); re4dc_model_result(2, 0, 0); return 1;
         }
         e.direct = true; e.sq = direct.sq;
         e.packet.u_scale = direct.u_scale; e.packet.v_scale = direct.v_scale;
@@ -4682,6 +4692,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
         re4dc_model_next_header_pcw(pcw_set, pcw_clear);
 #endif
         if (!re4dc_model_packet_begin(&p, &e.packet) || e.packet.capacity < kCacheSlots + 64U) {
+            RE4DC_DROP_ACTOR(&p, 0, e.packet.capacity);
             re4dc_model_result(2, 0, 0);
             return 1;
         }
@@ -5218,14 +5229,15 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     e.clip.context = &e.projection;
     e.streaming = re4dc_model_packet_streaming() != 0;
     if (!w.open) {
-        if (!re4dc_model_packet_reserve(&p, &e.packet)) { re4dc_model_result(2, 0, 0); return 1; }
+        if (!re4dc_model_packet_reserve(&p, &e.packet)) { RE4DC_DROP_ACTOR(&p, 0, 0); re4dc_model_result(2, 0, 0); return 1; }
         if (re4dc_model_direct_enabled() && re4dc_model_direct_begin_reserved(&p, &e.packet, &w.direct)) {
             if (w.direct.scratch_capacity < kCacheSlots) {
-                re4dc_model_direct_end(0); re4dc_model_result(2, 0, 0); return 1;
+                re4dc_model_direct_end(0); RE4DC_DROP_ACTOR(&p, 'd', 0); re4dc_model_result(2, 0, 0); return 1;
             }
             w.open = true; w.sq = w.direct.sq; w.slots = 0; w.primed = 0;
         } else {
             if (!re4dc_model_packet_begin(&p, &e.packet) || e.packet.capacity < kCacheSlots + 64U) {
+                RE4DC_DROP_ACTOR(&p, 0, e.packet.capacity);
                 re4dc_model_result(2, 0, 0);
                 return 1;
             }
