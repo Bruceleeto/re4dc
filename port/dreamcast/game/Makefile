@@ -786,19 +786,31 @@ endif
 # sound stream table / ISS block headers (src/game/snd.cpp) and re-reads or skips a bad one instead of faulting.
 # DISC_FAIL_TEST=1|2 (test discs only): every DMA stream request (1), and also every DMA sector read (2), is skipped and
 # reported OK: the emulator's failure on demand.
+# DISC_READ_VERIFY=1 (test 11 console faults, default 0; same file + platform/dvd.cpp): a DMA read KOS reports done is
+# not handed back until the G1 GD-DMA engine is idle (SB_GDST); fs_iso9660's non-blocking 32-byte stream request is
+# made blocking so it gets the same wait; DVD_READ_SAFE never aborts a refused request while the GD DMA is running (up
+# to 2 s); a short or failed DVDReadAsyncPrio read is retried on a fresh handle (3 tries) and then reported
+# DVD_RESULT_FATAL instead of a partial count. Each event logs a "disc read verify:" line.
+DISC_READ_VERIFY ?= 0
+ifneq ($(filter $(DISC_READ_VERIFY),0 1),$(DISC_READ_VERIFY))
+$(error DISC_READ_VERIFY must be 0 or 1)
+endif
+ifeq ($(DISC_READ_VERIFY),1)
+$(OBJDIR)/platform/dvd.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_VERIFY=1
+endif
 DISC_READ_FALLBACK ?= 0
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
 DVD_STUCK_ADDR ?= 0
-ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST),0000)
+ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),00000)
 ifeq ($(IO_PROBE),1)
 $(error DVD_READ_SAFE / DVD_STUCK_TEST / DISC_READ_FALLBACK and IO_PROBE=1 wrap the same cdrom entry points)
 endif
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
-ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST),00)
+ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
 endif
 ifeq ($(DISC_READ_FALLBACK),1)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1

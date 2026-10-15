@@ -33,6 +33,17 @@
 //
 // DISC_FAIL_TEST=1|2 (test discs only): every DMA stream request (1), and also every DMA sector read (2), is skipped
 // and reported OK, as the emulator does: the failure on demand, with or without the fix.
+//
+// DISC_READ_VERIFY=1 (test 11 console faults, default 0): the console halted with disc-loaded data that was not the
+// file (a model's texture pointer 0x99158863 in cModel::modelInit, OT links holding code or motion-key bytes), early
+// and outside radio calls, never on Flycast (whose BIOS stream and sector DMAs land inside the syscall). KOS wakes a
+// blocking DMA waiter from its vblank handler as soon as the BIOS says the GD command is no longer busy or streaming,
+// without looking at the G1 DMA engine; a read handed back before its bytes land gives the caller the old memory and
+// lets the late bytes overwrite whatever uses that memory next. With this knob a DMA read that KOS reports done waits
+// until SB_GDST (G1 GD-DMA start/status, 0xA05F7418) is idle (2 s bound) and re-invalidates the destination's cache
+// lines when it had to wait; fs_iso9660's one non-blocking request (32 bytes) is made blocking to get the same wait;
+// DVD_READ_SAFE's stale-flag abort is held off while the engine is still running (2 s). Every late completion logs a
+// "disc read verify:" line with counters.
 #include <kos.h>
 #include <dc/cdrom.h>
 
@@ -50,11 +61,14 @@
 #ifndef RE4DC_DISC_FAIL_TEST
 #define RE4DC_DISC_FAIL_TEST 0
 #endif
+#ifndef RE4DC_DISC_READ_VERIFY
+#define RE4DC_DISC_READ_VERIFY 0
+#endif
 
 extern "C" int __real_cdrom_stream_start(int sector, int cnt, bool dma);
 extern "C" int __real_cdrom_stream_request(void* buffer, size_t size, bool block);
 extern "C" semaphore_t _g1_ata_sem;
-#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST
+#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST || RE4DC_DISC_READ_VERIFY
 extern "C" int __real_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma);
 extern "C" int __real_cdrom_stream_stop(bool abort_dma);
 #endif
@@ -64,6 +78,35 @@ int s_sector, s_cnt;
 bool s_dma;
 size_t s_consumed;  // bytes requested from the current stream since its start
 unsigned g_refused, g_recovered, g_failed;
+#if RE4DC_DISC_READ_VERIFY
+unsigned g_late, g_late_timeouts, g_late_max_us, g_held;
+inline bool gd_dma_busy() { return (*(volatile uint32_t*) 0xA05F7418u & 1u) != 0; }
+// A DMA read KOS reported done: wait for the G1 GD-DMA engine to finish moving its bytes. When it was still running,
+// the destination's cache lines are invalidated again (nothing wrote them meanwhile: the reader was waiting) so the
+// caller reads the landed bytes.
+void dma_settle(const char* what, void* buf, size_t size)
+{
+    if (!gd_dma_busy()) return;
+    const uint64_t t0 = timer_us_gettime64();
+    bool timed_out = false;
+    while (gd_dma_busy()) {
+        if (timer_us_gettime64() - t0 > 2000000u) {
+            timed_out = true;
+            break;
+        }
+        thd_pass();
+    }
+    const unsigned us = (unsigned) (timer_us_gettime64() - t0);
+    const uintptr_t a = (uintptr_t) buf;
+    if ((a & 0xE0000000u) != 0xA0000000u && !(a & 31)) dcache_inval_range(a, (size + 31) & ~(size_t) 31);
+    ++g_late;
+    if (timed_out) ++g_late_timeouts;
+    if (us > g_late_max_us) g_late_max_us = us;
+    re4dc_log("disc read verify: %s of %u bytes at %08x reported done while the GD DMA ran: %s after %u us "
+              "(late %u timeouts %u max %u us)\n", what, (unsigned) size, (unsigned) a,
+              timed_out ? "STILL RUNNING" : "landed", us, g_late, g_late_timeouts, g_late_max_us);
+}
+#endif
 #if RE4DC_DVD_STUCK_TEST
 // Compile-time: DVD_STUCK_ADDR (address of KOS dma_in_progress from a first build's symbols; the value does not change
 // the code size, so a second build keeps the address) and DVD_STUCK_TEST (seconds of uptime). No file reads here: this
@@ -154,7 +197,7 @@ int stream_fallback(void* buffer, size_t size, const char* why)
 #endif
 }
 
-#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST
+#if RE4DC_DISC_READ_FALLBACK || RE4DC_DISC_FAIL_TEST || RE4DC_DISC_READ_VERIFY
 extern "C" int __wrap_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_t cnt, bool dma)
 {
 #if RE4DC_DISC_READ_FALLBACK
@@ -167,6 +210,9 @@ extern "C" int __wrap_cdrom_read_sectors_ex(void* buffer, uint32_t sector, size_
     int rv = ERR_OK;  // skipped: the emulator's "done" without the transfer
 #else
     int rv = __real_cdrom_read_sectors_ex(buffer, sector, cnt, true);
+#endif
+#if RE4DC_DISC_READ_VERIFY
+    if (rv == ERR_OK) dma_settle("a sector read", buffer, cnt * 2048);
 #endif
 #if RE4DC_DISC_READ_FALLBACK
     if (rv != ERR_OK || !landed(buffer, cnt * 2048)) {
@@ -215,10 +261,16 @@ extern "C" int __wrap_cdrom_stream_request(void* buffer, size_t size, bool block
         mark(buffer, size);
     }
 #endif
+#if RE4DC_DISC_READ_VERIFY
+    if (s_dma) block = true;  // fs_iso9660's 32-byte request polls for completion right after: the same, with the wait
+#endif
 #if RE4DC_DISC_FAIL_TEST
     int rv = s_dma ? ERR_OK : __real_cdrom_stream_request(buffer, size, block);  // skipped: "done" without the transfer
 #else
     int rv = __real_cdrom_stream_request(buffer, size, block);
+#endif
+#if RE4DC_DISC_READ_VERIFY
+    if (rv == ERR_OK && s_dma) dma_settle("a stream request", buffer, size);
 #endif
     if (rv == ERR_OK) {
 #if RE4DC_DISC_READ_FALLBACK
@@ -238,6 +290,20 @@ extern "C" int __wrap_cdrom_stream_request(void* buffer, size_t size, bool block
         thd_sleep(2);
         rv = __real_cdrom_stream_request(buffer, size, block);
     }
+#if RE4DC_DISC_READ_VERIFY
+    // The flag is only stale when no GD DMA is moving: never abort a live transfer (a GD seek alone is 100+ ms).
+    if (rv == ERR_SYS && gd_dma_busy()) {
+        ++g_held;
+        const uint64_t t0 = timer_us_gettime64();
+        while (rv == ERR_SYS && gd_dma_busy() && timer_us_gettime64() - t0 < 2000000u) {
+            thd_sleep(2);
+            rv = __real_cdrom_stream_request(buffer, size, block);
+        }
+        re4dc_log("disc read verify: refused stream request held %u us for a running GD DMA: %s (held %u)\n",
+                  (unsigned) (timer_us_gettime64() - t0), rv == ERR_OK ? "accepted" : "still refused", g_held);
+    }
+    if (rv == ERR_OK && s_dma) dma_settle("a held stream request", buffer, size);
+#endif
     bool restarted = false;
     if (rv == ERR_SYS && sem_wait_timed(&_g1_ata_sem, 1000) == 0) {
         if (cdrom_abort_cmd(1000, true) == ERR_NO_ACTIVE) sem_signal(&_g1_ata_sem);  // took no ownership
