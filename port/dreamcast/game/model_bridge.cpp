@@ -353,6 +353,19 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     re4dc_actor_vis_source(m,info,&p);
 #endif
+#if defined(RE4DC_SOB_DIAG) && RE4DC_SOB_DIAG
+    {   // SOB_DIAG (crowd.mk, diagnostic): the static object classes' part records
+        const unsigned k=m->kindid,id=m->id;
+        const bool st=(k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&(id==0x00||id==0x21));
+        if(st && pG->Frame_cnt%600==300)
+            re4dc_log("SOBPART f=%u m=%08x k=%u id=%02x ser=%u info=%08x d=%08x part=%08x img=%08x %ux%u fmt=%u pal=%08x nv=%u nn=%u ps=%u ns=%u nsh=%u sh=%u fl=%08x mfl=%08x bl=%u dm=%u cull=%u as=%u col=%08x uv=%08x sb=%u sg=%u np=%u t=%.0f,%.0f,%.0f be=%08x
+",
+                pG->Frame_cnt,(unsigned)m,k,id,m->serial,(unsigned)info,(unsigned)d,(unsigned)part,(unsigned)p.image.pixels,p.image.width,p.image.height,
+                p.image.format,(unsigned)p.image.palette,p.position_count,p.normal_count,p.position_stride,p.normal_stride,p.normal_shift,p.shift,
+                p.flags,p.material_flags,p.blend,p.depth_mode,p.cull,p.alpha_state,(unsigned)p.colors,(unsigned)p.uv,p.stream_bytes,
+                p.static_geometry,(unsigned)m->nParts,mv[0][3],mv[1][3],mv[2][3],(unsigned)m->be_flag);
+    }
+#endif
     re4dc_model_submit(&p);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     re4dc_actor_vis_source_end();

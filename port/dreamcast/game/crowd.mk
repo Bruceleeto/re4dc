@@ -578,3 +578,10 @@ TEX_IDENT_LEAN ?= 0
 ifneq ($(TEX_IDENT_LEAN),0)
 $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_IDENT_LEAN=$(TEX_IDENT_LEAN)
 endif
+
+# SOB_DIAG=1 (diagnostic only, lane crowd12 2026-10-15): SOBPART lines (the static object classes' GC part records)
+# every 600 frames, for the STATIC_OBJ_BATCH design.
+SOB_DIAG ?= 0
+ifneq ($(SOB_DIAG),0)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_SOB_DIAG=1
+endif
