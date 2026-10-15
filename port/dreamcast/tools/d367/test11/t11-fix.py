@@ -74,6 +74,21 @@ DATA['blackgc14vl'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': '/root/probe/lan
 CLASH += [(v, o) for v in ('blackgc14v', 'blackgc14vl') for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr',
                                                                    'blackgc14v' if v == 'blackgc14vl' else 'blackgc14vl')]
 T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bake (no r119) + Leon 2x, both in tex.pak
+# Test 12 (rc dry run, 2026-10-15; t12/rc-dry, test12/t12-build.sh T12REC):
+#   t12tex   = blackgc14p with tex.pak = tex_merge.py of tex-t11.pak (1582e5c5) + fx12 tex-t11-ps2lib.pak (653e622b, PS2
+#              effect library, FX_PS2_PACK / PAL4) + vram12 tex-vr12-ps2vq.pak (b7d7622b, r101 world VQ), then
+#              tex_wrapsafe.py (72 keys, TEX_WRAP_SAFE): sha256 8d519324, byte-identical to crowd12's STACK v3 tex-v3-ws.pak
+#   objs101  = lane objs r101 PS2 room objects (st1/r101.dar, sha256 32dfe338)
+#   merchant = ps2lib/cast/r102/merchant-em18 (PS2_CAST_MERCHANT=1): registry + 4 new texture keys (loose) + em18.drs
+T12D = '/root/probe/lanes-20261014/t12rc/data'
+DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12.pak'})
+DATA['objs101'] = {'st1/r101.dar': PRIV + '/objs-20261014/r101o/r101.dar'}
+_M = PRIV + '/ps2lib/cast/r102/merchant-em18/'
+DATA['merchant'] = {k: _M + k for k in ('dc/native/r102/registry.re4nmr', 'dc/tex/3/3f690586-7edb7c3e.re4tex',
+                                        'dc/tex/4/4da9c3fa-98934ea1.re4tex', 'dc/tex/6/61519868-9ee3f93f.re4tex',
+                                        'dc/tex/f/fc75dd46-779f14bd.re4tex', 'em/em18.drs')}
+CLASH += [('t12tex', o) for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr', 'blackgc14v', 'blackgc14vl')]
+T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,t12tex,objs101,merchant'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
