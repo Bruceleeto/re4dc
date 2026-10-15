@@ -115,6 +115,20 @@ PRESETS = {
                          rooms=['r10f'], types=[6], category='registry', model_id=0x13, lit=True),
     # Standalone merchant em18 uses a different archive and source info order.
     # em18_R0_Init appends robe, head, both hands, cloth, then hidden goods.
+    # lane ps2cast 2026-10-14: Ashley (pl11, r117 ...). Converted by ps2_ashley.py (141 GC joints, draw slots, PS2 cloth
+    # weights moved onto the GC cloth links); this entry only carries the finish / regcast metadata.
+    'ashley11': dict(archive='pl11', sections=[(4, 'body'), (7, 'head'), (6, 'hair'), (9, 'extra9'), (0xA, 'extraA'),
+                                               (0xC, 'right-hand'), (0xF, 'left-hand')],
+                     tpl=5, section_tpls={7: 0xB, 6: 8}, rooms=['r117'], types=[], category='registry', model_id=3,
+                     converter='ps2_ashley.py'),
+    'ashley11-h1': dict(archive='pl11', sections=[(4, 'body'), (7, 'head'), (6, 'hair'), (9, 'extra9'), (0xA, 'extraA'),
+                                                  (0xD, 'right-hand'), (0x10, 'left-hand')],
+                        tpl=5, section_tpls={7: 0xB, 6: 8}, rooms=['r117'], types=[], category='registry', model_id=3,
+                        converter='ps2_ashley.py --hands 1'),
+    'ashley11-h3': dict(archive='pl11', sections=[(4, 'body'), (7, 'head'), (6, 'hair'), (9, 'extra9'), (0xA, 'extraA'),
+                                                  (0xE, 'right-hand'), (0xF, 'left-hand')],
+                        tpl=5, section_tpls={7: 0xB, 6: 8}, rooms=['r117'], types=[], category='registry', model_id=3,
+                        converter='ps2_ashley.py --hands 3'),
     'merchant18-c0': dict(archive='em18', sections=[(5, 'body'), (14, 'robe'), (7, 'head'),
                             (18, 'right-hand'), (19, 'left-hand'), (12, 'cloth'), (13, 'goods')],
                          tpl=6, section_tpls={14: 15, 7: 8, 12: 15},
@@ -372,6 +386,8 @@ def winding_agreement(verts, tris, corner_normals):
 
 def convert(preset, out, ps2_iso=PS2_ISO, gc_iso=GC_ISO, poses=None, bone_tol=0.001):
     spec = PRESETS[preset]
+    if spec.get('converter'):
+        raise SystemExit(f'{preset} is converted by {spec["converter"]}, not ps2_cast.py convert')
     out.mkdir(parents=True, exist_ok=True)
     ps2, gc, rec = inputs(spec['archive'], out, ps2_iso, gc_iso)
     ptd = load_module('ps2_tpl_decode', WA / 'from-main/ps2-trees/tools/ps2_tpl_decode.py')
