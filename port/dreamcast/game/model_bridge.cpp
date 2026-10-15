@@ -610,7 +610,7 @@ const Entry kTable[]={
     {0x101,0,0x46,0x2e0dfc4dU,221},  // obj 12, 4 tris
 };
 constexpr unsigned kN=sizeof(kTable)/sizeof(kTable[0]);
-struct Obj { const cModel* m; const unsigned* rest; unsigned words; unsigned char ready,draw,prev; };
+struct Obj { const cModel* m; const unsigned* rest; unsigned words; unsigned char ready,draw,prev,seen; };
 struct State { unsigned generation,room,first,n,frames,drawn,switches; Obj obj[kN]; };
 State* S=nullptr;
 inline bool cls(const cModel* m){
@@ -680,7 +680,7 @@ extern "C" void re4dc_sob_bake_frame(){
         if(!S)return;
         memset(S,0,sizeof(State));S->generation=g;S->room=room;S->first=first;S->n=n;
     }
-    for(unsigned i=0;i<S->n;++i)S->obj[i].draw=0;
+    for(unsigned i=0;i<S->n;++i)S->obj[i].draw=S->obj[i].seen=0;
     for(unsigned table=0;table<OT_MAX;++table){
         const auto& ot=g_OtWork[table];
         if(!ot.list || !ot.max)continue;
@@ -694,6 +694,7 @@ extern "C" void re4dc_sob_bake_frame(){
             Obj& o=S->obj[i];
             const unsigned placement=kTable[S->first+i].placement;
             if(!o.ready)o.ready=re4dc_ps2_place_ready(room,placement)!=0;
+            o.seen=1;
             o.draw=o.ready && words_of(m)==o.words && same(m,o.rest);
         }
     }
@@ -706,8 +707,16 @@ extern "C" void re4dc_sob_bake_frame(){
         drawn+=o.draw;
         if(o.draw!=o.prev && o.m && S->switches<64){
             ++S->switches;
-            re4dc_log("SOBAKE switch room=%03x frame=%u placement=%u id=%02x draw=%u\n",room,unsigned(pG->Frame_cnt),placement,
-                      kTable[S->first+i].id,o.draw);
+            // why live: seen 0 = no OT ModelRender entry (or invisible); else ready, words, first differing word
+            unsigned k=~0U,was=0,now=0;
+            if(o.seen && o.ready && words_of(o.m)==o.words){
+                unsigned* w=(unsigned*)__builtin_alloca(o.words*4);fill(o.m,w);
+                for(k=0;k<o.words && w[k]==o.rest[k];++k){}
+                if(k<o.words){was=o.rest[k];now=w[k];}
+            }
+            re4dc_log("SOBAKE switch room=%03x frame=%u placement=%u id=%02x draw=%u seen=%u ready=%u words=%u/%u diff=%d %08x>%08x\n",
+                      room,unsigned(pG->Frame_cnt),placement,kTable[S->first+i].id,o.draw,o.seen,o.ready,
+                      o.seen?words_of(o.m):0U,o.words,int(k),was,now);
         }
         o.prev=o.draw;
     }
