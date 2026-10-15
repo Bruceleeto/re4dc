@@ -72,3 +72,10 @@ backlog (PERF-BACKLOG-CH1-2 formulas use the old x1.25/x1.23 render factors) and
 ## Not reused
 lane/ss-chain-check tools/d367/hwready/observer is a Flycast-side cost census (uncached, denormals, SQ, misses); it
 counts events on the emulator and does not price them, so the fit stayed in hwsim.
+
+## Superseded 2026-10-15 (lane storemiss): store miss 0
+The W70 fit contradicts the console Bench A (predicted -2.05 ms, console 0) and Bench B (predicted -1.00, console +0.5
+house). The constrained refit (tools/hwmodel/miss/storemiss/refit.py) is D 6 / I 5 / W 0, rms 0.092; it is now
+`--console-fit`, and the W70 set is `--console-fit-w70`. Render parts remain under-priced (actor draw 1.11-1.19, world
+1.07-1.19) by an unmodelled cause; MOVCA / store-miss levers are closed. SH4ZAM memset re-prices to -0.60 cross /
+-1.05 house (was -1.10 / -2.04).

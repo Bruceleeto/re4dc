@@ -46,9 +46,15 @@ static double ICFILL_EXTRA = 0;                                  /* extra cycles
    line end; the bus is not held longer) and to every I fill, plus extra bus occupancy per dirty write-back.
    0 = the nominal model. Fitted values: see docs/lanes/hwmodel-miss.md (--console-fit). */
 static double DMISS_LAT = 0, IMISS_LAT = 0, WB_EXTRA = 0, WMISS_LAT = 0;
-#define CF_D 0
-#define CF_I 4
-#define CF_W 70   /* write-miss extra (WMISS_LAT); WB_EXTRA stays 0 */
+/* --console-fit (refit 2026-10-15, lane storemiss, constrained by console Bench A ACTOR_MOVCA ~0 and Bench B MEM_MOVCA
+   +0.5 house): D fill +6, I fill +5, store miss 0. --console-fit-w70: the first fit (D 0, I 4, store miss 70), which
+   those two console pairs contradict; kept for comparison only. */
+#define CF_D 6
+#define CF_I 5
+#define CF_W 0
+#define CF70_D 0
+#define CF70_I 4
+#define CF70_W 70   /* write-miss extra (WMISS_LAT); WB_EXTRA stays 0 */
 static int STREAMPF = 0;                                         /* oracle software prefetch */
 static int NO_ICACHE_MISS = 0, NO_DCACHE_MISS = 0;
 static int WA_STREAM = 0, WA_NOFILL = 0, NO_DEP = 0;  /* NO_DEP: ideal scheduling bound */   /* write-allocate what-ifs: movca.l / store-queue style full-line writes */
@@ -884,7 +890,7 @@ static void run_trace(const char *path)
 static void usage(void)
 {
     fprintf(stderr, "hwsim --elf ELF [--out P] [--oc-kb 16|8] [--oix] [--fill-hit C --fill-miss C --fill-ovh C] "
-            "[--wb-hit C --wb-miss C] [--dmiss-lat C --imiss-lat C --wb-extra C | --console-fit] [--sq-cost C] [--streampf] [--pin FILE] [--icmap FILE] [--dmap FILE] [--cmap FILE] [--skip FILE] "
+            "[--wb-hit C --wb-miss C] [--dmiss-lat C --imiss-lat C --wb-extra C | --console-fit | --console-fit-w70] [--sq-cost C] [--streampf] [--pin FILE] [--icmap FILE] [--dmap FILE] [--cmap FILE] [--skip FILE] "
             "[--fdiv FILE --fdiv-lat N --fdiv-lock N] [--perfect-ic] [--perfect-dc] [--no-dma] [--dma-burst C] [--burst-tail C] [--wa-stream] [--wa-nofill] [--no-dep] trace...\n");
     exit(2);
 }
@@ -912,6 +918,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--wb-extra")) WB_EXTRA = atof(ARG);
         else if (!strcmp(a, "--wmiss-lat")) WMISS_LAT = atof(ARG);
         else if (!strcmp(a, "--console-fit")) { DMISS_LAT = CF_D; IMISS_LAT = CF_I; WMISS_LAT = CF_W; }
+        else if (!strcmp(a, "--console-fit-w70")) { DMISS_LAT = CF70_D; IMISS_LAT = CF70_I; WMISS_LAT = CF70_W; }
         else if (!strcmp(a, "--streampf")) STREAMPF = 1;
         else if (!strcmp(a, "--pin")) pinf = ARG;
         else if (!strcmp(a, "--icmap")) icf = ARG;
