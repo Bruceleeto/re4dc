@@ -528,6 +528,8 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     put32(npos|(nnrm<<16));put32(nuv|(nclr<<16));put32(list_bytes);
     put(p.modelview,48);put(&pG->Cam.v_mat[0][0],48);
     put(&m->pos,12);put(&m->ang,12);put32(m->be_flag);put32(info->be_flag);
+    put32(p.lighting?unsigned(sizeof(re4dc::render::SourceLighting)):0U);
+    if(p.lighting)put(p.lighting,sizeof(re4dc::render::SourceLighting));
     if(p.positions)put(p.positions,npos*p.position_stride);
     if(p.normals)put(p.normals,nnrm*p.normal_stride);
     if(p.uv)put(p.uv,nuv*4);
