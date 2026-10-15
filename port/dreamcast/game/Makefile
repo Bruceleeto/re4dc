@@ -1974,3 +1974,6 @@ ifeq ($(filter 2 3,$(PS2_WORLD_ROOMS)),)
 $(error MOVIE_WORLD_ARENA=1 needs PS2_WORLD_ROOMS>=2)
 endif
 endif
+
+# BENCHMARK=1: the public benchmark disc (bench.mk; default 0: nothing compiled, image unchanged)
+include bench.mk

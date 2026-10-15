@@ -82,6 +82,13 @@ u32 re4dc_vi_retrace_count(void);
 
 int re4dc_fixture_read(const char* path, char* buffer, unsigned size);
 void re4dc_fixture_state(const char* name, int a, int b);  // pad.cpp fixture anchors (overlay)
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+void re4dc_bench_scene_def(int no, unsigned begin, unsigned end, const char* name);  // bench.cpp (bench.mk BENCHMARK)
+int re4dc_bench_tick(unsigned room_frame);
+const char* re4dc_bench_next_scene(void);
+int re4dc_bench_scene_no(void);
+const char* re4dc_bench_results(void);
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
 extern "C" void re4dc_leon_light_set(unsigned mode);  // native_actor_fast.cpp (crowd.mk LEON_LIGHT_TOGGLE)
 #endif
@@ -201,12 +208,24 @@ Warp wp;
 
 u32 num(const char* s) { return (u32) strtoul(s, nullptr, 0); }
 
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+// BENCHMARK=1 (bench.mk, bench.cpp): the scene fixture to arm at the next soft reset, and the reset is pending.
+const char* bench_next;
+bool bench_pending;
+void load(const char* path = "/cd/dc/warp.txt")
+#else
 void load()
+#endif
 {
     wp.loaded = true;
     wp.parse_entry = wp.max_entry = 1;
     static char text[2048];
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    const int len = re4dc_fixture_read(path, text, sizeof(text) - 1);
+    re4dc_log("warp: bench fixture %s (%d bytes)\n", path, len);
+#else
     const int len = re4dc_fixture_read("/cd/dc/warp.txt", text, sizeof(text) - 1);
+#endif
     if (len <= 0) return;
     text[len] = 0;
     for (char* line = text; line && *line;) {
@@ -385,6 +404,16 @@ void load()
 #if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
         } else if (!strcmp(k, "squeeze")) {
             // KOS_SQUEEZE (platform/os.cpp reads this line at OSInit)
+#endif
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+        } else if (!strcmp(k, "bench") && n >= 5) {
+            // BENCHMARK: `bench <scene no> <begin room frame> <end room frame> <name...>` (bench.cpp measures [begin, end))
+            char name[24] = "";
+            for (int i = 4; i < n; ++i) {
+                if (i > 4) strncat(name, " ", sizeof(name) - strlen(name) - 1);
+                strncat(name, tok[i], sizeof(name) - strlen(name) - 1);
+            }
+            re4dc_bench_scene_def((int) num(tok[1]), num(tok[2]), num(tok[3]), name);
 #endif
         } else {
             re4dc_log("warp: unknown line '%s'\n", k);
@@ -589,6 +618,55 @@ void god_alert_poll()
              (unsigned) wp.rooms, (int) pPL->pos.x, (int) pPL->pos.y, (int) pPL->pos.z);
     stamp(what);
 }
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+// BENCHMARK: the scene's end state (the determinism check compares these lines between runs): Leon, the Ganados of
+// the rooms' count range (model ids 0x10..0x20) with position, hp and flags, folded into one hash.
+void bench_state_log(unsigned frame)
+{
+    unsigned h = 2166136261u;
+    int alive = 0, listed = 0;
+    for (int id = 0x10; id <= 0x20; ++id) {
+        for (cEm* e = EmMgr.getEmPtr(id, 0); e; e = EmMgr.getEmPtr(id, e)) {
+            ++listed;
+            if ((e->be_flag & 1) && e->hp > 0) ++alive;
+            const int v[6] = {id, (int) e->pos.x, (int) e->pos.y, (int) e->pos.z, (int) e->hp, (int) (e->be_flag & 0xFF)};
+            for (int x : v) h = (h ^ (unsigned) x) * 16777619u;
+        }
+    }
+    if (pPL) {
+        const int v[3] = {(int) pPL->pos.x, (int) pPL->pos.y, (int) pPL->pos.z};
+        for (int x : v) h = (h ^ (unsigned) x) * 16777619u;
+    }
+    re4dc_log("bench: state scene %d room %03x room_frame %u tick %u alive %d listed %d counted %d pl=%d,%d,%d hash=%08x\n",
+              re4dc_bench_scene_no(), (unsigned) pG->room_id, frame, (unsigned) pG->Frame_cnt, alive, listed,
+              SceCountEmAlive(0x10, 0x20), pPL ? (int) pPL->pos.x : 0, pPL ? (int) pPL->pos.y : 0,
+              pPL ? (int) pPL->pos.z : 0, h);
+}
+// BENCHMARK, each game tick of the scene's room: 1 while the scene is over (the rest of the poll is skipped). At the
+// scene's end the next scene is chosen (after the last one: the results screen, which returns on A with scene 1) and
+// the source's soft reset is requested (Game Reset path, systemResetCheck at the end of this frame; 0x200 locks it
+// while the game forbids a reset). re4dc_warp_soft_reset arms the next fixture.
+bool bench_poll()
+{
+    if (bench_pending) {
+        if (wp.god && pG) pG->pl_life = pG->pl_life_max;
+        return true;
+    }
+    if (!re4dc_bench_tick(wp.room_frames)) return false;
+    bench_state_log(wp.room_frames);
+    const char* next = re4dc_bench_next_scene();
+    if (!next) {
+        pG->System_flg |= 0x20000000;   // no hang check while the results screen holds the frame loop (as `freeze`)
+        SndSoftReset();                 // silence: the frame loop stops feeding the sound driver
+        next = re4dc_bench_results();
+    }
+    bench_next = next;
+    bench_pending = true;
+    pG->System_flg |= 0x4000000;        // soft reset request (systemResetCheck: dev_mode path)
+    stamp("bench: soft reset requested");
+    return true;
+}
+#endif
 #if RE4DC_WARP_JUMP
 // `jump` (WARP_JUMP=1, diagnostic room change; not a source door/event route): in room `from`, at or after its
 // room frame and outside events, the first pending entry changes room to `to` at the position through the
@@ -645,6 +723,18 @@ extern "C" {
 // main.cpp systemSoftReset: an after_reset warp turns active for the title that follows.
 void re4dc_warp_soft_reset(void)
 {
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    if (bench_pending && bench_next) {
+        // BENCHMARK: the next scene's fixture, from a clean rig (the title that follows is skipped as at boot)
+        const char* path = bench_next;
+        bench_next = nullptr;
+        bench_pending = false;
+        wp = Warp{};
+        load(path);
+        stamp("bench: next scene armed at soft reset");
+        return;
+    }
+#endif
     if (!wp.loaded) load();
     if (wp.after_reset && !wp.active && wp.room) {
         wp.active = true;
@@ -747,6 +837,9 @@ void re4dc_warp_poll(void)
         for (;;) thd_sleep(1000);
     }
     ++wp.room_frames;
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    if (wp.rooms == 1 && bench_poll()) return;
+#endif
     god_alert_poll();
     kill_poll();
 #if RE4DC_WARP_JUMP

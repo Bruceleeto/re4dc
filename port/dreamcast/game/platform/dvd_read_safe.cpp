@@ -154,6 +154,9 @@ struct DiscMeterScope {
     }
 };
 }  // namespace
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+extern "C" void re4dc_bench_disc(unsigned reads, unsigned long long block_us, unsigned long long dt_us);  // bench.cpp
+#endif
 
 // pace.cpp, each one-second window close (the game thread).
 extern "C" void re4dc_disc_meter_window(void)
@@ -176,6 +179,9 @@ extern "C" void re4dc_disc_meter_window(void)
                       (unsigned) (dt / 1000), reads, bytes / 1024, (unsigned) (block / 1000), m_rate[0], m_rate[1], m_rate[2],
                       mreads, mbytes / 1024, m_other ? m_other->label : "-");
         m_other = nullptr;
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+        re4dc_bench_disc(reads, block, dt);   // bench.cpp (bench.mk BENCHMARK): the measured scene's disc reads
+#endif
     }
     m_t0 = now;
 }

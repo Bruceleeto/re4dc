@@ -311,6 +311,10 @@ unsigned speed_gpu10;   // PHASE_METER: the window's mean render time, 0.1 ms
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
 extern "C" void re4dc_disc_meter_window(void);  // platform/dvd_read_safe.cpp
 #endif
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+extern "C" void re4dc_bench_window(unsigned drawn, unsigned ticks, unsigned vblanks, unsigned long long rnd_sum_ns,
+                                   unsigned rnd_n);  // bench.cpp (bench.mk BENCHMARK)
+#endif
 #if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
 #include <dc/perfctr.h>
 namespace {
@@ -388,6 +392,9 @@ void vmu_window(unsigned cost, u32 now)
     }
 #if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
     speed_gpu10 = a.rnd_n ? unsigned((a.rnd_sum / a.rnd_n + 50000) / 100000) : 0;
+#endif
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    re4dc_bench_window(v_drawn, v_ticks, dvb, (unsigned long long) a.rnd_sum, a.rnd_n);   // bench.cpp (bench.mk)
 #endif
     // GPU <mean>/<max>: ms per render (rounded, capped at 999) over the renders completed in this window.
     char gpu[16];

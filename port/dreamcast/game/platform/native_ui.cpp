@@ -2208,6 +2208,43 @@ void speed_draw(){
     if(note)for(int k=0;k<boxes;++k)hud_rect(b,40.0f+k*36,40.0f,28.0f,16.0f,k==s?0xf0ffff40U:0x60ffffffU);
     hud_flush(b);
 }
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+// BENCHMARK=1 (bench.mk; benchmark disc only): the banner "BENCHMARK DISC - NOT THE GAME" on every presented frame,
+// white BIOS font (bfont 12x24) on red in a 512x32 RGB565 texture (32 KiB of VRAM, written once at the first frame
+// straight into texture memory with 16-bit stores, as KOS's pvr_txr_load_ex does: no RAM copy, the image does not
+// grow; no banner if the allocation fails), one quad at the top centre, inside the top letterbox bar and below tile
+// row 0 (y 32..60: LETTERBOX_CLIP renders no translucent list in row 0).
+extern "C" const char* re4dc_bench_banner(void);   // bench.cpp
+pvr_ptr_t bench_vram;bool bench_failed;unsigned bench_w;
+void bench_banner_draw(){
+    constexpr unsigned W=512,H=32;
+    if(bench_failed)return;
+    if(!bench_vram){
+        bench_vram=pvr_mem_malloc(W*H*2);
+        if(!bench_vram){bench_failed=true;re4dc_log("bench banner: no VRAM\n");return;}
+        volatile unsigned short* t=reinterpret_cast<volatile unsigned short*>(bench_vram);
+        for(unsigned i=0;i<W*H;++i)t[i]=0x9000U;
+        const char* text=re4dc_bench_banner();
+        bfont_draw_str_ex(reinterpret_cast<unsigned short*>(bench_vram)+4*W+8,W,0xFFFFU,0x9000U,16,1,text);
+        bench_w=std::min(W,unsigned(strlen(text))*12U+16U);
+        re4dc_log("bench banner: '%s' vram=%p w=%u frame=%u\n",text,(void*)bench_vram,bench_w,frame);
+    }
+    pvr_poly_cxt_t c;pvr_poly_cxt_txr(&c,PVR_LIST_TR_POLY,PVR_TXRFMT_RGB565|PVR_TXRFMT_NONTWIDDLED,W,H,bench_vram,PVR_FILTER_NONE);
+    c.gen.culling=PVR_CULLING_NONE;c.depth.comparison=PVR_DEPTHCMP_ALWAYS;c.depth.write=PVR_DEPTHWRITE_DISABLE;
+    c.blend.src=PVR_BLEND_ONE;c.blend.dst=PVR_BLEND_ZERO;c.gen.fog_type=PVR_FOG_DISABLE;
+    alignas(32) unsigned char packet[sizeof(pvr_poly_hdr_t)+4*sizeof(pvr_vertex_t)];
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(packet),&c);
+    auto* v=reinterpret_cast<pvr_vertex_t*>(packet+sizeof(pvr_poly_hdr_t));
+    const float w=float(bench_w),x0=(640.0f-w)*0.5f,y0=32,h=28,u1=w/float(W),v0=2.0f/H,v1=30.0f/H;
+    const float xs[4]={x0,x0,x0+w,x0+w},ys[4]={y0+h,y0,y0+h,y0},us[4]={0,0,u1,u1},vs[4]={v1,v0,v1,v0};
+    const float layer=overlay_depth();
+    for(unsigned k=0;k<4;++k){
+        v[k].flags=k==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;v[k].x=RE4DC_UI_X(xs[k]);v[k].y=RE4DC_UI_Y(ys[k]);v[k].z=layer;
+        v[k].u=us[k];v[k].v=vs[k];v[k].argb=0xffffffffU;v[k].oargb=0;
+    }
+    stream_send(packet,sizeof(packet));
+}
+#endif
 #if defined(RE4DC_MCHECK_SAFE) && RE4DC_MCHECK_SAFE
 // MCHECK_SAFE=1 (mcheck.mk, test builds only): the bounding box (screen pixels) of every quad the speed display
 // flushes in a scene, logged at scene close with the render size, the tile grid and the tile rows LETTERBOX_CLIP
@@ -5126,6 +5163,9 @@ extern "C" void re4dc_ui_present(){
 #endif
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION && RE4DC_PVR_STREAM
     if(!re4dc_vi_black())speed_draw();
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    if(!re4dc_vi_black() && !stream_aborted)bench_banner_draw();   // bench.mk: on every presented frame
+#endif
 #endif
 #if RE4DC_PERF_HUD
     if(!re4dc_vi_black()){
