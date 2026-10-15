@@ -35,11 +35,12 @@ T122="RETIRE_KOS_FLOOR=65536"
 #   5 GAME_LQ_MEMO=1 (exact, logic; STRICT), LEON_FACE_LAZY=1 (exact, render), PS2_AREA_HIDE=1 (r107, render only)
 #     (the GC render census removals of item 5 were never built: no knob)
 #   2 objs13 is data only (objs13d)
-#   8 UI_FRAG_WINDOW=1 (user pull-in 10-15 under release rule 1; t11 lane vr knob, render only): a UI upload refused for
-#     fragmentation releases one idle window of the size instead of LRU evictions; fixes the r105 chapter 1-2 results
-#     picture (eaf5d457 495x150, "no contiguous block", 120-frame latch) that objs13's r105 layout exposed. =2 stays out
-#     (test 11: SH4 exception after its frame drop).
-T13R="STATIC_OBJ_BAKE=1 PS2_PLACE_GATE=1 STATIC_OBJ_BATCH_WORDCMP=1 PS2_ASHLEY=2 PS2_ASHLEY_ROOMS=1 GAME_LQ_MEMO=1 LEON_FACE_LAZY=1 PS2_AREA_HIDE=1 UI_FRAG_WINDOW=1"
+#   8 UI_FRAG_WINDOW=3 (user pull-in 10-15 under release rule 1; t11 lane vr knob + the RC's =3, render only): an upload of
+#     128 KiB or more refused for fragmentation releases one idle window of the size instead of LRU evictions; fixes the
+#     r105 chapter 1-2 results picture (eaf5d457 495x150, "no contiguous block", 120-frame latch) that objs13's r105
+#     layout exposed. =1 (all sizes) dropped r100 s20 effect sprites (H2 guard_p 0 -> 11/15); =3 proof 10-15: r105 0
+#     no-contiguous, loaded once; H2 r100 guard_p 0 (arms t13w0rW / t13w3rW / t13y1rW). =2 stays out (test 11 crash).
+T13R="STATIC_OBJ_BAKE=1 PS2_PLACE_GATE=1 STATIC_OBJ_BATCH_WORDCMP=1 PS2_ASHLEY=2 PS2_ASHLEY_ROOMS=1 GAME_LQ_MEMO=1 LEON_FACE_LAZY=1 PS2_AREA_HIDE=1 UI_FRAG_WINDOW=3"
 T13G="PS2_CH1_ENEMY=1"
 T13_6=${T13_6-ROOM_CHANGE_EVICT=60}
 T13REC="$T13R $T13G $T13_6"
