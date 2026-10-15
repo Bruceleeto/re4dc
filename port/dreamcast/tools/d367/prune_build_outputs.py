@@ -463,7 +463,7 @@ def main():
         t[0] += u['bytes']; t[1] += u['shared']; t[2] += len(u['files'])
     total = sum(v[0] for v in per_top.values())
     shared = sum(v[1] for v in per_top.values())
-    tag = 'apply' if a.apply else 'dryrun'
+    tag = ('apply' if a.apply else 'dryrun') + ('-winonly' if a.windows_only else '')
     detail = MAN / ('%s-%s-units.tsv' % (ts, tag))
     with open(detail, 'w') as f:
         f.write('status\tunit\tbytes\tshared_bytes\tfiles\tkinds\tidle_h\tworktree\treason\n')
