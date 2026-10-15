@@ -71,7 +71,12 @@ T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bak
 # byte outside ARC 0x25F..0x268 (the span is re-laid out in place; 2 NTR rows rebased). Disc data only; NOT in T11_DATA.
 DATA['acc12'] = {'em/em15.drs': PRIV + '/ps2lib/cast/common/acc12/em15.drs',
                  'tex': PRIV + '/ps2lib/cast/common/acc12/tex'}
-NAME =re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
+# acc12all: the same conversion in every Ganado archive that carries these entries (byte-identical GC and PS2 entries):
+# em12 (r100, r11a), em13 (r104), em15 (r101), em17 (r108; no ARC 0x262..0x264).
+DATA['acc12all'] = dict(DATA['acc12'], **{'em/%s.drs' % n: PRIV + '/ps2lib/cast/common/acc12/%s.drs' % n
+                                          for n in ('em12', 'em13', 'em17')})
+CLASH += [('acc12', 'acc12all')]
+NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
 def sha(p):
