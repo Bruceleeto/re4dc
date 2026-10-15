@@ -447,8 +447,9 @@ extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p);  // native_actor
 #endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace sobdump {
-constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96;
-struct State { unsigned generation,used,sent,nseen,done,nlist; const void* seen[kSeen][2]; const void* lists[kSeen]; unsigned char data[kBytes]; };
+constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96,kMods=48,kSettle=60;
+struct State { unsigned generation,used,sent,nseen,done,nlist,nmod; const void* seen[kSeen][2]; const void* lists[kSeen];
+               const void* mod[kMods]; unsigned mod_frame[kMods]; unsigned char data[kBytes]; };
 State* S=nullptr; unsigned frame_seen=~0U;
 inline bool target(const cModel* m){
     const unsigned k=m->kindid,id=m->id;
@@ -500,6 +501,12 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     unsigned g,c,b,st,rf;
     if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return;
     if(!ensure())return;
+    {   // settle: the first frames of a model hold matrices the game has not set yet (zero / identity)
+        unsigned k=0;
+        while(k<S->nmod && S->mod[k]!=m)++k;
+        if(k==S->nmod){if(S->nmod>=kMods)return;S->mod[k]=m;S->mod_frame[k]=pG->Frame_cnt;++S->nmod;}
+        if(pG->Frame_cnt-S->mod_frame[k]<kSettle)return;
+    }
     for(unsigned i=0;i<S->nseen;++i)if(S->seen[i][0]==m && S->seen[i][1]==pt)return;
     if(S->nseen>=kSeen || S->used>kBytes)return;
     S->seen[S->nseen][0]=m;S->seen[S->nseen][1]=pt;++S->nseen;
@@ -650,16 +657,15 @@ unsigned fnv(const unsigned* w,unsigned n){
 void bind(const cModel* m){
     for(unsigned i=0;i<S->n;++i)if(S->obj[i].m==m)return;
     const unsigned n=words_of(m);
-    unsigned* w=nullptr;unsigned hash=0;
+    unsigned* t=nullptr;unsigned hash=0;
     for(unsigned i=0;i<S->n;++i){
         const Entry& e=kTable[S->first+i];Obj& o=S->obj[i];
         if(o.m || e.kind!=m->kindid || e.id!=m->id)continue;
-        if(!w){
-            w=(unsigned*)re4dc_static_alloc(n*4);
-            if(!w)return;
-            fill(m,w);hash=fnv(w,n);
-        }
+        if(!t){t=(unsigned*)__builtin_alloca(n*4);fill(m,t);hash=fnv(t,n);}
         if(hash!=e.rest)continue;
+        unsigned* w=(unsigned*)re4dc_static_alloc(n*4);
+        if(!w)return;
+        memcpy(w,t,n*4);
         o.m=m;o.rest=w;o.words=n;
         re4dc_log("SOBAKE bind room=%03x placement=%u id=%02x model=%08x words=%u\n",S->room,e.placement,e.id,
                   (unsigned)(size_t)m,n);
