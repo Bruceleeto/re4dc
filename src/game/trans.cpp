@@ -2261,7 +2261,7 @@ void calcWeightMat(cModel* m)
     u32 i = 0;
     cPartsWk* p;
 
-    PSMTXInverse(m->pParts->mat, inv);
+    RE4DC_RENDER_MTXInverse(m->pParts->mat, inv);
     for (p = (cPartsWk*) m->pParts; p != 0; p = p->next) {
         RE4DC_RENDER_MTXConcat(inv, ((cModel*) p)->mat, tmp);
         if (i > 0xF7) {
@@ -2976,7 +2976,7 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
         // The normal matrix only lights; a lit native mesh never reads it. 'inv' is rebuilt by
         // PSMTXScale below before its other use.
         if (!g_leanRender) {
-            PSMTXInverse(mv, inv);
+            RE4DC_RENDER_MTXInverse(mv, inv);
             PSMTXTranspose(inv, nrm);
         }
         GXLoadPosMtxImm(mv, 0);
@@ -2984,7 +2984,7 @@ void commonModelTrans(cModel* m, cModelInfo* info, Mtx viewMat, int flag)
             GXLoadNrmMtxImm(nrm, 0);
         }
 #else
-        PSMTXInverse(mv, inv);
+        RE4DC_RENDER_MTXInverse(mv, inv);
         PSMTXTranspose(inv, nrm);
         GXLoadPosMtxImm(mv, 0);
         GXLoadNrmMtxImm(nrm, 0);
@@ -3466,7 +3466,7 @@ static void frontNativeModelTrans(cModel* m, Mtx viewMat, int dry)
         {
             Mtx inv;
             Mtx nrm;
-            PSMTXInverse(mv, inv);
+            RE4DC_RENDER_MTXInverse(mv, inv);
             PSMTXTranspose(inv, nrm);
             GXLoadNrmMtxImm(nrm, 0);
         }
