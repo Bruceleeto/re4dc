@@ -1,0 +1,32 @@
+RE4 Dreamcast - village (r101) speed test disc, 2026-10-14
+Build: BUILD_PLACEHOLDER (test 11 recipe eb4e8813 + effect sprite trim + FX level dial + HW fog, test build only)
+
+WHAT IT IS
+The disc starts straight in the village square (no r100, no radio call): Leon stands by the burning cross facing the
+square, and the whole crowd starts hunting him after one second. This is the same spot and scene as our benchmark
+("benchmark-r101"), so your readings compare directly with ours. Leon cannot die
+(god mode) so you can stand in a view as long as you like. Please stay in the village: going through a door
+may lead to a radio call, and test 11 crashes at the end of radio calls on real hardware.
+
+BUTTONS (hold the first buttons, then press START)
+  R + START               speed display: cycle until the FPS / CPU / GPU numbers show on screen
+  Y + START               FX level: 0 (PS2 effects as-is, the start value) -> 1 (medium) -> 2 (low) -> 0
+                          a label shows the level for 3 seconds
+  X + D-pad up + START    HW fog: ON (the start value, distant haze drawn as hardware fog) / OFF (all haze sprites)
+                          a label shows the state for 3 seconds
+  X + Y + START           keep the label on screen / back to 3 seconds
+
+WHERE TO STAND (with Ganados on screen)
+  1. Start spot (most important): don't move the stick; wait about 10 seconds, then read for about 30 seconds while
+     the crowd closes in. Reset the console to get back to this spot.
+  2. The bell: face the church / bell tower in the middle of the fight.
+  3. Wide view: stand at one edge of the square and look across it (the most mist and houses in view).
+
+WHAT TO NOTE
+For each of the 3 views, write down FPS and GPU (and CPU if you can) for:
+  fog ON  x FX level 0, 1, 2
+  fog OFF x FX level 0, 1, 2
+Give each setting a few seconds to settle before reading. A photo of the screen per reading is perfect.
+Also note anything that looks wrong at any setting (missing smoke or fire, flicker, black boxes).
+
+The goal is 20 fps in the worst fight view.

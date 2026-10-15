@@ -225,10 +225,58 @@ endif
 #                    breaks and torches Et 0x55..0xbb, door locks 0xc9 / 0xcb, boat, animal, trap, Del Lago effects).
 #                    Room tables keep EFFECT_ROOM's rules; mask / render-target / non-blend sprites stay out. With
 #                    FX_LEVEL the admitted owners get a per-frame budget (kFxLevel owners; never thinned or resized).
+#                    Test 12: needs FX_LEVEL (never unbudgeted: the budget is 48 / 32 / 16 at level 0 / 1 / 2, so the
+#                    admitted owners cannot take the whole 64-sprite cap); Leon's PL00 effects are opted out of it.
+# FX_LEVEL_TOGGLE=1 (test builds, default 0): Y + START steps the runtime FX level 0 -> 1 -> 2 (3 s label, LOOK_TOGGLE's
+#                    on-screen text). Needs FX_LEVEL (the boot level) and LOOK_TOGGLE=1.
+FX_LEVEL_TOGGLE ?= 0
+ifeq ($(FX_LEVEL_TOGGLE),1)
+ifeq ($(FX_LEVEL),)
+$(error FX_LEVEL_TOGGLE=1 needs FX_LEVEL)
+endif
+ifneq ($(LOOK_TOGGLE),1)
+$(error FX_LEVEL_TOGGLE=1 needs LOOK_TOGGLE=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_FX_LEVEL_TOGGLE=1
+PLATFORM_CPPFLAGS += -DRE4DC_FX_LEVEL_TOGGLE=1
+else ifneq ($(FX_LEVEL_TOGGLE),0)
+$(error FX_LEVEL_TOGGLE is 0 or 1)
+endif
+# FX_FLIPBOOK=N (test 12 fx lane, render only, default 0): an effect flipbook (a TPL of >= FX_FLIPBOOK_MIN pictures: the
+#                    r101 pyre fire, smoke) draws every Nth picture only (picture p - p % N), so N times fewer distinct
+#                    textures and the animation's working set can fit VRAM (benchmark-r101: the fire's ~90 pictures
+#                    thrash the cache and the EFFECT_ROOM guard declines ~93% of the effect sprites). m_Ptn_no, timers
+#                    and Rnd() are untouched; only the TPL picture fetched for the native sprite changes.
+FX_FLIPBOOK ?= 0
+FX_FLIPBOOK_MIN ?= 8
+ifneq ($(filter-out 0 2 3 4,$(FX_FLIPBOOK)),)
+$(error FX_FLIPBOOK is 0, 2, 3 or 4)
+endif
+# FX_TEX_POOL=<KB> (test 12 fx lane, render only, default 0; needs EFFECT_SPRITES=1 and EFFECT_ROOM): a resident effect
+#                    texture pool in native_ui.cpp. Effect sprite textures are pinned until the pool holds <KB> KB, so
+#                    the room's effect set loads once and stays out of the LRU eviction; pins end at room retirement.
+FX_TEX_POOL ?= 0
+ifneq ($(FX_TEX_POOL),0)
+ifneq ($(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),11)
+$(error FX_TEX_POOL needs EFFECT_SPRITES=1 and EFFECT_ROOM)
+endif
+endif
+# FX_PS2_PACK=1 (test 12 fx lane, render only, default 0; needs TEX_PAL4_ALPHA=1): effect textures may come from a
+#                    PS2-sourced pack (tools/d367/test12fx/fx_ps2_pack.py: the PS2 picture, PAL4, under the GameCube key).
+#                    Such a package marks in its header flags the texels the source UVs cover, so a picture smaller than
+#                    the GameCube one is sampled whole (native_ui.cpp RE4DC_COVER_W/H); FX_SPRITE_TRIM skips it. Without
+#                    the pack the knob changes nothing on screen.
+FX_PS2_PACK ?= 0
+ifneq ($(filter-out 0 1,$(FX_PS2_PACK)),)
+$(error FX_PS2_PACK is 0 or 1)
+endif
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
 $(error EFFECT_OWNERS_ALL must be 0 or 1 and needs EFFECT_SPRITES=1 and EFFECT_ROOM)
+endif
+ifeq ($(FX_LEVEL),)
+$(error EFFECT_OWNERS_ALL=1 needs FX_LEVEL (the admitted-owner budget))
 endif
 endif
 # EFFECT_TORCH=1 (issue #30, test 11 lane fx 2026-10-14; needs EFFECT_SPRITES=1 ESP_SPRITE_FAST=1; render only, default 0):
@@ -370,6 +418,17 @@ ifneq ($(FX_LEVEL),)
 endif
 ifneq ($(EFFECT_TORCH),0)
 	@printf '#define RE4DC_EFFECT_TORCH %s\n' '$(EFFECT_TORCH)' >> $@.tmp
+endif
+ifneq ($(FX_PS2_PACK),0)
+	@printf '#define RE4DC_FX_PS2_PACK 1\n' >> $@.tmp
+endif
+ifneq ($(FX_TEX_POOL),0)
+	@printf '#define RE4DC_FX_TEX_POOL %s\n' '$(FX_TEX_POOL)' >> $@.tmp
+endif
+ifneq ($(FX_FLIPBOOK),0)
+	@printf '#define RE4DC_FX_FLIP_PTN(p, n) ((n) >= %s ? (p) - (p) %% %s : (p))\n' '$(FX_FLIPBOOK_MIN)' '$(FX_FLIPBOOK)' >> $@.tmp
+else
+	@printf '#define RE4DC_FX_FLIP_PTN(p, n) (p)\n' >> $@.tmp
 endif
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp

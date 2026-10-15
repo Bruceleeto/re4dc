@@ -281,16 +281,25 @@ extern "C" void re4dc_look_osd_toggle(void){
 #if RE4DC_RES_MODES
 extern "C" const char* re4dc_res_osd_text(void); // res_mode.cpp: the render mode's name, 3 s after a change
 #endif
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+extern "C" const char* re4dc_hwfog_osd_text(void); // hwfog.cpp: HW fog on / off, 3 s after a change
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
 extern "C" const char* re4dc_haze_lean_osd_text(void); // esp_sub.cpp: the haze mode's name, 3 s after a change
 #endif
 #if defined(RE4DC_SHADOW_BLOB_TOGGLE)
 extern "C" const char* re4dc_blob_osd_text(void); // blob_shadow.cpp: the blob strength's name, 3 s after a change
 #endif
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+extern "C" const char* re4dc_fx_level_osd_text(void); // esp_sub.cpp: the FX level, 3 s after a change
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
 extern "C" const char* re4dc_leon_light_osd_text(void); // native_actor_fast.cpp: the Leon lighting mode, 3 s after a change
 #endif
 extern "C" const char* re4dc_look_osd_text(void){
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+    if(const char* fl=re4dc_fx_level_osd_text())return fl;
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
     if(const char* ll=re4dc_leon_light_osd_text())return ll;
 #endif
@@ -299,6 +308,9 @@ extern "C" const char* re4dc_look_osd_text(void){
 #endif
 #if RE4DC_RES_MODES
     if(const char* res=re4dc_res_osd_text())return res;
+#endif
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+    if(const char* hf=re4dc_hwfog_osd_text())return hf;
 #endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
     if(const char* hz=re4dc_haze_lean_osd_text())return hz;
@@ -2443,12 +2455,21 @@ void haze_table(float* table,float tfar,unsigned key){
 }
 }
 #endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+// HW_FOG_HAZE (hwfog.mk, game/hwfog.cpp): the distant camera haze as fog; the key is (FX_LEVEL << 12) | (indoor step << 8) | row.
+extern "C" unsigned re4dc_hwfog_key(void);
+extern "C" void re4dc_hwfog_table(float* table,float tfar,unsigned key);
+namespace { unsigned hwfog_loaded=~0U; }
+#endif
 #if RE4DC_FOG_TA_DOUBLEBUF
 // With a double-buffered TA the previous scene may still render at frame start and reads the fog
 // registers: native_ui fences only when this frame changes them.
 extern "C" int re4dc_fog_frame_pending(){
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     if(fog_now.type && re4dc_haze_key()!=haze_loaded)return 1;
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    if(fog_now.type && re4dc_hwfog_key()!=hwfog_loaded)return 1;
 #endif
     return fog_now.type && !(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
         fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba);
@@ -2488,16 +2509,25 @@ extern "C" void re4dc_fog_frame(){
     const unsigned curve=re4dc_look_curve(),rgb_pct=re4dc_look_rgb_pct();const float cap=float(re4dc_look_cap())/100.0f;
     static unsigned look_loaded=~0U;
     const unsigned look_key=curve|rgb_pct<<4|unsigned(re4dc_look_cap())<<12;
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    const unsigned hwfog_key=re4dc_hwfog_key();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
 #else
     if(
 #endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+       hwfog_key==hwfog_loaded &&
+#endif
        look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
        fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     haze_loaded=haze_key;
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    hwfog_loaded=hwfog_key;
 #endif
     look_loaded=look_key;
     fog_loaded=fog_now;
@@ -2524,21 +2554,33 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     haze_table(table,tfar,haze_key);
 #endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    re4dc_hwfog_table(table,tfar,hwfog_key);
+#endif
     pvr_fog_table_color(1.0f,r,g,b);
     pvr_fog_far_depth(tfar);
     pvr_fog_table_custom(table);
 #else
     if(!fog_now.type)return;
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    const unsigned hwfog_key=re4dc_hwfog_key();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
 #else
     if(
 #endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+       hwfog_key==hwfog_loaded &&
+#endif
        fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     haze_loaded=haze_key;
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    hwfog_loaded=hwfog_key;
 #endif
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
@@ -2555,6 +2597,9 @@ extern "C" void re4dc_fog_frame(){
     }
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     haze_table(table,far,haze_key);
+#endif
+#if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
+    re4dc_hwfog_table(table,far,hwfog_key);
 #endif
     pvr_fog_table_color(1.0f,r,g,b);
     pvr_fog_far_depth(far);

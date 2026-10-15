@@ -393,10 +393,16 @@ void re4dc_pace_cycle_mode(void);  // pace.cpp: Smooth -> Fast -> Off (test buil
 #endif
 #if defined(RE4DC_LOOK_TOGGLE)
 extern "C" void re4dc_look_cycle(void);  // native_static.cpp (post30.mk LOOK_TOGGLE)
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+extern "C" void re4dc_hwfog_toggle(void);  // hwfog.cpp (hwfog.mk HW_FOG_HAZE_TOGGLE)
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
 extern "C" void re4dc_haze_lean_cycle(void);  // esp_sub.cpp (effects30.mk EFFECT_HAZE_LEAN_TOGGLE)
 #endif
 extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp: the preset label always shown / 3 s
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+extern "C" void re4dc_fx_level_toggle(void);  // esp_sub.cpp (effects30.mk FX_LEVEL_TOGGLE)
+#endif
 #if defined(RE4DC_SHADOW_BLOB_TOGGLE)
 extern "C" void re4dc_blob_cycle(void);  // blob_shadow.cpp (game30.mk SHADOW_BLOB_TOGGLE)
 #endif
@@ -565,6 +571,11 @@ u32 PADRead(PADStatus* status)
                 if (!lookStartHeld && held == (PAD_BUTTON_X | PAD_BUTTON_Y)) {
                     lookChord = 1;
                     re4dc_look_osd_toggle();  // X + Y + START: the on-screen preset label always shown / 3 s
+#if defined(RE4DC_HW_FOG_HAZE_TOGGLE) && RE4DC_HW_FOG_HAZE_TOGGLE
+                } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_UP)) {
+                    lookChord = 1;
+                    re4dc_hwfog_toggle();  // X + D-pad up + START: HW fog haze off / on (hwfog.cpp, HW_FOG_HAZE_TOGGLE)
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN_TOGGLE)
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_UP)) {
                     lookChord = 1;
@@ -584,6 +595,11 @@ u32 PADRead(PADStatus* status)
                 } else if (!lookStartHeld && held == PAD_BUTTON_X && (st->buttons & CONT_DPAD_DOWN)) {
                     lookChord = 1;
                     re4dc_res_cycle();  // X + D-pad down + START: the next render mode (res_mode.cpp, safe point)
+#endif
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE
+                } else if (!lookStartHeld && held == PAD_BUTTON_Y) {
+                    lookChord = 1;
+                    re4dc_fx_level_toggle();  // Y + START: the next FX level (esp_sub.cpp, FX_LEVEL_TOGGLE)
 #endif
                 } else if (!lookStartHeld && held == PAD_BUTTON_X) {
                     lookChord = 1;

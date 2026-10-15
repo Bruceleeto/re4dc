@@ -811,9 +811,9 @@ struct FxLevel {
     u16 owners;     // EFFECT_OWNERS_ALL: admitted-owner sprites per frame (0: none)
 };
 static const FxLevel kFxLevel[3] = {
-    {8, 1.0f, 1.0f, 0.0f, 0, 100, 0},           // 0: PS2 as-is
-    {6, 0.9f, 1.15f, 40000.0f, 48, 70, 48},     // 1: reduced
-    {4, 0.8f, 1.3f, 25000.0f, 32, 50, 24},      // 2: low
+    {8, 1.0f, 1.0f, 0.0f, 0, 100, 48},          // 0: PS2 as-is
+    {6, 0.9f, 1.15f, 40000.0f, 48, 70, 32},     // 1: reduced
+    {4, 0.8f, 1.3f, 25000.0f, 32, 50, 16},      // 2: low
 };
 enum { FXL_THIN = 1, FXL_SIZE = 2, FXL_ALPHA = 4, FXL_FAR = 8, FXL_BUDGET = 16, FXL_ALL = 31 };
 // Per-recipe overrides: the dial parts a matching sprite keeps out of (room 0, id / tex 0xff: any).
@@ -876,7 +876,7 @@ static void FxLevelScale(Re4dcEffectSprite* s, f32 size, f32 alpha)
 static int FxLevelSprite(const cEsp* esp, Re4dcEffectSprite* s)
 {
 #if defined(RE4DC_EFFECT_OWNERS_ALL) && RE4DC_EFFECT_OWNERS_ALL
-    if (re4dc_fx_level && kFxLevel[re4dc_fx_level].owners && EspOwnerAdmitted(esp->info.owner)) {
+    if (EspOwnerAdmitted(esp->info.owner)) { if (esp->info.owner == 0x03 || !kFxLevel[re4dc_fx_level].owners) return 1;   // PL00 opt-out
         static u32 s_owner_frame, s_owner_used;   // admitted owners: the per-frame budget only
         if (s_owner_frame != pG->Frame_cnt) {
             s_owner_frame = pG->Frame_cnt;
@@ -1136,7 +1136,7 @@ static void EspSpriteEmit(cEsp* esp)
     if (tw->Owner == 0xD2 || !tw->pTpl || esp->m_Ptn_no >= tw->pTpl->numDescriptors) {
         return;
     }
-    const TEXDescriptor* td = TEXGet(tw->pTpl, esp->m_Ptn_no);
+    const TEXDescriptor* td = TEXGet(tw->pTpl, RE4DC_FX_FLIP_PTN(esp->m_Ptn_no, tw->pTpl->numDescriptors));   // effects30.mk
     const TEXHeader* th = td->textureHeader;
     Re4dcEffectSprite s;
     s.image.pixels = th->data;
@@ -3947,4 +3947,23 @@ asm(".section .sdata; .balign 8");
 #include <cstdint>
 #include <cstring>
 #include "fx_core_source_prep.inc"
+#endif
+#if defined(RE4DC_FX_LEVEL_TOGGLE) && RE4DC_FX_LEVEL_TOGGLE && defined(RE4DC_FX_LEVEL)
+// FX_LEVEL_TOGGLE (effects30.mk, test builds): pad.cpp Y + START steps re4dc_fx_level 0 -> 1 -> 2 -> 0; native_static.cpp
+// shows the level for 3 s through re4dc_look_osd_text. Render only, as the dial itself.
+extern "C" unsigned re4dc_vi_retrace_count(void);
+extern "C" void re4dc_log(const char* fmt, ...);
+static u32 s_fx_level_osd_until;
+static const char* const kFxLevelText[3] = {"FX level 0: PS2 effects as-is", "FX level 1: medium effects",
+                                            "FX level 2: low effects"};
+extern "C" void re4dc_fx_level_toggle(void)
+{
+    re4dc_fx_level_cycle();
+    s_fx_level_osd_until = re4dc_vi_retrace_count() + 180U;
+    re4dc_log("fx level: %u frame=%u\n", (unsigned) re4dc_fx_level, pG ? (unsigned) pG->Frame_cnt : 0u);
+}
+extern "C" const char* re4dc_fx_level_osd_text(void)
+{
+    return (int) (s_fx_level_osd_until - re4dc_vi_retrace_count()) > 0 ? kFxLevelText[re4dc_fx_level % 3] : 0;
+}
 #endif

@@ -284,11 +284,34 @@ struct Source { Re4dcUiImage image{}; Key key{}; };
 // bytes from the optional source-key lookup cache, not the game heap/queue.
 // An uncached source descriptor still resolves through its existing owner table.
 Entry entries[kTextureCount]; Source sources[kSourceCount]; unsigned nsource;
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+// FX_PS2_PACK=1 (effects30.mk, test 12 fx lane; render only): a package that fx_ps2_pack.py built from the PS2 picture of
+// a GameCube effect texture (smaller than the source TPL image) says in its header flags how many of its texels the
+// source image's UV 0..1 covers (bit 31 set; width bits 0-10, height bits 11-21). Other packages: the source image size.
+#define RE4DC_COVER(pkg) (((pkg).header().flags>>31)!=0U)
+#define RE4DC_COVER_W(pkg,iw) (RE4DC_COVER(pkg)?((pkg).header().flags&0x7ffU):(iw))
+#define RE4DC_COVER_H(pkg,ih) (RE4DC_COVER(pkg)?(((pkg).header().flags>>11)&0x7ffU):(ih))
+#else
+#define RE4DC_COVER(pkg) false
+#define RE4DC_COVER_W(pkg,iw) (iw)
+#define RE4DC_COVER_H(pkg,ih) (ih)
+#endif
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+// FX_TEX_POOL=<KB> (effects30.mk, test 12 fx lane; render only): a resident effect texture pool. An effect sprite's
+// texture (re4dc_effect_sprite) is pinned while the pool's bytes stay under the budget, so the room's effect set (the
+// r101 pyre fire flipbook) is loaded once and kept out of the UI / world LRU eviction; until the pool is full an effect
+// texture may load even while the cache is evicting (the EFFECT_ROOM thrash guard applies once it is full). Pins end
+// at room retirement (re4dc_ui_retire_room) or when the entry closes.
+bool fx_pool_pin[kTextureCount];unsigned fx_pool_size[kTextureCount],fx_pool_bytes,fx_pool_pins,fx_pool_full;
+#define RE4DC_FX_POOL_PINNED(e) fx_pool_pin[unsigned(&(e)-entries)]
+#else
+#define RE4DC_FX_POOL_PINNED(e) false
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)))
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)) || RE4DC_FX_POOL_PINNED(e))
 #else
-#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame)
+#define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || RE4DC_FX_POOL_PINNED(e))
 #endif
 // EFFECT_SPRITES=1 (effects30.mk; default off = previous image): native effect sprites
 // (re4dc_effect_sprite below).
@@ -2535,6 +2558,10 @@ void close_entry(Entry& entry) {
     // Revoke before freeing/fencing storage; forced retirement is observable.
     actor_texture_leases.retire_entry(unsigned(&entry-entries));
 #endif
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    {const unsigned i=unsigned(&entry-entries);
+     if(i<kTextureCount && fx_pool_pin[i]){fx_pool_pin[i]=false;fx_pool_bytes-=fx_pool_size[i];}}
+#endif
     if(entry.valid) used-=entry.package.vram_bytes();
     entry.package.close();entry.valid=false;
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
@@ -3655,6 +3682,10 @@ extern "C" void re4dc_ui_unbind_enemy(void* archive){
     sources_reset();
 }
 extern "C" void re4dc_ui_retire_room(){
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    for(unsigned i=0;i<kTextureCount;++i)fx_pool_pin[i]=false;   // FX_TEX_POOL: the next room fills its own pool
+    fx_pool_bytes=0;fx_pool_full=0;
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     // gameRoomMemInit can retire directly, without StageSet/re4dc_room_leave.
     if(!re4dc_movie_world_before_room_retire()){
@@ -4504,7 +4535,7 @@ static void ui_draw_quad(unsigned i){
         const float layer=overlay_depth();
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
             v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=layer;
-            v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
+            v[n].u=q.uv[2*j]*RE4DC_COVER_W(handles[i]->package,q.image.width)/t.width;v[n].v=q.uv[2*j+1]*RE4DC_COVER_H(handles[i]->package,q.image.height)/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
 #else
@@ -4594,7 +4625,7 @@ extern "C" void re4dc_ui_present(){
         const float layer=overlay_depth();
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
             v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=layer;
-            v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
+            v[n].u=q.uv[2*j]*RE4DC_COVER_W(handles[i]->package,q.image.width)/t.width;v[n].v=q.uv[2*j+1]*RE4DC_COVER_H(handles[i]->package,q.image.height)/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
 #else
@@ -4714,6 +4745,10 @@ extern "C" void re4dc_ui_present(){
     if(frame%120==0) re4dc_log("native effect sprites: frame=%u queued=%u direct=%u missing=%u dropped=%u capped=%u culled=%u peak=%u\n",frame,fx_queued,fx_direct,fx_missing,fx_dropped,fx_capped,fx_culled,fx_peak);
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     if(frame%120==0) re4dc_log("native effect guard: frame=%u resident_only_skips=%u\n",frame,fx_resident_skips);
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    if(frame%120==0) re4dc_log("native effect pool: frame=%u pinned_bytes=%u pins=%u full=%u budget=%u vram_free=%u\n",frame,
+                               fx_pool_bytes,fx_pool_pins,fx_pool_full,unsigned(RE4DC_FX_TEX_POOL)*1024U,(unsigned)pvr_mem_available());
+#endif
 #endif
 #endif
 #if RE4DC_NATIVE_MES
@@ -5878,7 +5913,7 @@ void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     static const float kp[8]={0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f,0.68637f,0.95f};
     static const float kq[8]={0.68637f,0.95f,0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f};
     static const unsigned char order[8]={0,1,7,2,6,3,5,4};
-    const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
+    const float su=float(RE4DC_COVER_W(e->package,s.image.width))/t.width,sv=float(RE4DC_COVER_H(e->package,s.image.height))/t.height;
     auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
     for(unsigned i=0;i<8;++i){
         const unsigned k=order[i];const float p=kp[k],q=kq[k];
@@ -5891,6 +5926,9 @@ void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
         v[i].argb=s.color;v[i].oargb=0;
     }
 }
+#endif
+#if RE4DC_FX_SPRITE_TRIM || RE4DC_FX_SPRITE_TRIM_DIAG
+#include "include/fx_sprite_trim.inc"   // fxtrim.mk
 #endif
 void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     const auto& t=e->package.textures()[0];
@@ -5925,7 +5963,7 @@ void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     pvr_sprite_compile(h,&c);h->argb=s.color;h->oargb=0;
 #endif
     auto* b=reinterpret_cast<pvr_sprite_txr_t*>(out+sizeof(pvr_poly_hdr_t));
-    const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
+    const float su=float(RE4DC_COVER_W(e->package,s.image.width))/t.width,sv=float(RE4DC_COVER_H(e->package,s.image.height))/t.height;
     b->flags=PVR_CMD_VERTEX_EOL;
     b->ax=s.x[0];b->ay=s.y[0];b->az=s.z[0];b->bx=s.x[1];b->by=s.y[1];b->bz=s.z[1];
     b->cx=s.x[2];b->cy=s.y[2];b->cz=s.z[2];b->dx=s.x[3];b->dy=s.y[3];b->dummy=0;
@@ -5989,6 +6027,9 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     if(fx_count>=RE4DC_EFFECT_SPRITE_MAX){++fx_capped;return 0;}
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
     fx_resident_only=frame-fx_evict_frame<=1 || fx_new_loads>=kFxNewLoads;
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    if(!fx_pool_full && fx_new_loads<kFxNewLoads)fx_resident_only=false;   // FX_TEX_POOL: fill the pool first
+#endif
     const unsigned opens=load_opens;
 #endif
 #if RE4DC_UI_HANDLES
@@ -6003,6 +6044,60 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fxCoreTextureAcquired(s->image,e);
 #endif
     if(!e){++fx_missing;return 0;}
+#if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
+    {const unsigned i=unsigned(e-entries);
+     if(i<kTextureCount && !fx_pool_pin[i] && e->valid){
+         const unsigned b=e->package.vram_bytes();
+         if(fx_pool_bytes+b<=unsigned(RE4DC_FX_TEX_POOL)*1024U){fx_pool_pin[i]=true;fx_pool_size[i]=b;fx_pool_bytes+=b;++fx_pool_pins;}
+         else fx_pool_full=1;
+     }}
+#endif
+#if RE4DC_FX_SPRITE_TRIM || RE4DC_FX_SPRITE_TRIM_DIAG
+    Re4dcEffectSprite trimmed;    // FX_SPRITE_TRIM: the quad over its texture's alpha box or octagon (fxtrim.mk)
+    float fx_oct_p[8],fx_oct_q[8];
+    const int fx_trim_kind=fx_trim(*s,e,trimmed,fx_oct_p,fx_oct_q);
+#if RE4DC_FX_SPRITE_TRIM
+    if(fx_trim_kind==2){
+#if RE4DC_TA_BIN_DIAG
+        {
+            float xs[8],ys[8];
+            for(unsigned i=0;i<8;++i){
+                xs[i]=s->x[3]+fx_oct_p[i]*(s->x[2]-s->x[3])+fx_oct_q[i]*(s->x[0]-s->x[3]);
+                ys[i]=s->y[3]+fx_oct_p[i]*(s->y[2]-s->y[3])+fx_oct_q[i]*(s->y[0]-s->y[3]);
+            }
+            (s->pad&2?tabin::fill_haze:s->pad&4?tabin::fill_mist:tabin::fill_fx)+=tabin::clip_area(xs,ys,8);
+        }
+#endif
+        if(source_draws_finished){
+            alignas(32) unsigned char packet[kFxOctPacket];fx_trim_oct_packet(*s,e,fx_oct_p,fx_oct_q,packet);
+            stream_select(PVR_LIST_TR_POLY);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;stream_send(packet,kFxOctPacket);tabin::skip_fill=false;
+#else
+            stream_send(packet,kFxOctPacket);
+#endif
+            ++fx_direct;++fx_count;return 1;
+        }
+        const unsigned required=kSpriteNode+kFxOctPacket,margin=8192;
+        unsigned char* storage=frame_storage;unsigned* top=&deferred_top;
+        if(required+margin>deferred_top || deferred_top-required-margin<std::max(8192U,nquad*unsigned(sizeof(Re4dcUiQuad)))){
+            if(!deferred_spill){deferred_spill=static_cast<unsigned char*>(re4dc_model_deferred_storage(&deferred_spill_capacity));deferred_spill_top=deferred_spill_capacity;}
+            if(!deferred_spill || required>deferred_spill_top){++fx_dropped;return 0;}
+            storage=deferred_spill;top=&deferred_spill_top;
+        }
+        *top-=required;
+        auto* node=new(storage+*top) DeferredPart{};node->lighting=kFxOctTag;
+        fx_trim_oct_packet(*s,e,fx_oct_p,fx_oct_q,storage+*top+kSpriteNode);
+        if(deferred_last)deferred_last->next=node;else deferred_first=node;
+        deferred_last=node;++deferred_count;
+        ++fx_queued;++fx_count;
+        fx_peak=std::max(fx_peak,fx_count);
+        frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
+        return 1;
+    }
+#endif
+    if(fx_trim_kind==1)s=&trimmed;
+#endif
 #if RE4DC_TA_BIN_DIAG
     {
         const float xs[4]={s->x[0],s->x[1],s->x[2],s->x[3]},ys[4]={s->y[0],s->y[1],s->y[2],s->y[3]};
@@ -7020,6 +7115,22 @@ extern "C" void re4dc_model_finish_source_draws(){
             const bool screen=deferred_first->changed[0]!=0;
             deferred_first=deferred_first->next;fx_send(packet,screen);continue;
         }
+#if RE4DC_FX_SPRITE_TRIM
+        if(deferred_first->lighting==kFxOctTag){   // FX_SPRITE_TRIM octagon (fx_sprite_trim.inc)
+#if RE4DC_TA_MATERIAL_DIAG
+    tamat::Scope source_scope(4);
+#endif
+            const auto* packet=reinterpret_cast<const unsigned char*>(deferred_first)+kSpriteNode;
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=true;
+#endif
+            deferred_first=deferred_first->next;stream_send(packet,kFxOctPacket);
+#if RE4DC_TA_BIN_DIAG
+            tabin::skip_fill=false;
+#endif
+            continue;
+        }
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 4)
         if(deferred_first->lighting==kOctTag){
 #if RE4DC_TA_MATERIAL_DIAG

@@ -428,6 +428,11 @@ bool Package::validate() {
 namespace {
 bool palettes_initialized;
 std::uint64_t palette_reserved, palette_banks;
+// Test 12 (fx lane, tools/d367/test12fx/fx_pal4_pack.py): a bank is shared by every uploaded PAL4 texture whose 16
+// palette words are identical (an effect flipbook's frames carry their group's palette), counted per bank; the bank
+// is freed with its last texture. Banks outside palette_reserved only.
+std::uint8_t palette_refs[64];
+std::uint16_t palette_words[64][16];
 bool uses_palette(const Texture& texture) {
     return texture.format == kPal4Argb4444 ||
         (RE4DC_TREE_IMPOSTOR && texture.format == kPal4);
@@ -461,15 +466,30 @@ bool bind_palettes(Package& package) {
     for(std::uint32_t i = 0; i < package.header().texture_count; ++i) {
         auto& texture = const_cast<Texture&>(package.textures()[i]);
         if(!uses_palette(texture)) continue;
-        unsigned bank = 0;
-        while(palette_banks & (std::uint64_t(1) << bank)) ++bank;
-        palette_banks |= std::uint64_t(1) << bank;
-        texture.reserved_0 = bank + 1U;
         const auto* entries = reinterpret_cast<const volatile std::uint16_t*>(
             static_cast<const std::uint8_t*>(package.pvr_texture(i)) + texture.data_size - 32U);
+        std::uint16_t words[16];
+        for(unsigned k = 0; k < 16U; ++k) words[k] = entries[k];
+        unsigned bank = 64U;
+        for(unsigned b = 0; b < 64U && texture.format == kPal4Argb4444; ++b)
+            if(palette_refs[b] && palette_refs[b] < 255U && !std::memcmp(palette_words[b], words, sizeof(words))) {
+                bank = b;
+                break;
+            }
+        if(bank < 64U) {   // shared: the bank already holds these 16 words
+            ++palette_refs[bank];
+            texture.reserved_0 = bank + 1U;
+            continue;
+        }
+        bank = 0;
+        while(palette_banks & (std::uint64_t(1) << bank)) ++bank;
+        palette_banks |= std::uint64_t(1) << bank;
+        palette_refs[bank] = 1;
+        std::memcpy(palette_words[bank], words, sizeof(words));
+        texture.reserved_0 = bank + 1U;
         for(unsigned k = 0; k < 16U; ++k)
             pvr_set_pal_entry(bank * 16U + k,
-                palette_argb8888(entries[k], texture.format == kPal4Argb4444));
+                palette_argb8888(words[k], texture.format == kPal4Argb4444));
     }
     return true;
 }
@@ -477,7 +497,13 @@ void release_palettes(const Package& package) {
     for(std::uint32_t i = 0; i < package.header().texture_count; ++i) {
         auto& texture = const_cast<Texture&>(package.textures()[i]);
         if(!uses_palette(texture) || !texture.reserved_0) continue;
-        palette_banks &= ~(std::uint64_t(1) << (texture.reserved_0 - 1U));
+        const unsigned bank = texture.reserved_0 - 1U;
+        if(palette_refs[bank] > 1U) {
+            --palette_refs[bank];
+        } else {
+            palette_refs[bank] = 0;
+            palette_banks &= ~(std::uint64_t(1) << bank);
+        }
         texture.reserved_0 = 0;
     }
 }

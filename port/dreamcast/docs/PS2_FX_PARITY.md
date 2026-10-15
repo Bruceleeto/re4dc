@@ -1,0 +1,49 @@
+# PS2 effect parity, stage-1 rooms (tools/ps2_fx_parity.py)
+
+GC records matched to PS2 records by EFF, table, effect id, texture and position. same = every render field equal; changed = matched, a field differs (camera haze: hand-qualified rows, kPs2Haze); cut = no PS2 counterpart; added = PS2-only. "cut, runtime row" = the runtime (PS2_FX_GEN=1) can decline to draw it; "not representable" = no unique render-side selector (own trans, second EFF, shared selector).
+
+| Room | GC | PS2 | same | changed | cut | cut, runtime row | cut, not representable | changed, not representable | added |
+|---|---|---|---|---|---|---|---|---|---|
+| r100 | 391 | 127 | 11 | 53 | 327 | 187 | 140 | 52 | 63 |
+| r101 | 216 | 68 | 10 | 37 | 169 | 94 | 75 | 36 | 21 |
+| r102 | 56 | 81 | 10 | 26 | 20 | 3 | 17 | 25 | 45 |
+| r103 | 179 | 108 | 10 | 64 | 105 | 76 | 29 | 63 | 34 |
+| r104 | 33 | 22 | 0 | 14 | 19 | 9 | 10 | 13 | 8 |
+| r105 | 148 | 76 | 4 | 40 | 104 | 58 | 46 | 38 | 32 |
+| r106 | 270 | 58 | 10 | 20 | 240 | 192 | 48 | 18 | 28 |
+| r107 | 164 | 95 | 2 | 38 | 124 | 21 | 103 | 36 | 55 |
+| r108 | 90 | 52 | 7 | 22 | 61 | 54 | 7 | 22 | 23 |
+| r109 | 33 | 3 | 0 | 2 | 31 | 30 | 1 | 1 | 1 |
+| r10a | 222 | 77 | 1 | 52 | 169 | 80 | 89 | 51 | 24 |
+| r10b | 160 | 30 | 0 | 7 | 153 | 75 | 78 | 6 | 23 |
+| r10c | 175 | 212 | 26 | 61 | 88 | 18 | 70 | 60 | 125 |
+| r10d | 31 | 52 | 1 | 7 | 23 | 4 | 19 | 7 | 44 |
+| r10e | 18 | 31 | 2 | 7 | 9 | 2 | 7 | 6 | 22 |
+| r10f | 93 | 180 | 3 | 56 | 34 | 15 | 19 | 55 | 121 |
+| r111 | 138 | 104 | 16 | 34 | 88 | 64 | 24 | 33 | 54 |
+| r112 | 77 | 89 | 10 | 27 | 40 | 23 | 17 | 26 | 52 |
+| r113 | 208 | 130 | 9 | 71 | 128 | 86 | 42 | 70 | 50 |
+| r117 | 219 | 112 | 21 | 57 | 141 | 1 | 140 | 57 | 34 |
+| r118 | 227 | 155 | 21 | 61 | 145 | 57 | 88 | 61 | 73 |
+| r119 | 274 | 128 | 26 | 40 | 208 | 65 | 143 | 39 | 62 |
+| r11a | 229 | 95 | 0 | 62 | 167 | 79 | 88 | 61 | 33 |
+| r11b | 261 | 102 | 22 | 28 | 211 | 93 | 118 | 27 | 52 |
+| r11c | 162 | 79 | 5 | 32 | 125 | 70 | 55 | 31 | 42 |
+| r11d | 229 | 181 | 36 | 54 | 139 | 7 | 132 | 52 | 91 |
+| r11e | 110 | 80 | 7 | 30 | 73 | 3 | 70 | 29 | 43 |
+| r11f | 93 | 58 | 3 | 20 | 70 | 21 | 49 | 19 | 35 |
+| **all** | 4506 | 2585 | 273 | 1022 | 3211 | 1487 | 1724 | 994 | 1290 |
+
+## Cuts not representable render-side, by reason (all rooms)
+
+| Reason | Records |
+|---|---|
+| effect id with its own trans (not EspCommonTrans) | 525 |
+| PS2 has N record(s) within 100 mm (replaced, not deleted) | 484 |
+| PS2 has the same effect within 3 m (moved / re-authored, not deleted) | 222 |
+| unplaced (parent-relative) and PS2 keeps that effect id | 177 |
+| second EFF (owner set by its caller) | 168 |
+| selector shared with a kept record | 140 |
+| PS2 keeps Esp48 sheets with this texture | 8 |
+
+Changed records (matched, a render field differs) are not restyled by PS2_FX_GEN: a generic restyle of colour / size / fades would rewrite effect state, so only the hand rows (camera haze kPs2Haze, r104 statics) do it. Added PS2 records are never drawn (user decision: no wholesale PS2 EFF); the one hand-qualified addition is PS2_FX_ADDITIONS (r118 area 6, r11c haze).
