@@ -129,6 +129,7 @@ nominal
 low     --fill-hit 12 --fill-miss 20 --fill-ovh 0 --burst-tail 6 --wb-hit 8 --wb-miss 16 --sq-cost 10
 high    --fill-hit 16 --fill-miss 26 --fill-ovh 10 --burst-tail 4 --wb-hit 10 --wb-miss 20 --sq-cost 24
 nodma   --no-dma
+console --console-fit
 JOBS
 ( cd "$P" && awk 'NF' jobs.txt | while read -r n args; do
     echo "$HWSIM --elf $ELF --out $n $args $(echo $TR) > $n.log 2>&1"; done | xargs -P "$JOBS" -I{} bash -c "{}" )
@@ -154,7 +155,7 @@ fi
 CNT=(); [ -f "$E/trace/counts.bin" ] && CNT=(--counts "$E/trace/counts.bin" --count-frames \
   "$(echo "$COUNT" | awk -F: '{print $2-$1+1}')")
 python3 "$HERE/hwreport.py" --elf "$ELF" --sim "$P/nominal" --whatif low="$P/low" --whatif high="$P/high" \
-  --whatif nodma="$P/nodma" "${PCSA[@]}" ${AREARULES:+--area-rules "$AREARULES"} "${CNT[@]}" --out "$P/rep" --top 30 > "$P/report.txt"
+  --whatif nodma="$P/nodma" --whatif console="$P/console" "${PCSA[@]}" ${AREARULES:+--area-rules "$AREARULES"} "${CNT[@]}" --out "$P/rep" --top 30 > "$P/report.txt"
 python3 "$HERE/hwcompare.py" --cand "$P" --ref "$REF" --trace-log "$E/trace/hwtrace.log" | tee "$P/projection.txt"
 echo "[full report: $P/report.txt; tables: $P/rep/]"
 if [ "$DROP" = 1 ]; then
