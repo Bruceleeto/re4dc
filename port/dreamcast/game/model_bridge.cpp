@@ -378,3 +378,14 @@ extern "C" unsigned re4dc_model_drop_describe(const void* model) {
            (unsigned(m->nParts) & 0xffU);
 }
 #endif
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+// ACC_CROWD_TIER (crowd.mk): a hanging accessory object (cObj12, kind 1 id 0x12, em10SetAccesory) attached to a Ganado
+// (kind 0, id 0x10..0x20): that Ganado's model, else null. The parent link is Obj12Work::oya (cObj work + 0x10).
+#include "obj.h"
+extern "C" const void* re4dc_actor_accessory_parent(const void* model) {
+    const cModel* m = static_cast<const cModel*>(model);
+    if (!m || m->kindid != 1 || m->id != 0x12) return nullptr;
+    const cModel* oya = static_cast<const cObj*>(m)->o12.oya;
+    return oya && oya->kindid == 0 && oya->id >= 0x10 && oya->id <= 0x20 ? oya : nullptr;
+}
+#endif

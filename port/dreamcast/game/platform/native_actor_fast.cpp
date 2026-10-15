@@ -4450,11 +4450,32 @@ extern "C" unsigned re4dc_model_drop_last();
 #else
 #define RE4DC_DROP_ACTOR(pp, inner, cap) do { } while (0)
 #endif
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+extern "C" const void* re4dc_actor_accessory_parent(const void* model);  // model_bridge.cpp
+#endif
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes) {
     return stream && bytes>=sizeof(BlobHeader) && stream[0]==kMagic && stream[1]==kVersion;
 }
 extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     ++stats.parts;
+#if defined(RE4DC_ACC_CROWD_TIER) && RE4DC_ACC_CROWD_TIER
+    // ACC_CROWD_TIER=N (crowd.mk, render only): a Ganado's hanging accessory is not drawn while that Ganado's crowd
+    // tier this frame is >= N (2 mid, 3 far). Game state is untouched (the accessory still moves and renders on the
+    // source side); only its native draw is skipped, counted as a culled part.
+    if constexpr (kCrowd) {
+        if (part) {
+            if (const void* oya = re4dc_actor_accessory_parent(part->model)) {
+                for (unsigned i = 0; i < crowd_count; ++i)
+                    if (crowd[i].model == oya) {
+                        if (crowd[i].tier >= unsigned(RE4DC_ACC_CROWD_TIER)) {
+                            ++stats.culled_parts; re4dc_model_result(0, 0, 0); return 1;
+                        }
+                        break;
+                    }
+            }
+        }
+    }
+#endif
 #if RE4DC_ACTOR_CENSUS
     census_cur = nullptr; census_mat_row = nullptr;
     if (part) census_note(*part);

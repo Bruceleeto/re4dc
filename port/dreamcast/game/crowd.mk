@@ -526,3 +526,15 @@ $(error UI_SOURCE_LRU needs COPY_LEAN=1 (the source hints))
 endif
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_SOURCE_LRU=$(UI_SOURCE_LRU)
 endif
+
+# ACC_CROWD_TIER=N (lane crowd12 2026-10-15; render only, default 0; needs ACTOR_CROWD): a Ganado's hanging accessory
+# (cObj12 sack / lantern / bucket from em10SetAccesory) is not drawn while that Ganado's crowd tier is >= N (2: mid and
+# far, 3: far only). The accessory still moves and renders on the source side; only the native draw is skipped.
+ACC_CROWD_TIER ?= 0
+ifneq ($(filter-out 0 2 3,$(ACC_CROWD_TIER)),)
+$(error ACC_CROWD_TIER is 0, 2 or 3)
+endif
+ifneq ($(ACC_CROWD_TIER),0)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACC_CROWD_TIER=$(ACC_CROWD_TIER)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACC_CROWD_TIER=$(ACC_CROWD_TIER)
+endif
