@@ -865,16 +865,17 @@ $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_QUAD_LEAN=$(UI_Q
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_UI_QUAD_LEAN=$(UI_QUAD_LEAN)
 endif
 # UI_OT_CACHE=1 (lane uicoll 2026-10-15, backlog B3; exact, render only; docs/lanes/uicoll.md): the HUD's ID quads,
-#   with no storage of its own (~90 B .bss; the 48 KiB KOS squeeze gate has ~6 KB to spare in the r101 fight).
-#   native_ui.cpp re4dc_ui_submit: a quad equal word for word to the quad queued at the same position last frame,
-#   whose image's texture handle passes resolve()'s own hit test, stays in place (no finite test, copy or handle hash).
-#   ui_draw_quad: the quads go to the TA in batches of 8 (one store-queue lock per batch; the same words in the same
-#   order), the batch in the free middle of frame_storage. Runtime switch re4dc_ui_ot_cache_set(0/1) (POC101 layer
-#   0x08). =2: check build (every memo hit also runs the full path and compares; "UOC" lines). A per-unit corner
-#   memo in ui_bridge.cpp measured slower than the projection it saves (+0.037 MODELLED) and needs ~4 KB: not built.
+#   with no storage of its own (KOS: the 48 KiB squeeze gate's r101 fight run already fails at +1280 B of image).
+#   =1 native_ui.cpp ui_draw_quad: the quads go to the TA in batches of 8 (one store-queue lock per batch; the same
+#   words in the same order), the batch in the free middle of frame_storage.
+#   =2 adds the exact re4dc_ui_submit memo: a quad equal word for word (but its colour) to the quad its submission
+#   number queued last frame, whose image's texture handle passes resolve()'s own hit test, skips the finite test,
+#   handle hash and copy. =3: =2 + check (every hit also runs the full path; "UOC" lines).
+#   Runtime switch re4dc_ui_ot_cache_set(0/1) (POC101 layer 0x08). A per-unit corner memo in ui_bridge.cpp measured
+#   slower than the projection it saves (+0.037 MODELLED) and needs ~4 KB: not built.
 UI_OT_CACHE ?= 0
-ifneq ($(filter-out 0 1 2,$(UI_OT_CACHE)),)
-$(error UI_OT_CACHE must be 0, 1 or 2)
+ifneq ($(filter-out 0 1 2 3,$(UI_OT_CACHE)),)
+$(error UI_OT_CACHE must be 0, 1, 2 or 3)
 endif
 ifneq ($(UI_OT_CACHE),0)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_UI_OT_CACHE=$(UI_OT_CACHE)

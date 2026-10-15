@@ -458,17 +458,21 @@ Entry* handles[kQuadCount]; unsigned nquad,frame,used,peak,staging_peak;
 #if !RE4DC_UI_HANDLES || !RE4DC_SS_UI_ORDER || !RE4DC_PVR_STREAM || !RE4DC_D349_RENDERER_STACK || RE4DC_TA_GUARD
 #error UI_OT_CACHE needs UI_HANDLES=1 SS_UI_ORDER=1 PVR_STREAM=1 D349_RENDERER_STACK=1 TA_GUARD=0
 #endif
-// UI_OT_CACHE (game30.mk; lane uicoll 2026-10-15, backlog B3; exact, render only). No new storage beyond these
-// ~90 bytes: the KOS heap is the limit (the 48 KiB squeeze gate has ~6 KB to spare in the r101 fight).
-// The previous frame's queued quads stay in frame_storage: the deferred snapshots keep at least 8192 bytes above
-// the queue base (every deferred allocation checks max(8192, nquad * quad)), so quads[0, kUocPos) are written only
-// by the queue. re4dc_ui_submit compares an incoming quad with the quad queued at the same position last time and,
-// when every word matches and the image's texture handle passes resolve()'s own hit test, keeps it in place: no
-// finite test, no copy, no handle hash. ui_draw_quad's batch lives in the free middle of frame_storage.
+// UI_OT_CACHE (game30.mk; lane uicoll 2026-10-15, backlog B3; exact, render only). No storage of its own beyond
+// ~180 bytes: the KOS heap is the limit (the 48 KiB squeeze gate's fight run fails at +1280 B of image).
+// =1: ui_draw_quad sends the quads to the TA in batches of 8, the batch in the free middle of frame_storage.
+// =2 adds the submit memo: the previous frame's queued quads stay in frame_storage (the deferred snapshots keep at
+// least 8192 bytes above the queue base: every deferred allocation checks max(8192, nquad * quad)), so quads[0,
+// kUocPos) are written only by the queue. re4dc_ui_submit compares an incoming quad with the quad its submission
+// number queued last frame and, when every word but the colour matches and the image's texture handle passes
+// resolve()'s own hit test, admits it without the finite test, the handle hash or (same position) the copy.
+// =3: =2 plus the check (each hit also runs the full path; "UOC" lines).
+unsigned uoc_on=1;               // re4dc_ui_ot_cache_set (POC101 layer 0x08)
+#endif
+#if RE4DC_UI_OT_CACHE>=2
 constexpr unsigned kUocPos=8192/sizeof(Re4dcUiQuad);
 unsigned char uoc_hint[kUocPos]; // position -> handle_table index its image used last time (a hint: the hit test decides)
 unsigned uoc_vn;                 // quads[0, uoc_vn): admitted quads (finite) or glyph runs of the last frame with UI
-unsigned uoc_on=1;               // re4dc_ui_ot_cache_set (POC101 layer 0x08)
 constexpr unsigned kUocSeq=96;
 unsigned char uoc_prev[kUocSeq]; // submission number in the frame -> queue position it took last frame (0xff: none)
 unsigned uoc_seq;                // submissions so far this frame
@@ -4320,7 +4324,7 @@ extern "C" void re4dc_ui_retire_room(){
     // No queued draw may outlive its source room. Shared cached uploads may be
     // reloaded from their stable identities; no archive texels are needed.
     // Core descriptors belong to the persistent core region and survive this reset.
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
     uoc_frame_end();
 #endif
     nquad=0;model_used=0;model_handle=nullptr;sources_reset();room_identities.clear();identity_hits=0;
@@ -4735,7 +4739,7 @@ extern "C" void re4dc_ui_begin_skip(){
     if(stream_scene || stream_retire)re4dc_missing("native previous frame unresolved");
     stream_aborted=false;stream_model_bytes=0;
 #endif
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
     uoc_frame_end();
 #endif
     nquad=0;model_used=0;frame_ready=false;pace_skip_frame=true;++pace_skipped_frames;
@@ -4965,7 +4969,7 @@ extern "C" void re4dc_ui_begin(){
 #endif
     if(model_diagnostic==1 && frame%120==0)
         re4dc_log("native model DIAGNOSTIC boundary: frame=%u previous_bytes=%u committed_parts=%u invalid=%u resource=%u overflow=%u presented=%u\n",frame,model_used*32,model_parts,model_invalid,model_resource,model_overflow,model_presented);
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
     uoc_frame_end();
 #endif
     nquad=0;model_used=0;++frame;
@@ -5038,7 +5042,7 @@ extern "C" void re4dc_ui_begin(){
     frame_header_hits=model_header_hits;frame_header_builds=model_header_builds;
     frame_pvr_calls=frame_pvr_bytes=frame_queue_peak=frame_queue_drops=0;
 }
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
 // UI_OT_CACHE memo hit (see the state block at frame_storage). Submissions are numbered within a frame (every call,
 // culled ones included), and uoc_prev[] keeps the queue position each one took last frame. A quad is a hit when it
 // equals, word for word apart from its colour, a quad still held in the queue storage below max(nquad, uoc_vn)
@@ -5092,13 +5096,13 @@ void uoc_note(unsigned p,const Re4dcUiImage& image,const Entry* e){
 #endif
     for(unsigned w:ways)if(uoc_handle_is(handle_table[w],image,shape) && &entries[handle_table[w].entry]==e){uoc_hint[p]=(unsigned char)w;return;}
 }
-#if RE4DC_UI_OT_CACHE>=2
+#if RE4DC_UI_OT_CACHE>=3
 unsigned uoc_hits,uoc_misses,uoc_mismatch,uoc_why[4],uoc_seen;
 #endif
 #endif
 extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
     RE4DC_PROFILE_SCOPE(UiEnqueue);
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
     const unsigned uoc_s=uoc_seq++;
     unsigned uoc_pp=0xffU;
     if(uoc_s<kUocSeq){uoc_pp=uoc_prev[uoc_s];uoc_prev[uoc_s]=0xffU;}
@@ -5116,9 +5120,9 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
 #else
     if(nquad==kQuadCount){++dropped;return;}
 #endif
-#if RE4DC_UI_OT_CACHE
-    const unsigned uoc_keep=nquad>uoc_vn?nquad:uoc_vn;
 #if RE4DC_UI_OT_CACHE>=2
+    const unsigned uoc_keep=nquad>uoc_vn?nquad:uoc_vn;
+#if RE4DC_UI_OT_CACHE>=3
     ++uoc_why[uoc_pp>=uoc_keep?0:!handles[uoc_pp]?1:!uoc_same(quads[uoc_pp],*q)?2:3];
     if((++uoc_seen&2047)==0)re4dc_log("UOC why none=%u nohandle=%u differ=%u same=%u vn=%u\n",uoc_why[0],uoc_why[1],uoc_why[2],uoc_why[3],uoc_vn);
 #endif
@@ -5128,7 +5132,7 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
     if(uoc_on && uoc_pp<uoc_keep && handles[uoc_pp] && uoc_same(quads[uoc_pp],*q)){
 #endif
         if(Entry* e=uoc_resolve_hit(q->image,uoc_hint[uoc_pp])){
-#if RE4DC_UI_OT_CACHE>=2
+#if RE4DC_UI_OT_CACHE>=3
             // Check build: the full path on the same quad must admit it and resolve the same entry.
             bool finite=true;
             for(unsigned n=0;n<8;++n)if(!std::isfinite(q->xy[n]) || !std::isfinite(q->uv[n]))finite=false;
@@ -5149,7 +5153,7 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
             return;
         }
     }
-#if RE4DC_UI_OT_CACHE>=2
+#if RE4DC_UI_OT_CACHE>=3
     ++uoc_misses;
 #endif
 #endif
@@ -5189,7 +5193,7 @@ extern "C" void re4dc_ui_submit(const Re4dcUiQuad* q){
     Entry* handle=load(q->image);
 #endif
     if(!handle){++missing;return;}
-#if RE4DC_UI_OT_CACHE
+#if RE4DC_UI_OT_CACHE>=2
     uoc_note(nquad,q->image,handle);
     if(uoc_s<kUocSeq && nquad<kUocPos)uoc_prev[uoc_s]=(unsigned char)nquad;
 #endif
@@ -5237,7 +5241,11 @@ static void uoc_flush(){
     stream_send(uoc_batch,n*5*unsigned(sizeof(pvr_vertex_t)));
 }
 static pvr_vertex_t* uoc_batch_area(){
+#if RE4DC_UI_OT_CACHE>=2
     const unsigned keep=nquad>uoc_vn?nquad:uoc_vn;
+#else
+    const unsigned keep=nquad;
+#endif
     const unsigned lo=(keep*unsigned(sizeof(Re4dcUiQuad))+31U)&~31U,hi=deferred_top&~31U;
     return hi>=lo+kUocBatch*5*unsigned(sizeof(pvr_vertex_t))?reinterpret_cast<pvr_vertex_t*>(frame_storage+lo):nullptr;
 }
