@@ -116,11 +116,10 @@ for _r in ('r100', 'r101'):
 #               changes, regenerate it (tools/ps2_strip_groups.py + worldlean/sgcheck.py): the runtime refuses a stale r4sg
 #   merchant  = ps2lib/cast/r102/merchant-em18 (PS2_CAST_MERCHANT=1): registry + em18.drs (its textures are in t12tex)
 T12D = '/root/probe/lanes-20261014/t12rc/data'
-DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12b.pak'})
+DATA['t12tex'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': T12D + '/tex-t12c.pak'})
 MERCHANT = PRIV + '/ps2lib/cast/r102/merchant-em18'
 DATA['merchant'] = {k: MERCHANT + '/' + k for k in ('dc/native/r102/registry.re4nmr', 'em/em18.drs')}
 CLASH += [('t12tex', o) for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr', 'blackgc14v', 'blackgc14vl')]
-T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12,merchant'
 # PS2 Ganado accessories (test 12 item, lane ps2cast 2026-10-15; tools/d367/ps2cast/ps2_accessories.py): the village
 # Ganados' cObj12 caps / hats / glasses (em15 ARC 0x25F..0x269, em10SetAccesory) with the PS2 geometry and the PS2
 # pictures (8 dc/tex packages, loose here; a release puts them in tex.pak). em15.drs keeps its size and every other
@@ -148,6 +147,24 @@ DATA['items']['dc/tex.pak'] = ITEMS + '/tex-items.pak'
 for _f in sorted(Path(ITEMS + '/sscmn').glob('itm*')) if Path(ITEMS + '/sscmn').is_dir() else []:
     DATA['items']['ss/cmn/' + _f.name] = str(_f)
 CLASH += [('items', 'leonhr')]
+# Test 12 round 3 (rc dry run, 2026-10-15): items + acc12 join the stack.
+#   t12tex  now = tex-t12c.pak: t12-texpak.sh also merges lane items' tex-items.pak (86 PS2 pickup / debris packages)
+#           and acc12's 8 accessory packages (packed, not loose); sha256 1d52762d
+#   items12 = lane items' data on the RC's dars: r100 / r101 / r119 = the lane's dars (packed on objs12 / r119c, the same
+#           inputs as the RC); the other 14 route rooms = ps2_items.py pack (ps2_items-v2 lib) re-run on the RC's own
+#           dars (p2b-20261011 objects / audio-overlay; objs for those rooms is test 13), same asset names and results
+#           per room as the lane, NTR verify OK; core.das = the lane's (pack-core on the RC's core.das gives the same
+#           439ba106); the 18 SS/cmn pick-up zoom models. No tex.pak here (it is in t12tex). Recipe knob EFM_PS2_CUT=1.
+#   acc12d  = acc12all without the loose 'tex' (its 8 packages are in t12tex)
+T12I = T12D + '/items'
+DATA['items12'] = {k: v for _r in ('r100', 'r101', 'r119') for k, v in DATA['items-' + _r].items()}
+for _r in ('r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r11a r11b').split():
+    DATA['items12']['st1/%s.dar' % _r] = '%s/%s/%s.dar' % (T12I, _r, _r)
+DATA['items12'].update({k: v for k, v in DATA['items'].items() if k == 'etc/core.das' or k.startswith('ss/cmn/')})
+DATA['acc12d'] = {k: v for k, v in DATA['acc12all'].items() if k != 'tex'}
+CLASH += [('items12', 'items'), ('acc12d', 'acc12'), ('acc12d', 'acc12all')]
+# order matters: items12 after objs12 / r119c (its dars replace theirs), acc12d last
+T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12,merchant,items12,acc12d'
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
