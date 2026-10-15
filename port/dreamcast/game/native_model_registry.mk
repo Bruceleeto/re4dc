@@ -293,10 +293,25 @@ ifneq ($(PS2_DELLAGO)$(PS2_WOLF)$(PS2_CROW),000)
 # RE4DC_NMR_SOURCE_CULL bits: 2 em2f (PS2_DELLAGO), 8 em23 (PS2_CROW), 16 em22 (PS2_WOLF)
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_CULL=$(shell echo $$(( $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
 endif
-ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW),00000)
+# PS2_CAST_MERCHANT_LIT=1 (lane ps2cast 2026-10-14; default 0; render only; needs PS2_CAST_MERCHANT=1): bit 5 of
+#              NATIVE_MODEL_REGISTRY_SOURCE_LIGHT - the merchant's registry plan (em18) takes the source GX lighting record
+#              (actor_source_lighting) like the bosses / em17 / em22 / em23 above, instead of the constant colour that makes
+#              his PS2 robe brown-black where PS2 shows it blue-black under r102's night light. His robe / coat infos carry
+#              be_flag 0x20 (own material colour) but keep the constructor white, so the one-material check accepts them;
+#              any record the check refuses declines the whole merchant to the source path (ATD reason 26), as for the others.
+PS2_CAST_MERCHANT_LIT ?= 0
+ifeq ($(filter $(PS2_CAST_MERCHANT_LIT),0 1),)
+$(error PS2_CAST_MERCHANT_LIT must be 0 or 1)
+endif
+ifeq ($(PS2_CAST_MERCHANT_LIT),1)
+ifneq ($(PS2_CAST_MERCHANT),1)
+$(error PS2_CAST_MERCHANT_LIT=1 needs PS2_CAST_MERCHANT=1)
+endif
+endif
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW)$(PS2_CAST_MERCHANT_LIT),000000)
 # bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today; bit 3
 # (PS2_CROW): em23 likewise; bit 4 (PS2_WOLF): em22 likewise.
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) )))
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) + $(if $(filter 1,$(PS2_CAST_MERCHANT_LIT)),32,0) )))
 endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0

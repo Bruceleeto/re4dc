@@ -1,9 +1,11 @@
-PS2 cast lane: test 13 candidates (lane/ps2cast3, base test 11 eb4e8813; 2026-10-14)
+PS2 cast lane: test 12 candidates (moved from test 13 by the user's 2026-10-14 scope change: test 12 ships the complete
+PS2 world). lane/ps2cast3, base test 11 eb4e8813; 2026-10-14
 
 Candidate A: PS2 merchant (em18, r102)
   code      0d2eed0f ps2cast: PS2_CAST_MERCHANT (default 0, render only)
   knob      PS2_CAST_MERCHANT=1   (needs NATIVE_MODEL_REGISTRY_PACK=1 MASK=1 BONES>=64: already in the test 11 recipe)
-  data      re4-assets-private/ps2cast-t13-20261014/merchant-r102/ (mirrors the disc root; sha256 list beside it):
+  data      re4-assets-private/ps2lib/cast/r102/merchant-em18/ (preconverted library, INDEX.tsv rows; same bytes as
+            re4-assets-private/ps2cast-t13-20261014/merchant-r102/; mirrors the disc root; sha256 list beside it):
               dc/native/r102/registry.re4nmr      006e00eb 105,088 B (heap-4 arena 113,248 B)
               dc/tex/6/61519868-9ee3f93f.re4tex   2af4bac7 (chroma-weighted VQ atlas, vq_chroma.py)
               dc/tex/3/3f690586-7edb7c3e.re4tex   04277763
@@ -31,6 +33,13 @@ Gates (Flycast counts; no console measurement). Evidence C:\Flycast-Evidence\re4
     H2 + r102-shop STRICT / MUST-IDENTICAL; knob-off identical to a65045fe; r108 declined 872 -> 0; r11a 1,801 -> 0
   host gate   tools/d367/swap_park_test.sh: SS_CERT HOST GATES PASS (4 variants)
   stills      C:\Game Dev\Emulators\ps2cast-20261014\ps2stills\PS2CAST-SHEET.png (GC on DC | PS2 on DC | PS2 PCSX2)
-Known limits: the merchant draws flat (no source light; robe reads brown-black, PS2 blue-black); r102 VRAM headroom
+Optional A2 (merchant lighting, cheap): PS2_CAST_MERCHANT_LIT=1 (needs PS2_CAST_MERCHANT=1; code commit on lane/ps2cast3)
+  The merchant's registry plan takes the source GX lighting record (NATIVE_MODEL_REGISTRY_SOURCE_LIGHT bit 5, the path
+  em17 / em22 / em23 / bosses already use) instead of the flat constant colour. Robe / coat be_flag 0x20 infos keep the
+  constructor-white colour, so actor_source_lighting's one-material check should accept them; a refusal would decline
+  the whole merchant to the GC source path (ATD 26), so it is gated by a census before it joins.
+  Status: knob-off image eafa01ab (identical); knob-on arms build (p7ltW _end 8c41399c = merchant-only p6mtW, char-data
+  slack 416 B); Flycast census / stills / H2 NOT RUN yet (host at 9 Flycasts, lane cap 1 below 8).
+Known limits: without A2 the merchant draws flat (no source light; robe reads brown-black, PS2 blue-black); r102 VRAM headroom
 falls from ~130 KB to ~56 KB; r11a proof is weak (the em12 is off screen at the warp); grip hands stay GC-source
 geometry on the native path (as for appearances 1-4).
