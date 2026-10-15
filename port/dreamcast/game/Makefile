@@ -1625,6 +1625,25 @@ $(error RETIRE_KOS_FLOOR needs TEX_KEEP=1 TEX_META_EVICT=1)
 endif
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_RETIRE_KOS_FLOOR=$(RETIRE_KOS_FLOOR)U
 endif
+# ROOM_CHANGE_EVICT=<frames> (test 13, render only, default 0 = image unchanged; needs TEX_KEEP=1): VRAM graphics memory
+# rule. TEX_KEEP marked every kept entry "oldest" (frame 0) at room retirement, so the next room's preload and first
+# frames evicted among the previous room's leftovers in table order, not LRU: r101 -> r103 kept 209 entries (1.5 MB),
+# reused 23, evicted the common set (Leon, HUD) and kept r101-only scenery; the common set then reloaded in r103's first
+# frames into a 3.5 KB largest block, and the evictions armed the EFFECT_ROOM thrash guard (door103 full row: 6-18
+# guard_p refusals, in 12.1 and 12.2). With it, retirement keeps each entry's last-drawn frame (LRU order across the
+# change), and the next room's first preload pass, once its own listed textures are marked, closes every kept entry not
+# drawn in the old room's last <frames> frames and not leased or pinned. The new room's set loads into the freed pool;
+# the common set the old room drew to the end stays. Logs "native UI: room change evict:".
+ROOM_CHANGE_EVICT ?= 0
+ifneq ($(shell echo '$(ROOM_CHANGE_EVICT)' | grep -Ex '[0-9]+'),$(ROOM_CHANGE_EVICT))
+$(error ROOM_CHANGE_EVICT must be a frame count)
+endif
+ifneq ($(ROOM_CHANGE_EVICT),0)
+ifneq ($(TEX_KEEP),1)
+$(error ROOM_CHANGE_EVICT needs TEX_KEEP=1)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_ROOM_CHANGE_EVICT=$(ROOM_CHANGE_EVICT)U
+endif
 # PRELOAD_LARGE_FIRST=1 (lane vram12 D5, render only, default 0; needs TEX_RESIDENT=1): the room-entry preload loads its
 # picks of 16 KiB or more first, then the rest (two forward sweeps in disc order), so small packages do not fragment
 # the pool ahead of the large ones.
