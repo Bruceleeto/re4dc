@@ -180,6 +180,17 @@ PRESETS = {
     'zealot-em11-07': dict(archive='em11', sections=[(0x1fc, 'body'), (0x1fe, 'head'), (0x204, 'right-hand'), (0x208, 'left-hand')],
                            tpl=0x1fd, section_tpls={0x1fe: 0x201}, rooms=['r117'], types=[7], category='registry',
                            model_id=0x11, lit=True, subset_bones=True),
+    # NATIVE_MODEL_REGISTRY_POOL (lane ps2cast 2026-10-15): Em17Set type 0xc's whole section pool (body mot[1] 0x1CD /
+    # TPL mot[0] 0x1CE; head mot[2] 0x1CF and hit head mot[3] 0x1D0 with TPL mot[5] 0x1CE; em10HandSet right mot[6..10]
+    # 0x1C0..0x1C4 and left mot[11..14] 0x1C5..0x1C8, TPL mot[0]; em10SetAccesory whood mot[23] 0x1D3 with TPL mot[24]
+    # 0x1D4 (flag 0x400000) or mot[25] 0x1D5 (flag 0x40000)). Caps / glasses are separate Obj12 objects.
+    'ganado-em17-0cp': dict(archive='em17', sections=[
+        (0x1cd, 'body'), (0x1cf, 'head'), (0x1d0, 'head-hit'),
+        (0x1c0, 'right-hand'), (0x1c1, 'right-open'), (0x1c2, 'right-point'), (0x1c3, 'right-grip'), (0x1c4, 'right-scythe'),
+        (0x1c5, 'left-hand'), (0x1c6, 'left-open'), (0x1c7, 'left-point'), (0x1c8, 'left-grip'),
+        (0x1d3, 'whood', 0x1d4), (0x1d3, 'whood-b', 0x1d5)],
+        tpl=0x1ce, rooms=['r108', 'r113', 'r118'], types=[12], category='registry', model_id=0x17, lit=True,
+        subset_bones=True),
     # NATIVE_MODEL_REGISTRY_POOL (lane ps2cast 2026-10-15): the type 7 zealot's whole section pool, so every spawn's
     # source infos bind (em10ModelInit order: body, em10HeadSet head mot[2] / hit heads mot[3] / mot[4] with TPL mot[5];
     # em10HandSet right mot[6..9] and left mot[11..15], TPL mot[0]; em10SetAccesory hoods mot[26] / mot[27] with TPL
@@ -200,10 +211,11 @@ PRESETS = {
 def section_specs(spec):
     """Source BIN/role/TPL selections; old single-TPL presets keep their order."""
     overrides = spec.get('section_tpls', {})
-    bins = {arc for arc, _ in spec['sections']}
+    bins = {x[0] for x in spec['sections']}
     if set(overrides) - bins:
         raise ValueError('section_tpls names a BIN outside the selected sections')
-    return [(arc, role, overrides.get(arc, spec['tpl'])) for arc, role in spec['sections']]
+    # a section may name its own TPL as a third element (the same BIN under two TPLs: em10SetAccesory's whood colours)
+    return [(x[0], x[1], x[2] if len(x) > 2 else overrides.get(x[0], spec['tpl'])) for x in spec['sections']]
 
 
 def tpl_wrap_modes(data, image):
