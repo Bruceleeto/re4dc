@@ -35,6 +35,7 @@ cat > "$E/_tools/stage-$N.sh" <<EOS
 set -e; mkdir -p $ST $FIXD
 D=\$(python3 -c "import re;print(re.search(r\"^T11_DATA = '([^']*)'\", open('$T11/t11-fix.py').read(), re.M).group(1))")
 python3 $T11/t11-fix.py $L $FIXD/$N.json --data \$D --warp $W > $ST/fix-$N.txt
+python3 $KW/fix-replace.py $FIXD/$N.json $W >> $ST/fix-$N.txt
 cd "$HW" && python3 stage-scenario.py route-bench-$N --arm candidate-route$L --programs programs-route.json --overlay /mnt/c/Flycast-Evidence/re4-dreamcast/r11-media-overlay-r1/payloads --fixture $FIXD/$N.json > $ST/run-$N.json 2>&1 || true
 python3 -c "import json;d=json.load(open('$ST/run-$N.json'));print(d['status'],d['disc_sha256'])" || tail -5 $ST/run-$N.json
 EOS

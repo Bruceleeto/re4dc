@@ -22,6 +22,7 @@ FREE=$(df -BG --output=avail /mnt/c | tail -1 | tr -dc 0-9)
 D=$(python3 -c "import re;print(re.search(r\"^T11_DATA = '([^']*)'\", open('$T11/t11-fix.py').read(), re.M).group(1))")
 FIX=$LOG/fix/hw-$N.json
 python3 $T11/t11-fix.py $L $FIX --data $D --warp $HERE/benchmark-$SC-warp.txt > $LOG/fix-hw-$N.txt || exit 1
+python3 $HERE/fix-replace.py $FIX $HERE/benchmark-$SC-warp.txt >> $LOG/fix-hw-$N.txt || exit 1
 E=$EV/hwmodel-$N
 [ ! -e "$E" ] || { echo "$E exists"; exit 1; }
 cd "$HW" || exit 1
