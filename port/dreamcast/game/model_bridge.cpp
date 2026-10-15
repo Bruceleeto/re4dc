@@ -294,6 +294,11 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
 #endif
     auto* m=(const cModel*)model;auto* info=(const cModelInfo*)info_ptr;
     auto* part=(const ModelPart*)part_ptr;const auto* d=info->pData;
+#if defined(RE4DC_GC_STUB_SKIP) && RE4DC_GC_STUB_SKIP
+    // GC_STUB_SKIP (crowd.mk): fewer than 3 positions draws nothing on any path (every path declines or emits
+    // degenerate triangles); skip the per-part record, actor attempt and builder.
+    if(d->nVtx<3)return;
+#endif
     Re4dcModelPart p{};p.model=m;p.info=info;p.part=part;
     const bool rigid=(m->be_flag&0x4000) ||
       (d->weight_palette_num<=1 && d->weight_ext_num<=0xff && !(info->be_flag&2) && d->nParts==1);

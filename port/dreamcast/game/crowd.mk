@@ -555,3 +555,10 @@ GCOBJ_SKIP ?= 0
 ifneq ($(GCOBJ_SKIP),0)
 $(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GCOBJ_SKIP=$(GCOBJ_SKIP)
 endif
+
+# GC_STUB_SKIP=1 (lane crowd12 2026-10-15; render only, exact; default 0): a GC-path model part with fewer than 3
+# positions (cannot form a triangle; r101's objs-fixture cObj00 stubs) skips re4dc_draw_model_part's per-part work.
+GC_STUB_SKIP ?= 0
+ifneq ($(GC_STUB_SKIP),0)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GC_STUB_SKIP=$(GC_STUB_SKIP)
+endif
