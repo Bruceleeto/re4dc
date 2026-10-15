@@ -117,6 +117,19 @@ DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
 TEX14 = OBJS + '/tex14'
 for _r in OBJS_ROOMS:
     DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX14, _r, _r), 'tex': '%s/%s/tex' % (TEX14, _r)}
+# objs13-<room> / objs13 (lane objs 10-15, test 13, on the published test 12 package pkg-t12c2tP.json): PS2 room objects
+# for r102..r10b, r117, r118, r119, r11a, r11b with the breakable class left GameCube (gen13.sh: ps2_objects.py from the
+# GC source dars, so the p2b PS2 breakables of tests 8..12 go back to GC), lane items' ps2_items.py pack on top (same
+# changed bytes / counts as the test 12 items dars) and PS2 pictures (ps2_objects_tex.py v2, --pak tex-t12d.pak).
+# Replaces the test 12 st1/<room>.dar of items12 / the RC's items dars; r100 / r101 stay objs12b + items (test 12).
+# Gates: docs/lanes/objs.md "Test 13 objects on the test 12 base". Use with the test 12 base: t11-fix.py <label> <out>
+# --base .../t12rc/fix/pkg-t12c2tP.json --base-label t12c2tP --data objs13.
+OBJS13 = OBJS + '/t13'
+OBJS13_ROOMS = 'r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r119 r11a r11b'.split()
+for _r in OBJS13_ROOMS:
+    DATA['objs13-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (OBJS13, _r, _r), 'tex': '%s/%s/tex' % (OBJS13, _r)}
+DATA['objs13'] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (OBJS13, _r, _r) for _r in OBJS13_ROOMS}
+DATA['objs13']['tex'] = OBJS13 + '/tex-all'  # one copy per key (store13.sh; shared pictures differ only in header source name)
 for _r in ('r100', 'r101'):
     DATA['objs-%sp' % _r] = {'st1/%s.dar' % _r: '%s/%sp/%s.dar' % (OBJS, _r, _r)}
 # (later --data names win: '--data <test 11 data>,objs,objs-r100p' = every room with the padded r100)

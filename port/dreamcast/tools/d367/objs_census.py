@@ -22,6 +22,11 @@ KNOWN = {
     'et1100.bin@r119': 'r119 dark block (look lane): et1100 stays GC with BIN 0x22 converted',
     'et1000.bin@r119': 'r119 keeps the r119c package (heap 4 at the limit; not regenerated)',
 }
+# Breakable class (EtcModel.cpp cEmBox / cEmBarrel family; coordinator 10-15 documented exception "game logic reads the
+# model's geometry"): the break debris is spawned on the box model, so these stay GameCube in every room.
+for _nm in ('et0100', 'et0200', 'et1100', 'et1200', 'et1e00', 'et1f00', 'et2d00', 'et2e00', 'et2e01', 'et2f00',
+            'et2f01', 'et3c00'):
+    KNOWN.setdefault(_nm + '.bin', 'breakable (cEmBox / cEmBarrel): stays GC, debris spawned on the box model')
 
 
 def main():

@@ -339,5 +339,91 @@ from the >= 30 ms the console shows. So the cross view's extra cost is not TA in
    that runs only with the cross in view (the effect emitters / sprites). Flycast hides misaligned faults; an align-
    logger run on the cross view would show them.
 3. World submit: +43 % vertices and 2x strips culled after transform in the cross direction (a few ms modelled).
-hw-model ms per bucket for both views: not run (host to the test 12 RC); the fixtures are ready
-(fix/x101-{cross,wall}-t12r8tW.json).
+hw-model ms per bucket for both views: see the next section (run 10-15 on the published test 12 recipe).
+
+### hw-model buckets, cross vs wall (MODELLED, not console; 10-15 ~04:10)
+
+Build t12c2tW 3fb11639 = the published test 12 recipe (t12rc ac1c912e, release-knobs.txt) + DBG_WARP + PC_SAMPLER;
+data pkg-t12c2tP.json (the published package) with the x101 warps (fix/x101-{cross,wall}-t12c2tW.json); global frames
+1000:1119, trace stride 7 (18 traced ticks per view); work/x12.sh -> o-hw.sh; evidence objs-20261014\hwmodel-hw-x12cross
+/ -x12wall, buckets work/hwlog/bucket-hw-x12{cross,wall}.md. Each run took 2 m 17 s of wall clock (boot + warp to vbl
+~1000 + trace; named exception to the 1-minute rule, the captured window itself is 120 frames).
+
+| | cross | wall |
+|---|---|---|
+| drawn tick (hw ms nominal [low..high]) | 47.99 [41.1..57.9] | 36.33 (every tick drawn) |
+| skipped tick | 11.18 | - |
+| pacing | over 33 ms: draws every other tick, ~59 ms / 2 ticks, ~17 fps | ~27.5 fps |
+| console (preview 2 t12r8pP, RC lead) | ~12.5 fps | 19.9 fps |
+| modelled / console fps | 1.36 | 1.38 |
+
+The model under-reads both views by the same factor, so the view gap is CPU the model already sees (a stall only the
+cross direction has, e.g. TA back-pressure or traps, would make the factor view-dependent). Caveat: console = preview 2,
+model = published test 12. Cross minus wall per drawn tick, +11.7 ms: RENDER/world +4.73 (transform_sched +1.20,
+walk_lean +0.54, MeshDraw +0.80, sg_select +0.38, box_mask / box_class +0.48), RENDER/models(other) +3.79 (GC-format
+model parts: avk_pos_skin_s16 +0.65, light_skin +0.44, pos_rigid_s16 +0.36, actor_submit +0.38, load / resolve /
+memcmp +0.87, build_lights +0.20, draw_model_part +0.18), RENDER/effects +1.44 (pyre fire; EspCommonTrans +0.33),
+RENDER/deferred-source-draws +1.15, PS2-world TR flush in the actor pass +1.1; LOGIC equal (8.9 / 8.4..8.9). Getting
+the cross drawn tick under ~36 ms would pace it like the wall; the model-path share is what STATIC_OBJ_BAKE +
+PS2_PLACE_GATE move into the world pass.
+
+## Test 13 objects on the test 12 base (10-15 morning)
+
+What tests 8..12 ship: the p2b 10-11 object dars (packed by lane items for test 12) for r103 r104 r106 r107 r108 r10a
+r10b r117 r118 r11a r11b; they skipped every PS2 mesh not smaller than GC and they CONVERTED breakables: et1100 (wood
+box) in r103 r104 r106 r107 r10a r10b r117 r11a r11b, et0100 / et0200 in r103 r106 r108 r10a r10b r118 r11a r11b
+(census-t11.txt). r119 ships r119c (BIN 0x22 only). r102 r105 r109 had no object dar.
+
+**Known issue fix (coordinator 10-15): the objs13 dars put the GameCube breakables back in every route room, which is
+the fix for the "dark box debris" known issue (a converted et1100 box breaks into a flat dark-grey shard instead of
+GC's white splinters; r119 study above). It lands with objs13 in test 13; KNOWN_ISSUES.md should point there.**
+
+Pipeline (tools/d367/objs13/, work dir work/out/<room>{g,t,x}):
+1. gen13.sh: ps2_objects.py room --keep-larger from the GC source dars (the p2b dar_in / audio-overlay / aica-<room>)
+   with the breakable class left out, so the p2b PS2 breakables go back to GC. -> <room>g
+2. ps2_items.py pack (lane items, t12rc ac1c912e tools, shared ps2lib) on top. Reproduces the test 12 items dars byte
+   for byte from the p2b inputs (r10b 8c219dda...); on the new dars the changed bytes and per-class counts equal the
+   test 12 packs in all 14 rooms compared. -> <room>t
+3. tex16.sh: ps2_objects_tex.py v2 (material pairs, --pak tex-t12d.pak). -> <room>x (dar + loose pictures)
+4. store13.sh -> re4-assets-private/objs-20261014/t13/<room>/ (+ tex-all: one copy per key; a picture two rooms
+   share has the same texels and differs only in its header's source-name field, offsets 36..39 / 48..).
+
+ps2_objects_tex.py fix (r105 TEXCHK "pair missing 2e433600-96ee4004 color=2559b3ac mask=1fa01187"): an ETM TPL image
+is one payload record, so swapping it for a converted model also swaps it for every etc model binding the same TPL.
+et0001 (window frame, converted) shares et0000.tpl image 0 with the GC window pane et0000, which draws it with a mask.
+Now an image that an unconverted etc model also draws keeps its GC picture (listed as GC-TEX; --share-gc-pictures =
+old behaviour). Only r105 and r107 changed (et0001 image 0); every other room's dar and pictures are byte-identical.
+
+Switch: t11-fix.py data sets `objs13` (15 rooms, tex-all) and `objs13-<room>`, with `--base
+.../t12rc/fix/pkg-t12c2tP.json --base-label t12c2tP`. Disc data only (the executable is unchanged; knob-off = the test
+12 image). Offline census (objs_census.py; KNOWN now lists the breakable class): exit 0, GC=0 in every room;
+GC-known = breakables, window panes et0000 / et2500, torch et1400 (absent from the PS2 ETM).
+
+Gates (Flycast, published test 12 builds t12c2tT trace / t12c2mW TEX_CHECK=2 + MCHECK_LEONGC; fixtures
+fix/g16-<r>-{c,t}-t12c2tT.json + g16-<r>-t-t12c2mW.json from mkfix16.sh; warp work/warps/w<r>.txt (r11b x11b, r119
+st-r119); trace stop tick 600 on both runs, trace_lock; 60 s runs, one Flycast; evaluator g16eval.sh):
+
+| room | converted (GC tris -> PS2 tris) | still GC | payload B (test 12 -> t13) | STRICT + decision_cmp | TEX_CHECK / LEON-GC / pair missing |
+|---|---|---|---|---|---|
+| r102 | et0a00 828->828, et0d00 56->176, et1300 870->870, et2c00 80->80, et2c01 93->93 | et0100 et1100 (breakable) | 1,277,408 -> 1,281,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r103 | et0500 240->564, et0600 144->144, et1a00 952->68 | et0100 et0200 et1100 | 1,434,880 -> 1,444,864 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r104 | BIN 0x20 464->464, et0600 144->144, et1300 870->870, et1700 84->204 | et1100 et1200 | 1,274,880 -> 1,281,472 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r105 | et0001 76->74 (GC picture), et2200 870->870, et2400 56->366 | et0200 et1100 et1f00, panes | 1,399,936 -> 1,408,000 | v1 602 STRICT MUST-IDENTICAL; v3 rerun queued | v1 FAIL (pair missing 1, fixed in v3); v3 queued |
+| r106 | BIN 0x20 464->464, 0x32 510->510, 0x34 324->612, 0x36 388->388, et0500 240->564, et0d00 56->176 | et0100 et0200 et1100 et1f00 | 1,607,424 -> 1,624,704 | frame-aligned FAIL: room setup tick 7 -> 8 (load timing); with that 1-tick offset 412 ticks STRICT; pak-vs-loose runs queued | PASS / PASS / 0 |
+| r107 | et0001 76->74 (GC picture), et0700 84->252, et0701 114->114, et1600 196->468, et2b00 56->176 | et1100, pane | 1,321,984 -> 1,332,928 | v1 602 STRICT MUST-IDENTICAL; v3 rerun queued | v1 PASS; v3 queued |
+| r108 | et1a00 952->68 | et0100 et1f00 | 1,328,480 -> 1,329,408 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r109 | et1000 414->414 | et1100 | 532,672 -> 532,544 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r10a | BIN 0x20 464->464 | et0100 et1100 et1f00 | 1,646,304 -> 1,649,536 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r10b | BIN 0x1e 2100->529 | et0100 et1100 et1f00 | 1,650,976 -> 1,653,824 | 602 STRICT, MUST-IDENTICAL | PASS / PASS / 0 |
+| r117 | BIN 0x1f 2576->1270 (GC picture: one GC image sampled by PS2 images 0/1/3), et1600 196->468 | et1100 | 853,728 -> 859,968 | queued | queued |
+| r118 | et1a00 952->68 | et0100 et1f00, torch et1400 | 1,361,632 -> 1,362,560 | queued | queued |
+| r11a | et1000 414->414 (from r109's PS2 ETM) | et0100 et1100 et1f00, torch | 1,419,968 -> 1,422,688 | queued | queued |
+| r11b | BIN 0x1f 2100->529, et0300 870->392 | et0100 et1100 et1f00, torch | 1,433,920 -> 1,436,768 | queued | queued |
+| r119 | BIN 0x22 1964->1328, et1000 414->414 | et1100 | 1,298,208 -> 1,298,080 | queued | queued |
+
+Payload test 12 = the census of the test 11 dars (test 12 items packs keep the payload size). The p2b rooms grow by a
+few KB where breakables return to GC and --keep-larger converts the finer PS2 meshes; heap 4 is checked by the gates
+(no "no contiguous block", halt 0). Coverage (PS2 picture keys seen loading in the 60 s mcheck window): r102 4/10,
+r103 1/3, r104 1/5, r108..r10a 1/1, r10b 2/5; the rest load outside the warp view (room-resident pictures are read at
+entry only when drawn).
+

@@ -299,6 +299,8 @@ def main():
     ap.add_argument('--gc-iso', default=GC_ISO); ap.add_argument('--ps2-iso', default=PS2_ISO); ap.add_argument('--gc-room')
     ap.add_argument('--pak', help='dc/tex.pak: a pair is built only when the GC pair (GC colour + mask key) is in it')
     ap.add_argument('--uv-fold', action='store_true', help='ps2_objects converter v3: fold PS2 triangle UVs into [0, 1]')
+    ap.add_argument('--share-gc-pictures', action='store_true',
+                    help='old behaviour: also swap an ETM TPL image that an unconverted (GameCube) etc model draws')
     a = ap.parse_args()
     paks = pak_keys(a.pak) if a.pak else None
     from assetpipe.rooms import GcIso
@@ -334,6 +336,26 @@ def main():
         l_etm = {n.lower(): (le[ei][1] + s + 0x40, le[ei][1] + e) for n, s, e in po.etm_entries(bytes(pay[le[ei][1]:le[ei][2]]), '<')}
         pbm = next((b for t, b in pe.values() if t == 'ETM'), None)
         p_etm = {n.lower(): pbm[s + 0x40:e] for n, s, e in po.etm_entries(pbm, '<')} if pbm else {}
+    # Shared ETM pictures (10-15, r105 test 13 TEXCHK "pair missing"): an ETM TPL image is one record in the payload, so
+    # swapping it for a converted model also changes it for every etc model that binds the same TPL. When one of those
+    # stays GameCube (window pane et0000 with the frame et0001: et0000.tpl image 0 is the pane's colour with a mask
+    # image; breakables) the swap would leave its colour + mask pair without a package, or put the PS2 picture on GC
+    # geometry. Such images keep the GC picture (the converted model's PS2 UVs index the GC texture space anyway).
+    conv = {o['name'].lower() for o in rep['objects'] if o['kind'] != 'room BIN' and not o.get('skipped') and o.get('name')}
+    gc_tpl_users = {}  # tpl name -> {image index: [GC etc model names drawing it]}
+    for nm2, b2 in g_etm.items():
+        if not nm2.endswith('.bin') or nm2 in conv:
+            continue
+        bb = binds.get(nm2)
+        own2 = bb[1] if bb and bb[0] == 'tpl' else nm2.replace('.bin', '.tpl')
+        try:
+            parts2 = po.GcModel(b2).parts
+        except Exception:
+            continue
+        for q in parts2:
+            if q['tris']:
+                for k2 in {q['hdr'][0x0C]} | ({q['hdr'][0x0E]} if q['hdr'][0x0B] & 4 else set()):
+                    gc_tpl_users.setdefault(own2, {}).setdefault(k2, set()).add(nm2)
     done = {}  # record offset -> key
     done_gc, done_img, built = {}, {}, {}  # record offset -> GC key / (picture, key, PS2 image) / masks paired
     report = dict(room=room, dar_in=a.dar, dar_in_sha256=sha(bytes(dar)), models=[], images=[], pair_extras=[])
@@ -341,6 +363,7 @@ def main():
         if o.get('skipped') or o.get('ps2_arc') == 'world':
             continue
         entry = dict(kind=o['kind'], name=o.get('name') or o.get('gc_arc'))
+        own_tpl = None
         try:
             if o['kind'] == 'room BIN':
                 ga, pa = int(o['gc_arc'], 16), int(o['ps2_arc'], 16)
@@ -390,6 +413,7 @@ def main():
                     gtpl = l_etm[own][0]; ptpl_d, ptpl_o = p_etm_src[own], 0
                     gsrc = g_etm[own]
                     src = 'ETM/%s | PS2 ETM/%s' % (own, own)
+                    own_tpl = own
                 elif b and b[0] == 'efm' and b[1] in l_etm and b[1] in p_etm_src:
                     eff = b[1]; eid = b[2]
                     lo = l_etm[eff][0]
@@ -461,6 +485,12 @@ def main():
                             raise ValueError('image %d (swapped for an earlier model): %s: PAIR MISSING at run time' % (k, why))
                         report['pair_extras'].append(dict(model=entry['name'], image=k, pairs=write_pairs(k, rgba0, key0, jobs, entry['name'])))
                         built[rec] |= extra
+                    continue
+                gcu = gc_tpl_users.get(own_tpl, {}).get(k) if own_tpl else None
+                if gcu and not a.share_gc_pictures:
+                    entry.setdefault('kept_gc_images', []).append(dict(
+                        image=k, why='image %d of %s is also drawn by GameCube model(s) %s: colour kept GC' % (
+                            k, own_tpl, ','.join(sorted(gcu)))))
                     continue
                 native = magic in (b'R4NREF\0\0', b'R4PREF\0\0')
                 if not native and (gfmt in (8, 9, 10) or rec & 3 or wr_size(gw, gh, gfmt) < 32):
