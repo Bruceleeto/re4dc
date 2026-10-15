@@ -5095,8 +5095,7 @@ extern "C" void re4dc_ui_present(){
         const unsigned head = kf + kb;
         if (head + 2048 <= kw_min || frame % 60 == 0) {
             if (head < kw_min) kw_min = head;
-            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u
-", frame, kf, ku, kb, head, kw_min);
+            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u\n", frame, kf, ku, kb, head, kw_min);
         }
     }
 #endif
