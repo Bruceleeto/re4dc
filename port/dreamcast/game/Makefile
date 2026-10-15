@@ -693,6 +693,21 @@ endif
 ifneq ($(DCINV_PURGE)$(DCINV_AUDIT),00)
 $(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_DCINV_PURGE=$(DCINV_PURGE) -DRE4DC_DCINV_AUDIT=$(DCINV_AUDIT)
 endif
+# MAPLE_RECV_PURGE=1 (test 12 console faults, default 0): KOS maple_frame_init clears a frame's receive buffer through
+# its uncached (P2) alias and maple DMA then writes the device's answer to RAM, but nothing writes back or drops the
+# buffer's cached (P1) lines first. A device frame lives in a calloc'd maple_device_t (the detect frame in .bss, cleared
+# at start-up): those zeroing stores sit dirty in the operand cache and, when evicted, overwrite the answer the DMA
+# has just landed (Flycast cache observer + maple DMA: DMA-OVER-DIRTY then CLOBBER-WB on the unit A0 and detect
+# receive buffers within 0.1 s of boot). A link wrap of maple_frame_init (platform/misc.cpp) writes those 32 lines back
+# (ocbp) before KOS clears the buffer. Boot and hot-plug window only; once clean the P1 lines are never cached again.
+MAPLE_RECV_PURGE ?= 0
+ifneq ($(filter $(MAPLE_RECV_PURGE),0 1),$(MAPLE_RECV_PURGE))
+$(error MAPLE_RECV_PURGE must be 0 or 1)
+endif
+ifneq ($(MAPLE_RECV_PURGE),0)
+$(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_MAPLE_RECV_PURGE=1
+GAME_LDFLAGS += -Wl,--wrap=maple_frame_init
+endif
 # CRASH_SCREEN=1 (hardware readiness, default 0): a fault, a source HALT() or 30 s without a new frame
 # draws a report (stop kind, PC/PR/stage, threads, newest log lines) into frame buffer 0, for a photo
 # on hardware where the log ring cannot be read. platform/crash_screen.cpp.

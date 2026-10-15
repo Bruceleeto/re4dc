@@ -171,3 +171,18 @@ void re4dc_FlgOnStatus(Event* e, u32 no)
     u32* f = (u32*) ((u8*) e + 0x44);
     f[no >> 5] |= 0x80000000u >> (no & 0x1F);
 }
+
+#if defined(RE4DC_MAPLE_RECV_PURGE) && RE4DC_MAPLE_RECV_PURGE
+// MAPLE_RECV_PURGE=1 (Makefile): before KOS clears a maple frame's receive buffer through P2 (and maple DMA writes the
+// device's answer there), write back and drop the buffer's cached P1 lines, so a dirty line left by the calloc of the
+// device (or the start-up .bss clear of the detect frame) can never be evicted over the answer. Same buffer KOS picks:
+// recv_buf_arr rounded up to 32 bytes, 1024 bytes.
+extern "C" void __real_maple_frame_init(maple_frame_t* frame);
+extern "C" void __wrap_maple_frame_init(maple_frame_t* frame)
+{
+    const uintptr_t b = (((uintptr_t) frame->recv_buf_arr + 31) & ~(uintptr_t) 31 & 0x1FFFFFFFu) | 0x80000000u;
+    for (uintptr_t l = b; l < b + 1024; l += 32)
+        __asm__ __volatile__("ocbp @%0" : : "r"(l) : "memory");
+    __real_maple_frame_init(frame);
+}
+#endif
