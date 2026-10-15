@@ -443,7 +443,6 @@ extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned b
 extern "C" void* re4dc_static_alloc(unsigned bytes);
 extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned* fnv);  // native_ui.cpp
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
-class cEm; int getRoomEtc2(int no, cEm** out, int flag);  // EtcModel.cpp
 namespace sobdump {
 constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96;
 struct State { unsigned generation,used,sent,nseen,done; const void* seen[kSeen][2]; unsigned char data[kBytes]; };
@@ -494,8 +493,7 @@ void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelP
     for(unsigned i=0;i<S->nseen;++i)if(S->seen[i][0]==m && S->seen[i][1]==pt)return;
     if(S->nseen>=kSeen || S->used>kBytes)return;
     S->seen[S->nseen][0]=m;S->seen[S->nseen][1]=pt;++S->nseen;
-    int slot=-1;
-    for(int i=0;i<0x40;++i){cEm* e=nullptr;if(getRoomEtc2(i,&e,0) && (const void*)e==(const void*)m){slot=i;break;}}
+    const int slot=-1;  // objects are keyed by id + rest position (getRoomEtc2 is not in the image)
     unsigned list_idx=0;{const ModelPart* q=d->pParts;while(q && q!=pt && list_idx<d->displist_num){q=(const ModelPart*)((const unsigned char*)q+0x20+q->size);++list_idx;}}
     const bool encoded=re4dc_actor_stream_encoded(p.stream,p.stream_bytes)!=0;
     const unsigned stride=(p.flags&0x80000000U)?8U:6U;
