@@ -611,6 +611,9 @@ void org_LoadTexObj(u32 id, int map)
 #if RE4DC_PACE_CATCHUP
 // port/dreamcast/game/pace.cpp (PACE_CATCHUP): render skip with catch-up.
 extern "C" int re4dc_pace_skipping;     // ModelRender: this iteration draws nothing
+#if RE4DC_EFM_PS2_CUT
+extern "C" int re4dc_efm_ps2_cut(const cModel* m);  // eff_sys.cpp EFM_PS2_CUT: an effect model the PS2 deleted
+#endif
 #if RE4DC_ACTOR_SWAP
 extern "C" int re4dc_actor_swap(cModel* m);   // ACTOR_SWAP benchmark (port/dreamcast/game/actor_swap.cpp)
 #endif
@@ -2675,6 +2678,12 @@ void ModelRender(cModel* m)
     if (m->invisible_factor * m->invisible_factor2 == 0.0f) {
         return;
     }
+#if RE4DC_EFM_PS2_CUT
+    // EFM_PS2_CUT (render only): an effect model the PS2 release deleted is not drawn; its object runs unchanged.
+    if (re4dc_efm_ps2_cut(m)) {
+        return;
+    }
+#endif
 #if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 1
     if (g_invisReplayNum != 0) {
         u32 k;
