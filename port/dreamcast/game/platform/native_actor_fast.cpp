@@ -1592,6 +1592,21 @@ struct Lights {
     bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
 #endif
 };
+// The fold's start state. MEMSET_LEAN=1 (crowd.mk; render only): every field but `prepared` is reset; prepared is
+// read only by pass_lights_exact (a fold that returned false), and the callers assign it on that return.
+inline void lights_reset(Lights& L) {
+#if defined(RE4DC_MEMSET_LEAN) && RE4DC_MEMSET_LEAN
+    L.fast = false; L.constant = false; L.count = 0; L.constant_rgb = 0;
+    for (unsigned i = 0; i < 3; ++i) { for (unsigned c = 0; c < 4; ++c) L.dir[i][c] = 0.0f; L.view_dot[i] = 0.0f; }
+    for (unsigned i = 0; i < 16; ++i) L.color[i] = 0.0f;
+    L.source = nullptr;
+#if RE4DC_ACTOR_PROBE_LIGHT
+    L.probe = false;
+#endif
+#else
+    L = Lights{};
+#endif
+}
 #if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
 // LEON_LIGHT_HEADROOM: Leon's lit record (LEON_SOURCE_LIGHT marks it in normal_matrix[3]) and its colour gain.
 inline bool leon_record(const SourceLighting& S) { return S.normal_matrix[3] == 1.0e30f; }
@@ -1671,7 +1686,7 @@ bool build_lights(const Re4dcModelPart& p, const Frame& f, const float center[3]
 #if RE4DC_GIGANTE_LIGHTS
     const unsigned keep = gigante_keep(p);
 #endif
-    L = Lights{};
+    lights_reset(L);
     L.source = &S;
     constexpr float k = 1.0f / 255.0f;
     float scale[3], ambient[3];
@@ -1901,7 +1916,7 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
     }
     const ProbeEntry& e = probe_of(p);
     if (!e.ok) { ++probe_stats.declined; return false; }
-    L = Lights{};
+    lights_reset(L);
     L.source = &S;
     L.probe = true;
     L.dir[0][0] = (N[0] * e.v[0] + N[4] * e.v[1] + N[8] * e.v[2]) * f.nq;
@@ -1972,7 +1987,7 @@ bool part_lights(const Re4dcModelPart& p, const Frame& f, const float center[3],
 #if RE4DC_LEON_LIGHT_TOGGLE
     if ((re4dc_leon_light_mode == 0 || re4dc_leon_light_mode == 3) && leon_record(*p.lighting)) {
         const SourceLighting& S = *p.lighting;
-        L = Lights{};
+        lights_reset(L);
         L.source = &S;
         L.constant = true;
         L.constant_rgb = 0x808080U;  // FLAT: 128 on the 2x textures = test 10's white

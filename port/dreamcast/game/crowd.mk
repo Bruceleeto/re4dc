@@ -538,3 +538,11 @@ ifneq ($(ACC_CROWD_TIER),0)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACC_CROWD_TIER=$(ACC_CROWD_TIER)
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_ACC_CROWD_TIER=$(ACC_CROWD_TIER)
 endif
+
+# MEMSET_LEAN=1 (lane crowd12 2026-10-15; render only, default 0): repeated per-part clears that MEMPROF found are
+# narrowed to the fields that are read: the light fold (native_actor_fast.cpp lights_reset) no longer zeroes
+# Lights::prepared (read only on the exact path, which assigns it first).
+MEMSET_LEAN ?= 0
+ifneq ($(MEMSET_LEAN),0)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMSET_LEAN=$(MEMSET_LEAN)
+endif
