@@ -451,7 +451,6 @@ int g_n;                      // lines logged (the newest kLogRows are shown)
 char g_status[kCols + 1];
 char g_head[2][kCols + 1];
 volatile bool g_fatal;
-bool g_cleared;
 
 struct Fb {
     volatile uint16_t* p;
@@ -499,9 +498,13 @@ void draw_all()
 {
     Fb fb;
     if (!fb_now(fb)) return;
-    if (g_fatal && !g_cleared) {  // the game's picture is on screen: clear it once
-        g_cleared = true;
-        for (int i = 0; i < fb.w * fb.h; ++i) fb.p[i] = 0;
+    if (g_fatal) {
+        // Stopped: everything outside the text block is cleared on every redraw (the game's last picture, or the crash
+        // screen's 30 s hang report drawn over this one); the block itself is rewritten pixel for pixel, so no flicker.
+        const int x1 = kX0 + kCols * kCW, y1 = kY0 + kRows * kCH;
+        for (int y = 0; y < fb.h; ++y)
+            for (int x = 0; x < fb.w; ++x)
+                if (y < kY0 || y >= y1 || x < kX0 || x >= x1) fb.p[y * fb.w + x] = 0;
     }
     put_row(fb, 0, g_head[0], col(fb, 4));
     put_row(fb, 1, g_head[1], col(fb, 4));
@@ -510,6 +513,7 @@ void draw_all()
         const int k = first + i;
         put_row(fb, kLog0 + i, k < g_n ? g_line[k % kLogRows] : "", col(fb, k < g_n ? g_lev[k % kLogRows] : 0));
     }
+    put_row(fb, kStatus - 1, "", col(fb, 0));
     put_row(fb, kStatus, g_status, col(fb, 2));
 }
 void header()
@@ -857,7 +861,7 @@ int read(void* buf, uint32_t lba, size_t cnt, bool dma)
         }
         re4dc_disc_note(3, "disc: pio read failed (%d) lba=%u", rv, (unsigned) lba);
     }
-    fatal("disc: lba=%u n=%u: dma, reinit+dma, pio all failed", (unsigned) lba, (unsigned) cnt);
+    fatal("disc: lba=%u n=%u: all 3 ways failed", (unsigned) lba, (unsigned) cnt);
 }
 
 int stream_refused()
