@@ -30,6 +30,11 @@ MAX_CLIP=32768
 # 3.1 MB: DVD: Memory allocate failed, readEmData em/em11.drs).
 GANADO=('em12.drs','em15.drs','em13.drs','em17.drs','em11.drs')
 SMALL=('em26.drs','em28.drs','em21.drs','em2b.drs','em2f.drs','em22.drs','em23.drs','em18.drs','pl11.drs','pl0f.drs')
+# em2a / em24 / em27 / em29 / em2e (the chapter 1 traps, snake, fish, bat and wall crawler; lane ps2cast 2026-10-15,
+# registry room packages of the released chapter 1-1..2-1 rooms): textures only (--keep-motion-resident). Each module's
+# model TPL reaches only modelInit (src/em2a/em2a.cpp ARC 5 / 7 / 9, em24 ARC 6, em27 ARC 5, em29 ARC 5, em2e ARC 5 / 6);
+# none uploads or reads texels on the CPU, so the prepared R4NREF descriptors replace exactly what the source path draws.
+SMALL+=('em2a.drs','em24.drs','em27.drs','em29.drs','em2e.drs')
 # pl0f (the lake boat, r10b r11b; lane ps2cast 2026-10-15, PS2_CAST_BOAT discs): textures only (--keep-motion-resident),
 # the em2f contract. Its one model TPL (ARC 6) reaches only modelInit (src/pl0f/pl0f.cpp pl0f_R0_Init, modelInit(ARC 5,
 # ARC 6)); the source path uploads its colour texels and never reads them on the CPU. ARC 8 (Leon's harpoon hand BIN,
@@ -165,7 +170,8 @@ def prepare(source, destination, hot_slots=(), textures=None, keep_motion_reside
     # em2f: its DMY entries keep le_mirror's whole-file qualification from stripping the static REL (today's disc
     # carries the whole REL too); it moves intact behind the tables like the 64-byte descriptor does.
     # pl0f: the release disc carries its whole REL too (pl0f is in no static / overlay module list); it moves intact.
-    if rel and rel+64!=len(body) and name not in ('em2f.drs','pl0f.drs'):raise ValueError('expected retained 64-byte static REL descriptor')
+    # em24: the release disc carries its whole REL too (le_mirror keeps it: 394,176 B on the disc = the GC file).
+    if rel and rel+64!=len(body) and name not in ('em2f.drs','pl0f.drs','em24.drs'):raise ValueError('expected retained 64-byte static REL descriptor')
     original_size,original_base=struct.unpack_from('>I4xI',original,slot+4)
     codec=mirror.motion_codec();ranges=[];entries=[];files={};oversized=[]
     for off in ([] if keep_motion_resident else sorted(set(offsets))):
