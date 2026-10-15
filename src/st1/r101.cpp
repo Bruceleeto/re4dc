@@ -358,7 +358,17 @@ static AreaData r101Ps2Area21 = {
 
 static void r101_ps2Villager(int rsf, int no, int inArea)
 {
+#if defined(RE4DC_R101_ALIVE_CAP) && RE4DC_R101_ALIVE_CAP
+    // R101_ALIVE_CAP: one villager per frame (a Ganado set this frame is not counted alive yet).
+    static u32 lastJoin = ~0U;
+    if (pG->Frame_cnt == lastJoin) {
+        return;
+    }
+#endif
     if (RsfCheck(G_ROOM_ID, rsf) == 0 && inArea && SceCountEmAlive(0x10, 0x20) < 9) {
+#if defined(RE4DC_R101_ALIVE_CAP) && RE4DC_R101_ALIVE_CAP
+        lastJoin = pG->Frame_cnt;
+#endif
         RsfSet(G_ROOM_ID, rsf);
         EmListSetAlive(no, 0);
         setEm(no, -1, 1, 1, 1);
