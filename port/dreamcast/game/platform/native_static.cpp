@@ -1803,33 +1803,48 @@ unsigned owner_tests=0,owner_hid=0; // PS2_INTERIOR_ACTORS=2: owner-path Ganados
 //    disagreements counted in the PS2LEAN line (check_bad / prime_bad must stay 0).
 namespace lean {
 constexpr unsigned kMode=RE4DC_PS2_WORLD_LEAN;
-struct Stats { unsigned pre_culled,pl_inside,cl_inside,skipped,prime_reuse,check_bad,prime_bad,dyn_fast; } st;
+struct Stats { unsigned pre_culled,pl_inside,cl_inside,skipped,prime_reuse,check_bad,prime_bad,dyn_fast,class_diff; } st;
 const pvr_vertex_t* prime_at=nullptr; unsigned primed=0;
-// 0 outside (group_visible's rejection, the same arithmetic), 1 straddles, 2 inside every plane with a unit of margin
-// (the box grown by grow[], model units per axis, for that verdict only; nullptr: not grown).
-inline unsigned box_class(const re4dc::render::DrawBounds& bounds,const float m[12],const float p[7],const float vp[6],
-                          float near_distance,float far_distance,const float* grow){
-    float center[3],extent[3],view[3],radius[3];
-    for(unsigned a=0;a<3;++a){center[a]=(bounds.minimum[a]+bounds.maximum[a])*0.5f;
-        extent[a]=(bounds.maximum[a]-bounds.minimum[a])*0.5f;}
-    for(unsigned row=0;row<3;++row){const auto* v=m+4*row;
-        view[row]=v[0]*center[0]+v[1]*center[1]+v[2]*center[2]+v[3];
-        radius[row]=std::fabs(v[0])*extent[0]+std::fabs(v[1])*extent[1]+std::fabs(v[2])*extent[2];}
-    if(-view[2]+radius[2]<near_distance || -view[2]-radius[2]>far_distance)return 0;
+// native_static.cpp is built at -O1 (no unrolling): these are written out by hand (the hw model priced the loop forms
+// at ~2x group_visible).
+// The four screen-edge planes of group_visible (bias 0) for this pass: plane k = a[k] * (x for k < 2, y for k >= 2)
+// + c[k] * z, with |a|, |c| for the box support.
+struct Side { float a[4],c[4],aa[4],ac[4]; } side;
+inline void side_setup(const float* p,const float* vp){
     const float ox=2*vp[0]/vp[2],oy=2*vp[1]/vp[3];
-    const float pl[4][3]={{p[1],0,p[2]-1-ox},{-p[1],0,-p[2]-1+ox},{0,-p[3],-p[4]-1-oy},{0,p[3],p[4]-1+oy}};
-    float s[4];
-    for(unsigned k=0;k<4;++k){
-        const float a=pl[k][0],b=pl[k][1],c=pl[k][2];
-        s[k]=a*view[0]+b*view[1]+c*view[2];
-        if(s[k]+std::fabs(a)*radius[0]+std::fabs(b)*radius[1]+std::fabs(c)*radius[2]<-0.0001f)return 0;
+    side.a[0]=p[1];side.c[0]=p[2]-1-ox;side.a[1]=-p[1];side.c[1]=-p[2]-1+ox;
+    side.a[2]=-p[3];side.c[2]=-p[4]-1-oy;side.a[3]=p[3];side.c[3]=p[4]-1+oy;
+    for(unsigned k=0;k<4;++k){side.aa[k]=std::fabs(side.a[k]);side.ac[k]=std::fabs(side.c[k]);}
+}
+inline void abs9(const float* m,float* am){
+    am[0]=std::fabs(m[0]);am[1]=std::fabs(m[1]);am[2]=std::fabs(m[2]);
+    am[3]=std::fabs(m[4]);am[4]=std::fabs(m[5]);am[5]=std::fabs(m[6]);
+    am[6]=std::fabs(m[8]);am[7]=std::fabs(m[9]);am[8]=std::fabs(m[10]);
+}
+// 0 outside (group_visible's rejection: same planes, view-space box support, -0.0001 slack), 1 straddles, 2 inside
+// every plane with a unit of margin (the box grown by grow[], model units per axis, for that verdict only).
+// m: the 3x4 matrix; am: its 3x3 absolute values (abs9).
+inline unsigned box_class(const float lo[3],const float hi[3],const float* m,const float* am,
+                          float near_distance,float far_distance,const float* grow){
+    const float cx=(lo[0]+hi[0])*0.5f,cy=(lo[1]+hi[1])*0.5f,cz=(lo[2]+hi[2])*0.5f;
+    const float ex=(hi[0]-lo[0])*0.5f,ey=(hi[1]-lo[1])*0.5f,ez=(hi[2]-lo[2])*0.5f;
+    const float vz=m[8]*cx+m[9]*cy+m[10]*cz+m[11],rz=am[6]*ex+am[7]*ey+am[8]*ez;
+    if(-vz+rz<near_distance || -vz-rz>far_distance)return 0;
+    const float vx=m[0]*cx+m[1]*cy+m[2]*cz+m[3],rx=am[0]*ex+am[1]*ey+am[2]*ez;
+    const Side& S=side;
+    const float s0=S.a[0]*vx+S.c[0]*vz,t0=S.aa[0]*rx+S.ac[0]*rz;if(s0+t0<-0.0001f)return 0;
+    const float s1=S.a[1]*vx+S.c[1]*vz,t1=S.aa[1]*rx+S.ac[1]*rz;if(s1+t1<-0.0001f)return 0;
+    const float vy=m[4]*cx+m[5]*cy+m[6]*cz+m[7],ry=am[3]*ex+am[4]*ey+am[5]*ez;
+    const float s2=S.a[2]*vy+S.c[2]*vz,t2=S.aa[2]*ry+S.ac[2]*rz;if(s2+t2<-0.0001f)return 0;
+    const float s3=S.a[3]*vy+S.c[3]*vz,t3=S.aa[3]*ry+S.ac[3]*rz;if(s3+t3<-0.0001f)return 0;
+    float gx=rx,gy=ry,gz=rz;
+    if(grow){
+        gx+=am[0]*grow[0]+am[1]*grow[1]+am[2]*grow[2];gy+=am[3]*grow[0]+am[4]*grow[1]+am[5]*grow[2];
+        gz+=am[6]*grow[0]+am[7]*grow[1]+am[8]*grow[2];
     }
-    float r[3]={radius[0],radius[1],radius[2]};
-    if(grow)for(unsigned row=0;row<3;++row){const auto* v=m+4*row;
-        r[row]+=std::fabs(v[0])*grow[0]+std::fabs(v[1])*grow[1]+std::fabs(v[2])*grow[2];}
-    if(!(-view[2]-r[2]>=near_distance+1.0f && -view[2]+r[2]<=far_distance-1.0f))return 1;
-    for(unsigned k=0;k<4;++k)
-        if(!(s[k]-(std::fabs(pl[k][0])*r[0]+std::fabs(pl[k][1])*r[1]+std::fabs(pl[k][2])*r[2])>1.0f))return 1;
+    if(!(-vz-gz>=near_distance+1.0f && -vz+gz<=far_distance-1.0f))return 1;
+    if(!(s0-(S.aa[0]*gx+S.ac[0]*gz)>1.0f) || !(s1-(S.aa[1]*gx+S.ac[1]*gz)>1.0f) ||
+       !(s2-(S.aa[2]*gy+S.ac[2]*gz)>1.0f) || !(s3-(S.aa[3]*gy+S.ac[3]*gz)>1.0f))return 1;
     return 2;
 }
 // The six planes in world space: n.w + d >= 0 inside; an = |n|.
@@ -1846,15 +1861,26 @@ inline void world_planes(const float* V,const float* P,const float* vp,float nea
 }
 // true: the box lo..hi under the 3x4 affine A is wholly outside one plane (by more than a unit).
 inline bool world_out(const World& w,const float* A,const float lo[3],const float hi[3]){
-    float c[3],h[3];
-    for(unsigned r=0;r<3;++r){
-        c[r]=A[4*r+3];h[r]=0;
-        for(unsigned k=0;k<3;++k){const float mc=(lo[k]+hi[k])*0.5f,mh=(hi[k]-lo[k])*0.5f;
-            c[r]+=A[4*r+k]*mc;h[r]+=std::fabs(A[4*r+k])*mh;}
-    }
-    for(unsigned k=0;k<6;++k)
-        if(w.n[k][0]*c[0]+w.n[k][1]*c[1]+w.n[k][2]*c[2]+w.d[k]+w.an[k][0]*h[0]+w.an[k][1]*h[1]+w.an[k][2]*h[2]<-1.0f)return true;
+    const float mx=(lo[0]+hi[0])*0.5f,my=(lo[1]+hi[1])*0.5f,mz=(lo[2]+hi[2])*0.5f;
+    const float hx=(hi[0]-lo[0])*0.5f,hy=(hi[1]-lo[1])*0.5f,hz=(hi[2]-lo[2])*0.5f;
+    const float c0=A[0]*mx+A[1]*my+A[2]*mz+A[3],c1=A[4]*mx+A[5]*my+A[6]*mz+A[7],c2=A[8]*mx+A[9]*my+A[10]*mz+A[11];
+    const float h0=std::fabs(A[0])*hx+std::fabs(A[1])*hy+std::fabs(A[2])*hz;
+    const float h1=std::fabs(A[4])*hx+std::fabs(A[5])*hy+std::fabs(A[6])*hz;
+    const float h2=std::fabs(A[8])*hx+std::fabs(A[9])*hy+std::fabs(A[10])*hz;
+#define RE4DC_LEAN_PLANE(k) if(w.n[k][0]*c0+w.n[k][1]*c1+w.n[k][2]*c2+w.d[k]+w.an[k][0]*h0+w.an[k][1]*h1+w.an[k][2]*h2<-1.0f)return true;
+    RE4DC_LEAN_PLANE(0) RE4DC_LEAN_PLANE(1) RE4DC_LEAN_PLANE(4) RE4DC_LEAN_PLANE(5) RE4DC_LEAN_PLANE(2) RE4DC_LEAN_PLANE(3)
+#undef RE4DC_LEAN_PLANE
     return false;
+}
+// concat() written out: the same expression per element (incl. the +0.0f of the loop form), so the same result.
+inline void concat_u(const float* a,const float* b,float* o){
+#define RE4DC_LEAN_ROW(r) \
+    o[4*r+0]=a[4*r]*b[0]+a[4*r+1]*b[4]+a[4*r+2]*b[8]+0.0f; \
+    o[4*r+1]=a[4*r]*b[1]+a[4*r+1]*b[5]+a[4*r+2]*b[9]+0.0f; \
+    o[4*r+2]=a[4*r]*b[2]+a[4*r+1]*b[6]+a[4*r+2]*b[10]+0.0f; \
+    o[4*r+3]=a[4*r]*b[3]+a[4*r+1]*b[7]+a[4*r+2]*b[11]+a[4*r+3];
+    RE4DC_LEAN_ROW(0) RE4DC_LEAN_ROW(1) RE4DC_LEAN_ROW(2)
+#undef RE4DC_LEAN_ROW
 }
 }
 #endif
@@ -1866,6 +1892,7 @@ struct MeshDraw : Emitter {
     // (after the four members MeshDraw{...} initializes by position)
     bool lean_inside=false; // PS2_WORLD_LEAN bit 2: the placement box is inside every plane (no cluster / meshlet tests)
     bool lean_part=false;   // PS2_WORLD_LEAN: a ps2_pass part (bit 2 cluster classes; bit 4 the cache prime kept across the pass)
+    const float* lean_am=nullptr; // bit 2: |mvq| 3x3 (lean::abs9), set by ps2_pass
 #endif
 #if RE4DC_PS2_INTERIOR_CULL
     // PS2_INTERIOR_CULL: pc_mode 0 no test, 1 skip hidden geometry, 2 draw only hidden geometry (the =2 check run);
@@ -2175,7 +2202,7 @@ struct MeshDraw : Emitter {
             if(lean_inside){
                 cin=2;++lean::st.skipped;
                 if((lean::kMode&8U) && !re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0))++lean::st.check_bad;
-            }else if((lean::kMode&2U) && lean_part)cin=lean::box_class(bounds,mvq,p.projection,p.viewport,near,cull_far,nullptr);
+            }else if((lean::kMode&2U) && lean_am)cin=lean::box_class(lo,hi,mvq,lean_am,near,cull_far,nullptr);
             else cin=re4dc::render::group_visible(bounds,mvq,p.projection,p.viewport,near,cull_far,0)?1U:0U;
             if(!cin){++stats.clusters_culled;continue;}
             if(cin==2)++lean::st.cl_inside;
@@ -3835,12 +3862,13 @@ int ps2_pass(unsigned pass,float zfar){
     lean::World lw;
     const bool lw_on=(lean::kMode&1U)!=0;
     if(lw_on)lean::world_planes(ps2w.view,P,ps2w.viewport,near,cull_far,lw);
+    if(lean::kMode&2U)lean::side_setup(P,ps2w.viewport);
     lean::prime_at=nullptr;lean::primed=0; // bit 4: the prime holds within this pass only
     if(!pass){
         const unsigned f=re4dc_ui_frame();
-        if(!(f%120))re4dc_log("PS2LEAN frame=%u mode=%u pre_culled=%u pl_inside=%u cl_inside=%u skipped=%u prime_reuse=%u check_bad=%u prime_bad=%u dyn_fast=%u\n",
+        if(!(f%120))re4dc_log("PS2LEAN frame=%u mode=%u pre_culled=%u pl_inside=%u cl_inside=%u skipped=%u prime_reuse=%u check_bad=%u prime_bad=%u dyn_fast=%u class_diff=%u\n",
             f,lean::kMode,lean::st.pre_culled,lean::st.pl_inside,lean::st.cl_inside,lean::st.skipped,lean::st.prime_reuse,
-            lean::st.check_bad,lean::st.prime_bad,lean::st.dyn_fast);
+            lean::st.check_bad,lean::st.prime_bad,lean::st.dyn_fast,lean::st.class_diff);
     }
 #endif
 #if RE4DC_PS2_WORLD_DYNAMIC
@@ -3998,7 +4026,8 @@ int ps2_pass(unsigned pass,float zfar){
         constexpr bool lean_sky=false;
 #endif
         if(lw_on && !lean_sky && lean::world_out(lw,RE4DC_PS2_AFFINE,mesh.bounds_min,mesh.bounds_max)){++c.culled;++lean::st.pre_culled;continue;}
-        float mv[12];concat(ps2w.view,RE4DC_PS2_AFFINE,mv);
+        float mv[12];lean::concat_u(ps2w.view,RE4DC_PS2_AFFINE,mv);
+        if(lean::kMode&8U){float r[12];concat(ps2w.view,RE4DC_PS2_AFFINE,r);if(std::memcmp(r,mv,sizeof(r)))++lean::st.check_bad;}
 #endif
         const re4dc::render::DrawBounds bounds{{mesh.bounds_min[0],mesh.bounds_min[1],mesh.bounds_min[2]},
                                                {mesh.bounds_max[0],mesh.bounds_max[1],mesh.bounds_max[2]}};
@@ -4013,7 +4042,9 @@ int ps2_pass(unsigned pass,float zfar){
         unsigned lean_in;
         if(lean::kMode&2U){
             const float grow[3]={std::fabs(mesh.step[0]),std::fabs(mesh.step[1]),std::fabs(mesh.step[2])}; // cluster boxes round out by < 1 step
-            lean_in=lean::box_class(bounds,mv,P,ps2w.viewport,near,cull_far,grow);
+            float am[9];lean::abs9(mv,am);
+            lean_in=lean::box_class(mesh.bounds_min,mesh.bounds_max,mv,am,near,cull_far,grow);
+            if((lean::kMode&8U) && (lean_in!=0)!=re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0))++lean::st.class_diff;
         }else lean_in=re4dc::render::group_visible(bounds,mv,P,ps2w.viewport,near,cull_far,0)?1U:0U;
         if(!lean_in){++c.culled;continue;}
         if(lean_in==2)++lean::st.pl_inside;
@@ -4039,7 +4070,13 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
         }
 #endif
+#if RE4DC_PS2_WORLD_LEAN
+        float mvq[12];lean::concat_u(mv,grid,mvq);
+        if(lean::kMode&8U){float r[12];concat(mv,grid,r);if(std::memcmp(r,mvq,sizeof(r)))++lean::st.check_bad;}
+        float amq[9];if(lean::kMode&2U)lean::abs9(mvq,amq);
+#else
         float mvq[12];concat(mv,grid,mvq);
+#endif
         float scale=0;
         for(unsigned r=0;r<3;++r){
             const float n=mv[4*r]*mv[4*r]+mv[4*r+1]*mv[4*r+1]+mv[4*r+2]*mv[4*r+2];
@@ -4074,7 +4111,7 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
             d.part_index=index;d.lod_scale=lod_scale;
 #if RE4DC_PS2_WORLD_LEAN
-            d.lean_inside=lean_in==2;d.lean_part=true;
+            d.lean_inside=lean_in==2;d.lean_part=true;d.lean_am=(lean::kMode&2U)?amq:nullptr;
 #endif
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
