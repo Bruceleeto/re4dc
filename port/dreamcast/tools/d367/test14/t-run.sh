@@ -2,6 +2,9 @@
 # t-run.sh <name> <label> <fixture> [seconds]  (Git Bash): test 14 RC runs (copy of test11/t-run.sh).
 # Evidence C:\Flycast-Evidence\re4-dreamcast\t14rc-20261015\<name>; the disc is deleted after the run (disc.sha256 kept).
 # RUNNER (default run-emulator-novsync-i26.py, the 9.1/10 release gate runner), PERIOD, PURPOSE, RE4DC_LOG_STOP_TICK pass through.
+# The fixture's route overlays (dc/*.ovl) are retargeted to arm <label> first (texchk/fixture_arm.py; FA overrides the
+# tool path): an overlay runs only with the image it was linked against (lane r118fault 10-15: mx-r118.json, made
+# for t14drW, faulted t14idrW / t14rcrW at the r118 entry). The stager refuses a foreign overlay in any case.
 set -u
 N=$1; L=$2; FIX=$3; SECS=${4:-100}
 HW="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
@@ -9,13 +12,14 @@ H="/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20
 E=/c/Flycast-Evidence/re4-dreamcast/t14rc-20261015
 SP=$E/_tools
 ST=/root/probe/lanes-20261015/t14rc/stage
+FA=${FA:-/root/probe/lanes-20261015/t14rc/tree/port/dreamcast/tools/d367/texchk/fixture_arm.py}
 mkdir -p $SP
 cd "$H" || exit 1
 S=scenarios/route-t14-$N
 [ ! -e "$S" ] || { echo "$S exists (names are single-use)"; exit 1; }
 [ ! -e "$E/$N" ] || { echo "$E/$N exists"; exit 1; }
 cat > $SP/stage-$N.sh <<EOS
-cd "$HW" && mkdir -p $ST && python3 stage-scenario.py route-t14-$N --arm candidate-route$L --programs programs-route.json --overlay /mnt/c/Flycast-Evidence/re4-dreamcast/r11-media-overlay-r1/payloads --fixture $FIX > $ST/run-$N.json 2>&1; python3 -c "import json;d=json.load(open('$ST/run-$N.json'));print(d['status'],d['disc_sha256'])" || tail -5 $ST/run-$N.json
+cd "$HW" && mkdir -p $ST && python3 $FA $FIX $ST/fix-$N.json $L > $ST/fix-$N.log 2>&1 && python3 stage-scenario.py route-t14-$N --arm candidate-route$L --programs programs-route.json --overlay /mnt/c/Flycast-Evidence/re4-dreamcast/r11-media-overlay-r1/payloads --fixture $ST/fix-$N.json > $ST/run-$N.json 2>&1; python3 -c "import json;d=json.load(open('$ST/run-$N.json'));print(d['status'],d['disc_sha256'])" || tail -5 $ST/run-$N.json
 EOS
 D=$(MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -u root -- bash /mnt/c/Flycast-Evidence/re4-dreamcast/t14rc-20261015/_tools/stage-$N.sh)
 rm -f $SP/stage-$N.sh
