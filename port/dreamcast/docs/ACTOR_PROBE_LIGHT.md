@@ -408,8 +408,10 @@ Lane light-p3 (branch `lane/light-p3`, for test 12). Both changes are render onl
     | r101 F | 43/58 | 24/42 | 33/56 | 38/63 | 43/70 | 45/70 |
     | r10b start | 32/43 | 23/43 | 34/56 | 39/64 | 44/70 | 36/69 |
 
-  - **Test 12 ships eeef15ae only** (user, 2026-10-14). `LEON_LIGHT_FILL` waits for the user's choice of strength in a
-    later batch (test 14).
+  - **Test 12 ships eeef15ae and `LEON_LIGHT_FILL=45`** (update 2026-10-15). The user approved the lighting look
+    ("just dark... fix in 12"), and fill 45 is the strength that matches the GameCube jacket brightness. Gates for
+    fill 45: H2 STRICT 4700 (t12h2b4 vs t12h2c) and knob-off identity. It is in the test 12 recipe (test12/t12-build.sh
+    T12REC). An earlier note here said the fill would wait for test 14; that no longer applies.
 
 ## Recommendation
 
