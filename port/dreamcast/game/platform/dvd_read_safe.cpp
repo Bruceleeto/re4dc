@@ -158,6 +158,28 @@ struct DiscMeterScope {
 extern "C" void re4dc_bench_disc(unsigned reads, unsigned long long block_us, unsigned long long dt_us);  // bench.cpp
 #endif
 
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+#include "native_motion.h"
+extern "C" int re4dc_static_heap_free();             // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
+extern "C" unsigned long long re4dc_motion_wait_total_us;   // native_motion.cpp
+namespace {
+// MOTION_STATS_LOG (Makefile): the native motion cache per DISCRD window.
+void motion_stats_window(unsigned window_ms)
+{
+    static Re4dcMotionStats last;
+    static unsigned long long last_wait;
+    Re4dcMotionStats s;
+    re4dc_motion_get_stats(&s);
+    const unsigned long long wait = re4dc_motion_wait_total_us;
+    re4dc_log("MOTSTAT: window_ms=%u misses=%u evictions=%u kb=%u wait_ms=%u hits=%u resident=%u peak=%u hot=%u heap4=%d\n",
+              window_ms, s.misses - last.misses, s.evictions - last.evictions, (unsigned) ((s.bytes_read - last.bytes_read) / 1024),
+              (unsigned) ((wait - last_wait) / 1000), s.hits - last.hits, s.resident_bytes, s.peak_cache_bytes, s.hot_bytes,
+              re4dc_static_heap_free());
+    last = s;
+    last_wait = wait;
+}
+}  // namespace
+#endif
 // pace.cpp, each one-second window close (the game thread).
 extern "C" void re4dc_disc_meter_window(void)
 {
@@ -179,6 +201,9 @@ extern "C" void re4dc_disc_meter_window(void)
                       (unsigned) (dt / 1000), reads, bytes / 1024, (unsigned) (block / 1000), m_rate[0], m_rate[1], m_rate[2],
                       mreads, mbytes / 1024, m_other ? m_other->label : "-");
         m_other = nullptr;
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+        motion_stats_window((unsigned) (dt / 1000));
+#endif
 #if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
         re4dc_bench_disc(reads, block, dt);   // bench.cpp (bench.mk BENCHMARK): the measured scene's disc reads
 #endif
