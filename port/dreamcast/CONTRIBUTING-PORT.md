@@ -72,7 +72,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test122/release-knobs.txt` (test 12.2; its header names the source commit). The maintainers write that file from
+`tools/d367/test13/release-knobs.txt` (test 13; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -84,8 +84,9 @@ different from the release:
   every hand pose).
 * `PS2_GANADO=0 PS2_GANADO_LIT=0`: the male villagers are the GameCube models (the release draws the
   PS2 models with the PS2 lighting).
-* El Gigante, Del Lago, the female villagers, the animals and the PS2 room worlds come from the disc,
-  so they draw as in the release.
+* El Gigante, Del Lago, the female villagers, the animals, Ashley, the PS2 room objects and the PS2 room
+  worlds (with the village's baked doors, windows and racks) come from the disc, so they draw as in the
+  release.
 * Leon and the villagers draw from the original GameCube models on the disc instead of the converted
   meshes. They cost more time to draw, so do not compare speed with the release.
 * The memory card messages show the GameCube wording ("Memory Card in Slot A") instead of the VMU wording.

@@ -19,7 +19,7 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test 12 (test 10 plus the unreleased test 11: PS2 objects, items, caps and the merchant, a brighter Leon, less work per frame in the village, and the radio call crash fixed). Desktop packages will return with a later test build;
+The latest build is console test 13 (test 12.2 plus the PS2 enemy rules in every chapter 1 room with at most 6 villagers active at once, PS2 room objects after the village with the dark box debris fixed, the PS2 Ashley, and less work per frame in the village). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
@@ -51,12 +51,15 @@ The VMU in controller slot 1 shows Leon, Ashley, Hunnigan and Luis pages.
 
 ## Status and limitations
 
-**Console test 12, October 15, 2026:** the game plays to the end of chapter two, part one
+**Console test 13, October 15, 2026:** the game plays to the end of chapter two, part one
 (the lake and the boat ride, the wolves, the El Gigante fight, finding Ashley and the chapter results),
 up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
+* Test 13: the PS2 enemy rules in every chapter 1 room, with at most 6 villagers active at once; PS2 room
+  objects from r102 to r11b with the GameCube breakable boxes (no more dark debris); the PS2 Ashley; less work per
+  frame in the village; fewer disc reads in r103 and r100 after the village.
 * Test 12: PS2 models for the room objects in the first two villages, the items you pick up, the villagers' caps
   and the merchant; a brighter Leon; at most 6 villagers attack at once; the radio call crash is fixed
   (confirmed on a real console).

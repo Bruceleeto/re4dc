@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 15, 2026. The current public build is console test 12.2 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village.
+Last updated: October 15, 2026. The current public build is console test 13 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -14,7 +14,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
-| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 | Fixed and checked in our tests; the problem was not console-only | 8 |
+| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 | Fixed and checked in our tests; the problem was not console-only | 10 |
 | 🛠️ In progress | Being fixed now | 1 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
 | ⏸️ Open | Known, not yet worked on | 16 |
@@ -35,7 +35,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Black screen when started from DreamShell with an IDE mod | test 9 | ⏸️ Open: not tested yet; we test GDEMU and Flycast only | [#28](https://github.com/lamb2k/re4dc/issues/28) |
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
-| The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie. Planned for test 13 | |
+| The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12, 12.1, 12.2, 13 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie | |
 | Possible out-of-memory crash on a real console when leaving the village (r101) after a long fight, at the next room's start | test 12, 12.1 | 🟢 Fixed in test 12.2, needs console check: found by our memory checks, not reported by anyone yet; the village's leftover texture records are freed when the room changes, and our console-memory test (Flycast with 48 KiB of the console's system memory held back) now leaves the village to r100 and r103 without running out | |
 | A crash screen (`MISSING sub screen pool freeze allocation`) when a radio call opens on a real console | test 11 (not released), test 12 preview | ✅ Confirmed fixed on a real Dreamcast (test 12 preview): the call screen now keeps its copies in memory set aside for it | |
 
@@ -59,7 +59,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | Some effects (31 shared fire, smoke and spark pictures) still use the GameCube pictures; the rest of the village effects use the PS2 ones | test 12 | ⏸️ Open: those pictures are stored in a PS2 format that is not converted yet | |
 | The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
-| Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12 | ⏸️ Open: those rooms use the PS2 boxes with the GameCube debris effect. Planned for test 13 | |
+| Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
+| Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
+| Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
 
 ## Sound
 
@@ -74,25 +76,25 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
-| In the village fight at most 6 villagers attack at once; the others wait and join as villagers fall | test 12 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the bell are unchanged | |
+| At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
-## Console checklist for test 12
+## Console checklist for test 13
 
-Test 12: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 10, plus: do the radio calls open and close without a crash screen, and are the controller and VMU found at start-up?)
+Test 13: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 10, plus: do the radio calls open and close without a crash screen, and are the controller and VMU found at start-up?)
 
 These fixes can only be confirmed on a real Dreamcast, because emulators draw the old and new versions the same.
-If you play test 12 on a console, please report on any of these in a bug report:
+If you play test 13 on a console, please report on any of these in a bug report:
 
 1. **Long play in the village and the first house.** Play for 20 minutes or more, through room loads. Any crash screen?
 2. **Trees and fences by the first house.** Do branch tips, leaves and fence gaps show the sky or wall behind them, or
    solid blocks?
 3. **Curtains and walls in the first house.** Textured, or flat, striped or noisy?
 4. **Speed display** (hold R, press START until it shows on screen). Is the counter fully visible?
-5. **Leaving the village after the fight** (test 12.2). After the village fight, walk on to the next room (back to
-   r100, or on to r103). Any crash screen while it loads?
+5. **Leaving the village after the fight** (test 12.2, 13). After the village fight, walk on to the next room (back to
+   r100, or on to r103). Any crash screen while it loads, or missing effect pictures right after the door?
 
 An item moves to ✅ Confirmed fixed after a console report.
 
