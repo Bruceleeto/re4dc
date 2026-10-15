@@ -663,6 +663,25 @@ IO_SERIAL ?= 0
 # and the free AICA sound memory with this byte. Flycast starts with zeroed memory; a Dreamcast does not.
 # A run that differs from the same fixture with POISON_RAM=0 reads memory it never wrote.
 POISON_RAM ?= 0
+# DCINV_PURGE=1 (test 11 console faults, default 0): the SDK's DCInvalidateRange (platform/misc.cpp) writes dirty
+# lines back before invalidating them (KOS dcache_purge_range, ocbp) instead of discarding them (dcache_inval_range,
+# ocbi). On GC the game invalidates a buffer that hardware (EFB copy, DVD, ARAM DMA) is about to overwrite; on the
+# port nothing writes behind the cache for those buffers, so ocbi only throws away the CPU's newest stores - and the
+# bytes of whatever shares the first and last line. Flycast does not model the operand cache and never shows it.
+# DCINV_AUDIT=1 (console proof, test discs, default 0): before each DCInvalidateRange, count the lines the operand
+# cache holds dirty in that range (OC address array), per caller; "dcinv:" log lines name each caller's first discard
+# and a summary every 5 s, for the crash screen.
+DCINV_PURGE ?= 0
+DCINV_AUDIT ?= 0
+ifneq ($(filter $(DCINV_PURGE),0 1),$(DCINV_PURGE))
+$(error DCINV_PURGE must be 0 or 1)
+endif
+ifneq ($(filter $(DCINV_AUDIT),0 1),$(DCINV_AUDIT))
+$(error DCINV_AUDIT must be 0 or 1)
+endif
+ifneq ($(DCINV_PURGE)$(DCINV_AUDIT),00)
+$(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_DCINV_PURGE=$(DCINV_PURGE) -DRE4DC_DCINV_AUDIT=$(DCINV_AUDIT)
+endif
 # CRASH_SCREEN=1 (hardware readiness, default 0): a fault, a source HALT() or 30 s without a new frame
 # draws a report (stop kind, PC/PR/stage, threads, newest log lines) into frame buffer 0, for a photo
 # on hardware where the log ring cannot be read. platform/crash_screen.cpp.

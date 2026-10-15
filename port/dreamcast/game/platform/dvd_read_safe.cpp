@@ -98,7 +98,7 @@ void dma_settle(const char* what, void* buf, size_t size)
     }
     const unsigned us = (unsigned) (timer_us_gettime64() - t0);
     const uintptr_t a = (uintptr_t) buf;
-    if ((a & 0xE0000000u) != 0xA0000000u && !(a & 31)) dcache_inval_range(a, (size + 31) & ~(size_t) 31);
+    if ((a & 0xE0000000u) != 0xA0000000u && !(a & 31) && size >= 32) dcache_inval_range(a, size & ~(size_t) 31);
     ++g_late;
     if (timed_out) ++g_late_timeouts;
     if (us > g_late_max_us) g_late_max_us = us;
