@@ -676,6 +676,17 @@ IO_SERIAL ?= 0
 # and the free AICA sound memory with this byte. Flycast starts with zeroed memory; a Dreamcast does not.
 # A run that differs from the same fixture with POISON_RAM=0 reads memory it never wrote.
 POISON_RAM ?= 0
+# IMAGE_CHECK=1 (test 11 console faults, test discs only, default 0): at OSInit, before the game's first disc read,
+# the screen shows the CRC-32 of the loaded code (_start.._etext, to compare with the build's), the raw KOS maple
+# unit pointers, and then the loaded image compared with /cd/1ST_READ.BIN read back through the drive (mismatching
+# bytes in the code and after it, first offsets); held 10 s for a photo, also logged ("image check:").
+IMAGE_CHECK ?= 0
+ifneq ($(filter $(IMAGE_CHECK),0 1),$(IMAGE_CHECK))
+$(error IMAGE_CHECK must be 0 or 1)
+endif
+ifeq ($(IMAGE_CHECK),1)
+$(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -DRE4DC_IMAGE_CHECK=1
+endif
 # DCINV_PURGE=1 (test 11 console faults, default 0): the SDK's DCInvalidateRange (platform/misc.cpp) writes dirty
 # lines back before invalidating them (KOS dcache_purge_range, ocbp) instead of discarding them (dcache_inval_range,
 # ocbi). On GC the game invalidates a buffer that hardware (EFB copy, DVD, ARAM DMA) is about to overwrite; on the
@@ -694,6 +705,21 @@ $(error DCINV_AUDIT must be 0 or 1)
 endif
 ifneq ($(DCINV_PURGE)$(DCINV_AUDIT),00)
 $(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_DCINV_PURGE=$(DCINV_PURGE) -DRE4DC_DCINV_AUDIT=$(DCINV_AUDIT)
+endif
+# MAPLE_RECV_PURGE=1 (test 12 console faults, default 0): KOS maple_frame_init clears a frame's receive buffer through
+# its uncached (P2) alias and maple DMA then writes the device's answer to RAM, but nothing writes back or drops the
+# buffer's cached (P1) lines first. A device frame lives in a calloc'd maple_device_t (the detect frame in .bss, cleared
+# at start-up): those zeroing stores sit dirty in the operand cache and, when evicted, overwrite the answer the DMA
+# has just landed (Flycast cache observer + maple DMA: DMA-OVER-DIRTY then CLOBBER-WB on the unit A0 and detect
+# receive buffers within 0.1 s of boot). A link wrap of maple_frame_init (platform/misc.cpp) writes those 32 lines back
+# (ocbp) before KOS clears the buffer. Boot and hot-plug window only; once clean the P1 lines are never cached again.
+MAPLE_RECV_PURGE ?= 0
+ifneq ($(filter $(MAPLE_RECV_PURGE),0 1),$(MAPLE_RECV_PURGE))
+$(error MAPLE_RECV_PURGE must be 0 or 1)
+endif
+ifneq ($(MAPLE_RECV_PURGE),0)
+$(OBJDIR)/platform/misc.o: PLATFORM_CPPFLAGS += -DRE4DC_MAPLE_RECV_PURGE=1
+GAME_LDFLAGS += -Wl,--wrap=maple_frame_init
 endif
 # CRASH_SCREEN=1 (hardware readiness, default 0): a fault, a source HALT() or 30 s without a new frame
 # draws a report (stop kind, PC/PR/stage, threads, newest log lines) into frame buffer 0, for a photo
