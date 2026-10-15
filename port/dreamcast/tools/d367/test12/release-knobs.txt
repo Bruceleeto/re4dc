@@ -4,10 +4,10 @@
 # @ASSETS@ = the unpacked Build-Assets zip (re4dc-assets/).
 # test: 12
 # tag: test-DRYRUN-t12rc
-# source: cedae1ad
+# source: 952e8fbf
 # recipe: port/dreamcast/tools/d367/test12/t12-build.sh
-# image-sha256: 0286621d49c4a3e62d82e67d6af682a03a10c51e0eeff3edb8ff406ee420c9cc
-# assets-zip: RE4DC-Test12-cedae1ad-Build-Assets.zip
+# image-sha256: 757a7a70a80a486aefcee5b901a1e93828c88dde431d8785c4d0778c564ce700
+# assets-zip: RE4DC-Test12-952e8fbf-Build-Assets.zip
 LOGIC_TRACE=0
 GAME_DECISION_TRACE=0
 ACTOR_TRANSACTION_DIAG=0
@@ -119,6 +119,9 @@ PS2_STRIP_GROUPS=1
 PS2_ROOM_PIN=1
 LEON_LIGHT_FILL=45
 VRAM_ROOM_LOG=1
+TEX_META_EVICT=1
+PRELOAD_LARGE_FIRST=1
+ROOM_RESIDENT=1
 IMAGE_PAD_BYTES=0
 DBG_WARP=0
 PC_SAMPLER=0
