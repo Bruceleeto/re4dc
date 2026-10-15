@@ -352,6 +352,8 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 const unsigned char* owner=p+sec[kRef].at+(first+1u)*16u;
                 if(pu32(owner,8)!=1u || pu32(owner,0)!=g || pu32(owner,4)!=t || pu32(owner,12) || pu32(f,12))return kPwRef;
             }
+#elif RE4DC_NMR_POOL
+            const bool luis=false;  // NATIVE_MODEL_REGISTRY_POOL without ROUTE_CH22: only pool sections may be mask-only
 #endif
 #if RE4DC_NMR_MASK
             // Word 12: 0, or a masked section: opaque run geometry + 1 (bits 0..7), pair run geometry + 1 (8..15), the
@@ -385,7 +387,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
             if(!geom_primary[g]){geom_primary[g]=1;skin_sum+=c.skin_bytes;}
             if(mw) {
                 const unsigned go=(mw&255u)-1u,gh=((mw>>8)&255u)-1u,tc=(mw>>16)&255u,tm=mw>>24;
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 const bool mask_only=(mw&255u)==0;
 #if RE4DC_NMR_POOL
                 // NATIVE_MODEL_REGISTRY_POOL: a pool section whose every triangle is a masked card is mask-only too.
@@ -404,7 +406,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 // the chunk's UV words; the runs' triangles add up to the chunk's.
                 const unsigned runs[2]={go,gh};
                 for(const unsigned x:runs) {
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                     if(mask_only && x==~0u)continue;
 #endif
                     const nmr::Chunk X=registry_geom_view(p+sec[kGeom].at,blob,x);
@@ -412,7 +414,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                        pu32(p+sec[kGeom].at+x*64,28)!=bones || std::memcmp(X.positions,A.positions,A.position_count*8u) ||
                        std::memcmp(X.normals,A.normals,A.normal_count*8u) || std::memcmp(X.weights,A.weights,A.palette_count*16u))return kPwRef;
                 }
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 const nmr::Chunk Hr=registry_geom_view(p+sec[kGeom].at,blob,gh);
                 if(mask_only) {if(Hr.triangles!=A.triangles)return kPwRef;}
                 else {
@@ -429,7 +431,7 @@ PackWhy pack_validate(const unsigned char* p,unsigned size,unsigned room,unsigne
                 PackHash ph;ph.add(reinterpret_cast<const unsigned char*>("R4MPv001"),8);
                 ph.add(reinterpret_cast<const unsigned char*>(words),16);
                 c.pair_crc=ph.crc32();c.pair_fnv=ph.fnv;
-#if RE4DC_ROUTE_CH22
+#if RE4DC_ROUTE_CH22 || RE4DC_NMR_POOL
                 if(!mask_only)geom_used[go]=1;
                 geom_used[gh]=1;tex_used|=(1u<<tc)|(1u<<tm);
 #else

@@ -778,7 +778,11 @@ extern "C" int re4dc_actor_plan_registry(cModel* m,Re4dcActorPlan* out) {
         // The covered face keeps its input/palette/identity and lifetime proof;
         // the source-qualified head emits their merged geometry once.
         if(c.draw_owner!=RE4DC_PLAN_ROLE(&p,i))continue;
+#endif
+#if (RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK) || RE4DC_NMR_POOL
 #if RE4DC_NMR_MASK
+        // A mask-only section (the pack check admits it for the Luis face and, under NATIVE_MODEL_REGISTRY_POOL, for a
+        // pool section whose every triangle is a masked card): its pair run alone.
         if(c.mask_geometry[0]==~0u && c.mask_geometry[1]!=~0u) {
             if(p.run_count==kRe4dcActorRuns || p.material_count==kRe4dcActorMaterials){NMR_CENSUS(registry_decline(m,&p,kRwPlan));return 0;}
             const nmr::Chunk gh=registry_gview(c.mask_geometry[1]);
@@ -855,6 +859,8 @@ extern "C" int re4dc_registry_runs_match(const Re4dcActorPlan* p) {
         const auto& c=registry.chunks[desc->first_chunk+RE4DC_PLAN_ROLE(p,i)];
 #if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
         if(c.draw_owner!=RE4DC_PLAN_ROLE(p,i))continue;
+#endif
+#if (RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK) || RE4DC_NMR_POOL
         if(c.mask_geometry[0]==~0u && c.mask_geometry[1]!=~0u) {
             if(j>=p->run_count)return 0;
             const auto& h=p->runs[j];
@@ -895,7 +901,7 @@ extern "C" int re4dc_registry_masked(const Re4dcActorPlan* p) {
 #if RE4DC_NMR_POOL
     if(!RE4DC_PLAN_SHAPE(p,desc))return 0;
 #endif
-#if RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK
+#if (RE4DC_ROUTE_CH22 && RE4DC_NATIVE_MODEL_REGISTRY_PACK) || RE4DC_NMR_POOL
     for(unsigned i=0;i<RE4DC_PLAN_SECTIONS(p,desc);++i)if(registry.chunks[desc->first_chunk+RE4DC_PLAN_ROLE(p,i)].mask_geometry[1]!=~0u)return 1;
 #else
     for(unsigned i=0;i<RE4DC_PLAN_SECTIONS(p,desc);++i)if(registry.chunks[desc->first_chunk+RE4DC_PLAN_ROLE(p,i)].mask_geometry[0]!=~0u)return 1;
