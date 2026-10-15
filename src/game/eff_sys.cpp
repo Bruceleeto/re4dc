@@ -127,14 +127,18 @@ extern "C" void re4dc_items_census_model(const char* kind, u32 owner, u32 id, co
 // whose model the PS2 release deleted from the room / core EFF (no PS2 model with that id, so every PS2 record using
 // it is gone too) are not drawn. trans.cpp ModelRender returns before drawing such an object; its obj04 / obj05 /
 // obj09 work, the records, Rnd() and every move run as before (the same early return as the PACE skip).
-// Rows: room (0xffff = every room: core EFF), efm id. Source: ps2_items.py convert, ps2_source=NONE rows.
+// Rows: room (0xffff = every room: core EFF), efm id, registering owner kind (0 core EFF = owner 0, 1 room EFF =
+// owner 1, 2 an ETM .eff = any other owner): efm ids are one table, so a row matches only while the id is registered
+// by the EFF the PS2 deleted it from (a room or ETM that registers the same id keeps its model). Source:
+// ps2_items.py convert, ps2_source=NONE rows.
 struct EfmPs2CutRow {
     u16 room;
     u8 id;
+    u8 kind;
 };
 static const EfmPs2CutRow kEfmPs2Cut[] = {
-    {0x101, 0x02}, {0x106, 0x5a}, {0x10a, 0x7b}, {0x10b, 0x7b}, {0x10b, 0x7c},
-    {0x119, 0x14}, {0x119, 0x16}, {0x119, 0x17}, {0x11a, 0x0f}, {0xffff, 0x3e},
+    {0x101, 0x02, 1}, {0x106, 0x5a, 1}, {0x10a, 0x7b, 1}, {0x10b, 0x7b, 1}, {0x10b, 0x7c, 1},
+    {0x119, 0x14, 1}, {0x119, 0x16, 1}, {0x119, 0x17, 1}, {0x11a, 0x0f, 2}, {0xffff, 0x3e, 0},
 };
 static unsigned s_efmCutLogged[sizeof(kEfmPs2Cut) / sizeof(kEfmPs2Cut[0])];
 static unsigned s_efmCutCount;
@@ -148,17 +152,17 @@ extern "C" int re4dc_efm_ps2_cut(const cModel* m)
     }
     for (k = 0; k < sizeof(kEfmPs2Cut) / sizeof(kEfmPs2Cut[0]); k++) {
         void* model;
-        void* tpl;
+        unsigned owner;
         const EfmPs2CutRow* r = &kEfmPs2Cut[k];
         if (r->room != 0xffff && r->room != G_ROOM_ID) {
             continue;
         }
-        if (g_pEspSys->efmWk[r->id].owner == 0xD2) {
+        owner = g_pEspSys->efmWk[r->id].owner;
+        if (owner == 0xD2 || (r->kind == 0 && owner != 0) || (r->kind == 1 && owner != 1) ||
+            (r->kind == 2 && owner < 2)) {
             continue;
         }
         model = g_pEspSys->efmWk[r->id].model;
-        tpl = 0;
-        (void) tpl;
         if (model == (void*) info->pData) {
             s_efmCutCount++;
             if (s_efmCutLogged[k] != (unsigned) G_ROOM_ID + 1U) {
