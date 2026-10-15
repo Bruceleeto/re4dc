@@ -1581,6 +1581,9 @@ UI_OVERLAY_SLAB_KB ?= 0
 # Was: the texture was refused for that frame (texchk FAIL, "no contiguous block ... latched") and UI_FRAG_RESERVE
 # handed it a block one frame later (r105 results picture; Leon's 512x512 body at the r105 / r10b preloads, where
 # LEON-GC showed the source model for that frame).
+# =3 (test 13 RC, 10-15): =1 only for uploads of at least 128 KiB (kFragDropBytes; the r105 results pictures need 256
+# KiB); smaller refused uploads keep the LRU retry. =1 in the r100 s20 fight released windows of effect textures for
+# 8..89 KiB uploads and the thrash guard dropped 11 effect sprites (H2, guard_p 0 -> 11). No frame drop (that is =2).
 UI_FRAG_WINDOW ?= 0
 # TEX_REF_SELFKEY=1 (t11 lane vr, render only, default 0): a texture descriptor whose pixels are an R4NREF record (the
 # native package reference a .drs/.dat keeps in place of the texels: magic, crc, fnv, width, height, format) that no
@@ -1593,8 +1596,8 @@ TEX_REF_SELFKEY ?= 0
 ifneq ($(filter-out 0 1,$(TEX_REF_SELFKEY)),)
 $(error TEX_REF_SELFKEY must be 0 or 1)
 endif
-ifneq ($(filter-out 0 1 2,$(UI_FRAG_WINDOW)),)
-$(error UI_FRAG_WINDOW must be 0, 1 or 2)
+ifneq ($(filter-out 0 1 2 3,$(UI_FRAG_WINDOW)),)
+$(error UI_FRAG_WINDOW must be 0, 1, 2 or 3)
 endif
 ifneq ($(UI_FRAG_WINDOW),0)
 ifneq ($(UI_VRAM)$(UI_FRAG_LATCH)$(TEX_RESIDENT)$(MOVIE_WINDOW),1111)

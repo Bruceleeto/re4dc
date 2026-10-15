@@ -1946,7 +1946,7 @@ void safe_audit_scene(bool present);
 #endif
 void stream_close(bool present) {
     RE4DC_PROFILE_SCOPE(PresentFence);
-#if RE4DC_UI_FRAG_WINDOW>=2
+#if RE4DC_UI_FRAG_WINDOW==2
     if(frag_discard){present=false;frag_discard=false;} // UI_FRAG_WINDOW: this frame released textures its scene used
 #endif
 #if RE4DC_PS2_WORLD_R11F_OWNER
@@ -3158,8 +3158,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         }
 #endif
 #if RE4DC_UI_FRAG_WINDOW
-        // UI_FRAG_WINDOW (Makefile): one hole of the size, not LRU evictions until one appears.
-        if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
+        // UI_FRAG_WINDOW (Makefile): one hole of the size, not LRU evictions until one appears. =3: only for uploads of
+        // at least kFragDropBytes (the r105 results pictures); smaller ones keep the LRU retry (r100 s20 fight: =1
+        // released windows of effect textures for 8..89 KiB uploads and the thrash guard then dropped 11 effect sprites).
+        if(!ok && (RE4DC_UI_FRAG_WINDOW!=3 || need>=kFragDropBytes) && slot->package.error() &&
+           !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
             unsigned wb=0;frag_min_age=kFragMinAge;const unsigned wr=movie_window_release(need,false,wb);frag_min_age=0;
             if(wr){ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();frag_win_bytes+=wb;}
             if(ok)++frag_win_ok;else ++frag_win_none;
@@ -3180,7 +3183,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
             ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
         }
-#if RE4DC_UI_FRAG_WINDOW>=2
+#if RE4DC_UI_FRAG_WINDOW==2
         // The LRU retry found no hole either: it is blocked by uploads this frame already took (its draws, or the
         // room preload's picks at the frame start). Release the cheapest window including them and close this
         // frame's scene unrendered at its present (frag_discard: the previous picture stays one more frame). The rest
