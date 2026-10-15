@@ -2681,6 +2681,20 @@ $(error PS2_WORLD_LEAN must be 0..31)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_LEAN=$(PS2_WORLD_LEAN)
 endif
+# PS2_PLACE_GATE=1 (render only, default 0; lane objs 2026-10-15 for crowd12 STATIC_OBJ_BAKE): placements of the PS2
+# world package owned by game objects (re4dc_ps2_place_own at object setup) draw only while the object asks
+# (re4dc_ps2_place_gate(room, placement, 1)); otherwise the object's live draw runs. native_static.cpp only; the
+# callers are the baking lane's. Needs PS2_WORLD_ROOMS.
+PS2_PLACE_GATE ?= 0
+ifneq ($(PS2_PLACE_GATE),0)
+ifneq ($(filter-out 1 2,$(PS2_PLACE_GATE)),)
+$(error PS2_PLACE_GATE must be 0, 1 or 2 (2 = diagnostic: owns every 8th placement, toggled every 64 frames))
+endif
+ifeq ($(PS2_WORLD_ROOMS),0)
+$(error PS2_PLACE_GATE needs PS2_WORLD_ROOMS=1 or 2)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PLACE_GATE=$(PS2_PLACE_GATE)
+endif
 # PS2_AREA_HIDE=1 (render only, default 0; lane objs 2026-10-15, PS2-ENEMY-CODE-DIFF-20261015 item 11): the PS2 room
 # code's per-area scenery hiding on the PS2 world placements. r107: PS2 R107Main shows / hides SMD groups 50..100 on
 # Room_flg[2] bits 31 / 30 (PS2-only AEV flag areas 9 / 10 / 11); r107.cpp computes the two bits from the PS2 quads
