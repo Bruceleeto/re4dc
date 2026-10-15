@@ -15,7 +15,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
 | 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 | Fixed and checked in our tests; the problem was not console-only | 8 |
-| 🛠️ In progress | Being fixed now | 1 |
+| 🛠️ In progress | Being fixed now | 2 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
 | ⏸️ Open | Known, not yet worked on | 16 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
@@ -36,6 +36,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie. Planned for test 13 | |
+| Possible out-of-memory crash on a real console when leaving the village (r101) after a long fight, at the next room's start | test 12, 12.1 | 🛠️ In progress: found by our memory checks, not reported by anyone yet; the fix frees the village's leftover memory when the room changes (test 12.2) | |
 | A crash screen (`MISSING sub screen pool freeze allocation`) when a radio call opens on a real console | test 11 (not released), test 12 preview | ✅ Confirmed fixed on a real Dreamcast (test 12 preview): the call screen now keeps its copies in memory set aside for it | |
 
 ## Picture
