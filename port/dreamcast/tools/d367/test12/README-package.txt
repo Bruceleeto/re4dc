@@ -13,7 +13,7 @@ New in test 12:
   (MISSING sub screen pool freeze allocation), confirmed on a console.
 * The controller and VMU answers at start-up are read more safely on a real
   Dreamcast.
-* The village (r101) runs faster: its fire and smoke use the PS2 pictures, the
+* The village (r101) does less work each frame: its fire and smoke use the PS2 pictures, the
   distant haze is drawn as fog by the graphics chip, fewer textures are reloaded
   during the fight, and the world is drawn with less work.
 * In the village fight at most 6 villagers attack at once. The others wait and
@@ -53,6 +53,9 @@ From test 11 (not released before):
 * Missing textures are back: the chapter 2-1 results picture, the r106 bats,
   a dark block in r119 and a texture at the village bell.
 * The lake ripples stay on top of the water.
+
+This build was checked in short scenes along the route; the full play-through
+check was skipped for this release.
 
 Please tell us about any crash, freeze or missing texture, and where. Photos
 help a lot.

@@ -19,7 +19,7 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test 12 (test 10 plus the unreleased test 11: PS2 objects, items, caps and the merchant, a brighter Leon, a faster village, and the radio call crash fixed). Desktop packages will return with a later test build;
+The latest build is console test 12 (test 10 plus the unreleased test 11: PS2 objects, items, caps and the merchant, a brighter Leon, less work per frame in the village, and the radio call crash fixed). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
