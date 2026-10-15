@@ -2643,6 +2643,14 @@ void Render()
 }
 
 static const GXColor col64 = {0x40, 0x40, 0x40, 0x40};
+#if defined(RE4DC_GCOBJ_SKIP) && RE4DC_GCOBJ_SKIP
+// GCOBJ_SKIP (crowd.mk, measurement only): the GC-path object classes; statics only when only_static.
+static inline bool re4dc_gcobj_class(unsigned kind, unsigned id, bool only_static) {
+    if (kind == 0) return id == 0x41 || id == 0x43 || id == 0x45 || id == 0x46 || (!only_static && id == 0x42);
+    if (kind == 1) return id == 0x00 || id == 0x21 || (!only_static && (id == 0x12 || id == 0x19));
+    return false;
+}
+#endif
 
 // OT callback for a model: z mode by z_mode (0 test+write, 1 test only, 2 off), the alpha-omit
 // compare, then commonModelTrans with the camera view; invisible models (invisible_factor 0) skip.
@@ -2675,6 +2683,11 @@ void ModelRender(cModel* m)
     if (m->invisible_factor * m->invisible_factor2 == 0.0f) {
         return;
     }
+#if defined(RE4DC_GCOBJ_SKIP) && (RE4DC_GCOBJ_SKIP == 1 || RE4DC_GCOBJ_SKIP == 2)
+    if (re4dc_gcobj_class(m->kindid, m->id, RE4DC_GCOBJ_SKIP == 2)) {
+        return;
+    }
+#endif
 #if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP == 1
     if (g_invisReplayNum != 0) {
         u32 k;

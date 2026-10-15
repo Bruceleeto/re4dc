@@ -657,7 +657,13 @@ struct Builder {
 extern "C" int re4dc_leon_hr_image(const Re4dcUiImage* image);  // native_ui.cpp: one of Leon's 2x packages
 unsigned leon_hr_parts;  // parts drawn at x0.5 here (log census)
 #endif
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+extern "C" void re4dc_callprof_part(const void* model, unsigned path);  // model_bridge.cpp
+#endif
 extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    re4dc_callprof_part(p ? p->model : nullptr, 2);
+#endif
     RE4DC_PROFILE_SCOPE(ModelSetup);
     if(!re4dc_model_diagnostic_enabled())return;
 #if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM

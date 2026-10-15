@@ -2767,6 +2767,16 @@ GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
 $(OBJDIR)/platform/memprof.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMPROF=1
 endif
 
+# CALLPROF=1 (diagnostic builds only; lane crowd12 2026-10-15): call sites of the shared maths helpers by calls
+# (--wrap thunks in platform/callprof.cpp) and actor parts per model per entry path; CALLPROF / PARTPROF lines every
+# 120 frames from native_ps2_world.cpp's flush. Timing is perturbed: counts only.
+CALLPROF ?= 0
+ifneq ($(CALLPROF),0)
+GAME_LDFLAGS += -Wl,--wrap=PSMTXConcat -Wl,--wrap=PSMTXInverse -Wl,--wrap=PSMTXMultVec -Wl,--wrap=PSMTXMultVecSR -Wl,--wrap=RotVector -Wl,--wrap=sinf -Wl,--wrap=cosf -Wl,--wrap=acosf -Wl,--wrap=atan2f -Wl,--wrap=sqrtf -Wl,--wrap=memcmp -Wl,--wrap=re4dc_sincosf -Wl,--wrap=PSMTXRotAxisRad
+$(OBJDIR)/platform/callprof.o $(OBJDIR)/platform/native_ps2_world.o $(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_model.o: PLATFORM_CPPFLAGS += -DRE4DC_CALLPROF=1
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_CALLPROF=1
+endif
+
 # TEX_WRAP_SAFE=1 (render only, default 0; lane crowd12 2026-10-14, ledger G5): a wrapping model part may draw from a
 # padded texture package that tools/d367/tex_wrapsafe.py marked uniform (header flags bit 30; one colour, so wrap and
 # padding cannot change a sample). Without such packages in dc/tex.pak the knob changes nothing.

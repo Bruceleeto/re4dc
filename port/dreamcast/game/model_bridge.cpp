@@ -275,14 +275,30 @@ extern "C" void re4dc_front_verify(int mode){
     front_mode=(unsigned)mode;
 }
 #endif
+#if defined(RE4DC_GCOBJ_SKIP) && RE4DC_GCOBJ_SKIP
+// GCOBJ_SKIP (crowd.mk, measurement only): the GC-path object classes; statics only when only_static.
+static inline bool re4dc_gcobj_class(unsigned kind, unsigned id, bool only_static) {
+    if (kind == 0) return id == 0x41 || id == 0x43 || id == 0x45 || id == 0x46 || (!only_static && id == 0x42);
+    if (kind == 1) return id == 0x00 || id == 0x21 || (!only_static && (id == 0x12 || id == 0x19));
+    return false;
+}
+#endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
  const void* part_ptr,const float mv[3][4],unsigned pass){
     if(!re4dc_model_diagnostic_enabled() || pass)return;
+#if defined(RE4DC_GCOBJ_SKIP) && (RE4DC_GCOBJ_SKIP == 3 || RE4DC_GCOBJ_SKIP == 4)
+    if(re4dc_gcobj_class(((const cModel*)model)->kindid,((const cModel*)model)->id,RE4DC_GCOBJ_SKIP==4))return;
+#endif
 #if RE4DC_NATIVE_ACTOR
     bind_actor_frame();
 #endif
     auto* m=(const cModel*)model;auto* info=(const cModelInfo*)info_ptr;
     auto* part=(const ModelPart*)part_ptr;const auto* d=info->pData;
+#if defined(RE4DC_GC_STUB_SKIP) && RE4DC_GC_STUB_SKIP
+    // GC_STUB_SKIP (crowd.mk): fewer than 3 positions draws nothing on any path (every path declines or emits
+    // degenerate triangles); skip the per-part record, actor attempt and builder.
+    if(d->nVtx<3)return;
+#endif
     Re4dcModelPart p{};p.model=m;p.info=info;p.part=part;
     const bool rigid=(m->be_flag&0x4000) ||
       (d->weight_palette_num<=1 && d->weight_ext_num<=0xff && !(info->be_flag&2) && d->nParts==1);
@@ -337,6 +353,18 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     re4dc_actor_vis_source(m,info,&p);
 #endif
+#if defined(RE4DC_SOB_DIAG) && RE4DC_SOB_DIAG
+    {   // SOB_DIAG (crowd.mk, diagnostic): the static object classes' part records
+        const unsigned k=m->kindid,id=m->id;
+        const bool st=(k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&(id==0x00||id==0x21));
+        if(st && pG->Frame_cnt%600==300)
+            re4dc_log("SOBPART f=%u m=%08x k=%u id=%02x ser=%u info=%08x d=%08x part=%08x img=%08x %ux%u fmt=%u pal=%08x nv=%u nn=%u ps=%u ns=%u nsh=%u sh=%u fl=%08x mfl=%08x bl=%u dm=%u cull=%u as=%u col=%08x uv=%08x sb=%u sg=%u np=%u t=%.0f,%.0f,%.0f be=%08x\n",
+                pG->Frame_cnt,(unsigned)m,k,id,m->serial,(unsigned)info,(unsigned)d,(unsigned)part,(unsigned)p.image.pixels,p.image.width,p.image.height,
+                p.image.format,(unsigned)p.image.palette,p.position_count,p.normal_count,p.position_stride,p.normal_stride,p.normal_shift,p.shift,
+                p.flags,p.material_flags,p.blend,p.depth_mode,p.cull,p.alpha_state,(unsigned)p.colors,(unsigned)p.uv,p.stream_bytes,
+                p.static_geometry,(unsigned)m->nParts,mv[0][3],mv[1][3],mv[2][3],(unsigned)m->be_flag);
+    }
+#endif
     re4dc_model_submit(&p);
 #if RE4DC_ACTOR_TRANSACTION_DIAG
     re4dc_actor_vis_source_end();
@@ -387,5 +415,13 @@ extern "C" const void* re4dc_actor_accessory_parent(const void* model) {
     if (!m || m->kindid != 1 || m->id != 0x12) return nullptr;
     const cModel* oya = static_cast<const cObj*>(m)->o12.oya;
     return oya && oya->kindid == 0 && oya->id >= 0x10 && oya->id <= 0x20 ? oya : nullptr;
+}
+#endif
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+// CALLPROF (game30.mk): an actor part's model as kindid << 8 | id for platform/callprof.cpp.
+extern "C" void re4dc_callprof_part_key(unsigned path,unsigned key);
+extern "C" void re4dc_callprof_part(const void* model,unsigned path){
+    const cModel* m=static_cast<const cModel*>(model);
+    re4dc_callprof_part_key(path,m?(unsigned(m->kindid)<<8|unsigned(m->id)):0xffffU);
 }
 #endif

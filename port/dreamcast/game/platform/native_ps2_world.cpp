@@ -38,6 +38,9 @@ extern "C" void re4dc_static_free(void*);
 extern "C" int re4dc_static_heap_free();
 extern "C" unsigned re4dc_ui_frame();
 extern "C" void re4dc_log(const char*,...);
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+extern "C" void re4dc_callprof_log(unsigned frame,unsigned frames); // platform/callprof.cpp
+#endif
 #if defined(RE4DC_MEMPROF) && RE4DC_MEMPROF
 extern "C" void re4dc_memprof_log(unsigned frame,unsigned frames); // platform/memprof.cpp
 #endif
@@ -737,6 +740,9 @@ extern "C" void re4dc_ps2_world_flush(){
     state.flushed=state.frame;state.pending=false;
 #if defined(RE4DC_MEMPROF) && RE4DC_MEMPROF
     if(!(state.frame%120))re4dc_memprof_log(state.frame,120);
+#endif
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    if(!(state.frame%120))re4dc_callprof_log(state.frame,120);
 #endif
 #if RE4DC_PS2_WORLD_MESH
     {

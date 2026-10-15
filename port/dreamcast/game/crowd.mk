@@ -550,3 +550,41 @@ MEMSET_LEAN ?= 0
 ifneq ($(MEMSET_LEAN),0)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMSET_LEAN=$(MEMSET_LEAN)
 endif
+
+# GCOBJ_SKIP=N (MEASUREMENT ONLY, a look change; lane crowd12 2026-10-15; default 0): GC-path object models (doors,
+# racks, windows, boxes, rack rifles, cObj00 [static]; enemy weapons, cObj12, items) are not drawn, to cost a batched
+# object draw path. 1 all / 2 static, skipped at ModelRender; 3 all / 4 static, skipped at re4dc_draw_model_part.
+GCOBJ_SKIP ?= 0
+ifneq ($(GCOBJ_SKIP),0)
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GCOBJ_SKIP=$(GCOBJ_SKIP)
+endif
+
+# GC_STUB_SKIP=1 (lane crowd12 2026-10-15; render only, exact; default 0): a GC-path model part with fewer than 3
+# positions (cannot form a triangle; r101's objs-fixture cObj00 stubs) skips re4dc_draw_model_part's per-part work.
+GC_STUB_SKIP ?= 0
+ifneq ($(GC_STUB_SKIP),0)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GC_STUB_SKIP=$(GC_STUB_SKIP)
+endif
+
+# OWNER_SETUP_LEAN=1 (lane crowd12 2026-10-15; render only, exact; default 0): the Ganados' behind-the-house-walls
+# bound (coarse_actor_owner_ganado.inc invis_interior / invis_owner_interior) is not built while the Trans-time
+# interior cell state is inactive, when its hidden test returns 0 anyway.
+OWNER_SETUP_LEAN ?= 0
+ifneq ($(OWNER_SETUP_LEAN),0)
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
+$(OBJDIR)/coarse_ganado.o: GAME_CPPFLAGS += -DRE4DC_OWNER_SETUP_LEAN=$(OWNER_SETUP_LEAN)
+endif
+
+# TEX_IDENT_LEAN=1 (lane crowd12 2026-10-15; render only, exact; default 0): texture identity lookups
+# (room/texture_package.cpp SourceIdentityTable::lookup) test an entry's bounds before reading its tag.
+TEX_IDENT_LEAN ?= 0
+ifneq ($(TEX_IDENT_LEAN),0)
+$(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_IDENT_LEAN=$(TEX_IDENT_LEAN)
+endif
+
+# SOB_DIAG=1 (diagnostic only, lane crowd12 2026-10-15): SOBPART lines (the static object classes' GC part records)
+# every 600 frames, for the STATIC_OBJ_BATCH design.
+SOB_DIAG ?= 0
+ifneq ($(SOB_DIAG),0)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_SOB_DIAG=1
+endif
