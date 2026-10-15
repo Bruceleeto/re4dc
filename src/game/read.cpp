@@ -32,6 +32,9 @@
 #if !defined(__PPC__)
 #include "re4dc_platform.h"
 #endif
+#if defined(RE4DC_EFFECT_BIND_DIAG) && RE4DC_EFFECT_BIND_DIAG
+extern "C" unsigned re4dc_effect_bind_fail_line;  // platform/native_effect.cpp (EFFECT_BIND_DIAG=1)
+#endif
 
 extern "C" {
 void OSReport(const char* fmt, ...);
@@ -620,7 +623,18 @@ int readEmData(ReadModule* m, int id, void* addr, u32 size)
         return 0;
     }
     if (!re4dc_effect_bind(pArc, len)) {
+#if defined(RE4DC_EFFECT_BIND_DIAG) && RE4DC_EFFECT_BIND_DIAG
+        // EFFECT_BIND_DIAG=1: which check refused it (native_effect.cpp line), the file, its size and an FNV-1a of
+        // the buffer (compare with the disc file: a damaged read vs a full or stale binding table)
+        static char why[112];
+        u32 h = 2166136261u;
+        for (u32 i = 0; i < (u32) len; ++i) h = (h ^ ((const u8*) pArc)[i]) * 16777619u;
+        sprintf(why, "enemy effect records chk%u %s %ub fnv%08x", re4dc_effect_bind_fail_line, name, (unsigned) len,
+                (unsigned) h);
+        re4dc_missing(why);
+#else
         re4dc_missing("invalid prepared enemy effect records");
+#endif
         return 0;
     }
     if (!re4dc_motion_bind(pArc, len)) {

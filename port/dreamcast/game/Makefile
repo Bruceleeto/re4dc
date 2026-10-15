@@ -962,6 +962,14 @@ endif
 ifneq ($(DISC_READ_FALLBACK),0)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
 endif
+# EFFECT_BIND_DIAG=1 (lane discread 10-15, console diagnosis, default 0 = image unchanged): readEmData's MISSING line
+# names the native_effect.cpp check that refused the archive, the file, its size and an FNV-1a of the bytes read
+# ("enemy effect records chk<line> <file> <bytes>b fnv<hash>"), to tell a damaged disc read from a binding-table fault.
+EFFECT_BIND_DIAG ?= 0
+ifeq ($(EFFECT_BIND_DIAG),1)
+$(OBJDIR)/platform/native_effect.o: PLATFORM_CPPFLAGS += -DRE4DC_EFFECT_BIND_DIAG=1
+$(OBJDIR)/src/game/read.o: GAME_CPPFLAGS += -DRE4DC_EFFECT_BIND_DIAG=1
+endif
 # DISC_POLL_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0): a sector read polls its GD command with thd_pass for N ms
 # before it sleeps (a KOS sleep ends at the next 10 ms scheduler tick). Lane discread load-time experiment.
 DISC_POLL_SPIN_MS ?= 0
