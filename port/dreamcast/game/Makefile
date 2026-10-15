@@ -224,6 +224,9 @@ $(OBJDIR)/src/game/em_set.o $(OBJDIR)/src/game/sce_com.o $(OBJDIR)/src/game/sce_
 ifneq ($(or $(ALIVE_CAP_PARK),0),0)
 $(OBJDIR)/src/game/em_set.o: GAME_CPPFLAGS += -DRE4DC_ALIVE_CAP_PARK=1
 endif
+# Room modules that call the shared PS2 far delete (include/em_far_delete.h: r301 / r327) see the cap's held
+# entries (RE4DC_ALIVE_CAP_ON; only that header tests it).
+$(OBJDIR)/mod/%.o: GAME_CPPFLAGS += -DRE4DC_ALIVE_CAP_ON=1
 endif
 # R101_ALIVE_CAP=N (lane crowd12 2026-10-14; CHANGES GAMEPLAY by design; default 0 = off; needs PS2_ENEMY_ROOMS bit 0x02):
 #   at most N Ganados alive at once in the r101 village fight. Start-list Ganados beyond N are held at room entry

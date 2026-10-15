@@ -30,12 +30,23 @@ static inline int re4dc_emFarDeleteGanado(int id)
     return id >= 0x10 && id <= 0x20;
 }
 
-// Returns the number of Ganados deleted.
+#if defined(RE4DC_ALIVE_CAP_ON) && RE4DC_ALIVE_CAP_ON
+// ALIVE_CAP (em_set.cpp; coordinator decision 10-15, st3 lane r301): held Ganados count here as the PS2 counts them
+// (there they are alive). The ones above `keep` are dropped first (latest held first; they are off screen), then the
+// farthest live ones go as before, down to `keep` minus the held ones left. Not compiled without the cap.
+extern "C" int re4dc_aliveCapHeldCount(int lo, int hi);
+extern "C" int re4dc_aliveCapFarDrop(int max, int clearAlive);
+#endif
+
+// Returns the number of Ganados deleted (held entries dropped included).
 static int re4dc_emFarDeleteImpl(int keep, int offscreen, int noWrap)
 {
     int n = 0;
     int done = 0;
     u32 i;
+#if defined(RE4DC_ALIVE_CAP_ON) && RE4DC_ALIVE_CAP_ON
+    int dropped = 0;
+#endif
 
     if (pPL == 0) {
         return 0;
@@ -47,6 +58,23 @@ static int re4dc_emFarDeleteImpl(int keep, int offscreen, int noWrap)
             n++;
         }
     }
+#if defined(RE4DC_ALIVE_CAP_ON) && RE4DC_ALIVE_CAP_ON
+    {
+        const int held = re4dc_aliveCapHeldCount(0x10, 0x20);
+        int excess = n + held - keep;
+
+        if (excess > held) {
+            excess = held;
+        }
+        if (excess > 0) {
+            dropped = re4dc_aliveCapFarDrop(excess, noWrap);
+        }
+        keep -= held - dropped;
+        if (keep < 0) {
+            keep = 0;
+        }
+    }
+#endif
     while (done < n - keep) {
         cEm* best = 0;
         f32 bestD = 0.0f;
@@ -103,7 +131,11 @@ static int re4dc_emFarDeleteImpl(int keep, int offscreen, int noWrap)
         EmMgr.destroy(best);
         done++;
     }
+#if defined(RE4DC_ALIVE_CAP_ON) && RE4DC_ALIVE_CAP_ON
+    return done + dropped;
+#else
     return done;
+#endif
 }
 
 // PS2 EmFarDeleteNoWrap(keep, offscreen): the list entry's alive bit is cleared too.
