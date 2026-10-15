@@ -285,118 +285,147 @@ static inline bool re4dc_gcobj_class(unsigned kind, unsigned id, bool only_stati
 #endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
 // STATIC_OBJ_BATCH (crowd.mk): one actor part per run of identical-record display lists of one static object info.
-#include <malloc.h>
+// All state but a pointer lives in heap-4 room cells, freed at room leave (KOS malloc and BSS have no room).
 extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);  // native_actor_fast.cpp
+extern "C" void* re4dc_static_alloc(unsigned bytes);                                    // ui_bridge.cpp
+extern "C" void re4dc_static_free(void* data);
+extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace sob {
-constexpr unsigned kMaxParts=16,kEntries=48,kBudget=96u*1024u,kSentinel=16;
+constexpr unsigned kMaxParts=16,kEntries=48,kSentinel=8;
 struct Entry {
-    const void* model; const void* info; const void* data; unsigned n,bytes,used;
-    const ModelPart* parts[kMaxParts]; unsigned sizes[kMaxParts]; unsigned char head[kMaxParts][kSentinel];
+    const void* model; const void* info; const void* data; unsigned n,bytes;
+    const ModelPart* parts[kMaxParts]; unsigned char head[kMaxParts][kSentinel];
     unsigned char* buf;
 };
-Entry cache[kEntries];
-unsigned budget_used=0;
 struct Pending {
     bool on; Re4dcModelPart rec; re4dc::render::SourceLighting light;
-    const void* model; const void* info; unsigned frame,n; const ModelPart* parts[kMaxParts];
-} pend{};
+    const void* model; const void* info; unsigned n; const ModelPart* parts[kMaxParts];
+};
+struct State { unsigned generation,count,bytes; Pending pend; Entry e[kEntries]; };
+State* S=nullptr;
+unsigned seen_frame=~0U,generation=0; bool live=false;
 const void* cur_model=nullptr; const void* cur_info=nullptr; unsigned cur_idx=0;
-struct Stats { unsigned groups,lists,merged,saved,built,refused,singles,late,log; } st{};
+struct Stats { unsigned groups,lists,merged,saved,built,refused,singles,lit,log; } st{};
 inline bool static_class(const cModel* m){
     const unsigned k=m->kindid,id=m->id;
     return (k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&id==0x21);
 }
-// Records equal but for the stream, its size, the part header and the lighting address (one info's GX state).
+// build_lights folds point lights at the blob centre: only these groups' lighting depends on where the centre is.
+inline bool centre_lit(const re4dc::render::SourceLighting& L){
+    return L.enable && !L.ambient_vertex && !L.material_vertex && L.diffuse==2 && L.mask;
+}
+// Records equal but for the stream, its size, the part header and the lighting address; lighting content equal.
 inline bool same(const Re4dcModelPart& a,const Re4dcModelPart& b){
     Re4dcModelPart t=b;t.stream=a.stream;t.stream_bytes=a.stream_bytes;t.part=a.part;t.lighting=a.lighting;
-    return !memcmp(&a,&t,sizeof t);
+    return !memcmp(&a,&t,sizeof t) && !memcmp(a.lighting,b.lighting,sizeof(re4dc::render::SourceLighting));
 }
 inline const unsigned char* list_of(const ModelPart* q){return (const unsigned char*)q+0x20;}
-Entry* find(){
-    for(Entry& e:cache){
-        if(!e.buf || e.model!=pend.model || e.info!=pend.info || e.n!=pend.n)continue;
-        bool ok=e.data==((const cModelInfo*)pend.info)->pData;
-        for(unsigned i=0;ok && i<e.n;++i)
-            ok=e.parts[i]==pend.parts[i] && e.sizes[i]==pend.parts[i]->size &&
-               !memcmp(e.head[i],list_of(pend.parts[i]),kSentinel);
-        if(ok)return &e;
+void new_frame(){
+    seen_frame=pG->Frame_cnt;
+    unsigned cells,bytes,stale,refused;
+    live=re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused)!=0;
+    if(S && (!live || S->generation!=generation))S=nullptr;  // a heap-4 reset without a room leave: the cells are gone
+    if(seen_frame-st.log>=600U){
+        st.log=seen_frame;
+        re4dc_log("SOBATCH frame=%u groups=%u lists=%u merged=%u saved=%u built=%u refused=%u singles=%u lit=%u entries=%u bytes=%u\n",
+            seen_frame,st.groups,st.lists,st.merged,st.saved,st.built,st.refused,st.singles,st.lit,
+            S?S->count:0U,S?S->bytes:0U);
+    }
+}
+Entry* find(const Pending& q){
+    for(unsigned k=0;k<S->count;++k){
+        Entry& e=S->e[k];
+        if(e.model!=q.model || e.info!=q.info || e.n!=q.n || e.data!=((const cModelInfo*)q.info)->pData)continue;
+        unsigned total=0;bool ok=true;
+        for(unsigned i=0;ok && i<e.n;++i){
+            ok=e.parts[i]==q.parts[i] && !memcmp(e.head[i],list_of(q.parts[i]),kSentinel);
+            total+=q.parts[i]->size;
+        }
+        if(ok && total==e.bytes)return &e;
     }
     return nullptr;
 }
-void release(Entry& e){if(e.buf){free(e.buf);budget_used-=e.bytes;}e=Entry{};}
-Entry* build(){
+Entry* build(const Pending& q){
+    if(S->count>=kEntries)return nullptr;
     unsigned total=0;
-    for(unsigned i=0;i<pend.n;++i){
-        const unsigned b=pend.parts[i]->size;
-        if(b<32 || re4dc_actor_stream_encoded(list_of(pend.parts[i]),b))return nullptr;  // only unconverted GX lists
+    for(unsigned i=0;i<q.n;++i){
+        const unsigned b=q.parts[i]->size;
+        if(b<32 || re4dc_actor_stream_encoded(list_of(q.parts[i]),b))return nullptr;  // only unconverted GX lists
         total+=b;
     }
-    if(total>0x3FFF0u)return nullptr;
-    // A slot: free, else the least recently used (also the way the budget is returned).
-    Entry* slot=nullptr;
-    for(Entry& e:cache)if(!e.buf){slot=&e;break;}
-    if(!slot){slot=&cache[0];for(Entry& e:cache)if(e.used<slot->used)slot=&e;release(*slot);}
-    while(budget_used+total>kBudget){
-        Entry* old=nullptr;
-        for(Entry& e:cache)if(e.buf && (!old || e.used<old->used))old=&e;
-        if(!old)return nullptr;
-        release(*old);
-    }
-    auto* buf=(unsigned char*)memalign(32,total);
+    if(total>0x3FFF0U)return nullptr;
+    auto* buf=(unsigned char*)re4dc_static_alloc(total);
     if(!buf)return nullptr;
+    if((unsigned)buf&31U){re4dc_static_free(buf);return nullptr;}  // display lists are 32-byte aligned
+    Entry& e=S->e[S->count++];
     unsigned at=0;
-    for(unsigned i=0;i<pend.n;++i){
-        memcpy(buf+at,list_of(pend.parts[i]),pend.parts[i]->size);at+=pend.parts[i]->size;
-        slot->parts[i]=pend.parts[i];slot->sizes[i]=pend.parts[i]->size;memcpy(slot->head[i],list_of(pend.parts[i]),kSentinel);
+    for(unsigned i=0;i<q.n;++i){
+        memcpy(buf+at,list_of(q.parts[i]),q.parts[i]->size);at+=q.parts[i]->size;
+        e.parts[i]=q.parts[i];memcpy(e.head[i],list_of(q.parts[i]),kSentinel);
     }
-    slot->model=pend.model;slot->info=pend.info;slot->data=((const cModelInfo*)pend.info)->pData;slot->n=pend.n;
-    slot->bytes=total;slot->buf=buf;budget_used+=total;++st.built;
-    return slot;
+    e.model=q.model;e.info=q.info;e.data=((const cModelInfo*)q.info)->pData;e.n=q.n;e.bytes=total;e.buf=buf;
+    S->bytes+=total;++st.built;
+    return &e;
 }
 void flush(){
-    if(!pend.on)return;
-    pend.on=false;
-    if(pend.frame!=pG->Frame_cnt){++st.late;}  // never expected: held past the info's last list
-    ++st.groups;st.lists+=pend.n;
-    Re4dcModelPart r=pend.rec;
-    if(pend.n>1){
-        Entry* e=find();
-        if(!e)e=build();
+    Pending& q=S->pend;
+    if(!q.on)return;
+    q.on=false;
+    ++st.groups;st.lists+=q.n;
+    Re4dcModelPart r=q.rec;
+    if(q.n>1){
+        Entry* e=find(q);
+        if(!e)e=build(q);
         if(e){
-            e->used=pG->Frame_cnt;
-            r.stream=e->buf;r.stream_bytes=e->bytes;r.part=pend.parts[0];
-            ++st.merged;st.saved+=pend.n-1;
+            r.stream=e->buf;r.stream_bytes=e->bytes;r.part=q.parts[0];
+            ++st.merged;st.saved+=q.n-1;
             re4dc_model_submit(&r);
             return;
         }
         ++st.refused;
     } else ++st.singles;
-    for(unsigned i=0;i<pend.n;++i){
-        r.part=pend.parts[i];r.stream=list_of(pend.parts[i]);r.stream_bytes=pend.parts[i]->size;
+    for(unsigned i=0;i<q.n;++i){
+        r.part=q.parts[i];r.stream=list_of(q.parts[i]);r.stream_bytes=q.parts[i]->size;
         re4dc_model_submit(&r);
     }
 }
 // 1: the part was taken (held, or submitted with its run); 0: the caller submits it.
 bool take(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelPart* part,const Re4dcModelPart& p){
+    if(pG->Frame_cnt!=seen_frame)new_frame();
     if(m!=cur_model || info!=cur_info){cur_model=m;cur_info=info;cur_idx=0;}
     const unsigned idx=++cur_idx;
-    const bool eligible=static_class(m) && p.blend==0 && p.lighting && d->displist_num>1 &&
-                        d->displist_num<=kMaxParts && p.stream==list_of(part) && p.stream_bytes==part->size;
-    if(pend.on && (!eligible || pend.info!=info || pend.model!=m || !same(pend.rec,p)))flush();
+    bool eligible=live && static_class(m) && p.blend==0 && p.lighting && d->displist_num>1 &&
+                  d->displist_num<=kMaxParts && p.stream==list_of(part) && p.stream_bytes==part->size;
+    if(eligible && centre_lit(*p.lighting)){
+        if(idx==1)++st.lit;
+        eligible=RE4DC_STATIC_OBJ_BATCH>=2;
+    }
+    if(eligible && !S){
+        S=(State*)re4dc_static_alloc(sizeof(State));
+        if(S){memset(S,0,sizeof(State));S->generation=generation;}
+        else eligible=false;
+    }
+    if(S && S->pend.on){
+        const Pending& q=S->pend;
+        if(!eligible || q.info!=info || q.model!=m || !same(q.rec,p))flush();
+    }
     if(!eligible){if(idx>=d->displist_num)cur_info=nullptr;return false;}
-    if(!pend.on){
-        pend.on=true;pend.rec=p;pend.light=*p.lighting;pend.rec.lighting=&pend.light;
-        pend.model=m;pend.info=info;pend.frame=pG->Frame_cnt;pend.n=0;
+    Pending& q=S->pend;
+    if(!q.on){
+        q.on=true;q.rec=p;q.light=*p.lighting;q.rec.lighting=&q.light;
+        q.model=m;q.info=info;q.n=0;
     }
-    pend.parts[pend.n++]=part;
+    q.parts[q.n++]=part;
     if(idx>=d->displist_num){flush();cur_info=nullptr;}
-    if(pG->Frame_cnt-st.log>=600u){
-        st.log=pG->Frame_cnt;
-        re4dc_log("SOBATCH frame=%u groups=%u lists=%u merged=%u saved=%u built=%u refused=%u singles=%u late=%u bytes=%u\n",
-            pG->Frame_cnt,st.groups,st.lists,st.merged,st.saved,st.built,st.refused,st.singles,st.late,budget_used);
-    }
     return true;
 }
+}
+// Room leave (ui_bridge.cpp re4dc_room_leave, before re4dc_room4_close): return every cell.
+extern "C" void re4dc_sob_room_leave(){
+    if(!sob::S)return;
+    for(unsigned k=0;k<sob::S->count;++k)re4dc_static_free(sob::S->e[k].buf);
+    re4dc_static_free(sob::S);
+    sob::S=nullptr;sob::cur_model=nullptr;sob::cur_info=nullptr;
 }
 #endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
