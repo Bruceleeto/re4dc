@@ -36,7 +36,7 @@
 // alternating modes both parities, rendered into the buffer the held picture does not use. The alternating write
 // address is chosen right before each render starts (pvr_begin_queued_render, link-time wrap: KOS state only, before
 // the render's own register writes), never during a render.
-// RENDER_FSAA=1 (game30.mk; console FSAA test, 2026-10-14; RES_MODES 13 = modes 0, 2, 3): the FSAA modes without the
+// RENDER_FSAA=1 (game30.mk; 2026-10-14; RES_MODES 9 = modes 0 and 3 since 10-15, LITE dropped): FSAA without the
 // 240-line display. Mode 2 as built above shows 240 lines doubled on a 480i TV (FB_R_SIZE modulus 1, odd-field start =
 // even-field start), so both fields scan the same rows and the interlace puts field 2 one scan line lower: every
 // horizontal edge moves one line up and down 30 times a second (the flicker seen on a console, aa trial 98143f5b).

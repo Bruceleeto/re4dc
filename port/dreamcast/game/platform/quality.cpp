@@ -95,8 +95,8 @@ void parse_file(char* t)
 #if RE4DC_RENDER_OPTION
         } else if (!strncmp(s, "render=", 7)) {  // Rendering: quality | standard | fast
 #if defined(RE4DC_RENDER_FSAA) && RE4DC_RENDER_FSAA
-            // RENDER_FSAA: quality | fsaa | lite (the row's values 0 / 1 / 2)
-            file_render = !strcmp(s + 7, "lite") ? 2 : !strcmp(s + 7, "fsaa") ? 1 : RE4DC_RENDER_QUALITY;
+            // RENDER_FSAA: standard | fsaa (the row's values 0 / 1; anything else is Standard)
+            file_render = !strcmp(s + 7, "fsaa") ? 1 : RE4DC_RENDER_QUALITY;
 #else
             file_render = !strcmp(s + 7, "fast") ? RE4DC_RENDER_FAST
                           : !strcmp(s + 7, "standard") ? RE4DC_RENDER_STANDARD : RE4DC_RENDER_QUALITY;
@@ -217,6 +217,9 @@ extern "C" void re4dc_quality_init(void)
     if (file_pace >= 0) re4dc_quality_set_pace(file_pace);
 #if RE4DC_RENDER_OPTION
     if (file_speed >= 0) re4dc_quality_set_speed(file_speed);
+#if defined(RE4DC_RENDER_FSAA_BOOT) && RE4DC_RENDER_FSAA_BOOT
+    if (file_render < 0) file_render = 1;  // RENDER_FSAA_BOOT (test twins only): this boot starts in FSAA
+#endif
     if (file_render >= 0) re4dc_quality_set_render(file_render);
     else re4dc_res_set(re4dc_quality_render() == RE4DC_RENDER_FAST ? 4U : re4dc_quality_render() == RE4DC_RENDER_STANDARD ? 1U : 0U);
 #endif
@@ -278,17 +281,17 @@ extern "C" int re4dc_quality_set_speed(int speed)
 }
 
 #if defined(RE4DC_RENDER_FSAA) && RE4DC_RENDER_FSAA
-// RENDER_FSAA (game30.mk, console FSAA test): Rendering = Quality / FSAA / FSAA lite (res_mode.cpp modes 0, 3, 2), for
-// this boot only: every boot starts in Quality (or quality.txt render=), the stored RE4DCCFG field is ignored and
-// never rewritten, so a trial level never sticks to the VMU.
+// RENDER_FSAA (game30.mk): Rendering = Standard / FSAA (res_mode.cpp modes 0, 3; Standard = the 640x480 Quality
+// mode), for this boot only: every boot starts in Standard (or quality.txt render=), the stored RE4DCCFG field is
+// ignored and never rewritten, so FSAA never sticks to the VMU.
 static int fsaa_render;
 extern "C" int re4dc_quality_render(void) { return fsaa_render; }
 
 extern "C" int re4dc_quality_set_render(int render)
 {
-    static const unsigned kMode[3] = {0U, 3U, 2U};
-    static const char* const kName[3] = {"quality", "fsaa", "fsaa lite"};
-    if (render < 0 || render > 2) render = 0;
+    static const unsigned kMode[2] = {0U, 3U};
+    static const char* const kName[2] = {"standard", "fsaa"};
+    if (render < 0 || render > 1) render = 0;
     fsaa_render = render;
     re4dc_log("quality: render=%s (this boot only)\n", kName[render]);
     re4dc_res_set(kMode[render]);

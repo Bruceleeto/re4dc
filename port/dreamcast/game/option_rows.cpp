@@ -57,12 +57,14 @@ void put(const char* s)
 }
 const char* const kPace[3] = {"SMOOTH", "FAST", "OFF"};
 #if defined(RE4DC_RENDER_FSAA) && RE4DC_RENDER_FSAA
-const char* const kRender[3] = {"QUALITY", "FSAA", "FSAA LITE"};  // game30.mk RENDER_FSAA (console test)
+constexpr int kRenderN = 2;
+const char* const kRender[3] = {"STANDARD", "FSAA", "STANDARD"};  // game30.mk RENDER_FSAA: Standard (default) / FSAA
 #else
+constexpr int kRenderN = 3;
 const char* const kRender[3] = {"QUALITY", "STANDARD", "FAST"};
 #endif
 int pace_value() { const int m = re4dc_pace_get_mode(); return m < 0 || m > 2 ? 0 : m; }
-int render_value() { const int r = re4dc_quality_render(); return r < 0 || r > 2 ? 0 : r; }
+int render_value() { const int r = re4dc_quality_render(); return r < 0 || r >= kRenderN ? 0 : r; }
 // Messages: 0 pacing row, 1 rendering row, 2 pacing help, 3 rendering help.
 void build()
 {
@@ -81,7 +83,7 @@ void build()
     put(PAGE); put("How frames are paced when the game is busy"); put(END);
     table.ofs[3] = text0 + 2 * text_n;
 #if defined(RE4DC_RENDER_FSAA) && RE4DC_RENDER_FSAA
-    put(PAGE); put("Edge smoothing test  this boot only"); put(END);
+    put(PAGE); put("Smoother edges  more drawing work  this boot only"); put(END);
 #else
     put(PAGE); put(re4dc_res_vga() ? "Fewer pixels for more speed  doubled lines on VGA" : "Fewer pixels for more speed"); put(END);
 #endif
@@ -123,7 +125,7 @@ void change(int row, int dir)
         re4dc_quality_set_pace(m + 1);   // stored: 1 smooth, 2 fast, 3 off
         re4dc_pace_set_mode(m, "options");
     } else {
-        re4dc_quality_set_render((render_value() + 3 + dir) % 3);
+        re4dc_quality_set_render((render_value() + kRenderN + dir) % kRenderN);
     }
     SndCall(0, 0x3A, 0, 0, 0, 0);
     re4dc_log("options: %s %s\n", row == kRowPacing ? "frame pacing" : "rendering",
