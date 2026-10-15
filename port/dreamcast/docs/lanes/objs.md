@@ -303,3 +303,41 @@ frames). What is left is the group test (sg_select 1.04 + box_mask 0.61 hw ms); 
 - tools/ps2_world_append.py (c6cc9e59): baked COLOR OBJ groups + tex.pak-key materials appended to the shipped
   package (base tables byte-identical, selftest), then ps2_strip_groups.py (base region = ps2lib r101-sg4). Runtime
   check pa-3 (60 s): placements 212, PS2SG ok, boxes textured + tinted (sheets append-boxes.png).
+
+## Preview 2 r101: cross view vs wall view (coordinator 10-15 ~02:50; console: wall 19.9 fps, cross ~12.5, FSAA same)
+
+Runs (Flycast, emulator counters, not console; build t12r8tW = preview 2 recipe + DBG_WARP / PC_SAMPLER; data
+pkg-t12r8pP.json; warp fix/x101-{cross,wall}-warp.txt: pos -7914 0 2000, ang +1.5708 (the cross / pyre, the
+benchmark-r101-v3 eye) vs -1.5708 (turned away), village Ganados dead (alive 0 logged), pre-bell so the pyre burns,
+Leon still; 60 s each): x101-cross-g, x101-wall-g. Per-frame rates over ui frames 960..1320
+(worldlean/viewdelta.py):
+
+| per frame | cross | wall | ratio |
+|---|---|---|---|
+| world strips walked | 2,587 | 1,875 | 1.38 |
+| world strips culled after transform | 898 | 450 | 1.99 |
+| world vertices transformed | 16,223 | 11,313 | 1.43 |
+| PS2 world parts drawn (pass 0 / 1 / 2 at frame 1320) | 105 / 5 / 19 | 74 / 8 / 17 | |
+| direct parts / slots (TA vertices) | 135 / 21,350 | 91 / 16,273 | 1.48 / 1.31 |
+| model parts / input / emitted vertices | 162 / 16,956 / 12,664 | 125 / 12,015 / 10,123 | 1.30 / 1.41 / 1.25 |
+| effect sprites queued (pyre fire, smoke, mist) | 26.6 | 0.7 | 39 |
+| texture handle-cache misses (linear scan) | 4.5 | 0 | |
+
+TA input estimate (32 B per vertex): cross ~(21.3k + 12.7k) x 32 B = 1.09 MB/frame, wall ~0.85 MB. The bench cross
+view with 12 Ganados (10-14 TA stats gb40, MODELLED proxy): 2.02 MB/frame, OP 58k vertices / 33k triangles, TR 3.1k
+triangles, overdraw 5.4 screens, GPU proxy 9.6 ms. (The TA-stats Flycast wrote no ta-stats.txt for the two x101 runs:
+per-list counts for the wall view are missing; rerun when Flycast runs are allowed.)
+
+TA back-pressure: the hw model has none beyond its store-queue cost (hwmodel README "Known gaps": 14 CPU cycles per
+32 B SQ burst, about 457 MB/s). Extra stall = bytes x (1 / real ingest - 1 / 457 MB/s): at 200 MB/s real ingest
+cross +3.1 ms / wall +2.4 ms; at 100 MB/s +8.5 / +6.6 ms. The view difference from TA ingest is about 0.7..1.9 ms, far
+from the >= 30 ms the console shows. So the cross view's extra cost is not TA ingest. Candidates, in order:
+1. GPU (ISP / TSP translucent layers of the pyre fire, smoke and mist sprites): the r22g console reading had outdoor
+   GPU 53 ms (mist sprite fill). "FSAA same, so not fill" holds only if the FSAA setting really changes the render size
+   on that console mode; the RC meter disc's GPU / CPU phase split decides it.
+2. Hardware-only CPU cost that Flycast and the hw model do not see: misaligned-access or FPU exception traps in code
+   that runs only with the cross in view (the effect emitters / sprites). Flycast hides misaligned faults; an align-
+   logger run on the cross view would show them.
+3. World submit: +43 % vertices and 2x strips culled after transform in the cross direction (a few ms modelled).
+hw-model ms per bucket for both views: not run (host to the test 12 RC); the fixtures are ready
+(fix/x101-{cross,wall}-t12r8tW.json).
