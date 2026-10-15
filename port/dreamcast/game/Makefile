@@ -663,6 +663,17 @@ IO_SERIAL ?= 0
 # and the free AICA sound memory with this byte. Flycast starts with zeroed memory; a Dreamcast does not.
 # A run that differs from the same fixture with POISON_RAM=0 reads memory it never wrote.
 POISON_RAM ?= 0
+# IMAGE_CHECK=1 (test 11 console faults, test discs only, default 0): at OSInit, before the game's first disc read,
+# the screen shows the CRC-32 of the loaded code (_start.._etext, to compare with the build's), the raw KOS maple
+# unit pointers, and then the loaded image compared with /cd/1ST_READ.BIN read back through the drive (mismatching
+# bytes in the code and after it, first offsets); held 10 s for a photo, also logged ("image check:").
+IMAGE_CHECK ?= 0
+ifneq ($(filter $(IMAGE_CHECK),0 1),$(IMAGE_CHECK))
+$(error IMAGE_CHECK must be 0 or 1)
+endif
+ifeq ($(IMAGE_CHECK),1)
+$(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -DRE4DC_IMAGE_CHECK=1
+endif
 # DCINV_PURGE=1 (test 11 console faults, default 0): the SDK's DCInvalidateRange (platform/misc.cpp) writes dirty
 # lines back before invalidating them (KOS dcache_purge_range, ocbp) instead of discarding them (dcache_inval_range,
 # ocbi). On GC the game invalidates a buffer that hardware (EFB copy, DVD, ARAM DMA) is about to overwrite; on the
