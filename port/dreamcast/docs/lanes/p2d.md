@@ -159,3 +159,51 @@ C6 follow-up (2026-10-12):
   (fin2), Fast vs Quality STRICT over 7052 (fin, one display-register edit earlier), base vs Quality STRICT 0..740
   and 1233..; s30 340/340, codec released once, 0 FAIL / HALT / MISALIGN. Sheets c6-stillsiew-{sq,house,lake}.png
   refreshed from the final views (route-c6-fv-*).
+
+## FSAA console test: RENDER_FSAA (2026-10-14; lane/fsaa, not pushed)
+
+User report: the aa trial disc (98143f5b + RES_MODES=7, mode 2 "640x240 FSAA") flickered a lot on a 480i TV (S-Video).
+Cause (register level, res_mode.cpp at 98143f5b and today): the 240-line modes 1 and 2 are shown doubled on a 480i TV:
+FB_R_SIZE = 319 | 239 << 10 | 1 << 20 (modulus 1: no line skipped) and FB_R_SOF2 = FB_R_SOF1 (the vblank handler
+rewrites it after KOS's flip), so both fields scan the same 240 rows; the interlace places field 2 one scan line lower,
+so every horizontal edge moves one line up and down at 30 Hz. Quality instead reads FB_R_SIZE 319 | 239 << 10 |
+321 << 20 (skip one line) with SOF2 = SOF1 + 1280 (the odd rows) and SCALER_CFG 0x401 (vertical scale 1025: the
+3-tap 1/4, 1/2, 1/4 filter, Y_COEFF 0x8040). Mode 2 kept 0x10401, but the filter runs on 240-row data and cannot
+remove the field offset. The FSAA bit itself (2:1 horizontal) has no temporal effect. Flycast cannot show this: it
+reads neither Y_COEFF nor SCALER_CTL interlace / field select, and presents the rendered frame without the field scan.
+
+RENDER_FSAA=1 (game30.mk, needs RENDER_OPTION=1; replaces RENDER_QUALITY_ONLY; RES_MODES=13; default 0, knob-off play
+image byte-identical to the test 10 recipe from the same tree, objcopy image + all overlays): Rendering = QUALITY /
+FSAA / FSAA LITE for this boot only (RE4DCCFG untouched; quality.txt render=quality|fsaa|lite).
+- FSAA = mode 3, 1280x480, SCALER_CFG 0x10401: Quality's display and vertical filter. Twice Quality's fill (modelled:
+  614,400 vs 307,200 samples). 600 tiles from the KOS 300-tile allocation plus 4 overflow pools per bank paid by the
+  vertex buffer (2,049,024 -> 1,856,512 B per bank; worst TA parameter use seen 1,657,012 B, i9d): texture pool
+  2,568,192 B (test 10 2,567,168; the old 600-tile KOS allocation left 2,072,576 and starved s30). OPB overflow pool:
+  288,000 B (FSAA), 358,400 (LITE), 384,000 (Quality; was 192,000).
+- FSAA LITE = mode 2, 1280x240, SCALER_CFG 0x10200 (vertical scale x2): the write-out writes 640x480, FB_Y_CLIP 479
+  (written coordinates) clips the 8th tile row's overhang, Quality's display. Quality's fill. Whether the console's
+  scaler interpolates a x2 enlargement (stable) or repeats lines (the old twitter) is unknown: console test.
+Flycast (evidence C:\Flycast-Evidence\re4-dreamcast\fsaa-20261014): h2 warp + tour in FSAA and LITE, s30 340/340,
+TEX_CHECK=2 fails 0, LEONGC 0, 0 HALT / FAULT; RES_CYCLE_FRAMES=450 over h2: 14 switches 0 -> 2 -> 3 -> 0, scaler
+values restored (0x401 after LITE), s30 340/340. The st-square warp stops at ui frame ~909 in every arm, test 10's
+own msq run included (Flycast fixture problem, not this knob). Console disc: RE4DC-FSAA-Test-20261014.
+
+## Test 12 D3: Rendering = Standard / FSAA (2026-10-15; lane/fsaa-t11 on lane/t11 20a3b047)
+
+User scope (TEST12-SCOPE D3): two choices only, STANDARD (default; mode 0, 640x480, what every release since test 9
+shows) and FSAA (mode 3, 1280x480, scaler 0x10401, Standard's 480-line display and vertical filter); FSAA LITE (mode 2)
+dropped, RES_MODES=9. This boot only (RE4DCCFG untouched; quality.txt render=standard|fsaa). RENDER_FSAA_BOOT=1 is a
+test-twin knob (boot in FSAA). Commits: 619a6047 (2a1d6921 cherry-picked), 1773bdfd (two choices), 98da43ef + 79b8e127
+(FSAA borrows its OPB pools from the vertex buffer only while it is on).
+- Gate finding fixed (98da43ef): the boot-time cut gave EVERY mode a 1,770,496 B vertex buffer per bank (test 11
+  2,000,896); VRAM-MAP-20261014 measured benchmark-r101 storing up to 1,756,744 B, i.e. 0.8% margin in the default
+  mode. Now Standard boots the test 11 layout exactly (region 1e8800..22ed00, texture pool 2,567,424) and mode 3
+  moves the OPB start down by 230,400 B (1b0400) only while applied. FSAA itself keeps the 0.8% margin on that scene.
+- Gates (Flycast, MODELLED; evidence C:\Flycast-Evidence\re4-dreamcast\fsaa-d3-20261015): knob-off image 6df54b5b ==
+  lane/t11, 6/6 overlays; crash suite (crash.conf, align logger) Standard / FSAA boot / switching every 150 frames:
+  7/8 PASS each, 0 MISALIGN; ch12 fails on the known r105 495x150 fragmentation refusal, identical bytes to test 11
+  eafa01ab (cr11a). benchmark-r101: Flycast fps 9.52 knob off / 9.48 Standard / 9.48 FSAA, CPU per drawn frame 93.7 /
+  92.8 / 95.4 ms; SH-4 hw model 89.4 Standard vs 89.1 FSAA ms (no CPU cost); GPU proxy Standard 0.8 ms (p90 1.7),
+  FSAA not measurable by the TA-stats proxy (it counts area inside 640 columns): doubling the TR area gives ~8 ms.
+  Text stills (D3-TEXT-STILLS.png): consecutive frames identical on static menus in both modes; FSAA lowers the
+  single-line and stair-step energy of the menu text (Flycast cannot show 480i field twitter: console check).

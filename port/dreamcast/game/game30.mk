@@ -217,14 +217,45 @@ endif
 ifeq ($(PACE_CATCHUP),0)
 $(error RENDER_OPTION needs PACE_CATCHUP (the Frame pacing row))
 endif
+# RENDER_FSAA=1 (test 12 item D3, 2026-10-15; default 0 = no code; render only): the Rendering row offers
+#   "Standard / FSAA" (res_mode.cpp modes 0 and 3; RES_MODES=9) instead of Quality / Standard / Fast. Standard (the
+#   default) is the 640x480 mode every release has shown since test 9; FSAA is 1280x480 with the horizontal 2:1 scaler
+#   and Quality's 480-line display and vertical filter (twice the fill; no 240-line doubled display, which made
+#   horizontal edges twitter on a 480i TV in the earlier aa trial). This boot only: every boot starts in Standard
+#   (quality.txt render=standard|fsaa picks the boot level; RE4DCCFG is never rewritten). The 600-tile blocks come out
+#   of the vertex buffer (-192,000 B per bank, 4 more overflow pools); the texture pool is unchanged. It replaces
+#   RENDER_QUALITY_ONLY's behaviour when both are set. FSAA LITE (mode 2) was dropped (2026-10-15).
+RENDER_FSAA ?= 0
+ifneq ($(filter-out 0 1,$(RENDER_FSAA)),)
+$(error RENDER_FSAA must be 0 or 1)
+endif
+# RENDER_FSAA_BOOT=1 (test twins only, never in a release recipe; needs RENDER_FSAA=1): the boot starts in FSAA as if
+#   quality.txt said render=fsaa (crash suite / benchmark / stills of the FSAA mode without a menu walk).
+RENDER_FSAA_BOOT ?= 0
+ifneq ($(RENDER_FSAA_BOOT)$(RENDER_FSAA),0$(RENDER_FSAA))
+ifneq ($(RENDER_FSAA_BOOT)$(RENDER_FSAA),11)
+$(error RENDER_FSAA_BOOT=1 needs RENDER_FSAA=1)
+endif
+endif
+ifeq ($(RENDER_FSAA),1)
+override RES_MODES := 9
+GAME_CPPFLAGS += -DRE4DC_RENDER_FSAA=1
+PLATFORM_CPPFLAGS += -DRE4DC_RENDER_FSAA=1
+ifeq ($(RENDER_FSAA_BOOT),1)
+PLATFORM_CPPFLAGS += -DRE4DC_RENDER_FSAA_BOOT=1
+endif
+else
 override RES_MODES := 19
+endif
 # RENDER_QUALITY_ONLY=1 (test 9, user 2026-10-13, issue #26: switching Rendering on a console crashed a few seconds
 #   later, sometimes): Options loses the Rendering row and the game always shows Quality (mode 0). The stored
 #   RE4DCCFG Rendering field and quality.txt render= are ignored, never rewritten; the LOOK_TOGGLE resolution chord
 #   is inert. The Frame pacing row and the speed display stay. Default 0: unchanged.
 ifeq ($(RENDER_QUALITY_ONLY),1)
+ifneq ($(RENDER_FSAA),1)
 GAME_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_QUALITY_ONLY=1
+endif
 endif
 GAME_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
@@ -238,6 +269,11 @@ endif
 $(OBJDIR)/option_rows.o: option_rows.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -MMD -MP -c $< -o $@
+ifneq ($(RENDER_OPTION),1)
+ifneq ($(filter-out 0,$(RENDER_FSAA)),)
+$(error RENDER_FSAA needs RENDER_OPTION=1 (the Rendering row))
+endif
+endif
 RES_CYCLE_FRAMES ?= 0
 ifeq ($(RES_MODES),0)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/res_mode.o,$(PLATFORM_OBJS))
