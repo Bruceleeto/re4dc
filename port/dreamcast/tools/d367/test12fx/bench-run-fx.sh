@@ -15,7 +15,7 @@ SC=$1; L=$2; N=$3; SECS=${4:-220}
 HERE=$(cd "$(dirname "$0")" && pwd)
 KW=/root/probe/lanes-20261014/crowd12/tree/port/dreamcast/tools/d367/benchmark   # the crowd12 kit (warp files)
 T11=$(dirname "$KW")/test11
-W="$KW/benchmark-$SC-warp.txt"
+W="${BENCH_WARP:-$KW/benchmark-$SC-warp.txt}"   # BENCH_WARP: another warp file (fx12 room gate runs)
 HW="/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
 H="/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926/continuation-20260927/playability-r11-r1"
 E=${BENCH_EV:-/c/Flycast-Evidence/re4-dreamcast/bench-20261014}
