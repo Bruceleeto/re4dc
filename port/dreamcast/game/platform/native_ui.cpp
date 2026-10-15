@@ -287,6 +287,14 @@ struct Source { Re4dcUiImage image{}; Key key{}; };
 // bytes from the optional source-key lookup cache, not the game heap/queue.
 // An uncached source descriptor still resolves through its existing owner table.
 Entry entries[kTextureCount]; Source sources[kSourceCount]; unsigned nsource;
+#if defined(RE4DC_TEX_WRAP_SAFE) && RE4DC_TEX_WRAP_SAFE
+// TEX_WRAP_SAFE=1 (game30.mk; render only): a package whose texels are all one colour carries header flags bit 30
+// (tools/d367/tex_wrapsafe.py). Sampling it gives that colour whatever the wrap, padding or UV scale, so a wrapping
+// part may use it even though the converter padded its image (the r101 window glass, 2x2 padded to 8x8).
+#define RE4DC_WRAP_SAFE(pkg) ((((pkg).header().flags>>30)&1U)!=0U)
+#else
+#define RE4DC_WRAP_SAFE(pkg) false
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 re4dc_actor::TextureLeases<kTextureCount> actor_texture_leases;
 #define RE4DC_ENTRY_PINNED(e) ((e).frame==frame || actor_texture_leases.pinned(unsigned(&(e)-entries)))
@@ -5097,7 +5105,7 @@ extern "C" int re4dc_model_header_preview(const Re4dcModelPart* p,void* out){
     Entry* handle=resolve_peek(p->image,(p->material_flags&4)?p:nullptr);
     if(!handle)return 0;
     const auto& t=handle->package.textures()[0];
-    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))return 0;
+    if(((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package))return 0;
     unsigned fmt=re4dc::texture::pvr_format(t);
     const pvr_list_t list=select_model_pass(p);
     pvr_poly_hdr_t header;
@@ -5223,9 +5231,9 @@ if(!handle){
     // Repeating a padded image would repeat its border. Reject, never change wrap.
 #if RE4DC_MESH_TEXTURES
     // A baked texture is addressed 0..1 as authored: no source image size to match.
-    if(!model_texture && ((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height))){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
+    if(!model_texture && (((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package))){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #else
-    if((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
+    if(((p->wrap_s && t.width!=p->image.width)||(p->wrap_t && t.height!=p->image.height)) && !RE4DC_WRAP_SAFE(handle->package)){RE4DC_DROP(p,'w',t.width,t.height,handle->key.crc,handle->key.fnv);++model_wrap_rejects;return 0;}
 #endif
     unsigned fmt=re4dc::texture::pvr_format(t);
     pvr_list_t list=PVR_LIST_TR_POLY;

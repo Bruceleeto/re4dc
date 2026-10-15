@@ -2731,6 +2731,11 @@ GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
 $(OBJDIR)/platform/memprof.o $(OBJDIR)/platform/native_ps2_world.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMPROF=1
 endif
 
+# TEX_WRAP_SAFE=1 (render only, default 0; lane crowd12 2026-10-14, ledger G5): a wrapping model part may draw from a
+# padded texture package that tools/d367/tex_wrapsafe.py marked uniform (header flags bit 30; one colour, so wrap and
+# padding cannot change a sample). Without such packages in dc/tex.pak the knob changes nothing.
+TEX_WRAP_SAFE ?= 0
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_WRAP_SAFE=$(TEX_WRAP_SAFE)
 # MODEL_DROP_LOG=1 (diagnostic, lane crowd12 2026-10-14; ledger G5/G6): MODELDROP lines, one per refused model
 # part (model, image, reason: state / guard / slab / texture / padded wrap / actor packet), with 600-frame sums.
 MODEL_DROP_LOG ?= 0
