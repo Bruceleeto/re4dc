@@ -216,6 +216,16 @@ LOCKS = SROOT / 'locks'; LOCKS.mkdir(exist_ok=True)
 t_in = time.monotonic()
 use_cache = os.environ.get('RE4DC_DISCCACHE', '') != '0'
 reused = False; copied = 0
+# Disk hygiene rule (user, 2026-10-15): with less than 40 GB free on C: or D:, prune old build outputs first
+# (prune_if_low.sh: evidence-root discs now, idle WSL objdirs/discs in the background), so the capacity check below
+# does not refuse the run for space a rebuildable output holds. PRUNE_AUTO=0 skips it; PRUNE_LOW_GB sets the level.
+if os.environ.get('PRUNE_AUTO', '1') != '0':
+    # tools/d367/prune_if_low.sh in a tree; next to the installed copy in the harness (stage-ext4/install.sh)
+    _here = Path(__file__).resolve().parent
+    _prune = next((p for p in (_here.parent / 'prune_if_low.sh', _here / 'prune_if_low.sh') if p.exists()), None)
+    if _prune:
+        import subprocess
+        subprocess.run(['bash', str(_prune)], stdout=sys.stderr, stderr=sys.stderr, check=False)
 lk = open(LOCKS / (key + '.lock'), 'w'); fcntl.flock(lk, fcntl.LOCK_EX)  # one build per input key at a time
 try:
     rec = None

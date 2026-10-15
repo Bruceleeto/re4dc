@@ -13,6 +13,8 @@
 set -euo pipefail
 TREE=${1:?tree}; MAN=${2:?manifest}; IP=${3:?IP.BIN}; OUT=${4:?outdir}; TW=${5:-}
 here=$(cd "$(dirname "$0")" && pwd)
+# disk hygiene rule (2026-10-15): prune old build outputs when C: or D: is below 40 GB (PRUNE_AUTO=0 skips)
+[ "${PRUNE_AUTO:-1}" = 0 ] || bash "$here/../prune_if_low.sh" >&2 || true
 TOOL=/opt/toolchains/dc/sh-elf/bin
 HD=45000; LBA_W=400; LBA_P=420; LBA_X=440; FIXB=8192; T1=606; T2=302
 WORK=$(mktemp -d /root/probe/lanes-20261014/fullplay/work/master.XXXXXX)
