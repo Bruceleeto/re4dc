@@ -1171,10 +1171,48 @@ extern "C" int __wrap_pvr_list_begin(pvr_list_t list){
     return __real_pvr_list_begin(list);
 }
 extern "C" void __real_pvr_set_presort_mode(bool presort);
+#if defined(RE4DC_G1_PRESORT_LAZY) && RE4DC_G1_PRESORT_LAZY
+// G1_PRESORT_LAZY (g1parts.mk; exact): the ISP reads a tile's presort bit (control word bit 29) only when the scene
+// renders, so a scene's requests are kept and its last one is written at pvr_scene_finish, into the bank and layout
+// they were made for, and only when that bank's tiles hold the other mode. Every writer (KOS init / set, res_mode.cpp
+// apply, this flush) writes all tiles alike, so the first tile tells the bank's mode. Play draws presort at the
+// stream open, then autosort for the world (world_sort_begin): both writes of ~600 tiles (uncached VRAM) every frame
+// become none. Single-bank mode (no TA double buffer) keeps KOS's immediate write.
+namespace presort_lazy {
+bool pending,want; uint32_t tm; int tw,th;
+unsigned requests,writes,skips,log_frame;
+void flush(){
+    if(!pending)return;
+    pending=false;
+    uint32_t* vr=reinterpret_cast<uint32_t*>(PVR_RAM_BASE)+tm/4U+6U;
+    if(((vr[0]>>29)&1U)==(want?1U:0U)){++skips;return;}
+    ++writes;
+    for(int x=0;x<tw;++x)
+        for(int y=0;y<th;++y){vr[0]=(uint32_t(y)<<8)|(uint32_t(x)<<2)|(uint32_t(want)<<29);vr+=6;}
+    vr[-6]|=BIT(31);
+}
+}
+extern "C" int __real_pvr_scene_finish();
+extern "C" int __wrap_pvr_scene_finish(){
+    presort_lazy::flush();
+    if(frame-presort_lazy::log_frame>=1800U){presort_lazy::log_frame=frame;
+        re4dc_log("G1 presort lazy: frame=%u requests=%u writes=%u skips=%u\n",frame,presort_lazy::requests,presort_lazy::writes,presort_lazy::skips);}
+    return __real_pvr_scene_finish();
+}
+extern "C" void __wrap_pvr_set_presort_mode(bool presort){
+    pvr_ready::acquire_bank();   // the target bank's tile matrix is free only once the bank is acquired
+    if(!pvr_state.vbuf_doublebuf){presort_lazy::flush();__real_pvr_set_presort_mode(presort);return;}
+    const uint32_t tm=pvr_state.ta_buffers[pvr_state.ta_target].tile_matrix;
+    if(presort_lazy::pending && presort_lazy::tm!=tm)presort_lazy::flush();   // another bank's request (not in play)
+    presort_lazy::pending=true;presort_lazy::want=presort;presort_lazy::tm=tm;
+    presort_lazy::tw=pvr_state.tw;presort_lazy::th=pvr_state.th;++presort_lazy::requests;
+}
+#else
 extern "C" void __wrap_pvr_set_presort_mode(bool presort){
     pvr_ready::acquire_bank();   // the target bank's tile matrix is free only once the bank is acquired
     __real_pvr_set_presort_mode(presort);
 }
+#endif
 #endif
 #if RE4DC_PVR_LATCH
 // The stop screen's lines (crash_screen.cpp, which = 0..3), formatted at the failure; 0 past the last line.
@@ -2969,7 +3007,31 @@ __attribute__((noinline))   // TEX_CHECK: texchk::site is this function's caller
 #if defined(RE4DC_UI_HASH_DIAG) && RE4DC_UI_HASH_DIAG
 __attribute__((noinline))
 #endif
+#if defined(RE4DC_G1_PART_CENSUS) && RE4DC_G1_PART_CENSUS
+// G1_PART_CENSUS (g1parts.mk, diagnostic only): texture lookups (load) and how many repeat the previous lookup's image
+// descriptor (pixels, palette, size, formats) with no prepared key; "G1PC tex" every 120 UI frames, with the model
+// header cache's hits / builds over the same frames.
+namespace g1pc_ui {
+unsigned frame0,loads,same_prev,prepared,hdr_hits0,hdr_builds0; Re4dcUiImage prev{}; bool have;
+void note(const Re4dcUiImage& image,const Key* prepared_key){
+    if(frame-frame0>=120U){
+        re4dc_log("G1PC tex: frame=%u loads=%u same_prev=%u prepared=%u header_hits=%u header_builds=%u\n",frame,loads,
+                  same_prev,prepared,model_header_hits-hdr_hits0,model_header_builds-hdr_builds0);
+        frame0=frame;loads=same_prev=prepared=0;hdr_hits0=model_header_hits;hdr_builds0=model_header_builds;
+    }
+    ++loads;
+    if(prepared_key){++prepared;have=false;return;}
+    if(have && prev.pixels==image.pixels && prev.palette==image.palette && prev.width==image.width &&
+       prev.height==image.height && prev.format==image.format && prev.palette_format==image.palette_format &&
+       prev.palette_bytes==image.palette_bytes)++same_prev;
+    prev=image;have=true;
+}
+}
+#endif
 Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=nullptr) {
+#if defined(RE4DC_G1_PART_CENSUS) && RE4DC_G1_PART_CENSUS
+    g1pc_ui::note(image,prepared_key);
+#endif
 #if RE4DC_TEX_CHECK
     texchk::site=__builtin_return_address(0);
 #endif
@@ -5441,10 +5503,16 @@ extern "C" void re4dc_ui_end_frame(int present){
 
 }
 
+#if defined(RE4DC_G1_DIAG_INLINE) && RE4DC_G1_DIAG_INLINE
+extern "C" { int re4dc_model_diag_latch=-1; }  // G1_DIAG_INLINE (native_model.h RE4DC_MODEL_DIAG): model_diagnostic, once known
+#endif
 extern "C" int re4dc_model_diagnostic_enabled(){
     if(model_diagnostic<0){
         file_t f=fs_open("/cd/dc/model-diagnostic.flag",O_RDONLY);
         model_diagnostic=f>=0;if(f>=0)fs_close(f);
+#if defined(RE4DC_G1_DIAG_INLINE) && RE4DC_G1_DIAG_INLINE
+        re4dc_model_diag_latch=model_diagnostic;
+#endif
         if(model_diagnostic)re4dc_log("native model DIAGNOSTIC stack=%u source pose/camera; packets=%u metadata=%u static_lights=%u slab=%u; full TEV/fog acceptance pending\n",RE4DC_D349_RENDERER_STACK,kModelPacketBytes,kModelMetadataBytes,kModelStaticLightBytes,kModelSlabBytes);
     }
     return model_diagnostic;
@@ -5522,7 +5590,7 @@ extern "C" void re4dc_model_drop_summary() {
 extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPacket* out){
     RE4DC_DROP_CLEAR();
     unsigned reason=0;
-    if(!frame_ready || !re4dc_model_diagnostic_enabled())reason|=1;
+    if(!frame_ready || !RE4DC_MODEL_DIAG())reason|=1;
 #if RE4DC_PVR_STREAM
     if(stream_aborted)reason|=1;
 #endif
@@ -5562,7 +5630,13 @@ extern "C" int re4dc_model_packet_reserve(const Re4dcModelPart* p,Re4dcModelPack
     while(height<p->image.height)height*=2;
     model_pending=model_used+1;
     out->vertices=model_packets+model_pending;out->capacity=kModelPacketBytes/32-model_pending;
+#if defined(RE4DC_G1_FP_UNSIGNED) && RE4DC_G1_FP_UNSIGNED
+    // G1_FP_UNSIGNED (g1parts.mk; exact): the sizes are 1..2048 (checked above), so the signed conversion gives the
+    // same floats without the double-precision unsigned conversion (two FPSCR.PR switches each).
+    out->u_scale=float(int(p->image.width))/float(int(width));out->v_scale=float(int(p->image.height))/float(int(height));
+#else
     out->u_scale=float(p->image.width)/width;out->v_scale=float(p->image.height)/height;
+#endif
     return 1;
 }
 extern "C" void* re4dc_model_preparation_storage(unsigned* bytes){
@@ -5819,8 +5893,16 @@ if(!handle){
     if(model_texture){out->u_scale=1.0f;out->v_scale=1.0f;}
     else {
 #endif
+#if defined(RE4DC_G1_FP_UNSIGNED) && RE4DC_G1_FP_UNSIGNED
+    {   // G1_FP_UNSIGNED: sizes <= 1024 (reserve checked them; t is a loaded texture): the same floats through int, once
+        const float us=float(int(p->image.width))/float(int(t.width)),vs=float(int(p->image.height))/float(int(t.height));
+        if(out->u_scale!=us || out->v_scale!=vs)++model_scale_rebuilds;
+        out->u_scale=us;out->v_scale=vs;
+    }
+#else
     if(out->u_scale!=float(p->image.width)/t.width || out->v_scale!=float(p->image.height)/t.height)++model_scale_rebuilds;
     out->u_scale=float(p->image.width)/t.width;out->v_scale=float(p->image.height)/t.height;
+#endif
 #if RE4DC_MESH_TEXTURES
     }
 #endif
@@ -6057,7 +6139,7 @@ extern "C" std::uint32_t* re4dc_leon_direct_switch(const Re4dcModelPart* p,const
     // The refusals the close + begin pair would meet for this captured material in this state (packet_reserve's
     // frame / stream terms, packet_begin's list and cache hit, direct_begin's nesting).
     if(!p || !h || !h->valid || !handle || !direct_open || !frame_ready || stream_aborted || draining_parts || !stream_scene ||
-       !re4dc_model_diagnostic_enabled() || model_used+4>kModelPacketBytes/32 || vertices>32767 ||
+       !RE4DC_MODEL_DIAG() || model_used+4>kModelPacketBytes/32 || vertices>32767 ||
        unsigned(stream_list)!=h->list || select_model_pass(p)!=stream_list || leon_header_key(p,h->list)!=h->key ||
        handle->model_header_key!=h->key || std::memcmp(h->words,&handle->model_header,32))return nullptr;
     // re4dc_model_direct_end(vertices)
@@ -6549,7 +6631,13 @@ void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     static const float kp[8]={0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f,0.68637f,0.95f};
     static const float kq[8]={0.68637f,0.95f,0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f};
     static const unsigned char order[8]={0,1,7,2,6,3,5,4};
+#if defined(RE4DC_G1_FP_UNSIGNED) && RE4DC_G1_FP_UNSIGNED
+    // G1_FP_UNSIGNED: picture and texture sizes are < 2^31 (a loaded texture), so the signed conversion is the same float.
+    const float su=float(int(RE4DC_COVER_W(e->package,s.image.width)))/float(int(t.width)),
+                sv=float(int(RE4DC_COVER_H(e->package,s.image.height)))/float(int(t.height));
+#else
     const float su=float(RE4DC_COVER_W(e->package,s.image.width))/t.width,sv=float(RE4DC_COVER_H(e->package,s.image.height))/t.height;
+#endif
     auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
     for(unsigned i=0;i<8;++i){
         const unsigned k=order[i];const float p=kp[k],q=kq[k];

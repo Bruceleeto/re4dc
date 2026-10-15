@@ -665,7 +665,7 @@ extern "C" void re4dc_model_submit(const Re4dcModelPart* p){
     re4dc_callprof_part(p ? p->model : nullptr, 2);
 #endif
     RE4DC_PROFILE_SCOPE(ModelSetup);
-    if(!re4dc_model_diagnostic_enabled())return;
+    if(!RE4DC_MODEL_DIAG())return;
 #if defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
     // LEON_LIGHT_HEADROOM: Leon's textures are 2x on the disc and only his owner path halves its colours. Any other
     // draw of them (the radio-call portrait, a source fallback, any later path) arrives here: its lighting record

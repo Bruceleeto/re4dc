@@ -430,7 +430,7 @@ extern "C" void re4dc_sob_room_leave(){
 #endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
  const void* part_ptr,const float mv[3][4],unsigned pass){
-    if(!re4dc_model_diagnostic_enabled() || pass)return;
+    if(!RE4DC_MODEL_DIAG() || pass)return;
 #if defined(RE4DC_GCOBJ_SKIP) && (RE4DC_GCOBJ_SKIP == 3 || RE4DC_GCOBJ_SKIP == 4)
     if(re4dc_gcobj_class(((const cModel*)model)->kindid,((const cModel*)model)->id,RE4DC_GCOBJ_SKIP==4))return;
 #endif

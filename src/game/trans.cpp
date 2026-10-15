@@ -2178,7 +2178,7 @@ static void invisReplayRender(cModel* m, int alphaUpdate)
     FRONT_TEX_FLUSH();
     // The crowd ranking (CROWD_LOD) notes the model as its source parts would: the actor frame bound at its first
     // drawn part (re4dc_draw_model_part), then one entry update per drawn info with a display list.
-    const int crowd = re4dc_model_diagnostic_enabled();
+    const int crowd = RE4DC_MODEL_DIAG();
     int bound = 0;
     for (cModelInfo* info = m->pModelInfo; info != 0; info = info->pList) {
         if (PTR_INVALID(info)) {
