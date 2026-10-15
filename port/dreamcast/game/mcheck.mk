@@ -49,7 +49,28 @@ endif
 # SS_CLOSE_POISON=1 (test 11 radio-call fault; debug only, default 0): sub screen close fills the window bytes it does
 #   not restore (free-cell payloads skipped at open: the screen's heap 12) with 0xA5 (sscrn_bridge.cpp), so a stale
 #   reference into the closed screen faults or shows as "MWC bad" on Flycast as well.
+#   =2 also fills the dead stack below the closing thread's stack pointer (the frames the restore used, the packed
+#   stream's read buffer among them) with 0xA5 after the restore, so a later read of an uninitialised local or a
+#   reference into that dead stack shows on Flycast (whose stream bytes differ from the console's).
+# DEAD_STACK_POISON=1 (test 11 radio-call fault; debug only, default 0, needs MODEL_WALK_CHECK): every task's dead stack
+#   (below its saved stack pointer, after each slot of TaskScheduler) and 6 KiB of the main thread's (at the "top" and
+#   "rdone" checkpoints) are filled with 0xA5, so an uninitialised local that reaches an OT entry shows as "MWC bad".
+DEAD_STACK_POISON ?= 0
+ifneq ($(filter $(DEAD_STACK_POISON),0 1),$(DEAD_STACK_POISON))
+$(error DEAD_STACK_POISON must be 0 or 1)
+endif
+ifeq ($(DEAD_STACK_POISON),1)
+ifeq ($(MODEL_WALK_CHECK),0)
+$(error DEAD_STACK_POISON=1 needs MODEL_WALK_CHECK=1 or 2)
+endif
+$(OBJDIR)/model_asset_bridge.o $(OBJDIR)/src/game/scheduler.o: GAME_CPPFLAGS += -DRE4DC_DEAD_STACK_POISON=1
+$(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -DRE4DC_DEAD_STACK_POISON=1
+endif
 SS_CLOSE_POISON ?= 0
-ifeq ($(SS_CLOSE_POISON),1)
-$(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_SS_CLOSE_POISON=1
+ifneq ($(filter $(SS_CLOSE_POISON),0 1 2),$(SS_CLOSE_POISON))
+$(error SS_CLOSE_POISON must be 0, 1 or 2)
+endif
+ifneq ($(SS_CLOSE_POISON),0)
+$(OBJDIR)/sscrn_bridge.o: GAME_CPPFLAGS += -DRE4DC_SS_CLOSE_POISON=$(SS_CLOSE_POISON)
+$(OBJDIR)/platform/subscreen_backing.o: PLATFORM_CPPFLAGS += -DRE4DC_SS_CLOSE_POISON=$(SS_CLOSE_POISON)
 endif

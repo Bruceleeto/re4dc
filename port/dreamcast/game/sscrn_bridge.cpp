@@ -551,6 +551,9 @@ extern "C" void re4dc_subscreen_swap_open(SubScreenWork* wk)
 #endif
 }
 
+#if defined(RE4DC_SS_CLOSE_POISON) && RE4DC_SS_CLOSE_POISON >= 2
+extern "C" void re4dc_poison_dead_stack(const char*);  // platform/subscreen_backing.cpp
+#endif
 extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
 {
     w11_text_check("before-close");
@@ -596,6 +599,9 @@ extern "C" void re4dc_subscreen_swap_close(SubScreenWork* wk)
         }
         re4dc_log("subscreen backing: close poison %u B outside %u spans\n", poisoned, nspan);
     }
+#if RE4DC_SS_CLOSE_POISON >= 2
+    re4dc_poison_dead_stack("close");
+#endif
 #endif
 #line 578
     swapped = false;

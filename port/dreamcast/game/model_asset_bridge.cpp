@@ -226,7 +226,13 @@ extern "C" void re4dc_ot_check_task(unsigned slot){
     snprintf(w,sizeof(w),"task%u",slot);
     re4dc_ot_check(w);
 }
+#if defined(RE4DC_DEAD_STACK_POISON) && RE4DC_DEAD_STACK_POISON
+extern "C" void re4dc_poison_own_stack(unsigned bytes);  // platform/os.cpp (debug only)
+#endif
 extern "C" void re4dc_ot_check(const char* where){
+#if defined(RE4DC_DEAD_STACK_POISON) && RE4DC_DEAD_STACK_POISON
+    if(!strcmp(where,"top") || !strcmp(where,"rdone"))re4dc_poison_own_stack(6144);
+#endif
     if(walkcheck::dump_left && strcmp(where,"clear")){--walkcheck::dump_left;walkcheck::dump(where);}
     if(!strcmp(where,"ssexit1"))walkcheck::dump_left=7;
     if(!strcmp(where,"ssexit0"))walkcheck::snapshot(where);
