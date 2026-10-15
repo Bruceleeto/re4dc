@@ -62,9 +62,14 @@ SS_HOLD_RESTORE ?= 0
 # records (vram/resident/r000.tsv; room 0 with width 0 pads the file) are the core set: the HUD pictures every room
 # draws (r101 post-bell call: 4 of them, ~7 KB, evicted by the call's pictures and reloaded on first sight after it).
 # They join every room's resident list, and load() never picks them as an eviction victim.
+# CORE_PIN=2 (t15/int, test 14 open item): as =1, but the core keys yield to the fragmented-upload retry of a picture of
+# 128 KiB or more (the r105 chapter 1-2 results screen, which =1 left without a contiguous 512 KiB block).
 CORE_PIN ?= 0
+ifeq ($(filter $(CORE_PIN),0 1 2),)
+$(error CORE_PIN must be 0, 1 or 2)
+endif
 ifneq ($(CORE_PIN),0)
-$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CORE_PIN=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_CORE_PIN=$(CORE_PIN)
 endif
 ifneq ($(SS_HOLD_RESTORE),0)
 ifneq ($(SS_PACK),1)
