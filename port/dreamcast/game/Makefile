@@ -1350,6 +1350,17 @@ $(OBJDIR)/parts-budget.h: parts-budget-force
 	@printf '#define RE4DC_HEAP4_PARTS_RESERVE %s\n#define RE4DC_HEAP4_PARTS_RESERVE_ROOM %s\n#define RE4DC_HEAP4_PARTS_RESERVE_BYTES %s\n' '$(HEAP4_PARTS_RESERVE)' '$(HEAP4_PARTS_RESERVE_ROOM)' '$(HEAP4_PARTS_RESERVE_BYTES)' >> $@.tmp
 	@cmp -s $@.tmp $@ || cp $@.tmp $@
 	@rm -f $@.tmp
+# SS_FREEZE_RESERVE=1 (test 12 radio-call HALT, default 0 = image unchanged): parts_bridge.cpp serves the sub screen
+# pool freeze copies and the stand-in work from a static SS_FREEZE_RESERVE_BYTES block (bump, reset at thaw, malloc
+# fallback) instead of the KOS heap. +SS_FREEZE_RESERVE_BYTES of .bss = that much less heap 4 under ARENA_FIT.
+SS_FREEZE_RESERVE ?= 0
+SS_FREEZE_RESERVE_BYTES ?= 16384
+ifneq ($(filter $(SS_FREEZE_RESERVE),0 1),$(SS_FREEZE_RESERVE))
+$(error SS_FREEZE_RESERVE must be 0 or 1)
+endif
+ifeq ($(SS_FREEZE_RESERVE),1)
+$(OBJDIR)/parts_bridge.o: GAME_CPPFLAGS += -DRE4DC_SS_FREEZE_RESERVE=1 -DRE4DC_SS_FREEZE_RESERVE_BYTES=$(SS_FREEZE_RESERVE_BYTES)
+endif
 $(OBJDIR)/parts_bridge.o: parts_bridge.cpp $(OBJDIR)/parts-budget.h
 	@mkdir -p $(dir $@)
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -include $(OBJDIR)/parts-budget.h -MMD -MP -c $< -o $@
