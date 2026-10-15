@@ -612,3 +612,30 @@ STATIC_OBJ_BATCH ?= 0
 ifneq ($(STATIC_OBJ_BATCH),0)
 $(OBJDIR)/model_bridge.o $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BATCH=$(STATIC_OBJ_BATCH)
 endif
+
+# KOS_TRACE=N (diagnostic only, lane crowd12 2026-10-15; default 0): "kos trace:" every N room frames (KOS malloc free
+# and sbrk room), to read the headroom after events such as the r101 bell. No static data.
+KOS_TRACE ?= 0
+ifneq ($(KOS_TRACE),0)
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_TRACE=$(KOS_TRACE)
+endif
+
+# SOB_DUMP=1 (diagnostic only, lane crowd12 2026-10-15; default 0): first-draw capture of the static etc object parts
+# (arrays, raw GX list, matrices, texture key) as "SOBX" hex lines, input of the offline STATIC_OBJ_BAKE.
+SOB_DUMP ?= 0
+ifneq ($(SOB_DUMP),0)
+$(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_SOB_DUMP=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SOB_DUMP=1
+endif
+
+# STATIC_OBJ_BAKE=1 (render only, lane crowd12 2026-10-15; default 0): the room's static etc objects (doors, boxes,
+# racks, windows, kind-1 0x21) baked offline into its PS2 world package draw from it while the game asks to draw them
+# at the baked rest pose (bit-identical matrices); opened / broken / pushed / picked up / moved = the live draw.
+# Needs PS2_PLACE_GATE=1 and the baked package staged (r101: re4-assets-private/crowd12-bake-20261015/r101).
+STATIC_OBJ_BAKE ?= 0
+ifneq ($(STATIC_OBJ_BAKE),0)
+ifeq ($(PS2_PLACE_GATE),0)
+$(error STATIC_OBJ_BAKE needs PS2_PLACE_GATE=1)
+endif
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o $(OBJDIR)/model_asset_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BAKE=1
+endif

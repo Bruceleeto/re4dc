@@ -8042,3 +8042,16 @@ extern "C" int re4dc_leon_hr_image(const Re4dcUiImage* image){
     return 0;
 }
 #endif
+
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+// SOB_DUMP (crowd.mk, diagnostic): the texture key the model path resolves for a part (masked pair when flag 4).
+extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned* fnv){
+    Key k{};bool ok;
+#if RE4DC_D349_RENDERER_STACK
+    ok=(p->material_flags&4)?model_mask_key(p,k):image_key(p->image,k);
+#else
+    ok=image_key(p->image,k);
+#endif
+    *crc=k.crc;*fnv=k.fnv;return ok?1:0;
+}
+#endif

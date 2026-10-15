@@ -2646,6 +2646,9 @@ void Render()
 }
 
 static const GXColor col64 = {0x40, 0x40, 0x40, 0x40};
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+extern "C" int re4dc_sob_bake_skip(const void* model);  // model_bridge.cpp (STATIC_OBJ_BAKE)
+#endif
 #if defined(RE4DC_GCOBJ_SKIP) && RE4DC_GCOBJ_SKIP
 // GCOBJ_SKIP (crowd.mk, measurement only): the GC-path object classes; statics only when only_static.
 static inline bool re4dc_gcobj_class(unsigned kind, unsigned id, bool only_static) {
@@ -2686,6 +2689,12 @@ void ModelRender(cModel* m)
     if (m->invisible_factor * m->invisible_factor2 == 0.0f) {
         return;
     }
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+    // STATIC_OBJ_BAKE (crowd.mk, render only): drawn from the room's PS2 world this frame (model_bridge.cpp)
+    if (m->kindid <= 1 && re4dc_sob_bake_skip(m)) {
+        return;
+    }
+#endif
 #if defined(RE4DC_GCOBJ_SKIP) && (RE4DC_GCOBJ_SKIP == 1 || RE4DC_GCOBJ_SKIP == 2)
     if (re4dc_gcobj_class(m->kindid, m->id, RE4DC_GCOBJ_SKIP == 2)) {
         return;

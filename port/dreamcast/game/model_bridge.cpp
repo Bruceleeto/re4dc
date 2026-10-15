@@ -314,10 +314,18 @@ inline bool static_class(const cModel* m){
 inline bool centre_lit(const re4dc::render::SourceLighting& L){
     return L.enable && !L.ambient_vertex && !L.material_vertex && L.diffuse==2 && L.mask;
 }
+// Word compare (newlib memcmp is a byte loop): both records are word-aligned structs of whole words.
+inline bool words_equal(const void* x,const void* y,unsigned bytes){
+    const unsigned* a=(const unsigned*)x;const unsigned* b=(const unsigned*)y;
+    for(unsigned i=0,n=bytes/4U;i<n;++i)if(a[i]!=b[i])return false;
+    return true;
+}
+static_assert(sizeof(Re4dcModelPart)%4U==0 && sizeof(re4dc::render::SourceLighting)%4U==0,"word compare");
 // Records equal but for the stream, its size, the part header and the lighting address; lighting content equal.
 inline bool same(const Re4dcModelPart& a,const Re4dcModelPart& b){
+    if(a.lighting!=b.lighting && !words_equal(a.lighting,b.lighting,sizeof(re4dc::render::SourceLighting)))return false;
     Re4dcModelPart t=b;t.stream=a.stream;t.stream_bytes=a.stream_bytes;t.part=a.part;t.lighting=a.lighting;
-    return !memcmp(&a,&t,sizeof t) && !memcmp(a.lighting,b.lighting,sizeof(re4dc::render::SourceLighting));
+    return words_equal(&a,&t,sizeof t);
 }
 inline const unsigned char* list_of(const ModelPart* q){return (const unsigned char*)q+0x20;}
 void new_frame(){
@@ -428,6 +436,326 @@ extern "C" void re4dc_sob_room_leave(){
     sob::S=nullptr;sob::cur_model=nullptr;sob::cur_info=nullptr;
 }
 #endif
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+#include <stdio.h>
+// SOB_DUMP (crowd.mk, diagnostic): static etc object parts captured at first draw for the offline STATIC_OBJ_BAKE.
+extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);
+extern "C" void* re4dc_static_alloc(unsigned bytes);
+extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned* fnv);  // native_ui.cpp
+#if RE4DC_NATIVE_ACTOR_SKIN_LAZY
+extern "C" int re4dc_actor_materialize_lazy(Re4dcModelPart* p);  // native_actor_fast.cpp
+#endif
+extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
+namespace sobdump {
+constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96,kMods=48,kSettle=60;
+struct State { unsigned generation,used,sent,nseen,done,nlist,nmod; const void* seen[kSeen][2]; const void* lists[kSeen];
+               const void* mod[kMods]; unsigned mod_frame[kMods]; unsigned char data[kBytes]; };
+State* S=nullptr; unsigned frame_seen=~0U;
+inline bool target(const cModel* m){
+    const unsigned k=m->kindid,id=m->id;
+    return (k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&id==0x21);
+}
+unsigned fnv(unsigned h,const void* p,unsigned n){const unsigned char* b=(const unsigned char*)p;for(unsigned i=0;i<n;++i)h=(h^b[i])*16777619U;return h;}
+unsigned rest_hash(const cModel* m){
+    unsigned h=fnv(2166136261U,m->mat,sizeof(Mtx));
+    const cParts* q=(const cParts*)m->pParts;
+    for(unsigned i=0;i<m->nParts && q;++i,q=q->pList)h=fnv(h,q->mat,sizeof(Mtx));
+    return h;
+}
+void put(const void* p,unsigned n){
+    if(S->used+n>kBytes){S->used=kBytes+1;return;}
+    memcpy(S->data+S->used,p,n);S->used+=n;
+}
+void put32(unsigned v){put(&v,4);}
+void frame(){
+    frame_seen=pG->Frame_cnt;
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf)){S=nullptr;return;}
+    if(S && S->generation!=g)S=nullptr;
+    if(!S || S->done || S->used>kBytes)return;
+    char line[16+2*kLine+2];
+    for(unsigned n=0;n<kLines && S->sent<S->used;++n){
+        unsigned k=S->used-S->sent;if(k>kLine)k=kLine;
+        int o=snprintf(line,sizeof line,"SOBX %06x ",S->sent);
+        for(unsigned i=0;i<k;++i){static const char hx[]="0123456789abcdef";line[o++]=hx[S->data[S->sent+i]>>4];line[o++]=hx[S->data[S->sent+i]&15];}
+        line[o++]='\n';line[o]=0;
+        re4dc_log("%s",line);
+        S->sent+=k;
+    }
+}
+bool ensure(){
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return false;
+    if(S && S->generation!=g)S=nullptr;
+    if(!S){
+        S=(State*)re4dc_static_alloc(sizeof(State));
+        if(!S){re4dc_log("SOBX FAIL alloc\n");return false;}
+        memset(S,0,sizeof(State)-kBytes);S->generation=g;
+        re4dc_log("SOBX BEGIN room=%03x generation=%u\n",unsigned(pG->room_id),g);
+    }
+    return true;
+}
+void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelPart* pt,const Re4dcModelPart& p){
+    if(pG->Frame_cnt!=frame_seen)frame();
+    if(!target(m))return;
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return;
+    if(!ensure())return;
+    {   // settle: the first frames of a model hold matrices the game has not set yet (zero / identity)
+        unsigned k=0;
+        while(k<S->nmod && S->mod[k]!=m)++k;
+        if(k==S->nmod){if(S->nmod>=kMods)return;S->mod[k]=m;S->mod_frame[k]=pG->Frame_cnt;++S->nmod;}
+        if(pG->Frame_cnt-S->mod_frame[k]<kSettle)return;
+    }
+    for(unsigned i=0;i<S->nseen;++i)if(S->seen[i][0]==m && S->seen[i][1]==pt)return;
+    if(S->nseen>=kSeen || S->used>kBytes)return;
+    S->seen[S->nseen][0]=m;S->seen[S->nseen][1]=pt;++S->nseen;
+    const int slot=-1;  // objects are keyed by id + rest position (getRoomEtc2 is not in the image)
+    unsigned list_idx=0;{const ModelPart* q=d->pParts;while(q && q!=pt && list_idx<d->displist_num){q=(const ModelPart*)((const unsigned char*)q+0x20+q->size);++list_idx;}}
+    const bool encoded=re4dc_actor_stream_encoded(p.stream,p.stream_bytes)!=0;
+    const unsigned stride=(p.flags&0x80000000U)?8U:6U;
+    unsigned nuv=0,nclr=0;
+    if(!encoded){
+        unsigned o=0;const unsigned char* s=p.stream;
+        while(o<p.stream_bytes){
+            const unsigned op=s[o++];if(!op)continue;
+            if(p.stream_bytes-o<2)break;
+            const unsigned n=(s[o]<<8)|s[o+1];o+=2;
+            if(n>(p.stream_bytes-o)/stride)break;
+            for(unsigned k=0;k<n;++k){
+                const unsigned char* t=s+o+k*stride;
+                const unsigned uv=(t[stride-2]<<8)|t[stride-1];if(uv+1>nuv)nuv=uv+1;
+                if(stride==8){const unsigned ci=(t[4]<<8)|t[5];if(ci+1>nclr)nclr=ci+1;}
+            }
+            o+=n*stride;
+        }
+    }
+    unsigned crc=0,fnvk=0;re4dc_ui_part_key(&p,&crc,&fnvk);
+    const unsigned list_bytes=encoded?0U:p.stream_bytes;
+    const unsigned npos=p.position_count,nnrm=p.normal_count;
+    const unsigned len=4*4+16*4+24*4+4*4+npos*p.position_stride+nnrm*p.normal_stride+nuv*4+nclr*4+list_bytes;
+    const unsigned at=S->used;
+    put32(0x52424F53U);put32(0);
+    put32(unsigned(slot)&0xFFFFU | (unsigned(m->kindid)<<16) | (unsigned(m->id)<<24));
+    put32(list_idx | (unsigned(d->displist_num)<<16));
+    put32((unsigned)(size_t)m);put32((unsigned)(size_t)info);put32((unsigned)(size_t)d);put32((unsigned)(size_t)pt);
+    put32(rest_hash(m));put32(crc);put32(fnvk);put32(p.flags);put32(p.material_flags);
+    put32(p.position_stride|(p.normal_stride<<8)|(unsigned(p.shift)<<16)|(unsigned(p.normal_shift)<<24));
+    put32(p.blend|(p.cull<<8)|(p.depth_mode<<16)|(p.alpha_state<<24));
+    put32(npos|(nnrm<<16));put32(nuv|(nclr<<16));put32(list_bytes);
+    put(p.modelview,48);put(&pG->Cam.v_mat[0][0],48);
+    put(&m->pos,12);put(&m->ang,12);put32(m->be_flag);put32(info->be_flag);
+    put32(p.lighting?unsigned(sizeof(re4dc::render::SourceLighting)):0U);
+    if(p.lighting)put(p.lighting,sizeof(re4dc::render::SourceLighting));
+    Re4dcModelPart q=p;
+#if RE4DC_NATIVE_ACTOR_SKIN_LAZY
+    if(!q.positions)re4dc_actor_materialize_lazy(&q);  // lazily skinned info: the source's own CPU skin of this frame
+#endif
+    if(q.positions)put(q.positions,npos*p.position_stride);else put32(0xDEADBEEFU);
+    if(q.normals)put(q.normals,nnrm*p.normal_stride);
+    if(p.uv)put(p.uv,nuv*4);
+    if(p.colors)put(p.colors,nclr*4);
+    if(list_bytes)put(p.stream,list_bytes);
+    while(S->used<=kBytes && (S->used&3))put("",1);
+    if(S->used<=kBytes){const unsigned total=S->used-at;memcpy(S->data+at+4,&total,4);}
+    (void)len;
+}
+}
+// SOB_DUMP: raw lists of a target model, from the model asset walk (before the plan owner encodes them in place).
+extern "C" void re4dc_sobdump_lists(const void* model){
+    using namespace sobdump;
+    const cModel* m=(const cModel*)model;
+    if(!target(m) || !ensure() || S->used>kBytes)return;
+    for(const cModelInfo* info=m->pModelInfo;info;info=info->pList){
+        const ModelData* d=info->pData;if(!d)continue;
+        const ModelPart* q=d->pParts;
+        for(unsigned i=0;q && i<d->displist_num;++i,q=(const ModelPart*)((const unsigned char*)q+0x20+q->size)){
+            bool seen=false;
+            for(unsigned k=0;k<S->nlist && !seen;++k)seen=S->lists[k]==q;
+            if(seen || S->nlist>=kSeen)continue;
+            const unsigned char* l=(const unsigned char*)q+0x20;
+            if(re4dc_actor_stream_encoded(l,q->size))continue;
+            S->lists[S->nlist++]=q;
+            const unsigned at=S->used;
+            put32(0x4C424F53U);put32(0);put32((unsigned)(size_t)m);put32((unsigned)(size_t)d);put32((unsigned)(size_t)q);
+            put32(q->size);put32(i|(unsigned(d->displist_num)<<16));put(l,q->size);
+            while(S->used<=kBytes && (S->used&3))put("",1);
+            if(S->used<=kBytes){const unsigned total=S->used-at;memcpy(S->data+at+4,&total,4);}
+        }
+    }
+}
+#endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+// STATIC_OBJ_BAKE (crowd.mk; render only, default 0; lane crowd12 2026-10-15): static etc objects baked into the
+// room's PS2 world package draw from it while the game asks to draw them at their baked rest pose (bit-identical
+// model and part matrices); every other state is the object's live draw. Decided once per frame before submission
+// (re4dc_sob_bake_frame, from re4dc_prepare_model_assets), applied by the world (PS2_PLACE_GATE) and ModelRender.
+#include "trans.h"
+#include "trans_ot.h"
+extern "C" void* re4dc_static_alloc(unsigned bytes);
+extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
+extern "C" void re4dc_ps2_place_own(unsigned room,unsigned placement);
+extern "C" void re4dc_ps2_place_gate(unsigned room,unsigned placement,int draw_world);
+extern "C" int re4dc_ps2_place_ready(unsigned room,unsigned placement);
+extern "C" void re4dc_log(const char* fmt,...);
+extern "C" void re4dc_ps2_place_prepare_fn(unsigned room,void (*fn)(unsigned room));
+extern "C" unsigned re4dc_ui_frame();
+namespace sobake {
+struct Entry { unsigned short room; unsigned char kind,id; unsigned rest; unsigned short placement; };
+// generated by p_bake.py from the bake (sob_bake.py objects json + ps2_world_append.py append.json)
+const Entry kTable[]={
+    {0x101,1,0x21,0xfe431f22U,209},  // obj 0, 318 tris
+    {0x101,0,0x41,0x36f60ab1U,210},  // obj 1, 392 tris
+    {0x101,0,0x41,0xc80ed0fbU,211},  // obj 2, 392 tris
+    {0x101,0,0x41,0x93bfec69U,212},  // obj 3, 176 tris
+    {0x101,0,0x43,0xfe795e45U,213},  // obj 4, 68 tris
+    {0x101,0,0x45,0x72f65304U,214},  // obj 5, 564 tris
+    {0x101,0,0x45,0x04264726U,215},  // obj 6, 460 tris
+    {0x101,0,0x45,0x04cc4e10U,216},  // obj 7, 460 tris
+    {0x101,0,0x46,0xdd0fc09fU,217},  // obj 8, 4 tris
+    {0x101,0,0x46,0x3d37bdbdU,218},  // obj 9, 252 tris
+    {0x101,0,0x46,0x0aff2259U,219},  // obj 10, 4 tris
+    {0x101,0,0x46,0x144d2ae7U,220},  // obj 11, 4 tris
+    {0x101,0,0x46,0x2e0dfc4dU,221},  // obj 12, 4 tris
+};
+constexpr unsigned kN=sizeof(kTable)/sizeof(kTable[0]);
+struct Obj { const cModel* m; const unsigned* rest; unsigned words,live; unsigned char ready,draw,prev,seen; };
+struct State { unsigned generation,room,first,n,frames,drawn,switches,frame; Obj obj[kN]; };
+State* S=nullptr;
+inline bool cls(const cModel* m){
+    const unsigned k=m->kindid,id=m->id;
+    return (k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&id==0x21);
+}
+unsigned words_of(const cModel* m){
+    unsigned n=1;const cParts* q=(const cParts*)m->pParts;
+    for(unsigned i=0;i<m->nParts && q;++i,q=q->pList)++n;
+    return n*(sizeof(Mtx)/4);
+}
+// the model and part matrices in SOB_DUMP order, as words (fill) or compared with a rest copy (same)
+void fill(const cModel* m,unsigned* w){
+    memcpy(w,m->mat,sizeof(Mtx));w+=sizeof(Mtx)/4;
+    const cParts* q=(const cParts*)m->pParts;
+    for(unsigned i=0;i<m->nParts && q;++i,q=q->pList){memcpy(w,q->mat,sizeof(Mtx));w+=sizeof(Mtx)/4;}
+}
+bool same(const cModel* m,const unsigned* w){
+    const unsigned* a=(const unsigned*)m->mat;
+    for(unsigned k=0;k<sizeof(Mtx)/4;++k)if(a[k]!=w[k])return false;
+    w+=sizeof(Mtx)/4;
+    const cParts* q=(const cParts*)m->pParts;
+    for(unsigned i=0;i<m->nParts && q;++i,q=q->pList){
+        const unsigned* b=(const unsigned*)q->mat;
+        for(unsigned k=0;k<sizeof(Mtx)/4;++k)if(b[k]!=w[k])return false;
+        w+=sizeof(Mtx)/4;
+    }
+    return true;
+}
+unsigned fnv(const unsigned* w,unsigned n){
+    unsigned h=2166136261U;const unsigned char* b=(const unsigned char*)w;
+    for(unsigned i=0;i<n*4;++i)h=(h^b[i])*16777619U;
+    return h;
+}
+void bind(const cModel* m){
+    for(unsigned i=0;i<S->n;++i)if(S->obj[i].m==m)return;
+    const unsigned n=words_of(m);
+    unsigned* t=nullptr;unsigned hash=0;
+    for(unsigned i=0;i<S->n;++i){
+        const Entry& e=kTable[S->first+i];Obj& o=S->obj[i];
+        if(o.m || e.kind!=m->kindid || e.id!=m->id)continue;
+        if(!t){t=(unsigned*)__builtin_alloca(n*4);fill(m,t);hash=fnv(t,n);}
+        if(hash!=e.rest)continue;
+        unsigned* w=(unsigned*)re4dc_static_alloc(n*4);
+        if(!w)return;
+        memcpy(w,t,n*4);
+        o.m=m;o.rest=w;o.words=n;
+        re4dc_log("SOBAKE bind room=%03x placement=%u id=%02x model=%08x words=%u\n",S->room,e.placement,e.id,
+                  (unsigned)(size_t)m,n);
+        return;
+    }
+}
+}
+namespace sobake {
+// The PS2 world's prepare callback (first PS2 pass of the ui frame, during the OT execution: registration done,
+// scenery not yet submitted): decide every baked object of the room and gate its placement.
+void decide(unsigned room);
+}
+// Render_before (re4dc_prepare_model_assets): room state, placements owned, the prepare callback registered.
+extern "C" void re4dc_sob_bake_frame(){
+    using namespace sobake;
+    const unsigned room=pG->room_id;
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf)){S=nullptr;return;}
+    if(S && (S->generation!=g || S->room!=room))S=nullptr;
+    if(!S){
+        unsigned first=kN,n=0;
+        for(unsigned i=0;i<kN;++i)if(kTable[i].room==room){if(first==kN)first=i;++n;}
+        if(!n)return;
+        S=(State*)re4dc_static_alloc(sizeof(State));
+        if(!S)return;
+        memset(S,0,sizeof(State));S->generation=g;S->room=room;S->first=first;S->n=n;S->frame=~0U;
+        for(unsigned i=0;i<n;++i)S->obj[i].live=~0U;
+    }
+    for(unsigned i=0;i<S->n;++i)re4dc_ps2_place_own(room,kTable[S->first+i].placement);
+    re4dc_ps2_place_prepare_fn(room,sobake::decide);
+}
+void sobake::decide(unsigned room){
+    if(!S || S->room!=room)return;
+    S->frame=re4dc_ui_frame();
+    for(unsigned i=0;i<S->n;++i)S->obj[i].draw=S->obj[i].seen=0;
+    for(unsigned table=0;table<OT_MAX;++table){
+        const auto& ot=g_OtWork[table];
+        if(!ot.list || !ot.max)continue;
+        for(auto* node=&ot.list[ot.max-1];node;node=node->next){
+            if(!node->data || node->func!=(void (*)(void*))ModelRender)continue;
+            const cModel* m=(const cModel*)node->data;
+            if(!cls(m) || m->invisible_factor*m->invisible_factor2==0.0f)continue;
+            unsigned i=0;
+            while(i<S->n && S->obj[i].m!=m)++i;
+            if(i==S->n){bind(m);i=0;while(i<S->n && S->obj[i].m!=m)++i;if(i==S->n)continue;}
+            Obj& o=S->obj[i];
+            const unsigned placement=kTable[S->first+i].placement;
+            if(!o.ready)o.ready=re4dc_ps2_place_ready(room,placement)!=0;
+            o.seen=1;
+            if(o.live==S->frame)continue;  // ModelRender drew it live already this frame
+            o.draw=o.ready && words_of(m)==o.words && same(m,o.rest);
+        }
+    }
+    unsigned drawn=0;
+    for(unsigned i=0;i<S->n;++i){
+        const unsigned placement=kTable[S->first+i].placement;
+        Obj& o=S->obj[i];
+        re4dc_ps2_place_gate(room,placement,o.draw);
+        drawn+=o.draw;
+        if(o.draw!=o.prev && o.m && S->switches<64){
+            ++S->switches;
+            // why live: seen 0 = no OT ModelRender entry (or invisible); else ready, words, first differing word
+            unsigned k=~0U,was=0,now=0;
+            if(o.seen && o.ready && words_of(o.m)==o.words){
+                unsigned* w=(unsigned*)__builtin_alloca(o.words*4);fill(o.m,w);
+                for(k=0;k<o.words && w[k]==o.rest[k];++k){}
+                if(k<o.words){was=o.rest[k];now=w[k];}
+            }
+            re4dc_log("SOBAKE switch room=%03x frame=%u placement=%u id=%02x draw=%u seen=%u ready=%u words=%u/%u diff=%d %08x>%08x\n",
+                      room,unsigned(pG->Frame_cnt),placement,kTable[S->first+i].id,o.draw,o.seen,o.ready,
+                      o.seen?words_of(o.m):0U,o.words,int(k),was,now);
+        }
+        o.prev=o.draw;
+    }
+    S->drawn+=drawn;
+    if(!(++S->frames%600U))re4dc_log("SOBAKE room=%03x frames=%u baked_draws=%u now=%u/%u\n",room,S->frames,S->drawn,drawn,S->n);
+}
+// ModelRender (trans.cpp): 1 when this frame's decision draws the model from the world.
+extern "C" int re4dc_sob_bake_skip(const void* model){
+    using namespace sobake;
+    if(!S)return 0;
+    const unsigned f=re4dc_ui_frame();
+    for(unsigned i=0;i<S->n;++i)if(S->obj[i].m==model){
+        if(S->frame==f)return S->obj[i].draw;
+        S->obj[i].live=f;  // before this frame's decision: live draw, the decision gates its placement off
+        return 0;
+    }
+    return 0;
+}
+#endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
  const void* part_ptr,const float mv[3][4],unsigned pass){
     if(!re4dc_model_diagnostic_enabled() || pass)return;
@@ -505,6 +833,9 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
         if(st && pG->Frame_cnt%600==300)
             re4dc_log("SOB %u %x %x %x %x %x %x %u %u %u %u %x %u %u %x %u\n",pG->Frame_cnt%100000,(unsigned)m&0xffffff,id|(k<<8),(unsigned)info&0xffffff,(unsigned)part&0xffffff,(unsigned)p.image.pixels&0xffffff,(unsigned)p.uv&0xffffff,p.position_count,p.position_stride,p.normal_stride,p.shift,p.flags>>16,p.blend,p.alpha_state,(unsigned)p.colors&0xffffff,p.stream_bytes);
     }
+#endif
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+    sobdump::part(m,info,d,part,p);  // SOB_DUMP (diagnostic): first-draw capture for STATIC_OBJ_BAKE
 #endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
     if(sob::take(m,info,d,part,p))return;  // STATIC_OBJ_BATCH: held for its info's run
