@@ -16,7 +16,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed in test 9 / 9.1 / 10 | Fixed and checked in our tests; the problem was not console-only | 5 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 13 |
+| ⏸️ Open | Known, not yet worked on | 14 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -68,6 +68,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
+| FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
 ## Console checklist for test 10
 
