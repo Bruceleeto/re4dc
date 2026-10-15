@@ -261,6 +261,15 @@ ifneq ($(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),11)
 $(error FX_TEX_POOL needs EFFECT_SPRITES=1 and EFFECT_ROOM)
 endif
 endif
+# FX_PS2_PACK=1 (test 12 fx lane, render only, default 0; needs TEX_PAL4_ALPHA=1): effect textures may come from a
+#                    PS2-sourced pack (tools/d367/test12fx/fx_ps2_pack.py: the PS2 picture, PAL4, under the GameCube key).
+#                    Such a package marks in its header flags the texels the source UVs cover, so a picture smaller than
+#                    the GameCube one is sampled whole (native_ui.cpp RE4DC_COVER_W/H); FX_SPRITE_TRIM skips it. Without
+#                    the pack the knob changes nothing on screen.
+FX_PS2_PACK ?= 0
+ifneq ($(filter-out 0 1,$(FX_PS2_PACK)),)
+$(error FX_PS2_PACK is 0 or 1)
+endif
 EFFECT_OWNERS_ALL ?= 0
 ifneq ($(EFFECT_OWNERS_ALL),0)
 ifneq ($(EFFECT_OWNERS_ALL)$(EFFECT_SPRITES)$(if $(filter-out 0,$(EFFECT_ROOM)),1,0),111)
@@ -409,6 +418,9 @@ ifneq ($(FX_LEVEL),)
 endif
 ifneq ($(EFFECT_TORCH),0)
 	@printf '#define RE4DC_EFFECT_TORCH %s\n' '$(EFFECT_TORCH)' >> $@.tmp
+endif
+ifneq ($(FX_PS2_PACK),0)
+	@printf '#define RE4DC_FX_PS2_PACK 1\n' >> $@.tmp
 endif
 ifneq ($(FX_TEX_POOL),0)
 	@printf '#define RE4DC_FX_TEX_POOL %s\n' '$(FX_TEX_POOL)' >> $@.tmp

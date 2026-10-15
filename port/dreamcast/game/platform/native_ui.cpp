@@ -284,6 +284,18 @@ struct Source { Re4dcUiImage image{}; Key key{}; };
 // bytes from the optional source-key lookup cache, not the game heap/queue.
 // An uncached source descriptor still resolves through its existing owner table.
 Entry entries[kTextureCount]; Source sources[kSourceCount]; unsigned nsource;
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+// FX_PS2_PACK=1 (effects30.mk, test 12 fx lane; render only): a package that fx_ps2_pack.py built from the PS2 picture of
+// a GameCube effect texture (smaller than the source TPL image) says in its header flags how many of its texels the
+// source image's UV 0..1 covers (bit 31 set; width bits 0-10, height bits 11-21). Other packages: the source image size.
+#define RE4DC_COVER(pkg) (((pkg).header().flags>>31)!=0U)
+#define RE4DC_COVER_W(pkg,iw) (RE4DC_COVER(pkg)?((pkg).header().flags&0x7ffU):(iw))
+#define RE4DC_COVER_H(pkg,ih) (RE4DC_COVER(pkg)?(((pkg).header().flags>>11)&0x7ffU):(ih))
+#else
+#define RE4DC_COVER(pkg) false
+#define RE4DC_COVER_W(pkg,iw) (iw)
+#define RE4DC_COVER_H(pkg,ih) (ih)
+#endif
 #if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
 // FX_TEX_POOL=<KB> (effects30.mk, test 12 fx lane; render only): a resident effect texture pool. An effect sprite's
 // texture (re4dc_effect_sprite) is pinned while the pool's bytes stay under the budget, so the room's effect set (the
@@ -4523,7 +4535,7 @@ static void ui_draw_quad(unsigned i){
         const float layer=overlay_depth();
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
             v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=layer;
-            v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
+            v[n].u=q.uv[2*j]*RE4DC_COVER_W(handles[i]->package,q.image.width)/t.width;v[n].v=q.uv[2*j+1]*RE4DC_COVER_H(handles[i]->package,q.image.height)/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
 #else
@@ -4613,7 +4625,7 @@ extern "C" void re4dc_ui_present(){
         const float layer=overlay_depth();
         for(unsigned n=0;n<4;++n){unsigned j=order[n];v[n].flags=n==3?PVR_CMD_VERTEX_EOL:PVR_CMD_VERTEX;
             v[n].x=RE4DC_UI_X(q.xy[2*j]);v[n].y=RE4DC_UI_Y(q.xy[2*j+1]);v[n].z=layer;
-            v[n].u=q.uv[2*j]*q.image.width/t.width;v[n].v=q.uv[2*j+1]*q.image.height/t.height;v[n].argb=q.color;}
+            v[n].u=q.uv[2*j]*RE4DC_COVER_W(handles[i]->package,q.image.width)/t.width;v[n].v=q.uv[2*j+1]*RE4DC_COVER_H(handles[i]->package,q.image.height)/t.height;v[n].argb=q.color;}
 #if RE4DC_PVR_STREAM
         stream_send(commands,sizeof(commands));
 #else
@@ -5901,7 +5913,7 @@ void oct_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     static const float kp[8]={0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f,0.68637f,0.95f};
     static const float kq[8]={0.68637f,0.95f,0.95f,0.68637f,0.31363f,0.05f,0.05f,0.31363f};
     static const unsigned char order[8]={0,1,7,2,6,3,5,4};
-    const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
+    const float su=float(RE4DC_COVER_W(e->package,s.image.width))/t.width,sv=float(RE4DC_COVER_H(e->package,s.image.height))/t.height;
     auto* v=reinterpret_cast<pvr_vertex_t*>(out+sizeof(pvr_poly_hdr_t));
     for(unsigned i=0;i<8;++i){
         const unsigned k=order[i];const float p=kp[k],q=kq[k];
@@ -5951,7 +5963,7 @@ void fx_packet(const Re4dcEffectSprite& s,Entry* e,unsigned char* out){
     pvr_sprite_compile(h,&c);h->argb=s.color;h->oargb=0;
 #endif
     auto* b=reinterpret_cast<pvr_sprite_txr_t*>(out+sizeof(pvr_poly_hdr_t));
-    const float su=float(s.image.width)/t.width,sv=float(s.image.height)/t.height;
+    const float su=float(RE4DC_COVER_W(e->package,s.image.width))/t.width,sv=float(RE4DC_COVER_H(e->package,s.image.height))/t.height;
     b->flags=PVR_CMD_VERTEX_EOL;
     b->ax=s.x[0];b->ay=s.y[0];b->az=s.z[0];b->bx=s.x[1];b->by=s.y[1];b->bz=s.z[1];
     b->cx=s.x[2];b->cy=s.y[2];b->cz=s.z[2];b->dx=s.x[3];b->dy=s.y[3];b->dummy=0;

@@ -96,6 +96,7 @@ inline int fx_trim(const Re4dcEffectSprite& s, const Entry* e, Re4dcEffectSprite
             if(m.crc<e->key.crc || (m.crc==e->key.crc && m.fnv<e->key.fnv)) lo=mid+1; else hi=mid;
         }
         if(lo<kFxTrimCount && kFxTrim[lo].crc==e->key.crc && kFxTrim[lo].fnv==e->key.fnv) r=&kFxTrim[lo];
+        if(RE4DC_COVER(e->package)) r=nullptr;   // FX_PS2_PACK: the table holds GameCube package texels
     }
     unsigned why=0;
     bool ok=r!=nullptr && !(s.pad&1) && s.src==4 && (s.dst==5 || s.dst==1);   // PVR SRCALPHA; INVSRCALPHA / ONE
