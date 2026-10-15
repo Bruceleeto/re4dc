@@ -40,3 +40,40 @@ Gates (binary unchanged, so knob-off identity holds by construction; the play EL
   contiguous block" 4 -> 0; effect sprites queued 25,095 -> 41,900, missing 36,188 -> 19,336. With LVQ as well:
   queued 56,697, missing 4,433, fragmentation retries 417 -> 215.
 - Look: `vram-map-20261014\sheets` (texture sheet ps2vq-sheet.png, r101 stills r101-ps2vq-pair/crop.png).
+
+## D4: per-room VRAM report and the VRAM gaps gate (VRAM_ROOM_LOG=1, 2026-10-15)
+
+The graphics memory rule asks for each room's VRAM use in benchmark and full-play logs and for refusals, "no
+contiguous block" failures and GameCube fallbacks to fail a check. `VRAM_ROOM_LOG=1` (Makefile, render/log only,
+default 0, needs UI_VRAM=1 VRAM_PAGES=1; in the test 12 recipe T12REC) logs, at each room-entry preload pass, every
+600 frames and at the room change ("exit": the visit's minima and counters):
+
+- `vram room:` pinned (cache bytes drawn in the last 60 frames, leased or pool-pinned), dynamic (other resident cache
+  bytes), other (non-cache allocations and page padding), free, largest free block, the visit's min free / min
+  largest / peak pinned, and the visit's uploads, evictions and fragmentation retries.
+- `vram gaps:` the visit's budget refusals, thrash-guard skips (guard, and guard_p = those while the cache was
+  evicting: VRAM pressure; the rest are the 4-new-loads-per-frame cap), no contiguous block, latched, absent packages,
+  GameCube effect pictures (gc_fx, FX_PS2_PACK=1), WORLD_HOLE_FIX dropped parts, effect sprites past the queue, model
+  parts without their texture, silent AICA bank blocks (snd_fail) and AICA bytes in use.
+- `vram gc-fx:` each GameCube-picture effect key (first 64 per visit).
+
+Cost: one profile-source read and pvr_mem_available() per frame, a 448-entry walk plus the allocator census every 30
+frames and at each sample; about 1 KB of BSS. Knob off: play image byte-identical (ident.sh vd4otP vs t12rctP).
+
+Gates: `tools/d367/vram/vram_gate.py <run-output.txt>` (benchmark; bench-run.sh runs it after bench-ms.py) and
+`fullplay/fp_check.py` (every segment; REPORT.md gets a "VRAM per room" table). They fail on refusals, guard_p,
+nocontig and gc-fx keys that ps2lib/INDEX.tsv does not list as ps2_source=NONE. Keys map to INDEX rows through
+`ps2lib/effects-tex/KEYS.tsv` (`tools/d367/vram/fx_keys.py <ps2lib>`, re-run after fx_ps2_pack.py lib). Logs from
+builds without the knob (test 11) are judged on rejects= and "no contiguous block" only; their thrash-guard count has no
+pressure split and is noted, not failed (no new failures on the test 11 candidate gate logs g5b-183453 / pcr2-193643).
+
+D4 gates (cedae1ad + knob file):
+- Knob off: IDENTITY PASS vd4otP vs t12rctP (18c392a9; image 2292926655b1d52f, every overlay and syms identical).
+- r101 bell trace pair vd4otT vs vd4tT (T12_DATA, stop tick 1802): STRICT, 1804 compared, 0 masked; decisions
+  MUST-IDENTICAL over ticks 0..1802. Evidence: vram-map-20261014\d4-tr-bell-{off,on}, strict-d4-bell-*.
+- Test 11 candidate gate logs (fullplay-20261014 g5b-183453, 20 segments; pcr2-193643, 8 segments), re-checked with the
+  new fp_check: no new failures.
+- r101 benchmark on the knob-on arm (d4-bench-b; MODELLED): min free 82,336 B, min largest block 3,072 B, 149 uploads
+  after the preload, 40 evictions, 20 frag retries. The gate FAILS on 85 thrash-guard skips under pressure and 17
+  GameCube effect pictures: 10 common core.das ids NOT_CONVERTED in ps2lib, 7 em13 enemy-effect pictures with no
+  ps2lib row. These are real gaps, not false fails.

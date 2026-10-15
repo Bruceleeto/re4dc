@@ -2655,6 +2655,143 @@ void whfix_drop(unsigned required){
     ++whfix_parts;whfix_bytes+=required;
 }
 #endif
+#if RE4DC_VRAM_ROOM_LOG
+// VRAM_ROOM_LOG=1 (Makefile; render/log only, needs UI_VRAM=1 VRAM_PAGES=1): the per-room VRAM report of the CLAUDE.md
+// graphics memory rule (lane vram12 D4). Two lines per sample, at the room-entry preload ("preload"), every 600 frames
+// of a visit ("tick") and when the room changes ("exit": the visit's minima / peak / counters; its current fields are
+// already the next room's first frame):
+//   vram room: pinned = texture cache bytes drawn in the last 60 frames, leased or effect-pool pinned (the working
+//     set), dynamic = the other resident cache bytes (evictable without a reload this second), other = allocations
+//     that are not cache entries (glyph atlas, overlay slab, OSD, movie, sub screen, lake; page padding), free and
+//     largest = free texture RAM and its largest contiguous extent, min_free / min_largest over the visit (sampled
+//     every frame / every 30 frames), peak_pinned over the visit; this visit's uploads (loads, the preload's
+//     included), evictions (evicted: each is a disc re-read when the texture is drawn again) and fragmentation
+//     retries (an upload that fitted only after evicting for a hole).
+//   vram gaps: this visit's counts: refusals (budget fail-fast, load()), guard (EFFECT_ROOM thrash-guard skips, all
+//     causes), guard_p (those while the cache evicted this frame or the last: VRAM pressure; the rest are the
+//     kFxNewLoads per-frame load cap, which loads the texture a frame later),
+//     nocontig ("no contiguous block"), latched (loads refused while a fragmentation latch holds), absent (packages
+//     not on the disc), gc_fx (distinct effect textures drawn from their GameCube picture with FX_PS2_PACK=1: no
+//     PS2 conversion; -1 without FX_PS2_PACK), dropped (WORLD_HOLE_FIX queue-full parts), fx_dropped (effect sprites
+//     past the queue), tex_rej (model parts without their texture), snd_fail (AICA bank blocks left silent),
+//     snd_used (AICA bytes held now).
+//   vram gc-fx: one line per distinct GameCube-picture effect key per visit (the first 64), for the gate's ps2lib
+//     INDEX.tsv lookup (tools/d367/vram/vram_gate.py; ps2_source=NONE rows are the known gaps).
+// Gates: tools/d367/vram/vram_gate.py (benchmark runs) and fullplay/fp_check.py fail on refusals, guard_p skips,
+// nocontig and GC-picture effects that ps2lib does not list as NONE.
+extern "C" void re4dc_vram_pages_census(unsigned* out);   // vram_pages.cpp
+extern "C" unsigned re4dc_aica_skipped_blocks(void);      // audio_aica.cpp / audio_stub.cpp
+extern "C" unsigned re4dc_aica_used_bytes(void);
+unsigned vram_nocontig,vram_guard_pressure;
+constexpr unsigned kVramCounters=14;
+struct VramRoom { unsigned room=~0U,since,min_free,min_largest,peak_pinned,base[kVramCounters]; };
+VramRoom vroom;
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+unsigned char gcfx_seen[kTextureCount]; Key gcfx_keys[64]; unsigned gcfx_n,vram_gcfx;
+void vram_room_gcfx(const Entry& e){   // re4dc_effect_sprite: an effect texture without the PS2 cover flag
+    const unsigned i=unsigned(&e-entries);
+    if(i>=kTextureCount || gcfx_seen[i])return;
+    gcfx_seen[i]=1;
+    for(unsigned k=0;k<gcfx_n;++k)if(gcfx_keys[k]==e.key)return;
+    ++vram_gcfx;
+    if(gcfx_n<sizeof(gcfx_keys)/sizeof(gcfx_keys[0])){
+        gcfx_keys[gcfx_n++]=e.key;
+        re4dc_log("vram gc-fx: r=%03x f=%u key=%08x-%08x\n",vroom.room,frame,e.key.crc,e.key.fnv);
+    }
+}
+#endif
+void vram_room_counters(unsigned* c){
+    c[0]=vram_rejects;
+#if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
+    c[1]=fx_resident_skips;
+#else
+    c[1]=0;
+#endif
+    c[2]=vram_nocontig;
+#if RE4DC_UI_FRAG_LATCH
+    c[3]=frag_latched;
+#else
+    c[3]=0;
+#endif
+#if RE4DC_TEX_RESIDENT || RE4DC_SUBSCREEN
+    c[4]=nmissing;
+#else
+    c[4]=0;
+#endif
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+    c[5]=vram_gcfx;
+#else
+    c[5]=0;
+#endif
+#if RE4DC_WORLD_HOLE_FIX
+    c[6]=whfix_total+whfix_parts;
+#else
+    c[6]=0;
+#endif
+#if RE4DC_EFFECT_SPRITES
+    c[7]=fx_dropped;
+#else
+    c[7]=0;
+#endif
+    c[8]=model_texture_rejects;
+    c[9]=re4dc_aica_skipped_blocks();
+    c[10]=vram_guard_pressure;
+    c[11]=loads;c[12]=reclaimed;c[13]=vram_retries;
+}
+void vram_room_largest(unsigned& largest,unsigned& alloc_bytes){
+    unsigned c[13]={};re4dc_vram_pages_census(c);largest=c[4];alloc_bytes=c[1];
+}
+void vram_room_sample(const char* at){
+    unsigned pinned=0,dynamic=0;
+    for(const auto& e:entries)if(e.valid){
+        const unsigned sz=e.package.vram_bytes();
+        if(RE4DC_ENTRY_PINNED(e) || e.frame+60>=frame)pinned+=sz;else dynamic+=sz;
+    }
+    unsigned largest,alloc;vram_room_largest(largest,alloc);
+    const unsigned free_bytes=(unsigned)pvr_mem_available();
+    if(at[0]!='e'){   // "exit" runs on the next room's first frame: its state is not the visit's
+        if(free_bytes<vroom.min_free)vroom.min_free=free_bytes;
+        if(largest<vroom.min_largest)vroom.min_largest=largest;
+        if(pinned>vroom.peak_pinned)vroom.peak_pinned=pinned;
+    }
+    unsigned c[kVramCounters];vram_room_counters(c);
+    for(unsigned k=0;k<kVramCounters;++k)c[k]-=vroom.base[k];
+    // re4dc_log formats into 256 bytes: both lines stay under it with 7-digit values (vram_gate.py parses key=value)
+    re4dc_log("vram room: r=%03x at=%s f=%u frames=%u pinned=%u dynamic=%u other=%u free=%u largest=%u min_free=%u min_largest=%u peak_pinned=%u loads=%u evicted=%u retries=%u\n",
+        vroom.room,at,frame,frame-vroom.since,pinned,dynamic,alloc>pinned+dynamic?alloc-pinned-dynamic:0U,free_bytes,largest,
+        vroom.min_free,vroom.min_largest,vroom.peak_pinned,c[11],c[12],c[13]);
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+    const int gc=int(c[5]);
+#else
+    const int gc=-1;
+#endif
+    re4dc_log("vram gaps: r=%03x at=%s f=%u refusals=%u guard=%u guard_p=%u nocontig=%u latched=%u absent=%u gc_fx=%d dropped=%u fx_dropped=%u tex_rej=%u snd_fail=%u snd_used=%u\n",
+        vroom.room,at,frame,c[0],c[1],c[10],c[2],c[3],c[4],gc,c[6],c[7],c[8],c[9],re4dc_aica_used_bytes());
+}
+// Every frame (re4dc_ui_present) and before the preload sample: the visit's room, minima and samples.
+void vram_room_track(){
+    re4dc::profile::Source s{};
+#if defined(__sh__)
+    re4dc_profile_source(&s);
+#endif
+    if(s.room!=vroom.room){
+        if(vroom.room!=~0U)vram_room_sample("exit");
+        vroom.room=s.room;vroom.since=frame;vroom.min_free=vroom.min_largest=~0U;vroom.peak_pinned=0;
+        vram_room_counters(vroom.base);
+#if defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+        for(auto& b:gcfx_seen)b=0;
+        gcfx_n=0;
+#endif
+    }
+    const unsigned free_bytes=(unsigned)pvr_mem_available();
+    if(free_bytes<vroom.min_free)vroom.min_free=free_bytes;
+}
+void vram_room_frame(){
+    vram_room_track();
+    if(frame%30==0){unsigned largest,alloc;vram_room_largest(largest,alloc);if(largest<vroom.min_largest)vroom.min_largest=largest;}
+    if(frame!=vroom.since && (frame-vroom.since)%600==0)vram_room_sample("tick");
+}
+#endif
 void close_entry(Entry& entry) {
 #if RE4DC_TEX_CHECK
     if(entry.valid)texchk::verify(entry,"close",true);
@@ -2670,6 +2807,9 @@ void close_entry(Entry& entry) {
 #endif
     if(entry.valid) used-=entry.package.vram_bytes();
     entry.package.close();entry.valid=false;
+#if RE4DC_VRAM_ROOM_LOG && defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+    gcfx_seen[&entry-entries]=0;
+#endif
 #if RE4DC_UI_VRAM && RE4DC_TEX_RESIDENT && RE4DC_UI_OVERLAY_SLAB_KB
     if(overlay_owner==&entry){overlay_owner=nullptr;overlay_slab_take();} // the freed hole comes back
 #endif
@@ -2710,7 +2850,11 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     for(auto& e:entries) if(e.valid && e.key==key) {RE4DC_TOUCH(e);RE4DC_PROFILE_COUNT(TextureHits,1);RE4DC_TEXCHK_BIND(e);return &e;}
 #endif
 #if defined(RE4DC_EFFECT_ROOM) && RE4DC_EFFECT_ROOM
-    if(fx_resident_only){++fx_resident_skips;RE4DC_TEXCHK_SKIP(key,"fx-resident-only");return nullptr;}
+    if(fx_resident_only){++fx_resident_skips;
+#if RE4DC_VRAM_ROOM_LOG
+        if(frame-fx_evict_frame<=1)++vram_guard_pressure;   // VRAM_ROOM_LOG: skipped under eviction pressure
+#endif
+        RE4DC_TEXCHK_SKIP(key,"fx-resident-only");return nullptr;}
 #endif
 #if RE4DC_UI_VRAM
     {
@@ -2896,6 +3040,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #if RE4DC_UI_FRAG_LATCH && RE4DC_TEX_RESIDENT
         if(!ok && slot->package.error() && !std::strcmp(slot->package.error(),"PVR texture allocation failed")){
             frag_key=key;frag_frame=frame;
+#if RE4DC_VRAM_ROOM_LOG
+            ++vram_nocontig;
+#endif
             re4dc_log("native UI: no contiguous block for %ux%u (need=%u free=%u): latched %u frames\n",image.width,image.height,need,(unsigned)pvr_mem_available(),kFragRetryFrames);
 #if RE4DC_UI_FRAG_RESERVE
             if(!frag_held)frag_want=need;
@@ -3387,6 +3534,9 @@ void preload_identities(){
 #endif
 #if RE4DC_UI_VRAM && RE4DC_VRAM_CENSUS
     void vram_census(const char*);vram_census("preload");
+#endif
+#if RE4DC_VRAM_ROOM_LOG
+    vram_room_track();vram_room_sample("preload");
 #endif
 }
 #endif
@@ -4875,6 +5025,9 @@ extern "C" void re4dc_ui_present(){
 #if RE4DC_VRAM_CENSUS
     if(frame%120==0)vram_census("frame");
 #endif
+#if RE4DC_VRAM_ROOM_LOG
+    vram_room_frame();
+#endif
 #endif
 #if RE4DC_EFFECT_SPRITES
     if(frame%120==0) re4dc_log("native effect sprites: frame=%u queued=%u direct=%u missing=%u dropped=%u capped=%u culled=%u peak=%u\n",frame,fx_queued,fx_direct,fx_missing,fx_dropped,fx_capped,fx_culled,fx_peak);
@@ -6233,6 +6386,9 @@ extern "C" int re4dc_effect_sprite(const Re4dcEffectSprite* s){
     fxCoreTextureAcquired(s->image,e);
 #endif
     if(!e){++fx_missing;return 0;}
+#if RE4DC_VRAM_ROOM_LOG && defined(RE4DC_FX_PS2_PACK) && RE4DC_FX_PS2_PACK
+    if(!RE4DC_COVER(e->package))vram_room_gcfx(*e);   // VRAM_ROOM_LOG: a GameCube effect picture (no PS2 conversion)
+#endif
 #if defined(RE4DC_FX_TEX_POOL) && RE4DC_FX_TEX_POOL
     {const unsigned i=unsigned(e-entries);
      if(i<kTextureCount && !fx_pool_pin[i] && e->valid){
