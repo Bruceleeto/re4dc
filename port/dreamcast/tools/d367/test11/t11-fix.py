@@ -64,6 +64,15 @@ CLASH = [('blackps2', 'r10bcut'), ('blackps2', 'smx103'), ('blackgc', 'r10bcut')
 # (cb_headroom.py over the test 10 GC-atlas pak; same keys, sizes, formats; sha256 1eb18ec4...). Without it Leon draws
 # at half brightness; never stage it with a knob-off binary (2x bright).
 DATA['leonhr'] = {'dc/tex.pak': '/root/probe/lanes-20261014/lp2/hr/tex-gcatlas-hr.pak'}
+# VRAM reclaim (lane vram12, 2026-10-14; data only, render only; tools/d367/vram/vq_pak.py over tex-t11.pak):
+#   blackgc14v  = blackgc14p with r101's 12 large 16-bit PS2 world textures (ARGB4444, >= 16 KiB) as full-codebook VQ,
+#                 same keys / sizes / formats / material names: 458,752 -> 81,920 B of VRAM (sha256 b7d7622b)
+#   blackgc14vl = blackgc14v plus Leon's atlas ec255e66-76812316 as VQ (524,288 -> 67,584 B; LVQ, needs the user's
+#                 look decision; sha256 fb12d131)
+DATA['blackgc14v'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': '/root/probe/lanes-20261014/vram12/data/tex-vr12-ps2vq.pak'})
+DATA['blackgc14vl'] = dict(DATA['blackgc14p'], **{'dc/tex.pak': '/root/probe/lanes-20261014/vram12/data/tex-vr12-both.pak'})
+CLASH += [(v, o) for v in ('blackgc14v', 'blackgc14vl') for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr',
+                                                                   'blackgc14v' if v == 'blackgc14vl' else 'blackgc14vl')]
 T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bake (no r119) + Leon 2x, both in tex.pak
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
