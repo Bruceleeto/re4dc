@@ -16,8 +16,8 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
 | 🟢 Fixed in test 9 / 9.1 / 10 / 12 | Fixed and checked in our tests; the problem was not console-only | 7 |
 | 🛠️ In progress | Being fixed now | 1 |
-| 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 15 |
+| 🔍 Investigating | Being reproduced or traced | 4 |
+| ⏸️ Open | Known, not yet worked on | 16 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -57,6 +57,8 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | Some effects (31 shared fire, smoke and spark pictures) still use the GameCube pictures; the rest of the village effects use the PS2 ones | test 12 | ⏸️ Open: those pictures are stored in a PS2 format that is not converted yet | |
 | The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
+| Some rooms look almost pitch black, as if they had no light | test 12 | 🔍 Investigating: we are comparing every room on the disc with test 10. Please tell us which rooms | |
+| Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12 | ⏸️ Open: those rooms use the PS2 boxes with the GameCube debris effect. Planned for test 13 | |
 
 ## Sound
 
