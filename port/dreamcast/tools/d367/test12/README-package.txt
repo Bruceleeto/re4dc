@@ -54,9 +54,6 @@ From test 11 (not released before):
   a dark block in r119 and a texture at the village bell.
 * The lake ripples stay on top of the water.
 
-This build was checked in short scenes along the route; the full play-through
-check was skipped for this release.
-
 Please tell us about any crash, freeze or missing texture, and where. Photos
 help a lot.
 
