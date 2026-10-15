@@ -175,6 +175,10 @@ PRESETS = {
     # pl0f_R0_Init: the boat, modelInit(ARC 5, ARC 6) for every type / set
     'boat-pl0f-00': dict(archive='pl0f', sections=[(5, 'body')], tpl=6, rooms=['r10b', 'r11b', 'r10e'], types=[],
                          category='registry', model_id=0x0f, lit=True, shift=3),   # 2.7 m: positions beyond +-2048 mm
+    # em3b_R0_Init (lane ps2cast 2026-10-15): the r118 mine cart, types 1 / 2 modelInit(ARC 0xB, ARC 0xC) (type 0 is the
+    # truck, ARC 4 / 5: Codex CH23 truck-em3b-00)
+    'cart-em3b-01': dict(archive='em3b', sections=[(0xb, 'body')], tpl=0xc, rooms=['r118'], types=[1, 2],
+                         category='registry', model_id=0x3b, lit=True, repeat_uvs=True),
     # Em11Set type 7 + em10ModelInit: body BIN mot[1] 0x1FC / TPL mot[0] 0x1FD, head (em10HeadSet) BIN mot[2] 0x1FE /
     # TPL mot[5] 0x201, relaxed hands (em10HandSet type 0) BIN mot[6] 0x204 and mot[11] 0x208, both with TPL mot[0]
     'zealot-em11-07': dict(archive='em11', sections=[(0x1fc, 'body'), (0x1fe, 'head'), (0x204, 'right-hand'), (0x208, 'left-hand')],
