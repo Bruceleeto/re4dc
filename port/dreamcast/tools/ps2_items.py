@@ -47,7 +47,7 @@ import room_smd as rs  # noqa: E402
 ROUTE = 'r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r11a r11b r117 r118 r119'.split()
 WA = Path(os.environ.get('RE4_WORLD_AGENT', '/mnt/c/Game Dev/Emulators/re4-assets-private/world-agent-20260926'))
 CMPR = 14
-TOOL_VERSION = 'ps2_items-v1'
+TOOL_VERSION = 'ps2_items-v2'
 
 
 def sha(b):
@@ -399,16 +399,38 @@ def picture_error(gw, gh, grgba, w, h, rgba):
     return e / max(n, 1)
 
 
-def convert_pictures(gc_tpl, ps2_tpl_bytes, used, out_dir, name):
-    """-> [swap dicts], [kept GC images with reasons]. The PS2 TPL's interlace bit 0 marks a picture stored rotated:
-    the PS2 UVs are the GC UVs (checked on the route models), so the picture is turned back to the GC orientation;
-    the orientation is chosen by the smallest error against the GC picture and must be a rotation exactly when the
-    bit is set (else the picture is kept GC and listed)."""
+def resample(w, h, rgba, W, H):
+    """nearest-neighbour resize of an RGBA picture to W x H"""
+    out = bytearray(W * H * 4)
+    for y in range(H):
+        sy = y * h // H
+        for x in range(W):
+            k = 4 * (sy * w + x * w // W)
+            out[4 * (y * W + x):4 * (y * W + x) + 4] = rgba[k:k + 4]
+    return out
+
+
+def convert_pictures(gc_tpl, ps2_tpl_bytes, used, out_dir, name, pairs=()):
+    """-> [swap dicts], [kept GC images with reasons], [pair dicts]. The PS2 TPL's interlace bit 0 marks a picture
+    stored rotated: the PS2 UVs are the GC UVs (checked on the route models), so the picture is turned back to the GC
+    orientation; the orientation is chosen by the smallest error against the GC picture and must be a rotation
+    exactly when the bit is set (else the picture is kept GC and listed).
+
+    pairs = (color image, alpha image) of every drawn part with material flag 4 (ModelPart alphaTex): the runtime
+    draws such a part from ONE package keyed material_pair_identity(color key, mask key) and needs the mask at the
+    colour's size (native_ui.cpp model_mask_key, reason 16). The mask of a swapped colour is therefore swapped too:
+    the PS2 TPL entry of the same index (else the GC mask), as an intensity picture resampled to the colour's PS2
+    size. The pair package itself is built by ps2_items_tex.py from the two PNGs. A mask whose colour stays GC
+    stays GC (the GC pair package is unchanged)."""
     import convert_tpl as ct
     T = ps2tpl()
     gimg = gc_tpl_images(gc_tpl)
     gdec = ct.parse_tpl(gc_tpl)
-    swaps, kept = [], []
+    swaps, kept, pair_out = [], [], []
+    masks = {}
+    for c, m in pairs:
+        masks.setdefault(m, set()).add(c)
+    mask_px = {}
     try:
         pt = T.parse_tpl(ps2_tpl_bytes)['entries'] if ps2_tpl_bytes else []
     except Exception as ex:
@@ -417,9 +439,13 @@ def convert_pictures(gc_tpl, ps2_tpl_bytes, used, out_dir, name):
         err = None
     for im in gimg:
         j = im['j']
-        if j not in used:
+        if j not in used and j not in masks:
             continue
         if j >= len(pt):
+            if j in masks and j not in used:
+                gi = gdec[j]
+                mask_px[j] = ('gc', gi.width, gi.height, bytearray(b''.join(bytes(p) for p in ct.decode_image(gi))), 0)
+                continue
             kept.append(dict(j=j, reason=err or 'no PS2 TPL entry %d' % j))
             continue
         w, h, rgba, stats = T.decode(ps2_tpl_bytes, pt[j])
@@ -434,10 +460,16 @@ def convert_pictures(gc_tpl, ps2_tpl_bytes, used, out_dir, name):
             alt = [o for o in alt if want_rot or o == 'id']
             best2 = min(alt, key=lambda o: (errs[o], ORIENT.index(o)))
             if errs[best2] > 1.5 * errs[best] + 200:
+                if j in masks and j not in used:
+                    mask_px[j] = ('gc', gi.width, gi.height, bytearray(b''.join(bytes(p) for p in gpx)), 0)
+                    continue
                 kept.append(dict(j=j, reason='PS2 picture orientation unclear (best %s %.0f, interlace %d)' % (best, errs[best], pt[j]['interlace'])))
                 continue
             best = best2
         w, h, rgba = orient(w, h, rgba, best)
+        if j in masks and j not in used:
+            mask_px[j] = ('ps2', w, h, rgba, round(errs[best], 1))
+            continue
         if w % 8 or h % 8 or w > 1024 or h > 1024:
             kept.append(dict(j=j, reason='PS2 picture %dx%d not CMPR-encodable' % (w, h)))
             continue
@@ -447,12 +479,56 @@ def convert_pictures(gc_tpl, ps2_tpl_bytes, used, out_dir, name):
         write_png(png, w, h, rgba)
         (out_dir / ('%s.t%d.cmpr' % (name, j))).write_bytes(data)
         alpha = sorted(set(rgba[3::4]))
+        ga = sorted(set(p[3] for p in gpx))
+        # gc_alpha: the GC picture's alpha class. The GC material (kept) decides transparency: ps2_items_tex.py
+        # makes the package opaque when the GC picture is opaque (itm78 / itm79 / ss_itm78 / ss_itm97 carry PS2
+        # colour alpha 0..255 on an unmasked part whose GC picture is opaque: drawn as coverage it would make
+        # the box see-through; what the PS2 uses it for is not established)
         swaps.append(dict(j=j, w=w, h=h, fmt=CMPR, key=key, png=png.name, cmpr=('%s.t%d.cmpr' % (name, j)),
+                          gc_alpha='opaque' if ga == [255] else ('cutout' if set(ga) <= {0, 255} else 'graded'),
                           cmpr_bytes=len(data), gc=dict(w=im['w'], h=im['h'], fmt=im['fmt'], lod=im['lod']),
                           ps2=dict(bitdepth=pt[j]['bitdepth'], interlace=pt[j]['interlace']), orientation=best,
                           match_error=round(errs[best], 1),
                           alpha='opaque' if alpha == [255] else ('cutout' if set(alpha) <= {0, 255} else 'graded')))
-    return swaps, kept
+    import prepare_native_ui as pnu
+    byj = {s['j']: s for s in swaps}
+    for m, cols in sorted(masks.items()):
+        if m in used:
+            kept.append(dict(j=m, reason='image %d is both a colour and a mask (pair not built)' % m))
+            continue
+        sw = [byj[c] for c in sorted(cols) if c in byj]
+        if not sw:
+            continue  # every colour of this mask stayed GC: the GC pair stays
+        if len(sw) != len(cols) or len(set((s['w'], s['h']) for s in sw)) != 1:
+            raise ValueError('%s: mask %d shared by colours %s of different sizes / sources' % (name, m, sorted(cols)))
+        if m not in mask_px:
+            raise ValueError('%s: mask %d has no picture' % (name, m))
+        src, w, h, rgba, merr = mask_px[m]
+        W, H = sw[0]['w'], sw[0]['h']
+        rgba = resample(w, h, rgba, W, H) if (w, h) != (W, H) else rgba
+        gray = bytearray(len(rgba))
+        vals = [(rgba[i] + rgba[i + 1] + rgba[i + 2]) // 3 for i in range(0, len(rgba), 4)]
+        # PS2 masks are 4-bit grey levels decoded as n * 16 (0..240): expand to n * 17 (0..255) like a GX I4 mask,
+        # so a full mask is fully opaque (checked: itm06 / core efm25 / et04 levels match the GC masks' spread)
+        four_bit = src == 'ps2' and all(v % 16 == 0 for v in vals)
+        for k, v in enumerate(vals):
+            v = (v // 16) * 17 if four_bit else v
+            gray[4 * k:4 * k + 4] = bytes((v, v, v, 255))
+        data = cmpr_encode(W, H, gray)
+        key = identity_key(W, H, CMPR, data)
+        png = out_dir / ('%s.t%d.png' % (name, m))
+        write_png(png, W, H, gray)
+        (out_dir / ('%s.t%d.cmpr' % (name, m))).write_bytes(data)
+        gm = next(x for x in gimg if x['j'] == m)
+        swaps.append(dict(j=m, w=W, h=H, fmt=CMPR, key=key, png=png.name, cmpr=('%s.t%d.cmpr' % (name, m)),
+                          cmpr_bytes=len(data), gc=dict(w=gm['w'], h=gm['h'], fmt=gm['fmt'], lod=gm['lod']),
+                          role='mask', mask_source=src, mask_size=[w, h], match_error=merr, alpha='opaque',
+                          mask_levels='4bit*17' if four_bit else 'as decoded'))
+        for s in sw:
+            pair_out.append(dict(color=s['j'], mask=m, color_key=s['key'], mask_key=key,
+                                 key=pnu.material_pair_identity(s['key'], key), w=W, h=H,
+                                 color_png=s['png'], mask_png=png.name, mask_source=src))
+    return swaps, kept, pair_out
 
 
 # ------------------------------------------------------------------------------------------ convert
@@ -503,24 +579,43 @@ def convert(args):
             new, le, geom = gb, gc_le, 'gc-identical'
             st['out_tris'] = st['gc_tris']
         m = po.GcModel(new)
-        used = sorted(set(p['hdr'][0x0C] for p in m.parts if p['tris']))
-        swaps, kept = convert_pictures(gt, ptp, used, d, name)
+        drawn = [p for p in m.parts if p['tris']]
+        used = sorted(set(p['hdr'][0x0C] for p in drawn))
+        # ModelPart 0x0B flags: bit 2 = alpha texture at 0x0E (a material pair); bits 0 / 4 (bump 0x0D, specular
+        # texture) are not handled: listed so a model that uses them is visible in the manifest
+        pairs = sorted(set((p['hdr'][0x0C], p['hdr'][0x0E]) for p in drawn if p['hdr'][0x0B] & 4))
+        other_tex = sorted(set(p['hdr'][0x0B] & 0x11 for p in drawn if p['hdr'][0x0B] & 0x11))
+        swaps, kept, pair_list = convert_pictures(gt, ptp, used, d, name, pairs)
         (d / (name + '.bin')).write_bytes(le)
         rec.update(status='PS2', geometry=geom, out_sig=[m.nv, m.nn, m.nd], bin=name + '.bin', bin_sha256=sha(le), bin_bytes=len(le), fits=len(le) <= len(gc_le),
-                   stats=st, used_images=used, swaps=swaps, kept_gc_images=kept, ps2_bin_sha256=sha(pbn),
+                   stats=st, used_images=used, swaps=swaps, kept_gc_images=kept, pairs=pair_list,
+                   unhandled_material_flags=other_tex, ps2_bin_sha256=sha(pbn),
                    ps2_tpl_sha256=sha(ptp) if ptp else None)
         fmt = 'ModelData LE (GC layout, %s geometry%s)' % ('PS2' if geom == 'ps2' else 'PS2=GC identical', ', shift-%d' % st['shift_lowered'] if st['shift_lowered'] else '')
         rows.append(index_row(cls, room, name, psrc, fmt, conv, sha(le), len(le)))
         for s in swaps:
+            if s.get('role') == 'mask':
+                rows.append(index_row(cls, room, '%s/tex%d' % (name, s['j']),
+                                      '%s/tpl%d' % (psrc, s['j']) if s['mask_source'] == 'ps2' else 'NONE',
+                                      'mask identity (key %s; %dx%d%s)' % (s['key'], s['w'], s['h'],
+                                                                           '' if s['mask_source'] == 'ps2' else '; GC mask resampled: no PS2 entry'),
+                                      conv, s['key'], s['cmpr_bytes']))
+                continue
             rows.append(index_row(cls, room, '%s/tex%d' % (name, s['j']), '%s/tpl%d' % (psrc, s['j']),
                                   're4tex %s (key %s; PS2 %dx%d)' % (s['alpha'], s['key'], s['w'], s['h']), conv, s['key'], s['cmpr_bytes']))
+        for pr in pair_list:
+            rows.append(index_row(cls, room, '%s/pair%d+%d' % (name, pr['color'], pr['mask']),
+                                  '%s/tpl%d+tpl%d' % (psrc, pr['color'], pr['mask']),
+                                  're4tex material pair (key %s = color %s + mask %s; %dx%d)' % (pr['key'], pr['color_key'], pr['mask_key'], pr['w'], pr['h']),
+                                  conv, pr['key'], 0))
         for k in kept:
             rows.append(index_row(cls, room, '%s/tex%d' % (name, k['j']), 'NONE', 'GC TPL kept (%s)' % k['reason'], conv, '-', 0))
         (d / (name + '.json')).write_text(json.dumps(rec, indent=1))
         manifests[cls].append(rec)
-        print('%-10s %-5s %-18s %-4s tris %s->%s bytes %s->%s%s pictures %d kept %d' % (
+        print('%-10s %-5s %-18s %-4s tris %s->%s bytes %s->%s%s pictures %d kept %d pairs %d%s' % (
             cls, room, name, rec['status'], st['gc_tris'], st['out_tris'], len(gc_le), len(le),
-            '' if rec['fits'] else ' NOFIT', len(swaps), len(kept)))
+            '' if rec['fits'] else ' NOFIT', len(swaps), len(kept), len(pair_list),
+            ' UNHANDLED-FLAGS %s' % other_tex if other_tex else ''))
     for c, lst in manifests.items():
         (lib / c).mkdir(parents=True, exist_ok=True)
         (lib / c / 'manifest.json').write_text(json.dumps(dict(tool=TOOL_VERSION, commit=args.commit, assets=lst), indent=1))
