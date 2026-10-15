@@ -12,7 +12,7 @@ New in test 12:
 * The village (r101) runs faster: its fire and smoke use the PS2 pictures, the
   distant haze is drawn as fog by the graphics chip, fewer textures are reloaded
   during the fight, and the world is drawn with less work.
-* In the village fight at most 8 villagers attack at once. The others wait and
+* In the village fight at most 6 villagers attack at once. The others wait and
   join as villagers fall; every villager still appears, and the waves, the
   kills and the bell are unchanged.
 * Leon is brighter: a soft fill light brings him close to the GameCube look,

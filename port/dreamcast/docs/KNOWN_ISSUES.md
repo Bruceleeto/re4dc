@@ -68,7 +68,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
-| In the village fight at most 8 villagers attack at once; the others wait and join as villagers fall | test 12 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the bell are unchanged | |
+| In the village fight at most 6 villagers attack at once; the others wait and join as villagers fall | test 12 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the bell are unchanged | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 
