@@ -568,6 +568,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // (model_registry.py source_drops "bump", "alt-specular").
     if(registry && m->id==0x0fu)implemented|=Bump;
 #endif
+#if RE4DC_NMR_CH1CAST
+    // PS2_CAST_CH1: the chapter 1 snake (em24, 0x24) and lake fish (em27, 0x27) source bump setups reach the same GX stubs
+    // as Del Lago's (model_registry.py source_drops "bump").
+    if(registry && (m->id==0x24u || m->id==0x27u))implemented|=Bump;
+#endif
 #if defined(RE4DC_NMR_ASHLEY) && RE4DC_NMR_ASHLEY
     // PS2_ASHLEY: the partner Ashley's (pSUB, model 3) source bump setup reaches the same GX stubs (model_registry.py
     // source_drops "bump"); =2 also draws her head at the PS2 rest face (the GC shapes are not shown; user look decision

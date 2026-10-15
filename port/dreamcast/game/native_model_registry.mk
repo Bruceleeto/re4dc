@@ -392,6 +392,38 @@ $(error PS2_CAST_BOAT=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_BOAT=1
 endif
+# PS2_CAST_CH1=1 (lane ps2cast 2026-10-15; default 0; render only): the chapter 1 small cast through the registry owner path with
+#              PS2 meshes: traps (em2a), snakes (em24), fish (em27), bats (em29), crawlers (em2e) in r100 r105 r106 r107 r108
+#              r10a r10b r11a r11b. Their GC materials and the PS2 sections match (same mesh and texels); the snake's and the
+#              fish's material needs bump, which reaches only GX stubs on the DC source path, so the certificate accepts its
+#              absence for registry models 0x24 / 0x27 (RE4DC_NMR_CH1CAST, the twin of model_registry.py source_drops "bump",
+#              Del Lago's rule). Traps, bats and crawlers need no code: their room package and texture-prepared archive
+#              (prepare_enemy_motions.py SMALL, textures only) are disc data. Without the knob a snake / fish descriptor is
+#              declined by the certificate (GC model, as before). Needs PS2_DELLAGO=1 (the bump drop rule block).
+PS2_CAST_CH1 ?= 0
+ifeq ($(filter $(PS2_CAST_CH1),0 1),)
+$(error PS2_CAST_CH1 must be 0 or 1)
+endif
+ifeq ($(PS2_CAST_CH1),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK)$(PS2_DELLAGO),11)
+$(error PS2_CAST_CH1=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_CH1CAST=1
+endif
+# ACTOR_PALETTE_BANK=<KiB> (lane ps2cast 2026-10-15; default 64 = the image before; render only): the native actor palette
+#              bank funded once per frame from the primitive buffer's tail (coarse_actor_transaction.inc kActorPaletteCap).
+#              Palette leases are released after each actor's synchronous submit, so the bank holds one or two actors at a
+#              time: measured peak use (ACTOR_TRANSACTION_DIAG "APAL", Flycast) 18,976 B on benchmark-r101 (6 Ganados +
+#              Leon), 16,288 B in r107. The unused rest of the 64 KiB bank is tail the per-actor records cannot use: with
+#              the chapter 1 traps (PS2_CAST_CH1) r107's tail reached its limit and Ganados / traps declined to the GC model
+#              in 60 of 900 frames (PRIM_WATER). 40 frees 24 KiB of primitive tail per frame in every room.
+ACTOR_PALETTE_BANK ?= 64
+ifeq ($(filter $(ACTOR_PALETTE_BANK),16 24 32 40 48 56 64),)
+$(error ACTOR_PALETTE_BANK must be one of 16 24 32 40 48 56 64 (KiB))
+endif
+ifneq ($(ACTOR_PALETTE_BANK),64)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_PALETTE_BANK=$(ACTOR_PALETTE_BANK)
+endif
 # NATIVE_MODEL_REGISTRY_POOL=1 (lane ps2cast 2026-10-15; default 0; render only): pool descriptors. A Ganado-class actor
 #              whose source infos vary per spawn (em10SetAccesory hoods / caps / accessories by cEm::flag, em10HandSet
 #              grip poses, the stage-3 soldiers' heads) has one package descriptor whose sections are a POOL of source BIN +
