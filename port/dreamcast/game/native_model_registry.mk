@@ -308,10 +308,12 @@ ifneq ($(PS2_CAST_MERCHANT),1)
 $(error PS2_CAST_MERCHANT_LIT=1 needs PS2_CAST_MERCHANT=1)
 endif
 endif
-ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW)$(PS2_CAST_MERCHANT_LIT),000000)
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW)$(PS2_CAST_MERCHANT_LIT)$(filter 1,$(NATIVE_MODEL_REGISTRY_POOL)),000000)
+# bit 6 (NATIVE_MODEL_REGISTRY_POOL): every pool plan (the zealots, soldiers) takes the source lighting record (unlit, the
+# zealot face under the hood drew pale where the source and the PS2 shade it).
 # bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today; bit 3
 # (PS2_CROW): em23 likewise; bit 4 (PS2_WOLF): em22 likewise.
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) + $(if $(filter 1,$(PS2_CAST_MERCHANT_LIT)),32,0) )))
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) + $(if $(filter 1,$(PS2_CAST_MERCHANT_LIT)),32,0) + $(if $(filter 1,$(NATIVE_MODEL_REGISTRY_POOL)),64,0) )))
 endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0
