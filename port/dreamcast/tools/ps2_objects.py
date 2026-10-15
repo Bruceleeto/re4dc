@@ -53,6 +53,32 @@ import room_smd as rs  # noqa: E402
 PS2_ISO = '/mnt/c/Game Dev/Emulators/re4_helpers/Resident Evil 4 (USA)/Resident Evil 4 (USA).iso'
 GC_ISO = '/mnt/c/Game Dev/Emulators/Resident Evil 4 Debug (Disc 1)/Resident Evil 4 Debug (Disc 1).iso'
 VERSIONS = (0x20010801, 0x20030818)
+# --uv-fold (converter v3, lane objs 2026-10-15): the PS2 BINs address their textures with wrapping UVs (the r119 /
+# village wood box et1100: u -0.961..-0.024), the GameCube models with UVs inside [0, 1] and the game sets clamp for
+# many of them (GX wrap state), so a PS2 triangle outside [0, 1] drew one edge texel (the "dark block"); unsigned UV
+# models also clamped negative UVs to 0 here. Each PS2 triangle is shifted by whole texture repeats (u, v separately)
+# into [0, 1] when it fits (tolerance UV_FOLD_TOL); identical under wrap, correct under clamp. A triangle that spans
+# more than one repeat keeps its UVs (stats uv_outside).
+UV_FOLD = False
+UV_FOLD_TOL = 0.02
+
+
+def fold_uv(cs):
+    """-> (corners with the triangle's UVs shifted by whole repeats into [0, 1], folded?, still outside?)"""
+    uvs = [c[2] for c in cs]
+    shift, outside = [0, 0], False
+    for a in (0, 1):
+        xs = [uv[a] for uv in uvs]
+        if min(xs) >= -UV_FOLD_TOL and max(xs) <= 1 + UV_FOLD_TOL:
+            continue
+        k = math.floor(min(xs) + UV_FOLD_TOL)
+        if max(xs) - k <= 1 + UV_FOLD_TOL:
+            shift[a] = k
+        else:
+            outside = True
+    if not shift[0] and not shift[1]:
+        return cs, False, outside
+    return [(p, n, (uv[0] - shift[0], uv[1] - shift[1]), w) for p, n, uv, w in cs], True, outside
 
 
 def al(n, a=32):
@@ -245,7 +271,7 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
         ps2 = gc_tris_from(m)
     stats = dict(gc_tris=sum(len(p['tris']) for p in m.parts), ps2_tris=len(ps2), gc_parts=m.nd,
                  gc_vertices=m.nv, gc_normals=m.nn, gc_bytes=len(gc_bytes), no_tex_part=0, flipped=0,
-                 weight_mismatch=0, degenerate=0, appended_weights=0)
+                 weight_mismatch=0, degenerate=0, appended_weights=0, uv_folded=0, uv_outside=0)
 
     pal = list(m.weights)
     pal_index = {w: i for i, w in reversed(list(enumerate(pal)))}
@@ -282,6 +308,9 @@ def rebuild(gc_bytes, ps2_bytes, gc_tris_from=None, allow_empty=False):
         s = dot(f, (ns[0][0] + ns[1][0] + ns[2][0], ns[0][1] + ns[1][1] + ns[2][1], ns[0][2] + ns[1][2] + ns[2][2]))
         if (s > 0 and sense < 0) or (s < 0 and sense > 0):
             cs = [cs[0], cs[2], cs[1]]; stats['flipped'] += 1
+        if UV_FOLD:
+            cs, folded, outside = fold_uv(cs)
+            stats['uv_folded'] += folded; stats['uv_outside'] += outside
         tri = []
         for p, n, uv, w in cs:
             wi = palette(w)
@@ -684,6 +713,7 @@ def main():
     a.add_argument('--dar', required=True); a.add_argument('--room', required=True); a.add_argument('--pairs')
     a.add_argument('--etm'); a.add_argument('--pad-to'); a.add_argument('--out', required=True); a.add_argument('--json')
     a.add_argument('--keep-larger', action='store_true'); a.add_argument('--world-owned'); a.add_argument('--etm-from')
+    a.add_argument('--uv-fold', action='store_true', help='converter v3: fold PS2 triangle UVs into [0, 1] (UV_FOLD)')
     a.add_argument('--gc-iso', default=GC_ISO); a.add_argument('--ps2-iso', default=PS2_ISO)
     args = ap.parse_args()
     if args.cmd == 'bin':
@@ -698,6 +728,8 @@ def main():
         to_le(new)
         print(json.dumps(st))
     else:
+        global UV_FOLD
+        UV_FOLD = args.uv_fold
         room(args)
 
 

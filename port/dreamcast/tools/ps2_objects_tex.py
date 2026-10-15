@@ -298,10 +298,12 @@ def main():
     ap.add_argument('--out', required=True); ap.add_argument('--texdir', required=True); ap.add_argument('--json')
     ap.add_argument('--gc-iso', default=GC_ISO); ap.add_argument('--ps2-iso', default=PS2_ISO); ap.add_argument('--gc-room')
     ap.add_argument('--pak', help='dc/tex.pak: a pair is built only when the GC pair (GC colour + mask key) is in it')
+    ap.add_argument('--uv-fold', action='store_true', help='ps2_objects converter v3: fold PS2 triangle UVs into [0, 1]')
     a = ap.parse_args()
     paks = pak_keys(a.pak) if a.pak else None
     from assetpipe.rooms import GcIso
     room = a.room
+    po.UV_FOLD = a.uv_fold
     dar = bytearray(Path(a.dar).read_bytes())
     rep = json.loads(Path(a.report).read_text())
     kind, size, dest, off = struct.unpack_from('<4I', dar, 0x20)
