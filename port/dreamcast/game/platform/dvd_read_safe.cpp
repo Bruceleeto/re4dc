@@ -739,7 +739,10 @@ bool landed(void* buf, size_t size, const char* what, uint32_t lba)
         thd_sleep(5);
         if (marker_gone(buf, size)) {
             ++g_late;
-            if (cached(buf)) dcache_purge_range((uintptr_t) buf, size);
+            // line by line: dcache_purge_range of >= 39 KB would pull in KOS's 16 KB static purge-all buffer
+            if (cached(buf))
+                for (uintptr_t a = (uintptr_t) buf & ~(uintptr_t) 31; a < (uintptr_t) buf + size; a += 32)
+                    arch_dcache_purge_line((void*) a);
             re4dc_disc_note(2, "disc: %s landed late (%u ms) lba=%u", what, (unsigned) (ms() - t0), (unsigned) lba);
             return true;
         }

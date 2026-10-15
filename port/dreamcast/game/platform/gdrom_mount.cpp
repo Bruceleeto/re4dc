@@ -26,11 +26,16 @@ extern "C" int __real_cdrom_read_toc(cd_toc_t* toc, bool high_density);
 // KOS found no file system and every /cd open failed (#17). The last data track is kept when it holds a primary volume
 // descriptor ("\1CD001" 16 sectors in); otherwise the first data track that does is mounted: toc->last is cut back to
 // it, which is all cdrom_locate_data_track and fs_iso9660 use (file LBAs are absolute, so track 4 is still read).
+#include <malloc.h>
 #include <string.h>
 static bool has_pvd(uint32_t fad)
 {
-    alignas(32) static uint8_t sec[2048];
-    return cdrom_read_sectors_ex(sec, fad + 16, 1, true) == ERR_OK && !memcmp(sec, "\1CD001", 6);
+    // a heap sector buffer for the mount only (a static one would cost 2 KB of KOS heap for the whole run)
+    uint8_t* sec = (uint8_t*) memalign(32, 2048);
+    if (!sec) return true;  // keep KOS's choice
+    const bool pvd = cdrom_read_sectors_ex(sec, fad + 16, 1, true) == ERR_OK && !memcmp(sec, "\1CD001", 6);
+    free(sec);
+    return pvd;
 }
 static void mount_fs_track(cd_toc_t* toc)
 {
