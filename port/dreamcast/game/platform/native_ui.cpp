@@ -2094,6 +2094,40 @@ void hud_number(HudBatch& b,float x,float y,unsigned value,bool tenths,std::uint
 extern "C" int re4dc_speed_screen(unsigned v[3]);
 extern "C" int re4dc_speed_note(int* speed);
 HudBatch speed_batch;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+// PHASE_METER=1 (T12 Phases disc, 2026-10-15; display / log only): a second column left of the speed counter, in
+// 0.1 ms (mean over the GAME_TICK_LOG window, the game's own ProcessTickGet stamps, tick_log.cpp), top to bottom:
+//   GPU render (PACE_VMU_GPU), render mode (0 Standard, 1 FSAA),
+//   logic (setup .. TaskScheduler without EspMove), effects move (EspMove), effects trans (EspTrans),
+//   objects / actors trans (objTrans + ShadowTrans + MirrorTrans + ClothTrans), other trans (IdSys, Trans rest, Dvd,
+//   sound), post (messages, fades, OT draw), draw remain (iTask + Render_done: TA end / PVR wait), vblank wait + swap,
+//   frame total. One "PHASES:" log line per window carries the same values by name.
+extern "C" int re4dc_tick_log_snapshot(const char** name, unsigned* avg_us, unsigned* max_us, int max, unsigned* seq);
+extern "C" unsigned re4dc_speed_gpu10(void);
+extern "C" int re4dc_quality_render(void);
+constexpr int kPhaseRows=11;
+unsigned phase_v[kPhaseRows];unsigned phase_seq=~0U;
+void phase_refresh(){
+    const char* nm[32];unsigned avg[32];unsigned seq=0;
+    const int n=re4dc_tick_log_snapshot(nm,avg,nullptr,32,&seq);
+    if(seq==phase_seq || n<=0)return;
+    phase_seq=seq;
+    auto get=[&](const char* k)->unsigned{for(int i=0;i<n;++i)if(nm[i] && !std::strcmp(nm[i],k))return avg[i];return 0U;};
+    const unsigned logic=get("logic"),esp_move=get("EspMove"),esp_trans=get("EspTrans");
+    const unsigned objs=get("objTrans")+get("ShadowTrans")+get("MirrorTrans")+get("ClothTrans");
+    const unsigned trans=get("trans"),post=get("post"),cpu=get("cpu"),remain=get("remain"),total=get("total");
+    const unsigned other=trans>esp_trans+objs?trans-esp_trans-objs:0;
+    const unsigned draw=remain>cpu?remain-cpu:0,vbl=total>remain?total-remain:0;
+    auto ms10=[](unsigned us)->unsigned{return (us+50)/100;};
+    phase_v[0]=re4dc_speed_gpu10();
+    phase_v[1]=unsigned(re4dc_quality_render()==1);
+    phase_v[2]=ms10(logic>esp_move?logic-esp_move:0);phase_v[3]=ms10(esp_move);phase_v[4]=ms10(esp_trans);
+    phase_v[5]=ms10(objs);phase_v[6]=ms10(other);phase_v[7]=ms10(post);phase_v[8]=ms10(draw);phase_v[9]=ms10(vbl);
+    phase_v[10]=ms10(total);
+    re4dc_log("PHASES: gpu=%u render=%u logic=%u fxmove=%u fxtrans=%u objs=%u other=%u post=%u draw=%u vblank=%u total=%u (0.1 ms)\n",
+        phase_v[0],phase_v[1],phase_v[2],phase_v[3],phase_v[4],phase_v[5],phase_v[6],phase_v[7],phase_v[8],phase_v[9],phase_v[10]);
+}
+#endif
 void speed_draw(){
     unsigned v[3];
     int s;
@@ -2116,6 +2150,12 @@ void speed_draw(){
         hud_number(b,566,SY+18,v[1],false,0xe0ffd0a0U);
 #if RE4DC_PACE_DEBUG
         hud_number(b,566,SY+36,v[2],false,0xe0a0d0ffU);
+#endif
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+        phase_refresh();
+        static const std::uint32_t kPhaseColour[kPhaseRows]={0xe080ff80U,0xe0ffff60U,0xe0ffffffU,0xe0ff9060U,0xe0ffb090U,
+            0xe0a0d0ffU,0xe0c0c0c0U,0xe0e0a0ffU,0xe080ffffU,0xe0909090U,0xe0ffffffU};
+        for(int k=0;k<kPhaseRows;++k)hud_number(b,500,SY+k*18,phase_v[k],k!=1,kPhaseColour[k]);
 #endif
     }
 #if defined(RE4DC_SPEED_VMU_OFF) && RE4DC_SPEED_VMU_OFF

@@ -304,7 +304,10 @@ void vmu_try()
 }
 
 #if defined(RE4DC_RENDER_OPTION) && RE4DC_RENDER_OPTION
-unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;  // the last one-second window (on-screen counter)
+unsigned speed_fps10, speed_pct, speed_cpu, speed_valid;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+unsigned speed_gpu10;   // PHASE_METER: the window's mean render time, 0.1 ms
+#endif  // the last one-second window (on-screen counter)
 #if RE4DC_SPEED_VMU_OFF
 #if RE4DC_SPEED_VMU_OFF >= 2
 // SPEED_VMU_OFF=2 (pace.mk, user 2026-10-14: off unless toggled on): Off or Screen only; a stored Screen or Both
@@ -353,6 +356,9 @@ void vmu_window(unsigned cost, u32 now)
         g_gpu = GpuAcc{};
         irq_restore(irq);
     }
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+    speed_gpu10 = a.rnd_n ? unsigned((a.rnd_sum / a.rnd_n + 50000) / 100000) : 0;
+#endif
     // GPU <mean>/<max>: ms per render (rounded, capped at 999) over the renders completed in this window.
     char gpu[16];
     if (a.rnd_n) {
@@ -492,6 +498,9 @@ extern "C" int re4dc_speed_note(int* speed)
     return speed_note_until && (int) (speed_note_until - re4dc_vi_retrace_count()) > 0;
 }
 // 1 while the counter shows: v[0] drawn fps x10, v[1] game speed %, v[2] CPU % of a tick.
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+extern "C" unsigned re4dc_speed_gpu10(void) { return speed_gpu10; }
+#endif
 extern "C" int re4dc_speed_screen(unsigned v[3])
 {
     if (!(speed_setting() & RE4DC_SPEED_SCREEN) || !speed_valid || !context_ok()) return 0;

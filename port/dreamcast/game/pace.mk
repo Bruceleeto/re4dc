@@ -143,3 +143,36 @@ $(OBJDIR)/pace.o: pace.cpp
 	kos-c++ $(KOS_CFLAGS) $(GAME_CPPFLAGS) -include $(OBJDIR)/pace.h -MMD -MP -c $< -o $@
 -include $(OBJDIR)/pace.d
 endif
+
+# METER_ROWS=1 (T12 Meter disc, 2026-10-15; display / log only, default 0 = image unchanged; needs PACE_VMU_GPU=1): the VMU
+# speed page's last row shows the pacing mode and the render mode (STD / FSAA), and a "PACE meter:" log line follows each
+# "PACE vmu" line with the render mode and the PVR stats (TA vertex buffer last / peak, frame / registration / render ms).
+METER_ROWS ?= 0
+ifneq ($(filter $(METER_ROWS),0 1),$(METER_ROWS))
+$(error METER_ROWS must be 0 or 1)
+endif
+ifeq ($(METER_ROWS),1)
+ifneq ($(PACE_VMU_GPU),1)
+$(error METER_ROWS=1 needs PACE_VMU_GPU=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_METER_ROWS=1
+endif
+
+# PHASE_METER=1 (T12 Phases disc, 2026-10-15; display / log only, default 0 = image unchanged; needs GAME_TICK_LOG=N,
+# PACE_VMU_GPU=1, RENDER_OPTION=1, RENDER_FSAA=1): next to the on-screen speed counter a column of 0.1 ms values (GPU render, render
+# mode, logic, effects move, effects trans, objects trans, other trans, post, draw remain, vblank wait, total) from the
+# game's ProcessTickGet stamps (tick_log.cpp window), and a "PHASES:" log line per window. Legend: native_ui.cpp.
+PHASE_METER ?= 0
+ifneq ($(filter $(PHASE_METER),0 1),$(PHASE_METER))
+$(error PHASE_METER must be 0 or 1)
+endif
+ifeq ($(PHASE_METER),1)
+ifeq ($(GAME_TICK_LOG),0)
+$(error PHASE_METER=1 needs GAME_TICK_LOG=N)
+endif
+ifneq ($(PACE_VMU_GPU),1)
+$(error PHASE_METER=1 needs PACE_VMU_GPU=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_PHASE_METER=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PHASE_METER=1
+endif
