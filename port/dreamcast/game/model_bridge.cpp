@@ -275,9 +275,20 @@ extern "C" void re4dc_front_verify(int mode){
     front_mode=(unsigned)mode;
 }
 #endif
+#if defined(RE4DC_GCOBJ_SKIP) && RE4DC_GCOBJ_SKIP
+// GCOBJ_SKIP (crowd.mk, measurement only): the GC-path object classes; statics only when only_static.
+static inline bool re4dc_gcobj_class(unsigned kind, unsigned id, bool only_static) {
+    if (kind == 0) return id == 0x41 || id == 0x43 || id == 0x45 || id == 0x46 || (!only_static && id == 0x42);
+    if (kind == 1) return id == 0x00 || id == 0x21 || (!only_static && (id == 0x12 || id == 0x19));
+    return false;
+}
+#endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
  const void* part_ptr,const float mv[3][4],unsigned pass){
     if(!re4dc_model_diagnostic_enabled() || pass)return;
+#if defined(RE4DC_GCOBJ_SKIP) && (RE4DC_GCOBJ_SKIP == 3 || RE4DC_GCOBJ_SKIP == 4)
+    if(re4dc_gcobj_class(((const cModel*)model)->kindid,((const cModel*)model)->id,RE4DC_GCOBJ_SKIP==4))return;
+#endif
 #if RE4DC_NATIVE_ACTOR
     bind_actor_frame();
 #endif

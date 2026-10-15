@@ -547,3 +547,11 @@ MEMSET_LEAN ?= 0
 ifneq ($(MEMSET_LEAN),0)
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_MEMSET_LEAN=$(MEMSET_LEAN)
 endif
+
+# GCOBJ_SKIP=N (MEASUREMENT ONLY, a look change; lane crowd12 2026-10-15; default 0): GC-path object models (doors,
+# racks, windows, boxes, rack rifles, cObj00 [static]; enemy weapons, cObj12, items) are not drawn, to cost a batched
+# object draw path. 1 all / 2 static, skipped at ModelRender; 3 all / 4 static, skipped at re4dc_draw_model_part.
+GCOBJ_SKIP ?= 0
+ifneq ($(GCOBJ_SKIP),0)
+$(OBJDIR)/src/game/trans.o $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_GCOBJ_SKIP=$(GCOBJ_SKIP)
+endif
