@@ -3488,6 +3488,46 @@ const std::uint32_t* ps2_vertex_alpha_lut(){
 #if RE4DC_PS2_PASS_MASK==2
 unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
 #endif
+#if RE4DC_PS2_AREA_HIDE
+// PS2_AREA_HIDE (game30.mk; render only; lane objs 2026-10-15, PS2-ENEMY-CODE-DIFF-20261015 item 11): PS2 room code
+// that shows / hides scenery groups by area (SmdSetTrans; be_flag bit 1 = drawn), applied to the PS2 world placements
+// only: the game's objects, flags and logic are untouched. r107: PS2 st1_1.rel R107Main (0xf130) reads Room_flg[2]
+// bits 31 / 30, which the PS2-only AEV flag areas 9 (flag 64 = bit 31) and 10 / 11 (flag 65 = bit 30) set each frame
+// while the player is inside; r107.cpp tests the same quads (read only) and reports the bits (re4dc_ps2_area_flags):
+//   bit 31: groups 60 70 80 90 drawn, 50 100 hidden;  bit 30: 90 100 drawn, 50 60 70 80 hidden;
+//   neither: 50 60 drawn, 70 80 90 100 hidden.
+// Groups -> placements are baked from the package's ps2-world.ids (t11-20261014/blackgc/r107, R4PW crc 9081e7fd, 71
+// placements) and used only when the open package's sidecar crc matches. (r11f's re-show of groups 30 / 15 after its
+// barn event is r11f.cpp r11f_ps2Area9: game objects, not this table.)
+namespace area {
+struct Group { unsigned id; std::uint32_t mask[3]; };
+struct Room { unsigned room; std::uint32_t crc; unsigned placements; Group groups[6]; std::uint8_t shown[3]; };
+constexpr Room kRooms[]={{0x107,0x9081e7fdU,71,{
+    {50,{0x000003e0U,0,0}},{60,{0x00078000U,0,0}},{70,{0x07800000U,0,0}},
+    {80,{0,0x00000fc0U,0}},{90,{0,0x001e0000U,0}},{100,{0,0x0fc00000U,0}}},
+    {0x03,0x30,0x1e}}};  // shown groups (bit g = groups[g]) for flag state 0 neither, 1 bit 30, 2 bit 31
+const Room* cur=nullptr; std::uint32_t hidden[3]={0,0,0};
+unsigned state=~0U,flags_room=0,flags=0,skipped=0;
+void open(unsigned room,std::uint32_t crc,unsigned n){
+    cur=nullptr;state=~0U;hidden[0]=hidden[1]=hidden[2]=0;
+    for(const auto& r:kRooms)if(r.room==room){
+        if(r.crc==crc && r.placements==n)cur=&r;
+        re4dc_log("PS2AREA room=%03x package crc=%08x placements=%u %s\n",room,unsigned(crc),n,cur?"ok":"mismatch: off");
+    }
+}
+void update(){
+    if(!cur || flags_room!=cur->room)return;  // r107.cpp has not reported this visit yet: draw everything
+    const unsigned k=(flags&2U)?2U:(flags&1U)?1U:0U;
+    if(k==state)return;
+    state=k;hidden[0]=hidden[1]=hidden[2]=0;
+    for(unsigned g=0;g<6;++g)if(!((cur->shown[k]>>g)&1U))for(unsigned w=0;w<3;++w)hidden[w]|=cur->groups[g].mask[w];
+    re4dc_log("PS2AREA room=%03x state=%u hidden=%08x %08x %08x skipped=%u\n",cur->room,k,unsigned(hidden[0]),
+              unsigned(hidden[1]),unsigned(hidden[2]),skipped);
+}
+inline bool hide(unsigned placement){return placement<96U && ((hidden[placement>>5]>>(placement&31U))&1U);}
+}
+extern "C" void re4dc_ps2_area_flags(unsigned room,unsigned flags){area::flags_room=room;area::flags=flags;}
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC
 // PS2_WORLD_DYNAMIC (game30.mk; render only): the PS2 world package is baked at each SMD row's rest pose, so a
 // scenery object the room code moves, turns or hides (SmdGetObjPtr / SmdSetTrans: r105's emblem puzzle and door,
@@ -3700,6 +3740,9 @@ bool ps2_open(){
         return false;
     }
     ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_AREA_HIDE
+    area::open(ps2w.room,h.crc,h.placements);
+#endif
 #if RE4DC_PS2_WORLD_R11F_OWNER
     r11fSidecarCrc=h.crc;
 #endif
@@ -3984,6 +4027,9 @@ int ps2_pass(unsigned pass,float zfar){
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
 #endif
     auto& c=ps2w.count[pass];c={};
+#if RE4DC_PS2_AREA_HIDE
+    area::update();
+#endif
 #if RE4DC_SKY_ANY
     re4dc_ps2_sky_header=0;
 #endif
@@ -4127,6 +4173,9 @@ int ps2_pass(unsigned pass,float zfar){
         if(masked && !((ps2w.pass_mask[i]>>pass)&1U))continue;
 #endif
         const auto& pl=ps2w.placements[i];const auto& mesh=pk.meshes()[pl.mesh];
+#if RE4DC_PS2_AREA_HIDE
+        if(area::cur && area::hide(pl.placement)){++area::skipped;continue;}
+#endif
 #if RE4DC_PS2_PASS_MASK
         if(!masked)
 #endif

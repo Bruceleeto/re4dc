@@ -2681,6 +2681,22 @@ $(error PS2_WORLD_LEAN must be 0..31)
 endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_WORLD_LEAN=$(PS2_WORLD_LEAN)
 endif
+# PS2_AREA_HIDE=1 (render only, default 0; lane objs 2026-10-15, PS2-ENEMY-CODE-DIFF-20261015 item 11): the PS2 room
+# code's per-area scenery hiding on the PS2 world placements. r107: PS2 R107Main shows / hides SMD groups 50..100 on
+# Room_flg[2] bits 31 / 30 (PS2-only AEV flag areas 9 / 10 / 11); r107.cpp computes the two bits from the PS2 quads
+# (read only, nothing written) and native_static.cpp skips the hidden groups' placements (baked table, package crc
+# checked). Game logic is unchanged (STRICT by construction). Needs PS2_WORLD_ROOMS.
+PS2_AREA_HIDE ?= 0
+ifneq ($(PS2_AREA_HIDE),0)
+ifneq ($(PS2_AREA_HIDE),1)
+$(error PS2_AREA_HIDE must be 0 or 1)
+endif
+ifeq ($(PS2_WORLD_ROOMS),0)
+$(error PS2_AREA_HIDE needs PS2_WORLD_ROOMS=1 or 2)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_AREA_HIDE=1
+$(OBJDIR)/mod/st1_1/src/st1/r107.o: GAME_CPPFLAGS += -DRE4DC_PS2_AREA_HIDE=1
+endif
 # PS2_ROOM_PIN=1 (native_ui.cpp, render only, default 0; lane objs 2026-10-15): a room's large PS2 world texture stays
 # resident for the visit (no LRU eviction), so it cannot load again late into a fragmented pool. Table kRoomPins:
 # r101 9fe00ef7-6123f7d5 (256x256, 128 KB; the test 11 village TEX_CHECK frag-latched key).

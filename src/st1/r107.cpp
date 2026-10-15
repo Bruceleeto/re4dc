@@ -125,10 +125,38 @@ static void r107_ps2Areas()
 }
 #endif
 
+#if defined(RE4DC_PS2_AREA_HIDE) && RE4DC_PS2_AREA_HIDE
+#include "area.h"
+#include "player.h"
+// PS2_AREA_HIDE (render only, lane objs 2026-10-15): the PS2 r107.dat AEV flag areas 9 (flag 64 = Room_flg[2] bit 31)
+// and 10 / 11 (flag 65 = bit 30), type 4, trigger inside, player. PS2 R107Main shows / hides scenery groups 50..100 on
+// those bits; here only the bits are computed (no flag is written) and handed to the PS2 world draw
+// (native_static.cpp area::), which hides the placements.
+extern "C" void re4dc_ps2_area_flags(unsigned room, unsigned flags);
+static AreaData r107Ps2Flag[3] = {
+    {1, AREA_TYPE_XZ4, 0, {{188.45660400390625f, 1000.0f, 750.0f, {{58434.55859375f, -53464.6015625f}, {83840.6171875f, -62665.5546875f}, {83874.5390625f, -30154.130859375f}, {58535.28125f, -31736.044921875f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-16015.205078125f, 21721.671875f, 750.0f, {{57955.10546875f, -67316.890625f}, {88315.40625f, -68705.6484375f}, {88099.171875f, -63893.984375f}, {58445.8984375f, -53076.296875f}}}}},
+    {1, AREA_TYPE_XZ4, 0, {{-16445.220703125f, 15336.4130859375f, 750.0f, {{65675.2265625f, -68471.3046875f}, {97480.3984375f, -68784.5078125f}, {99003.34375f, -39712.52734375f}, {70183.4453125f, -36959.56640625f}}}}},
+};
+#endif
+
 // Per frame: switch the player's footstep/OT type to the water variant.
 void R107Main()
 {
     setPlWaterOtType();
+#if defined(RE4DC_PS2_AREA_HIDE) && RE4DC_PS2_AREA_HIDE
+    {
+        unsigned f = 0;
+
+        if (AreaHitCheck(&r107Ps2Flag[0], &pPL->pos)) {
+            f |= 2;
+        }
+        if (AreaHitCheck(&r107Ps2Flag[1], &pPL->pos) || AreaHitCheck(&r107Ps2Flag[2], &pPL->pos)) {
+            f |= 1;
+        }
+        re4dc_ps2_area_flags(0x107, f);
+    }
+#endif
 }
 
 // Put every fish enemy at the lake's water level.
