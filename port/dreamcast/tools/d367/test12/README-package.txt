@@ -23,6 +23,10 @@ New in test 12:
 * Boxes, barrels and other objects in the first village (r100) and the village
   (r101) use their PS2 models.
 * Armed villagers hold their weapons with the PS2 grip.
+* Villagers' caps, hats and glasses use their PS2 models and pictures.
+* Items you can pick up, their close-ups in the inventory, and the pieces of
+  broken boxes and barrels use their PS2 models and pictures on the whole
+  route; the few pieces the PS2 version removed are not drawn.
 * Options has a Rendering row again: Standard (the default) or FSAA, which
   smooths edges and is slower in busy scenes.
 

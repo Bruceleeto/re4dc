@@ -1494,6 +1494,16 @@ VRAM_CENSUS ?= 0
 # free / largest free block, "vram gaps:" refusals, thrash-guard skips, no contiguous block, GameCube effect pictures,
 # dropped parts, silent sound blocks) at each room-entry preload, every 600 frames and at the room change. Gates:
 # tools/d367/vram/vram_gate.py, fullplay/fp_check.py.
+# KOS_WATCH=1 (diagnostic, default 0 = image unchanged): native_ui.cpp logs "kos watch:" KOS malloc headroom (free
+# chunks + sbrk room below the kernel stack) every 60 frames and at each new low (2 KiB steps). Test 12 bell HALT
+# ("Out of memory. Requested sbrk_base 0x8cff0000") accounting.
+KOS_WATCH ?= 0
+ifneq ($(filter $(KOS_WATCH),0 1),$(KOS_WATCH))
+$(error KOS_WATCH must be 0 or 1)
+endif
+ifeq ($(KOS_WATCH),1)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_WATCH=1
+endif
 VRAM_ROOM_LOG ?= 0
 ifneq ($(filter-out 0 1,$(VRAM_ROOM_LOG)),)
 $(error VRAM_ROOM_LOG must be 0 or 1)

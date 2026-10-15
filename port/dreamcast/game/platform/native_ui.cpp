@@ -42,6 +42,10 @@ extern "C" unsigned re4dc_lbx_rows_last;  // letterbox_clip.cpp (MCHECK_SAFE, mc
 #include "actor_lifetime.h"
 #endif
 #include <kos.h>
+#if defined(RE4DC_KOS_WATCH) && RE4DC_KOS_WATCH
+extern "C" void re4dc_kos_heap_state(unsigned* free_chunks, unsigned* used, unsigned* break_room);
+void re4dc_kos_heap_state_cpp(unsigned* a, unsigned* b, unsigned* c) { re4dc_kos_heap_state(a, b, c); }
+#endif
 #include <dc/sq.h>
 #include <fcntl.h>
 #include <cstdio>
@@ -4962,6 +4966,22 @@ extern "C" void re4dc_ui_present(){
         pvr_stats_t stats;pvr_get_stats(&stats);
         re4dc_log("native stream: frame=%u model_bytes=%u peak=%u discarded=%u black_frames=%u vram_free=%u textures=%u used=%u loads=%u missing=%u ta_used=%u ta_peak=%u present_us=%llu registration_us=%llu render_us=%llu\n",frame,stream_model_bytes,stream_peak_bytes,stream_discards,stream_black_frames,(unsigned)pvr_mem_available(),kTextureCount,used,loads,missing,(unsigned)stats.vtx_buffer_used,(unsigned)stats.vtx_buffer_used_max,(unsigned long long)(stats.frame_last_time/1000),(unsigned long long)(stats.reg_last_time/1000),(unsigned long long)(stats.rnd_last_time/1000));
     }
+#if defined(RE4DC_KOS_WATCH) && RE4DC_KOS_WATCH
+    {
+        // KOS_WATCH=1 (diagnostic, default 0): KOS malloc headroom = free chunks + what sbrk may still take below the
+        // kernel stack. Logged every 60 frames and whenever it drops 2 KiB below the lowest value so far.
+        extern void re4dc_kos_heap_state_cpp(unsigned*, unsigned*, unsigned*);
+        static unsigned kw_min = 0xffffffffu;
+        unsigned kf = 0, ku = 0, kb = 0;
+        re4dc_kos_heap_state_cpp(&kf, &ku, &kb);
+        const unsigned head = kf + kb;
+        if (head + 2048 <= kw_min || frame % 60 == 0) {
+            if (head < kw_min) kw_min = head;
+            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u
+", frame, kf, ku, kb, head, kw_min);
+        }
+    }
+#endif
 #if RE4DC_PVR_FAST_WAKE || RE4DC_PVR_PIPELINE
     if(frame%120==0){
 #if RE4DC_PVR_PIPELINE
