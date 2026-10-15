@@ -76,7 +76,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
-| At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version | |
+| At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
