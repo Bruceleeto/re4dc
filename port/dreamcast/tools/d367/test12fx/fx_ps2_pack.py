@@ -236,14 +236,16 @@ def convert_set(gc_ctx, gids, gc_tpls, ps2, ps2_name, outdir, keys_seen):
                 weights[c] = weights.get(c, 0) + 1
         pal = palette16(weights)
         h_all = hashlib.sha256()
-        total, errs = 0, []
+        total, errs, shared = 0, [], set()
         for f, (key, gw, gh) in enumerate(gpics):
             w, h, px = ppics[f % len(ppics)]
             blob, err = package(w, h, px, pal, (w, h))
             path = outdir / (key + '.re4tex')
-            if key in keys_seen and keys_seen[key] != blob:
-                raise SystemExit('key %s converted twice with different results (%s)' % (key, gid))
-            keys_seen[key] = blob
+            if key in keys_seen:   # one package per key on the disc: the first conversion (common, then route order) wins
+                if keys_seen[key][0] != blob:
+                    shared.add(keys_seen[key][1])
+                continue
+            keys_seen[key] = (blob, gid)
             outdir.mkdir(parents=True, exist_ok=True)
             path.write_bytes(blob)
             h_all.update(key.encode() + blob)
@@ -251,7 +253,8 @@ def convert_set(gc_ctx, gids, gc_tpls, ps2, ps2_name, outdir, keys_seen):
             errs.append(err)
         row.update(dc_format='PAL4_ARGB4444 %dx%d x%d (GC %dx%d x%d)' % (ppics[0][0], ppics[0][1], len(gpics),
                    gpics[0][1], gpics[0][2], len(ppics)), sha256=h_all.hexdigest(), bytes=total,
-                   note='err %.2f, %d PS2 colours -> 16' % (sum(errs) / len(errs), len(weights)))
+                   note='err %.2f, %d PS2 colours -> 16' % (sum(errs) / max(1, len(errs)), len(weights)) +
+                   ('; pictures shared with %s keep that conversion' % ','.join(sorted(shared)) if shared else ''))
         rows.append(row)
     return rows
 
