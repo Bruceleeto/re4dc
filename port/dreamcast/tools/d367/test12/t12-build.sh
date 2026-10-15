@@ -52,6 +52,8 @@ T12=${T12-$T12REC}
 # test 12.2 (10-15, scope frozen by the coordinator): test 12.1 + RETIRE_KOS_FLOOR=65536 (the KOS left after r101 at the
 # next room's start); arms uP (12.2 play, packaged by test122/t122-package.sh) and uW (warp).
 T122="RETIRE_KOS_FLOOR=65536"
+# test 14 items on the 12.2 recipe (10-15): T14 knobs (e.g. SS_HOLD_RESTORE=1), arms wP (play) / wT (trace).
+T14=${T14-}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 MC="MCHECK_LEONGC=1 TEX_CHECK=2"
 TR="DBG_WARP=1 PC_SAMPLER=1 LOGIC_TRACE=1 GAME_DECISION_TRACE=1 PACE_MODE=off TRACE_SS_MASK=1 TRACE_ALLOC=1 CODEC_READY_FIXTURE=1"
@@ -68,6 +70,8 @@ for x in "$@"; do case $x in
   tP)  b ${L}tP  $T $ON $T11REC $T12 IMAGE_PAD_BYTES=0 $PL ;;
   uP)  b ${L}uP  $T $ON $T11REC $T12 $T122 IMAGE_PAD_BYTES=0 $PL ;;
   uW)  b ${L}uW  $T $ON $T11REC $T12 $T122 IMAGE_PAD_BYTES=0 $WP ${XON:-} ;;
+  wP)  b ${L}wP  $T $ON $T11REC $T12 $T122 $T14 IMAGE_PAD_BYTES=0 $PL ;;
+  wT)  b ${L}wT  $T $ON $T11REC $T12 $T122 $T14 IMAGE_PAD_BYTES=${PAD_T:-0} $TR ${XON:-} ;;
   pP)  b ${L}pP  $T $ON $T11REC $T12 DCINV_PURGE=1 IMAGE_PAD_BYTES=0 $PL ;;
   eP)  b ${L}eP  $T $ON $T11REC $T12 DCINV_PURGE=1 SPEED_VMU_OFF=0 METER_ROWS=1 IMAGE_PAD_BYTES=0 $PL ;;
   hP)  b ${L}hP  $T $ON $T11REC $T12 METER_ROWS=1 GAME_TICK_LOG=60 PHASE_METER=1 IMAGE_PAD_BYTES=0 $PL ${XON:-} ;;

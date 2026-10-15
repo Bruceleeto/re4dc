@@ -438,6 +438,13 @@ unsigned pack_error_skips; bool preload_after_pack;
 // one closes if a claim released uploads.
 unsigned vram_claims,claim_released;
 #endif
+#if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE && RE4DC_TEX_RESIDENT
+// SS_HOLD_RESTORE (subscreen.mk): an upload load() evicts while a claim or the sub screen hold is open is brought back
+// by the preload pass that runs after the last unclaim.
+#define RE4DC_HOLD_EVICTED() do{if(vram_claims)++claim_released;}while(0)
+#else
+#define RE4DC_HOLD_EVICTED() ((void)0)
+#endif
 re4dc::texture::SourceIdentityTable room_identities,core_identities,option_identities,player_identities,weapon_identities;unsigned identity_hits;
 // Match the recovered loader's four module owners; texture uploads still share
 // the existing cache and VRAM budget. These views own no texels or allocations.
@@ -3054,7 +3061,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         fs_close(f);
     }
 #endif
-    if(slot->valid){RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();}
+    if(slot->valid){RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();RE4DC_HOLD_EVICTED();}
     close_entry(*slot); // caller has completed both TA and render fences
     char path[96];RE4DC_TEX_PATH(path,key);
     re4dc_log("native UI: load %s %ux%u fmt=%u\n",path,image.width,image.height,image.format);
@@ -3101,7 +3108,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         Entry* victim=nullptr;
         for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
         if(!victim) return false;
-        RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();close_entry(*victim);++reclaimed;return true;
+        RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();RE4DC_HOLD_EVICTED();close_entry(*victim);++reclaimed;return true;
     };
 #if RE4DC_TEX_META_EVICT
     // TEX_META_EVICT=1 (Makefile; render only): each open package keeps its descriptor prefix (header + texture record,

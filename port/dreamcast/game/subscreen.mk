@@ -49,6 +49,20 @@
 #                  screen through the backing save. Render only. =2: no change, logs what =1 would do.
 SUBSCREEN ?= 0
 SS_PACK ?= 0
+# SS_HOLD_RESTORE=1 (test 14 #1, needs SS_PACK=1; render only, default 0 = image unchanged): VRAM graphics memory rule.
+# The packed backing holds the room preload while the sub screen is open (re4dc_ui_vram_hold), and the preload runs
+# again after the close only when the hold released uploads (claim_released). The sub screen's own pictures (r101
+# post-bell call: 430 KB, loaded while paused) evict room uploads through load() without counting there, so the
+# room's resident-list keys they evicted (4 HUD pictures) reloaded on first sight in play after the call. With it an
+# eviction by load() while a claim or hold is open counts in claim_released: the room preload pass runs at the close
+# and brings the room's listed keys back before play resumes (a load point, as at room entry).
+SS_HOLD_RESTORE ?= 0
+ifneq ($(SS_HOLD_RESTORE),0)
+ifneq ($(SS_PACK),1)
+$(error SS_HOLD_RESTORE needs SS_PACK=1)
+endif
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SS_HOLD_RESTORE=1
+endif
 SS_BG_BLACK ?= 0
 ifneq ($(SS_BG_BLACK),0)
 ifneq ($(SUBSCREEN),1)

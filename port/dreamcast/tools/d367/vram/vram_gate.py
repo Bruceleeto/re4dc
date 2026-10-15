@@ -12,7 +12,9 @@ Reads a game log (benchmark or full-play segment) and
     failure, rejected texture package (tex_rej: a pack read error or a package the KOS heap or the validator refused),
     gameplay upload in a room with a resident list (D5: vram/resident/r<room>.tsv, ROOM_RESIDENT=1 preloads it, so
     any upload after the room-entry preload is a disc re-read the list does not cover; full-play checks report them),
-    a KOS heap failure (D5: "Out of memory" from sbrk, the native model slab or a motion file read refused: the texture
+    uploads made while the sub screen is open ("subscreen backing: open" .. "close": radio calls, the attache case, the
+    map; the game is paused) are menu loads (test 14 #1, coordinator 10-15): reported in the room's row ("N (+M menu)"),
+    not failed, and not counted as gameplay uploads; a KOS heap failure (D5: "Out of memory" from sbrk, the native model slab or a motion file read refused: the texture
     cache holds the KOS heap's descriptors, TEX_META_EVICT keeps a reserve and the slab is allocated before the
     preload), or GameCube effect picture ("vram gc-fx:" key) that ps2lib/INDEX.tsv does not list with ps2_source=NONE
     (the known gaps). A key is looked up through ps2lib/effects-tex/KEYS.tsv (vram/fx_keys.py) and reported with its
@@ -114,7 +116,17 @@ def analyse(lines, index=None, nocontig=True, resident=None):
     nocontig_lines = []
     kos_lines = []
     new_format = False
+    subscreen = False
     for i, ln in enumerate(lines, 1):
+        if ln.startswith('subscreen backing: open '):
+            subscreen = True
+            continue
+        if ln.startswith('subscreen backing: close '):
+            subscreen = False
+            continue
+        if subscreen and ln.startswith('native UI: load ') and order:
+            visits[order[-1]]['menu_loads'] += 1   # the sub screen's own pictures, loaded while the game is paused
+            continue
         if ln.startswith('vram room: '):
             d = fields(ln)
             if 'r' not in d or 'f' not in d or 'frames' not in d:
@@ -126,7 +138,7 @@ def analyse(lines, index=None, nocontig=True, resident=None):
             if v is None:
                 v = visits[k] = dict(room=r, start=f - frames, samples=0, min_free=INF, min_largest=INF, peak_pinned=0,
                                      last={}, gaps={x: 0 for x in GAP_FIELDS}, closed=False, gap_lines={},
-                                     preload_loads=None, preload_evicted=None, loads=0, evicted=0, retries=0)
+                                     preload_loads=None, preload_evicted=None, loads=0, evicted=0, retries=0, menu_loads=0)
                 order.append(k)
             v['samples'] += 1
             vals = {x: num(d, x, None) for x in ROOM_FIELDS}
@@ -187,7 +199,8 @@ def analyse(lines, index=None, nocontig=True, resident=None):
                                  min_largest=None if v['min_largest'] == INF else v['min_largest'],
                                  peak_pinned=v['peak_pinned'], last=v['last'], gaps=v['gaps'], snd_used=v.get('snd_used'),
                                  loads=v['loads'], evicted=v['evicted'], retries=v['retries'], min_kos=v.get('min_kos'),
-                                 play_loads=None if v['preload_loads'] is None else v['loads'] - v['preload_loads'],
+                                 menu_loads=v['menu_loads'],
+                                 play_loads=None if v['preload_loads'] is None else max(0, v['loads'] - v['preload_loads'] - v['menu_loads']),
                                  play_evicted=None if v['preload_evicted'] is None else v['evicted'] - v['preload_evicted']))
         g = v['gaps']
         if g['refusals']:
@@ -227,7 +240,7 @@ def analyse(lines, index=None, nocontig=True, resident=None):
 
 def table(rooms):
     """Markdown rows: one per room visit."""
-    L = ['| Room | From frame | Min free | Min largest | Peak pinned | Pinned / dynamic / other (last) | Loads after preload | Evicted | Frag retries | '
+    L = ['| Room | From frame | Min free | Min largest | Peak pinned | Pinned / dynamic / other (last) | Loads after preload (+ sub screen menu loads) | Evicted | Frag retries | '
          'Refusals | Guard (pressure) | No contig | GC fx | Dropped parts | Snd fail | Tex rej | KOS evict | Min KOS |',
          '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for v in rooms:
@@ -236,7 +249,8 @@ def table(rooms):
         L.append('| r%s | %d | %s | %s | %d | %s | %s | %d | %d | %d | %d (%d) | %d | %s | %d | %d | %d | %d | %s |' % (
             v['room'], v['start'], v['min_free'], v['min_largest'], v['peak_pinned'],
             '%s / %s / %s' % (last.get('pinned'), last.get('dynamic'), last.get('other')) if last else '-',
-            '-' if v['play_loads'] is None else v['play_loads'], v['evicted'], v['retries'],
+            ('-' if v['play_loads'] is None else str(v['play_loads'])) + (' (+%d menu)' % v['menu_loads'] if v.get('menu_loads') else ''),
+            v['evicted'], v['retries'],
             g['refusals'], g['guard'], g['guard_p'], g['nocontig'], g['gc_fx'] if g['gc_fx'] >= 0 else 'n/a',
             g['dropped'] + g['fx_dropped'], g['snd_fail'], g['tex_rej'], g['meta'],
             '-' if v.get('min_kos') is None else v['min_kos']))
