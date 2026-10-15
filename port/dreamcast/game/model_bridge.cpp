@@ -753,6 +753,15 @@ void sobake::decide(unsigned room){
     S->drawn+=drawn;
     if(!(++S->frames%600U))re4dc_log("SOBAKE room=%03x frames=%u baked_draws=%u now=%u/%u\n",room,S->frames,S->drawn,drawn,S->n);
 }
+// Room leave (ui_bridge.cpp re4dc_room_leave): the rest copies and the state go back to heap 4.
+extern "C" void re4dc_static_free(void* data);
+extern "C" void re4dc_sob_bake_room_leave(){
+    using namespace sobake;
+    if(!S)return;
+    for(unsigned i=0;i<S->n;++i)if(S->obj[i].rest)re4dc_static_free(const_cast<unsigned*>(S->obj[i].rest));
+    re4dc_static_free(S);
+    S=nullptr;
+}
 // ModelRender (trans.cpp): 1 when this frame's decision draws the model from the world.
 extern "C" int re4dc_sob_bake_skip(const void* model){
     using namespace sobake;

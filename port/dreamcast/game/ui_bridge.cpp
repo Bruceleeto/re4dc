@@ -369,6 +369,9 @@ extern "C" void re4dc_leon_hands_room_enter();              // coarse_actor_leon
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
 extern "C" void re4dc_sob_room_leave();                     // model_bridge.cpp STATIC_OBJ_BATCH
 #endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+extern "C" void re4dc_sob_bake_room_leave();                // model_bridge.cpp STATIC_OBJ_BAKE
+#endif
 extern "C" void re4dc_room_leave(){
 #if RE4DC_MOVIE_WORLD_ARENA
     // Must run before any native owner or source heap is retired.
@@ -388,6 +391,9 @@ extern "C" void re4dc_room_leave(){
 #endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
     re4dc_sob_room_leave();                              // merged static-object lists (heap-4 cells)
+#endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+    re4dc_sob_bake_room_leave();                         // baked-object state and rest copies (heap-4 cells)
 #endif
     re4dc_ui_retire_room();
     re4dc_room4_close();
