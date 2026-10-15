@@ -68,6 +68,16 @@ farm pays more because its GX getters run ~350 times a frame (effects + actor pa
 move: sourceActorIdentity's own body is the cost, not re4dc_room4_state. I-cache fills a frame: 108,990 -> 107,956
 (cross), 154,741 -> 154,068 (farm).
 
+Gates (all on the committed tree 4633156c, knob on):
+- STRICT + decisions vs the knob-off control, same fixtures: r101 cross fight (stop 800) STRICT, MUST-IDENTICAL, 802
+  ticks; door103 (stop 1400) STRICT, MUST-IDENTICAL, 1402 ticks, DOORDEMO END reached; 0 overruns (a2-fight / a2-door vs
+  c0-fight / c0-door).
+- Align logger (interpreter, 60 s each): r101 fight 0 MISALIGN, halt / missing 0 (reached the fight, PS2 world and
+  actors drawn); the door103 run reached r101 only in 60 s (the door is covered by STRICT and the KOS door runs).
+- KOS squeeze 48 KiB (twin fpa2sqW, mastered on the test 13 release tree): GATE PASS, 10 runs: fight min 6,488 B, call
+  39,944 B, door 20,528 B, leave100 / leave103 6,688 B; 0 out-of-memory / MISSING / HALT.
+- Ready for test 15: yes (exact, render only; small: -0.3 / -0.4 ms MODELLED, -0.35 / -0.46 corrected).
+
 ## B4: PS2_WALK_CELLS (DROPPED)
 
 Built and measured, not committed (patch kept at /root/probe/lanes-20261015/t2exact/b4-ps2-walk-cells.patch, on
@@ -94,6 +104,74 @@ world_out still runs for each skipped placement and counts any it would not reje
 - Verdict: DROPPED (< 0.2 ms MODELLED on both scenes, in the layout-independent pipe column). Finding for A6 / B5:
   a layout shift alone moved the cross by +2.5 ms MODELLED (I and D fills), larger than every exact lever in this lane.
 
+## B4 rescoped: offline occlusion PVS (coordinator 10-15, ceiling measured first)
+
+Existing culling in the PS2 world path (native_static.cpp), so nothing is duplicated: the pass mask byte per placement;
+lean::world_out (world-plane pretest of the placement box); the placement box frustum + 25 m depth cull (box_class /
+group_visible); per cluster the same box test, then the LOD level and strip-group selection (sg_select); the fog far.
+Visibility data: only PS2_INTERIOR_CULL (r100 house interior portals, offline) and PS2_AREA_HIDE (r107: the PS2 room
+code's per-area SMD groups). No occlusion culling for outdoor rooms; no GC / PS2 PVS data.
+
+Ceiling (MODELLED-free count, the user's camera positions): the game logged its camera every frame (PS2_PVS build, warp
+line "pvs 2"), frames 500..799: 56 cameras at the r101 cross, 35 at the r103 farm (cam-cross / cam-farm runs).
+tools/d367/ps2world/pvs/pvs_cast.cpp "ceil" shoots a ray through every pixel (640 x 480; 2560 x 1920 on 8 cameras to
+check convergence) with the game's projection, from the near plane to the 25 m cull depth, against the package's
+level-0 triangles (only opaque, static triangles occlude; one-sided ones only from the front). A cluster instance is
+visible when any ray hits it before an occluder. "In frustum" = the instance's world box is inside the frustum and the
+25 m depth (what the existing culls keep). Vertex counts are level-0 meshlet vertices.
+
+| scene | in frustum (verts / instances per frame) | visible | occluded share (exact, per view) |
+|---|---|---|---|
+| r101 cross | 37,568 / 210 | 18,877 / 90 | 49.8% (47-55%); 48.1% at 2560 x 1920 |
+| r103 farm | 32,056 / 142 | 23,153 / 101 | 27.8%, but all of it is dynamic placements (125 of r103's 134 placements have a unique id); static only: ~0% |
+| r103 farm, dynamic placements also occluding (baked spots) | 32,056 | 18,543 | 42.2% |
+
+What an offline cell PVS keeps of that (r101 cross, same cameras, the set of the camera's cell intersected with the
+frustum; level-0 vertices drawn of the 37,568 in frustum):
+
+| cell set | drawn | cut |
+|---|---|---|
+| exact per view (the ceiling, needs per-frame occlusion) | 18,877 (50%) | 50% |
+| 2 m cells, eyes 1.0-2.8 m, 3x3 per cell, 16k directions, no dilation | 32,953 (88%) | 12% |
+| 2 m cells, conservative (neighbour cells + 3 m near + non-opaque within 60 m) | 34,228 (91%) | 9% |
+| 4 m cells, eyes 0.4-3.6 m, conservative (the whole room: 86 KB file) | 35,094 (93%) | 7% |
+
+Why the cell set loses most of it: moving the eye 1-2 m sideways or up reveals a sliver of many clusters between the
+houses (535 clusters, each a large piece), and one pixel makes a cluster visible. Per-view occlusion is real (half the
+in-frustum world at the cross); a static per-cell set captures a fifth of it.
+
+ms: at the cross the per-cluster world work (everything in scenery except the ~1.6 ms placement walk) is ~15 ms
+MODELLED for ~37.6k in-frustum level-0 vertices, so a cut share s is worth about s x 15 ms MODELLED (x1.23 corrected).
+This overstates: the occluded clusters are the far ones, drawn at coarser LOD levels.
+- cell PVS (7-12%): ~1.0-1.8 ms MODELLED, ~1.3-2.2 corrected, at most. r103 farm: ~0 (its occludable world is
+  dynamic placements, which a static set must keep).
+- per-view ceiling (48-50%): ~7 ms MODELLED, ~9 corrected, only with a runtime occlusion test that is itself cheap
+  (e.g. a few large occluders per room - house boxes - tested against cluster boxes per frame, like the r100 interior
+  portals); not built.
+
+Runtime (built, default 0, in the tree): PS2_PVS=1 (t2exact.mk) reads /cd/dc/native/rXXX/ps2-world.pvs, finds the
+camera's cell once per frame and skips clusters (and whole placements) whose bit is clear. Runtime toggle
+re4dc_ps2_pvs_on (default PS2_PVS_DEFAULT=1; warp line "pvs 0|1"; re4dc_ps2_pvs_set() for a benchmark sweep row);
+"pvs 2" = no set + a per-frame PS2CAM camera log line (used above). No file / another package's file / a camera outside
+the cells: no culling. Run so far: the camera-log mode (cam-cross, cam-farm: halt / missing / fault 0, file=absent
+path); the set path has not run (no .pvs on a disc yet). Knob-off identity: test 13 image c1ae83dd + 6 overlays.
+
+Tools (tools/d367/ps2world/pvs): pvs_prep.py (package -> instances + triangles), pvs_cast.cpp (cell sets; "verify"
+random eyes; "ceil" logged cameras), pvs_emit.py (conservative sets -> .pvs file, stats, verify).
+
+### PVS format (shared with lane worldlod)
+
+Cluster instance id = position in this walk of the package: placements in R4PW array order; for each, its mesh's parts
+in order; for each part, its part_lod clusters in order (first_cluster .. +cluster_count). r101 (bake13 package): 223
+placements, 554 instances. A far-LOD level added to a cluster keeps the id (it is the same cluster). The .pvs file
+(pvs_emit.py docstring): 64-byte header R4PV v1 with the package's mesh crc / bytes and R4PW crc, an X/Z grid (x0, z0,
+cell mm, nx, nz) of 8-byte cells {u16 set (0xffff none), i16 ylo, yhi decimetres}, then deduplicated bit sets
+((ninst+7)/8 bytes, bit i = instance i). Memory (heap 4): r101 4 m cells 86 KB (+ 0.5 KB offsets); 5 m cells 55 KB.
+
+Verdict: the r101 cell PVS is worth ~1-2 ms MODELLED at most (under or near the coordinator's ~1 ms bar once LOD is
+counted), r103 ~0. Stopped here for the coordinator's decision (10-15: "if under ~1 ms at the cross, tell me before
+building more"). The per-view ceiling (~7 ms MODELLED) points at runtime occluder tests instead.
+
 ## B6: read-side prefetch
 
 Finding (MODELLED per-instruction profile, pcprof.py): both streams the backlog names already prefetch their input.
@@ -118,6 +196,27 @@ Finding (MODELLED per-instruction profile, pcprof.py): both streams the backlog 
   scheduled assembly kernel (mesh_fastpath_sched.hpp writes 24 of the 32 bytes). Per the optimization rule that needs a
   console A/B, plus a reason why a layout change is not enough, before anyone builds it.
 
-## B5: I-cache code size
+## B5: I-cache code size (HOT_COLD_SPLIT)
 
-(in progress)
+Knob HOT_COLD_SPLIT=1 (t2exact.mk; exact, code placement only): every C++ / C object gets -include cold_decls.h, which
+declares re4dc_log and re4dc_missing cold; GCC then lays the blocks that only lead to a log line / MISSING report after
+the hot path of each function. The image shrinks ~4 KB (text 2,694,004 -> 2,689,876).
+
+Tried and rejected:
+- -freorder-blocks-and-partition (cold blocks in a separate .text.unlikely section): does not assemble on SH ("pcrel too
+  far": the hot part's constant pools end up out of reach).
+- the same + -freorder-blocks-algorithm=stc for the -O1 objects: text +13 KB (block duplication), I-cache fills not
+  lower (cross 108,194 vs 108,990), D fills +11%; MODELLED cross 59.6 (layout).
+
+MODELLED fill counts (the model counts misses right; it cannot price them: console A/B only), frames 500..799:
+
+| scene | control I fills / frame | HOT_COLD_SPLIT=1 | D fills | MODELLED ms |
+|---|---|---|---|---|
+| r101 cross | 108,990 | 104,362 (-4.2%) | 144,203 -> 145,055 | 57.3 -> 57.0 |
+| r103 farm | 154,741 | 153,846 (-0.6%) | 213,931 -> 211,847 | 88.0 -> 83.7 (farm runs differ by 0.8M instructions of disc / KOS work: not comparable) |
+
+Image b5drW (committed knob) = b5crW (measured) objcopy image 24960240. Knob-off identity: test 13 image c1ae83dd.
+Not done yet: STRICT (it changes block order in logic code too: needs the trace pair), align / KOS gates, and the
+console bench disc (bench/definitive 702d82ef via t14/bench aa7554d6 + this knob, Part 1 fixtures, same-tree control;
+branch lane/t2exact-bench, worktree /root/probe/lanes-20261015/t2exact/bench, no commits yet).
+Finding for A6 / B5: layout alone moves the cross by up to +2.5 ms MODELLED (B4's code growth), more than this lever.

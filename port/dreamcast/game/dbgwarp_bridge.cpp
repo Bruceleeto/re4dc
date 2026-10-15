@@ -89,6 +89,9 @@ const char* re4dc_bench_next_scene(void);
 int re4dc_bench_scene_no(void);
 const char* re4dc_bench_results(void);
 #endif
+#if defined(RE4DC_PS2_PVS) && RE4DC_PS2_PVS
+extern "C" void re4dc_ps2_pvs_set(unsigned on);  // native_static.cpp (t2exact.mk PS2_PVS)
+#endif
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
 extern "C" void re4dc_leon_light_set(unsigned mode);  // native_actor_fast.cpp (crowd.mk LEON_LIGHT_TOGGLE)
 #endif
@@ -404,6 +407,12 @@ void load()
 #if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
         } else if (!strcmp(k, "squeeze")) {
             // KOS_SQUEEZE (platform/os.cpp reads this line at OSInit)
+#endif
+#if defined(RE4DC_PS2_PVS) && RE4DC_PS2_PVS
+        } else if (!strcmp(k, "pvs") && n >= 2) {
+            // PS2_PVS (t2exact.mk): `pvs 0|1` switches the occlusion set off / on at run time (same image)
+            re4dc_ps2_pvs_set(num(tok[1]));
+            re4dc_log("warp: pvs %u\n", (unsigned) num(tok[1]));
 #endif
 #if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
         } else if (!strcmp(k, "bench") && n >= 5) {

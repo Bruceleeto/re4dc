@@ -1958,10 +1958,18 @@ __attribute__((noinline)) unsigned sg_select(const std::uint16_t* g,unsigned n,c
 }
 #pragma GCC pop_options
 #endif
+#if RE4DC_PS2_PVS
+namespace pvs { unsigned cl_tested=0,cl_skipped=0; } // PS2_PVS cluster counters (the rest of namespace pvs is at ps2_open)
+#endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
     const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
     re4dc::room::CompactVertex12* gather_pool; // mesh view's v3 gather buffer (nullptr: v1/v2)
+#if RE4DC_PS2_PVS
+    // (after the four members MeshDraw{...} initializes by position) PS2_PVS: this frame's visible set (nullptr: no
+    // set) and the instance number of this part's first cluster in it (pvs::base + pvs::poff)
+    const std::uint8_t* pvs_set=nullptr; unsigned pvs_first=0;
+#endif
 #if RE4DC_PS2_WORLD_LEAN
     // (after the four members MeshDraw{...} initializes by position)
     bool lean_inside=false; // PS2_WORLD_LEAN bit 2: the placement box is inside every plane (no cluster / meshlet tests)
@@ -2317,6 +2325,13 @@ struct MeshDraw : Emitter {
         for(unsigned c=lod.first_cluster;c<lod.first_cluster+lod.cluster_count;++c){
 #if RE4DC_QUALITY_ASSETS
             if(skip_clusters && c-lod.first_cluster<64U && ((skip_clusters>>(c-lod.first_cluster))&1U))continue;
+#endif
+#if RE4DC_PS2_PVS
+            if(pvs_set){
+                // PS2_PVS: a cluster the camera's cell cannot see (offline occlusion set) is not tested or drawn
+                const unsigned bit=pvs_first+(c-lod.first_cluster);++pvs::cl_tested;
+                if(!((pvs_set[bit>>3]>>(bit&7U))&1U)){++pvs::cl_skipped;continue;}
+            }
 #endif
             const auto& cl=clusters[c];
             float lo[3],hi[3];
@@ -3724,6 +3739,107 @@ std::uint32_t ps2_crc32(const unsigned char* p,unsigned n){
 #if RE4DC_PS2_WORLD_ROOMS
 void ps2_free();
 #endif
+#if RE4DC_PS2_PVS
+// PS2_PVS (t2exact.mk; exact, render only; lane t2exact 2026-10-15, backlog B4): an offline potentially visible set per
+// camera cell (tools/d367/ps2world/pvs: pvs_prep.py, pvs_cast.cpp, pvs_emit.py). The room's X/Z grid of cells, each
+// with a Y range (local ground + the camera heights) and a bit set over the package's cluster instances (placement
+// order, the mesh's parts in order, each part's clusters in order). A cluster whose bit is clear cannot be seen from
+// anywhere in the cell (the opaque world occludes it), so ps2_pass skips it, and a placement with no bit set at all.
+// A camera outside every cell's volume, no file, or a file built for another package: no set, everything is drawn as
+// before. Runtime toggle re4dc_ps2_pvs_on (warp line "pvs 0|1"; re4dc_ps2_pvs_set for a benchmark sweep row) on top of
+// the build knob. The file is read into one heap-4 block with the per-placement and per-part instance offsets.
+extern "C" { volatile unsigned re4dc_ps2_pvs_on=RE4DC_PS2_PVS_DEFAULT; void re4dc_ps2_pvs_set(unsigned on){re4dc_ps2_pvs_on=on<=2U?on:1U;} }
+namespace pvs {
+struct Head { char magic[4]; std::uint32_t version,mesh_crc,mesh_bytes,sidecar_crc,ninst,nx,nz; float x0,z0,cell;
+              std::uint32_t nsets,set_bytes,ncells,pad[2]; };
+struct Cell { std::uint16_t set; std::int16_t ylo,yhi,pad; };
+static_assert(sizeof(Head)==64 && sizeof(Cell)==8);
+unsigned char* block=nullptr; Head h{}; const Cell* cells=nullptr; const std::uint8_t* sets=nullptr;
+const std::uint16_t* base=nullptr; const std::uint16_t* poff=nullptr; // per placement (n+1) / per part: first instance
+const std::uint8_t* cur=nullptr; unsigned cur_frame=~0U; int cur_cell=-1; float eye[3]={0,0,0};
+unsigned frames=0,active=0,pl_tested=0,pl_skipped=0,logged=~0U,bytes=0; const char* why="off";
+void close(){if(block)re4dc_static_free(block);block=nullptr;cells=nullptr;sets=nullptr;base=nullptr;poff=nullptr;cur=nullptr;
+             cur_frame=~0U;cur_cell=-1;bytes=0;why="off";}
+// The camera's world position from the world-to-view affine (rows): v = R w + t, so w = -R^-1 t.
+bool eye_of(const float* v,float e[3]){
+    const float a=v[0],b=v[1],c=v[2],d=v[4],f=v[5],g=v[6],k=v[8],l=v[9],m=v[10];
+    const float c0=f*m-g*l,c1=g*k-d*m,c2=d*l-f*k,det=a*c0+b*c1+c*c2;
+    if(!(std::fabs(det)>1e-12f))return false;
+    const float id=1.0f/det,t0=v[3],t1=v[7],t2=v[11];
+    const float i00=c0*id,i01=(c*l-b*m)*id,i02=(b*g-c*f)*id;
+    const float i10=c1*id,i11=(a*m-c*k)*id,i12=(c*d-a*g)*id;
+    const float i20=c2*id,i21=(b*k-a*l)*id,i22=(a*f-b*d)*id;
+    e[0]=-(i00*t0+i01*t1+i02*t2);e[1]=-(i10*t0+i11*t1+i12*t2);e[2]=-(i20*t0+i21*t1+i22*t2);
+    return re4dc::render::is_finite(e[0]) && re4dc::render::is_finite(e[1]) && re4dc::render::is_finite(e[2]);
+}
+void open(unsigned room,std::uint32_t mesh_crc,std::uint32_t mesh_bytes,std::uint32_t side_crc){
+    close();why="absent";
+    char path[48];snprintf(path,sizeof(path),"/cd/dc/native/r%03x/ps2-world.pvs",room);
+    const file_t f=fs_open(path,O_RDONLY);
+    if(f==FILEHND_INVALID){re4dc_log("PS2PVS room=%03x file=absent\n",room);return;}
+    const unsigned size=unsigned(fs_total(f));
+    const unsigned np=ps2w.nplacements,nparts=ps2w.package.header().part_count;
+    const unsigned extra=((np+1U)*2U+nparts*2U+31U)&~31U;
+    auto* b=size>=sizeof(Head) && size<=262144U && !(size&31U)?static_cast<unsigned char*>(re4dc_static_alloc(size+extra)):nullptr;
+    why=b?"read":"size or heap";
+#if RE4DC_IO_ALIGNED
+    const bool ok=b && read_package(f,b,size,0);
+#else
+    const bool ok=b && fs_read(f,b,size)==ssize_t(size);
+#endif
+    fs_close(f);
+    if(ok){
+        std::memcpy(&h,b,sizeof(h));why="header";
+        if(!std::memcmp(h.magic,"R4PV",4) && h.version==1 && h.mesh_crc==mesh_crc && h.mesh_bytes==mesh_bytes &&
+           h.sidecar_crc==side_crc && h.nx && h.nz && h.nx*h.nz<=65536U && h.set_bytes==(h.ninst+7U)/8U &&
+           sizeof(Head)+8U*h.nx*h.nz+h.nsets*h.set_bytes<=size && h.cell>0){
+            // instance offsets, counted as pvs_prep.py counts them; the total must be the file's
+            auto* pb=reinterpret_cast<std::uint16_t*>(b+size);auto* po=pb+np+1U;
+            const auto& pk=ps2w.package;const auto* lods=pk.part_lods();
+            for(unsigned m=0;m<pk.header().mesh_count;++m){
+                const auto& mesh=pk.meshes()[m];unsigned o=0;
+                for(unsigned k=0;k<mesh.part_count;++k){po[mesh.first_part+k]=std::uint16_t(o);o+=lods[mesh.first_part+k].cluster_count;}
+            }
+            unsigned n=0;
+            for(unsigned i=0;i<np;++i){
+                pb[i]=std::uint16_t(n);const auto& mesh=pk.meshes()[ps2w.placements[i].mesh];
+                for(unsigned k=0;k<mesh.part_count;++k)n+=lods[mesh.first_part+k].cluster_count;
+            }
+            pb[np]=std::uint16_t(n);
+            why="instances";
+            if(n==h.ninst && n<65536U){
+                why=nullptr;
+                cells=reinterpret_cast<const Cell*>(b+sizeof(Head));sets=b+sizeof(Head)+8U*h.nx*h.nz;base=pb;poff=po;
+                for(unsigned c=0;c<h.nx*h.nz;++c)if(cells[c].set!=0xffffU && cells[c].set>=h.nsets){why="cell set";break;}
+            }
+        }
+    }
+    if(why){if(b)re4dc_static_free(b);cells=nullptr;sets=nullptr;base=nullptr;poff=nullptr;}
+    else {block=b;bytes=size+extra;}
+    re4dc_log("PS2PVS room=%03x file=%s bytes=%u cells=%ux%u with_set=%u sets=%u instances=%u cell_mm=%d heap=%d\n",room,why?why:"ok",
+              size+extra,unsigned(h.nx),unsigned(h.nz),unsigned(h.ncells),unsigned(h.nsets),unsigned(h.ninst),int(h.cell),re4dc_static_heap_free());
+}
+// Once per frame: the camera's cell and its set (cur), or none.
+void frame(const float* view){
+    const unsigned f=re4dc_ui_frame();
+    if(f==cur_frame)return;
+    cur_frame=f;cur=nullptr;cur_cell=-1;++frames;
+    if(!cells || re4dc_ps2_pvs_on!=1U || !eye_of(view,eye))return;
+    const float fx=(eye[0]-h.x0)/h.cell,fz=(eye[2]-h.z0)/h.cell;
+    if(!(fx>=0 && fz>=0 && fx<float(h.nx) && fz<float(h.nz)))return;
+    const unsigned c=unsigned(fz)*h.nx+unsigned(fx);const Cell& e=cells[c];
+    if(e.set==0xffffU || eye[1]<float(e.ylo)*100.0f || eye[1]>float(e.yhi)*100.0f)return;
+    cur=sets+unsigned(e.set)*h.set_bytes;cur_cell=int(c);++active;
+}
+// A placement with no visible instance (no bit set in [base[i], base[i+1])).
+bool hidden(unsigned i){
+    unsigned a=base[i];const unsigned e=base[i+1];
+    ++pl_tested;
+    for(;a<e;++a)if((cur[a>>3]>>(a&7U))&1U)return false;
+    ++pl_skipped;return true;
+}
+} // namespace pvs
+#endif
 bool ps2_open(){
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return false; // BEFORE storage/room-mismatch paths
@@ -3886,6 +4002,9 @@ bool ps2_open(){
         ps2w.pass_mask[i]=std::uint8_t(m);
     }
 #endif
+#if RE4DC_PS2_PVS
+    pvs::open(ps2w.room,ps2w.package.header().crc,ps2w.package.header().bytes,h.crc);
+#endif
 #if RE4DC_MESH_FASTPATH
     auto* lut=reinterpret_cast<std::uint32_t*>(s+mbytes+pbytes);re4dc::vp::build_lut(lut);ps2w.lut=lut;
 #endif
@@ -3981,6 +4100,9 @@ bool ps2_movie_reload(){
         if(q.mesh>=h.meshes){ps2w.package.close();return false;}
         for(float f:q.affine)if(!re4dc::render::is_finite(f)){ps2w.package.close();return false;}}
     ps2w.parts=parts;ps2w.placements=placements;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_PVS
+    pvs::close(); // the movie arena's package: no set
+#endif
 #if RE4DC_PS2_PASS_MASK
     ps2w.masked=h.placements<=Ps2World::kMaskPlacements;
     for(unsigned i=0;ps2w.masked && i<h.placements;++i){
@@ -4227,6 +4349,26 @@ int ps2_pass(unsigned pass,float zfar){
 #endif
     }
 #endif
+#if RE4DC_PS2_PVS
+    pvs::frame(ps2w.view);
+    if(!pass){
+        const unsigned f=re4dc_ui_frame();
+        if(!(f%120) && pvs::logged!=f){
+            pvs::logged=f;
+            re4dc_log("PS2PVS frame=%u on=%u file=%s cell=%d eye=%d,%d,%d active=%u/%u placements=%u/%u clusters=%u/%u\n",f,
+                unsigned(re4dc_ps2_pvs_on),pvs::why?pvs::why:"ok",pvs::cur_cell,int(pvs::eye[0]),int(pvs::eye[1]),int(pvs::eye[2]),
+                pvs::active,pvs::frames,pvs::pl_skipped,pvs::pl_tested,pvs::cl_skipped,pvs::cl_tested);
+        }
+    }
+    if(!pass && re4dc_ps2_pvs_on==2U){
+        // pvs 2 (measurement): no set, and this frame's camera for the offline occlusion count (pvs_ceiling.py)
+        std::uint32_t w[25];std::memcpy(w,ps2w.view,48);std::memcpy(w+12,P,28);std::memcpy(w+19,ps2w.viewport,24);
+        re4dc_log("PS2CAM f=%u cf=%08x c=%08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x p=%08x %08x %08x %08x %08x %08x %08x vp=%08x %08x %08x %08x %08x %08x\n",
+            re4dc_ui_frame(),unsigned(*reinterpret_cast<const std::uint32_t*>(&cull_far)),w[0],w[1],w[2],w[3],w[4],w[5],w[6],w[7],w[8],w[9],w[10],w[11],
+            w[12],w[13],w[14],w[15],w[16],w[17],w[18],w[19],w[20],w[21],w[22],w[23],w[24]);
+    }
+    const std::uint8_t* const pvs_cur=pvs::cur;
+#endif
     Re4dcModelPart part{};
     std::memcpy(part.projection,P,sizeof(part.projection));std::memcpy(part.viewport,ps2w.viewport,sizeof(part.viewport));
     part.alpha_state=255;part.source_key[2]=1;
@@ -4257,6 +4399,9 @@ int ps2_pass(unsigned pass,float zfar){
         if(masked && !((ps2w.pass_mask[i]>>pass)&1U))continue;
 #endif
         const auto& pl=ps2w.placements[i];const auto& mesh=pk.meshes()[pl.mesh];
+#if RE4DC_PS2_PVS
+        if(pvs_cur && pvs::hidden(i))continue;
+#endif
 #if RE4DC_PS2_AREA_HIDE
         if(area::cur && area::hide(pl.placement)){++area::skipped;continue;}
 #endif
@@ -4400,6 +4545,9 @@ int ps2_pass(unsigned pass,float zfar){
             d.alpha=0xff000000U;d.vertex_alpha=false;d.cull_far=cull_far;d.direct=true;
 #endif
             d.part_index=index;d.lod_scale=lod_scale;
+#if RE4DC_PS2_PVS
+            if(pvs_cur){d.pvs_set=pvs_cur;d.pvs_first=pvs::base[i]+pvs::poff[index];}
+#endif
 #if RE4DC_PS2_WORLD_LEAN
             d.lean_inside=lean_in==2;d.lean_part=true;d.lean_am=(lean::kMode&2U)?amq:nullptr;
 #if RE4DC_PS2_STRIP_GROUPS
@@ -4785,6 +4933,9 @@ extern "C" void re4dc_ps2_mesh_retire(){
 #if RE4DC_PS2_INTERIOR_CULL
     pc::unload();pc::data.lent=false;
     pc::st.ok=false;pc::st.active=false;
+#endif
+#if RE4DC_PS2_PVS
+    pvs::close();
 #endif
 }
 #if RE4DC_PS2_WORLD_DYNAMIC
