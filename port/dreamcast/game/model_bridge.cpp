@@ -436,6 +436,110 @@ extern "C" void re4dc_sob_room_leave(){
     sob::S=nullptr;sob::cur_model=nullptr;sob::cur_info=nullptr;
 }
 #endif
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+// SOB_DUMP (crowd.mk, diagnostic): static etc object parts captured at first draw for the offline STATIC_OBJ_BAKE.
+extern "C" int re4dc_actor_stream_encoded(const unsigned char* stream,unsigned bytes);
+extern "C" void* re4dc_static_alloc(unsigned bytes);
+extern "C" int re4dc_ui_part_key(const Re4dcModelPart* p,unsigned* crc,unsigned* fnv);  // native_ui.cpp
+extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
+class cEm; int getRoomEtc2(int no, cEm** out, int flag);  // EtcModel.cpp
+namespace sobdump {
+constexpr unsigned kBytes=192u*1024u,kSeen=160,kLines=8,kLine=96;
+struct State { unsigned generation,used,sent,nseen,done; const void* seen[kSeen][2]; unsigned char data[kBytes]; };
+State* S=nullptr; unsigned frame_seen=~0U;
+inline bool target(const cModel* m){
+    const unsigned k=m->kindid,id=m->id;
+    return (k==0&&(id==0x41||id==0x43||id==0x45||id==0x46))||(k==1&&id==0x21);
+}
+unsigned fnv(unsigned h,const void* p,unsigned n){const unsigned char* b=(const unsigned char*)p;for(unsigned i=0;i<n;++i)h=(h^b[i])*16777619U;return h;}
+unsigned rest_hash(const cModel* m){
+    unsigned h=fnv(2166136261U,m->mat,sizeof(Mtx));
+    const cParts* q=(const cParts*)m->pParts;
+    for(unsigned i=0;i<m->nParts && q;++i,q=q->pList)h=fnv(h,q->mat,sizeof(Mtx));
+    return h;
+}
+void put(const void* p,unsigned n){
+    if(S->used+n>kBytes){S->used=kBytes+1;return;}
+    memcpy(S->data+S->used,p,n);S->used+=n;
+}
+void put32(unsigned v){put(&v,4);}
+void frame(){
+    frame_seen=pG->Frame_cnt;
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf)){S=nullptr;return;}
+    if(S && S->generation!=g)S=nullptr;
+    if(!S || S->done || S->used>kBytes)return;
+    char line[16+2*kLine+2];
+    for(unsigned n=0;n<kLines && S->sent<S->used;++n){
+        unsigned k=S->used-S->sent;if(k>kLine)k=kLine;
+        int o=snprintf(line,sizeof line,"SOBX %06x ",S->sent);
+        for(unsigned i=0;i<k;++i){static const char hx[]="0123456789abcdef";line[o++]=hx[S->data[S->sent+i]>>4];line[o++]=hx[S->data[S->sent+i]&15];}
+        line[o++]='\n';line[o]=0;
+        re4dc_log("%s",line);
+        S->sent+=k;
+    }
+}
+void part(const cModel* m,const cModelInfo* info,const ModelData* d,const ModelPart* pt,const Re4dcModelPart& p){
+    if(pG->Frame_cnt!=frame_seen)frame();
+    if(!target(m))return;
+    unsigned g,c,b,st,rf;
+    if(!re4dc_room4_state(&g,&c,&b,&st,&rf))return;
+    if(!S){
+        S=(State*)re4dc_static_alloc(sizeof(State));
+        if(!S){re4dc_log("SOBX FAIL alloc\n");return;}
+        memset(S,0,sizeof(State)-kBytes);S->generation=g;
+        re4dc_log("SOBX BEGIN room=%03x generation=%u\n",unsigned(pG->room_id),g);
+    }
+    for(unsigned i=0;i<S->nseen;++i)if(S->seen[i][0]==m && S->seen[i][1]==pt)return;
+    if(S->nseen>=kSeen || S->used>kBytes)return;
+    S->seen[S->nseen][0]=m;S->seen[S->nseen][1]=pt;++S->nseen;
+    int slot=-1;
+    for(int i=0;i<0x40;++i){cEm* e=nullptr;if(getRoomEtc2(i,&e,0) && (const void*)e==(const void*)m){slot=i;break;}}
+    unsigned list_idx=0;{const ModelPart* q=d->pParts;while(q && q!=pt && list_idx<d->displist_num){q=(const ModelPart*)((const unsigned char*)q+0x20+q->size);++list_idx;}}
+    const bool encoded=re4dc_actor_stream_encoded(p.stream,p.stream_bytes)!=0;
+    const unsigned stride=(p.flags&0x80000000U)?8U:6U;
+    unsigned nuv=0,nclr=0;
+    if(!encoded){
+        unsigned o=0;const unsigned char* s=p.stream;
+        while(o<p.stream_bytes){
+            const unsigned op=s[o++];if(!op)continue;
+            if(p.stream_bytes-o<2)break;
+            const unsigned n=(s[o]<<8)|s[o+1];o+=2;
+            if(n>(p.stream_bytes-o)/stride)break;
+            for(unsigned k=0;k<n;++k){
+                const unsigned char* t=s+o+k*stride;
+                const unsigned uv=(t[stride-2]<<8)|t[stride-1];if(uv+1>nuv)nuv=uv+1;
+                if(stride==8){const unsigned ci=(t[4]<<8)|t[5];if(ci+1>nclr)nclr=ci+1;}
+            }
+            o+=n*stride;
+        }
+    }
+    unsigned crc=0,fnvk=0;re4dc_ui_part_key(&p,&crc,&fnvk);
+    const unsigned list_bytes=encoded?0U:p.stream_bytes;
+    const unsigned npos=p.position_count,nnrm=p.normal_count;
+    const unsigned len=4*4+16*4+24*4+4*4+npos*p.position_stride+nnrm*p.normal_stride+nuv*4+nclr*4+list_bytes;
+    const unsigned at=S->used;
+    put32(0x52424F53U);put32(0);
+    put32(unsigned(slot)&0xFFFFU | (unsigned(m->kindid)<<16) | (unsigned(m->id)<<24));
+    put32(list_idx | (unsigned(d->displist_num)<<16));
+    put32((unsigned)(size_t)m);put32((unsigned)(size_t)info);put32((unsigned)(size_t)d);put32((unsigned)(size_t)pt);
+    put32(rest_hash(m));put32(crc);put32(fnvk);put32(p.flags);put32(p.material_flags);
+    put32(p.position_stride|(p.normal_stride<<8)|(unsigned(p.shift)<<16)|(unsigned(p.normal_shift)<<24));
+    put32(p.blend|(p.cull<<8)|(p.depth_mode<<16)|(p.alpha_state<<24));
+    put32(npos|(nnrm<<16));put32(nuv|(nclr<<16));put32(list_bytes);
+    put(p.modelview,48);put(&pG->Cam.v_mat[0][0],48);
+    put(&m->pos,12);put(&m->ang,12);put32(m->be_flag);put32(info->be_flag);
+    if(p.positions)put(p.positions,npos*p.position_stride);
+    if(p.normals)put(p.normals,nnrm*p.normal_stride);
+    if(p.uv)put(p.uv,nuv*4);
+    if(p.colors)put(p.colors,nclr*4);
+    if(list_bytes)put(p.stream,list_bytes);
+    while(S->used<=kBytes && (S->used&3))put("",1);
+    if(S->used<=kBytes){const unsigned total=S->used-at;memcpy(S->data+at+4,&total,4);}
+    (void)len;
+}
+}
+#endif
 extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
  const void* part_ptr,const float mv[3][4],unsigned pass){
     if(!re4dc_model_diagnostic_enabled() || pass)return;
@@ -513,6 +617,9 @@ extern "C" void re4dc_draw_model_part(const void* model,const void* info_ptr,
         if(st && pG->Frame_cnt%600==300)
             re4dc_log("SOB %u %x %x %x %x %x %x %u %u %u %u %x %u %u %x %u\n",pG->Frame_cnt%100000,(unsigned)m&0xffffff,id|(k<<8),(unsigned)info&0xffffff,(unsigned)part&0xffffff,(unsigned)p.image.pixels&0xffffff,(unsigned)p.uv&0xffffff,p.position_count,p.position_stride,p.normal_stride,p.shift,p.flags>>16,p.blend,p.alpha_state,(unsigned)p.colors&0xffffff,p.stream_bytes);
     }
+#endif
+#if defined(RE4DC_SOB_DUMP) && RE4DC_SOB_DUMP
+    sobdump::part(m,info,d,part,p);  // SOB_DUMP (diagnostic): first-draw capture for STATIC_OBJ_BAKE
 #endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
     if(sob::take(m,info,d,part,p))return;  // STATIC_OBJ_BATCH: held for its info's run

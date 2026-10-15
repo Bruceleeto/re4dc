@@ -602,3 +602,11 @@ KOS_TRACE ?= 0
 ifneq ($(KOS_TRACE),0)
 $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_TRACE=$(KOS_TRACE)
 endif
+
+# SOB_DUMP=1 (diagnostic only, lane crowd12 2026-10-15; default 0): first-draw capture of the static etc object parts
+# (arrays, raw GX list, matrices, texture key) as "SOBX" hex lines, input of the offline STATIC_OBJ_BAKE.
+SOB_DUMP ?= 0
+ifneq ($(SOB_DUMP),0)
+$(OBJDIR)/model_bridge.o $(OBJDIR)/platform/native_ui.o: GAME_CPPFLAGS += -DRE4DC_SOB_DUMP=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SOB_DUMP=1
+endif
