@@ -68,7 +68,9 @@ test 11 disc 54 GC + 15 known; objs 0 GC + 15 known (windows, PS2-absent torches
 
 Disc data only (the executable is unchanged, so the knob-off image is the test 11 image by construction). Data sets in
 tools/d367/test11/t11-fix.py: `objs-<room>` (one room, unpadded), `objs` (all 16 rooms), `objs-r100p` / `objs-r101p`
-(padded). Not in T11_DATA. A test 12 recipe adds `objs` to its --data list.
+(padded). Not in T11_DATA. Since 10-15 the `objs-<room>` sources are the shared library copies
+(ps2lib/objects/<room>/<room>.dar, byte-identical). A test 12 recipe adds `objs12` (r100 + r101, gated) to its --data
+list; `objs` (16 rooms) is test 13.
 
 ## Gates and measurements
 
@@ -101,4 +103,97 @@ Flycasts, C: floor, one staging at a time). All numbers are Flycast / SH-4 model
   texture hash_bytes 2.53 -> 1.44, pass_baked 0.78 -> 0, Part::whole 2.61 -> 2.01. Target 50 ms per drawn frame (20 fps):
   CPU stays ~31 ms over it; objects are ~4 ms (5%) of the gap.
 
-(r101 GPU proxy, the crowd12 benchmark-r101 rows and the other rooms: below as they finish.)
+Other rooms: r100 (H2 STRICT h2c-t vs h2o-t 4702 ticks, 493 masked, MUST-IDENTICAL, s30 340/340 both arms, 0 overruns:
+unpadded r100 holds with MOVIE_HEAP_PREFLIGHT) and r106 (wi106-c vs wi106-o warp STRICT 2402, MUST-IDENTICAL).
+
+### Test 12 scope for objects (coordinator 10-14)
+
+The all-room objects pass moved to test 13; the village (r101 fps) went first. Test 12 data set: `objs12` = r100 + r101
+from the shared library (ps2lib/objects/<room>/<room>.dar, byte-identical to the lane's <room>o dars; rows PASS). r106
+passed warp STRICT (wi106-c vs wi106-o 2402 ticks, MUST-IDENTICAL) but has no TEX_CHECK / LEON-GC run yet: its rows say
+`UNGATED:wi106-o(...)`. `objs` (all 16 rooms) stays defined for test 13. `objs-r11a2` (r11a + et1000 torch from r109's
+PS2 ETM) and `objst-<room>` (PS2 pictures, re4-assets-private/objs-20261014/tex13) are test 13 and NOT READY: the
+picture tool swaps only the colour image, so ModelPart flag-4 parts (racks et0400 / et0500, lamp et0a00) would hit
+"pair missing" (items lane relay 10-14). Before test 13: reuse lane/items 421b7251 (ps2_items.py v2 + ps2_items_tex.py)
+pair logic (mask from the PS2 TPL entry of the same index, 4-bit masks n*17, resampled to the colour size, colour RGB +
+mask alpha, GC-opaque colours packaged opaque), reconvert the whole class, gate, then write the ps2lib rows.
+GC textures left in converted objects: r100 BIN 0x33 (Leon archive texture), r117 BIN 0x1f.
+
+## Village world submit (r101 release gate, lane/objs-w)
+
+Coordinator 10-14 night: no release until benchmark-r101 <= 50 ms in the hw model; this lane owns world culling and
+submit. Branch lane/objs-w (worktree /root/probe/lanes-20261014/objs/w) from crowd12's STACK V3 (lane/crowd12-s2
+7e3b2e94 + 48c95b5e). Every number below is MODELLED (Flycast PC sampler + SH-4 hw model, hwproject nominal), not
+console: build = c12V3 knobs (HW_FOG_HAZE=1 FX_LEVEL=0 FX_SPRITE_TRIM=2 UI_SOURCE_LRU=1 ACT_CAP_FAR_M=15 ACT_CAP_LOG=300
+TEX_PAL4_ALPHA=1 FX_PS2_PACK=1 FX_FLIPBOOK=2 R101_ALIVE_CAP=8 TEX_WRAP_SAFE=1 PACE_MODE=off PC_SAMPLER_BYTES=8192) + the
+arm's knobs, test11/t11-build.sh tW; scene benchmark-r101-v3 (Leon by the pyre facing the square, 12 alive, crowd
+alerted at room frame 30, god mode, no pad input); global frames 500:1399, trace stride 60 (15 traced frames); data
+tex-v3-ws.pak + objs r101o. Evidence C:\Flycast-Evidence\re4-dreamcast\bench-20261014\hwmodel-<arm>-r101.
+
+Base (hV3, c12V3htW): total 71.83 ms, world submit 16.13 (transform_sched 5.64, walk_lean 2.59, MeshDraw::draw 1.57,
+group_visible 1.39 at 1170 calls/frame, clip_strip 0.85, ps2_pass 0.75, MeshDraw::run 0.70, concat 0.45 at 303 calls,
+load_screen 0.32, dyn_source 0.21), actor submit 18.55.
+
+### Draw distance (rule: PS2 per-room View far if <= ~1 hw ms CPU and GPU well under budget)
+
+| room / view | 25 m | 40 m | View far | decision |
+|---|---|---|---|---|
+| r101 benchmark view (old objs base, hw 700:899 stride 7): world submit / total ms | 16.15 / 88.32 | 22.11 / 91.27 | 24.80 / 98.36 (70 m) | stays 25 m (coordinator 10-14: rule); church / houses behind the stake are sky at 25 m (sheet far-r101.png) |
+| r101 GPU proxy ms | 9.75 | 10.16 | 8.93 | |
+| r100 bridge view (w100, 700:819 stride 7) total ms | 33.27 | 33.27 | 33.27 (42.7 m) | View far free at this view (7 placements drawn either way; GPU proxy 11.69 = 11.69); one view only, not a wide one |
+| r11b wide view | queued (jobs-far.txt f11b/g11b/s11b) | | | |
+
+Source View far known: r101 70 m, r100 cut 0 42.7 m (house cut 24.8 m, the source's own). The other route rooms need
+a View-far run each (FOG_FAR=1000000 FOG_FAR_CAP=1 logs cull_far per pass) or a parse of the room camera data: not done.
+
+### Options ranked (estimates first, then built)
+
+| item | estimate (MODELLED) | built? | measured world / total (base 16.13 / 71.83) |
+|---|---|---|---|
+| (e) strip groups: reject before transform | 47 % of walked strips are culled after transform; 46 % of transformed vertices feed only culled strips. Cost model (40 cyc/vertex, 80/strip, 100/group test) with the real kd-split records: vertices 22,952 -> 16,728, strips 5,661 -> 3,926, saves ~1.3 model ms | yes, PS2_STRIP_GROUPS=1 | 15.08 / 70.85 (oe23s) |
+| (b) placement bake + (d) repeated per-frame work | group_visible 1.39 + concat 0.45 + dyn_source 0.21 are the repeated parts | yes, PS2_WORLD_LEAN=23 | 15.90 / 71.94 (hy23): -0.2 world, total within noise |
+| (c) cell PVS | at the bench view a per-view z-buffer hides 4-8 % of vertices at cluster / meshlet level, 0.1 % at placement level: <= 0.3-0.6 ms ideal, less from a cell; r101 heap free ~1.05 MB at the bench | no (not worth it for test 12) | - |
+| MESH_CLASSIFY=1 (existing) | - | arm owc | 22.30 / 78.53: rejected (classified meshlets take the unscheduled transform and the old walk; MeshDraw::draw 6.43) |
+| Morton strip order before meshlet chunking | -0.3..-0.5 (coordinator estimate); strip groups already sort strips spatially inside each meshlet, so what is left is meshlet-box tightness | not started | - |
+
+### Knobs (lane/objs-w, all render only, default 0, game30.mk; knob-off image identical to c12V3htW de566ad4...)
+
+- `PS2_WORLD_LEAN` (bitmask): 1 world-space placement pretest; 2 fully-inside propagation (a placement / cluster wholly
+  inside every plane skips its children's tests; its box is grown by one grid step; meshlets nest in their clusters:
+  0 of 1,726 outside); 4 cache prime once per pass; 8 diagnostics (check_bad, prime_bad, class_diff: all 0 over 3,600
+  frames on every arm); 16 dyn_source 64-bit hash-mask fast reject. Helpers built at O2 (#pragma: native_static.cpp is
+  -O1; the hw model priced the -O1 box test at ~370 instructions with fr0 spills).
+  Arms: hy1 16.08 / 71.94, hy3 16.39 / 72.49, hy7 16.05 / 72.25, hy23 15.90 / 71.94. (The first ow* / ox* arms were
+  invalid: the lean members sat before MeshDraw's positional initializers, so every PS2 part was refused; fixed 77d7972b,
+  runs renamed *-INVALID.)
+- `PS2_STRIP_GROUPS=1` (needs LEAN bit 2) + data `sg101` (t11-fix.py): ps2lib/world/r101-sg4 = tools/ps2_strip_groups.py
+  --groups 4 of the test 11 r101 package (f5592282): strips of each meshlet kd-split into up to 4 spatial groups
+  (opaque / punch-through only; translucent strips keep their order), corners renumbered by first use per group,
+  indexed LOD meshlets re-pointed, same package size (1,207,456 B, crc recomputed); ps2-world.r4sg 110,496 B (16 B per
+  group: grid box, strip end, corner range; mesh crc checked at open). sgcheck.py: every meshlet draws the same oriented
+  triangles. Runtime: a meshlet crossing a cull plane (box_mask) tests its groups against just the planes it crosses
+  (per-part plane forms P.hi + Q.lo + d, 1 unit slack, built once per part), then transforms / walks only the kept
+  groups' corner and strip ranges.
+  Iterations: oz23s box_class per group 17.74 / 74.93 (worse); ob23s plane mask 15.59 / 71.25; od23s per-part plane
+  forms 15.30 / 70.99; oe23s crossed-plane list once per meshlet 15.08 / 70.85 (transform_sched 5.64 -> 3.87, walk_lean
+  2.59 -> 2.00, group_visible 1.39 -> 0, concat 0.45 -> 0.26, dyn_source 0.21 -> 0.10; new sg_select 1.04, box_mask
+  0.61, box_class 0.64, world_out 0.46).
+  Proof the picture is unchanged: logic is deterministic, so the emitted-strip counters must match frame for frame; the
+  cumulative `PS2MESH strips=` at frames 1200 / 2400 / 3600 are 2,992,329 / 7,212,667 / 11,731,041 on knob-off ow0 and
+  on every knob-on arm (ox31, ob31s, od31s, ocpm, oe31s), while transformed vertices fall 100.6 M -> 68.6 M (od31s).
+  Stills: sheets\sg-r101-bench.png (Flycast framebuffer, knob-off ow0 vs od31s at the same wall seconds; differences are
+  the moving Ganados / camera).
+- `PS2_ROOM_PIN=1` (native_ui.cpp): r101's 9fe00ef7-6123f7d5 (256x256 PS2 world texture, 128 KB) is never LRU-evicted
+  during the visit (set at each room preload: `PS2PIN room=101 key=...`), so it cannot reload late into a fragmented
+  pool (test 11 TEX_CHECK fail at frame 1228). ocpm (TEX_CHECK=2 + MCHECK_LEONGC, LEAN=23 SG=1 PIN=1, 3,600 frames):
+  the texture loads once, TEXCHK PASS, LEON-GC PASS.
+- Bell route with the 110 KB r4sg in heap 4 (benchmark-r101-v3sgbell / v3bell = the v3 scene + `trg 0 1200`):
+  r101s30 plays in both arms (knob on 1302 / 1331 shown, 29 dropped; knob off 1300 / 1331, 31 dropped). Both arms then
+  stop at the same watchdog HALT main.cpp(548) at ui_frame 1526 (the long-movie haltExecCheck of this god-mode bench
+  rig; identical knob off: not from these knobs).
+- Image growth knob on ~6.5 KB (end 8c414dfc -> 8c41675c): heap 4 couples to image size (s30 gate above holds).
+- Flycast bench (emulator wall, not hw): ow0 19.16 fps 52.2 ms; ob31s 19.58 / 51.1; od31s 19.52 / 51.2.
+
+Recommended test 12 recipe additions: `PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1` + data `sg101`. Modelled
+r101 bench: total 71.83 -> 70.85 (-1.0 ms), world submit 16.13 -> 15.08. The 50 ms gate stays ~21 ms away; the rest is
+actor submit (18.55) and logic, not world culling.

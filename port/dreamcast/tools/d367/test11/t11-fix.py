@@ -73,9 +73,21 @@ T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bak
 # source size (equalised heap 4 arms). r119 keeps r119c (look lane: et1100 + BIN 0x22 together make the dark block).
 OBJS_ROOMS = 'r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r11a r11b'.split()
 OBJS = PRIV + '/objs-20261014'
+# objs-<room>: the shared PS2 library copy (re4-assets-private/ps2lib/objects/<room>/<room>.dar; INDEX.tsv rows, gate
+# per object); byte-identical to the lane's objs-20261014/<room>o dars.
+PS2LIB = PRIV + '/ps2lib/objects'
 for _r in OBJS_ROOMS:
-    DATA['objs-' + _r] = {'st1/%s.dar' % _r: '%s/%so/%s.dar' % (OBJS, _r, _r)}
+    DATA['objs-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (PS2LIB, _r, _r)}
 DATA['objs'] = {k: v for _r in OBJS_ROOMS for k, v in DATA['objs-' + _r].items()}
+# objs12: the rooms whose library rows passed the test 12 gates (r100: H2 STRICT 4702 + s30 340/340; r101: warp STRICT
+# 2402 + LEON-GC + TEX_CHECK); the other rooms are test 13 (coordinator 10-14: the all-room objects pass is test 13).
+DATA['objs12'] = {k: v for _r in ('r100', 'r101') for k, v in DATA['objs-' + _r].items()}
+# test 13, not ready (tex13/NOT-READY.txt): r11a + et1000 torch from r109's PS2 ETM (--etm-from), and the PS2-picture
+# object dars (tools/ps2_objects_tex.py; colour-only swap: flag-4 mask pairs missing until the items lane pair logic).
+DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
+TEX13 = OBJS + '/tex13'
+for _r in OBJS_ROOMS:
+    DATA['objst-' + _r] = {'st1/%s.dar' % _r: '%s/%s/%s.dar' % (TEX13, _r, _r), 'tex': '%s/%s/tex' % (TEX13, _r)}
 for _r in ('r100', 'r101'):
     DATA['objs-%sp' % _r] = {'st1/%s.dar' % _r: '%s/%sp/%s.dar' % (OBJS, _r, _r)}
 # (later --data names win: '--data <test 11 data>,objs,objs-r100p' = every room with the padded r100)
