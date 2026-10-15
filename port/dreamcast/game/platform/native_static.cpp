@@ -1860,12 +1860,13 @@ inline bool world_out(const World& w,const float* A,const float lo[3],const floa
 #endif
 struct MeshDraw : Emitter {
     const re4dc::room::MeshPackage& package; const re4dc::room::MeshPart& part;
+    const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
+    re4dc::room::CompactVertex12* gather_pool; // mesh view's v3 gather buffer (nullptr: v1/v2)
 #if RE4DC_PS2_WORLD_LEAN
+    // (after the four members MeshDraw{...} initializes by position)
     bool lean_inside=false; // PS2_WORLD_LEAN bit 2: the placement box is inside every plane (no cluster / meshlet tests)
     bool lean_part=false;   // PS2_WORLD_LEAN: a ps2_pass part (bit 2 cluster classes; bit 4 the cache prime kept across the pass)
 #endif
-    const std::uint32_t* lut; // mesh view's colour LUT (nullptr: per-corner path)
-    re4dc::room::CompactVertex12* gather_pool; // mesh view's v3 gather buffer (nullptr: v1/v2)
 #if RE4DC_PS2_INTERIOR_CULL
     // PS2_INTERIOR_CULL: pc_mode 0 no test, 1 skip hidden geometry, 2 draw only hidden geometry (the =2 check run);
     // pc_wq: placement affine x grid (world box of a cluster / meshlet); pc_all: the whole placement is hidden.
