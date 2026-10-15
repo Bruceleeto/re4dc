@@ -162,6 +162,443 @@ int checkListId(int no)
     return 1;
 }
 
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+// ALIVE_CAP=N (Makefile; lane alivecap 2026-10-15, user rule 10-15 "Ganados at 6"; CHANGES GAMEPLAY by design):
+// at most N Ganados (ids 0x10..0x20, the range the room scripts count with SceCountEmAlive) alive at once, game
+// wide. Start-list Ganados beyond N are held at room entry: not created, their list entry left as it is (alive,
+// not set), so a re-entry or a load starts the same way. Held ones come in one at a time through EmSetFromList2
+// (death bits honoured), at least 30 frames apart, outside events and pauses, while fewer than N are alive, the
+// one farthest from Leon first. SceCountEmAlive counts the held entries as alive, so every room script's alive
+// test, wave trigger and kill count (base - alive) reads exactly as without the cap; SceDestroyEm drops held
+// entries of its range as it destroys live ones. A held entry that room code sends itself (setEm /
+// cEmWrap::setPtr: they create through EmSetFromList2) follows the send rule below; a Ganado this cap lets in counts
+// toward N from its creation, before its first ACTIVE frame (aliveCapLive's fresh list). A room-code send (EmSetFromList2, also under setEm / cEmWrap) of a
+// Ganado while N are alive is deferred the same way: it returns errEm (no enemy) and the entry joins the hold,
+// except the entries whose callers dereference the returned enemy unchecked (aliveCapKeep: those rooms are the
+// documented exceptions and may pass N). Census and gates: C:\Game Dev\Emulators\ALIVECAP-20261015.md.
+// r101 is skipped when R101_ALIVE_CAP (the same N) runs its own hold / queue (RE4DC_ALIVE_CAP_R101).
+#ifndef RE4DC_ALIVE_CAP_LOG
+#define RE4DC_ALIVE_CAP_LOG 0
+#endif
+#ifndef RE4DC_ALIVE_CAP_PARK
+#define RE4DC_ALIVE_CAP_PARK 0
+#endif
+#if RE4DC_ALIVE_CAP_PARK
+#include "camera.h"
+#include "geometry.h"
+#endif
+extern "C" void OSReport(const char* fmt, ...);
+static u8 aliveCapHeld[64];
+static u8 aliveCapSent[64];   // 1: a deferred room-code send (its list alive bit is the caller's business)
+static int aliveCapN;
+static u32 aliveCapLast;
+static int aliveCapReleasing;
+
+// Sends never deferred: the room code dereferences the returned enemy without a check (census 2026-10-15).
+// r100 ambush 03-05 (ems[0..2]), fire trio 06-08 (event motion), house Ganado 0x25; r10c entry 02 and the ambush
+// 06-0C (ems[0..6]); r10f the gondola riders and 32 / 35; r11c (GameCube cabin, bit 0x40 off) Luis C8 and C9-D1.
+static const u32 aliveCapKeepTbl[] = {
+    0x10003, 0x10004, 0x10005, 0x10006, 0x10007, 0x10008, 0x10025,
+    0x10C02, 0x10C06, 0x10C07, 0x10C08, 0x10C09, 0x10C0A, 0x10C0B, 0x10C0C,
+};
+static int aliveCapKeep(int no)
+{
+    const u32 key = ((u32) (pG->stage_no << 8 | pG->room_no) << 8) | (u32) no;
+    u32 k;
+
+    for (k = 0; k < sizeof(aliveCapKeepTbl) / sizeof(aliveCapKeepTbl[0]); k++) {
+        if (aliveCapKeepTbl[k] == key) {
+            return 1;
+        }
+    }
+    if ((key >> 8) == 0x10F) {   // r10f: 32, 35 and the gondola riders 36-3B, 4B-4F
+        return no == 0x32 || no == 0x35 || (no >= 0x36 && no <= 0x3B) || (no >= 0x4B && no <= 0x4F);
+    }
+    if ((key >> 8) == 0x11C) {   // r11c: Luis and the GameCube cabin nine
+        return no >= 0xC8 && no <= 0xD1;
+    }
+    return 0;
+}
+
+static inline int aliveCapGanado(int id)
+{
+    return id >= 0x10 && id <= 0x20;
+}
+
+// A held entry still waiting: not set, of the current room, and (start-list holds) still alive in the list.
+static int aliveCapWaitingK(int k)
+{
+    const int no = aliveCapHeld[k];
+    EmListData* d = EM_LIST(no);
+
+    if (d->be_flag & 2) {
+        return 0;
+    }
+    if (!aliveCapSent[k] && !(d->be_flag & 1)) {
+        return 0;
+    }
+    return pG->stage_no == d->room >> 8 && pG->room_no == (d->room & 0xFF);
+}
+
+// Adds entry `no` to the hold unless it is there already (a deferred init send the start list meets again).
+static void aliveCapPush(int no, int sent)
+{
+    int k;
+
+    for (k = 0; k < aliveCapN; k++) {
+        if (aliveCapHeld[k] == no) {
+            return;
+        }
+    }
+    if (aliveCapN < (int) sizeof(aliveCapHeld)) {
+        aliveCapSent[aliveCapN] = (u8) sent;
+        aliveCapHeld[aliveCapN++] = (u8) no;
+    }
+}
+
+// Ganados created from the list (start list, sends, releases) in the last 600 frames that are alive but not yet
+// ACTIVE (coordinator decision 10-15, st3 lane r301: a Ganado that spawns in - not ACTIVE for its first frames -
+// was not counted, so back-to-back sends in that window passed N; r301 reached 7). They count toward N from their
+// creation; the room scripts' own SceCountEmAlive is unchanged (PS2 semantics).
+#define ALIVE_CAP_FRESH 16
+static cEm* aliveCapFreshEm[ALIVE_CAP_FRESH];
+static u32 aliveCapFreshF[ALIVE_CAP_FRESH];
+static u8 aliveCapFreshNo[ALIVE_CAP_FRESH];
+
+static int aliveCapRoom();
+
+static void aliveCapNoteFresh(cEm* em, int no)
+{
+    int k, slot = 0;
+    u32 oldest = 0;
+
+    if (em == 0 || em == errEm || !aliveCapGanado(em->id) || !aliveCapRoom()) {
+        return;
+    }
+    for (k = 0; k < ALIVE_CAP_FRESH; k++) {
+        if (aliveCapFreshEm[k] == 0) {
+            slot = k;
+            break;
+        }
+        if ((u32) (pG->Frame_cnt - aliveCapFreshF[k]) >= oldest) {
+            oldest = (u32) (pG->Frame_cnt - aliveCapFreshF[k]);
+            slot = k;
+        }
+    }
+    aliveCapFreshEm[slot] = em;
+    aliveCapFreshF[slot] = pG->Frame_cnt;
+    aliveCapFreshNo[slot] = (u8) no;
+}
+
+// Live Ganados: SceCountEmAlive's own test (alive and ACTIVE), plus fresh ones not yet ACTIVE; without the held
+// entries.
+static int aliveCapLive()
+{
+    int cnt = 0;
+    u32 i;
+    int k;
+
+    for (i = 0; i < EmMgr.nArray; i++) {
+        cEm* em = emSetWork(i);
+        if (!em) continue;
+        if (aliveCapGanado(em->id) && em->isAlive() && em->checkStatus(EM_STATUS_ACTIVE) != 0) {
+            cnt++;
+        }
+    }
+    for (k = 0; k < ALIVE_CAP_FRESH; k++) {
+        cEm* em = aliveCapFreshEm[k];
+
+        if (em == 0) {
+            continue;
+        }
+        if ((u32) (pG->Frame_cnt - aliveCapFreshF[k]) >= 600 || !em->isAlive() || !aliveCapGanado(em->id) ||
+            em->emset_no != aliveCapFreshNo[k] || em->checkStatus(EM_STATUS_ACTIVE) != 0) {
+            aliveCapFreshEm[k] = 0;   // active (counted above), gone, reused or old
+            continue;
+        }
+        cnt++;
+    }
+    return cnt;
+}
+
+static int aliveCapRoom()
+{
+#if defined(RE4DC_ALIVE_CAP_R101) && RE4DC_ALIVE_CAP_R101
+    if (pG->stage_no == 1 && pG->room_no == 1) {
+        return 0;   // r101: R101_ALIVE_CAP (same N)
+    }
+#endif
+    return 1;
+}
+
+// Held entries with id in lo..hi (hi -1 = just lo), added to SceCountEmAlive.
+extern "C" int re4dc_aliveCapHeldCount(int lo, int hi)
+{
+    int cnt = 0;
+    int k;
+
+    if (hi == -1) {
+        hi = lo;
+    }
+    for (k = 0; k < aliveCapN; k++) {
+        const int no = aliveCapHeld[k];
+        const int id = EM_LIST(no)->id;
+        if (id >= lo && id <= hi && aliveCapWaitingK(k)) {
+            cnt++;
+        }
+    }
+    return cnt;
+}
+
+// SceDestroyEm(lo, hi): held entries of the range go too, their list entry cleared as a destroy clears it.
+extern "C" void re4dc_aliveCapDestroy(int lo, int hi)
+{
+    int k, n = 0;
+
+    if (hi == -1) {
+        hi = lo;
+    }
+    for (k = 0; k < aliveCapN; k++) {
+        const int no = aliveCapHeld[k];
+        EmListData* d = EM_LIST(no);
+        if (d->id >= lo && d->id <= hi && aliveCapWaitingK(k)) {
+            d->be_flag &= ~1;
+#if RE4DC_ALIVE_CAP_LOG
+            OSReport("alivecap: destroy held 0x%02x room %03x\n", no, (unsigned) d->room);
+#endif
+            continue;
+        }
+        aliveCapSent[n] = aliveCapSent[k];
+        aliveCapHeld[n++] = (u8) no;
+    }
+    aliveCapN = n;
+}
+
+// PS2 EmFarDelete / EmFarDeleteNoWrap (include/em_far_delete.h) with held entries (coordinator decision 10-15,
+// st3 lane r301): the PS2 far delete leaves `keep` Ganados and the ones it removes are gone, so held entries count
+// as Ganados there too. Drops up to `max` waiting Ganado entries of this room (latest held first); with clearAlive
+// (NoWrap) their list alive bit is cleared as the delete clears a live one's, else (wrap) the entry is left alive and
+// not set, as a wrap delete leaves it. Returns the number dropped.
+extern "C" int re4dc_aliveCapFarDrop(int max, int clearAlive)
+{
+    int k, dropped = 0;
+
+    for (k = aliveCapN - 1; k >= 0 && dropped < max; k--) {
+        const int no = aliveCapHeld[k];
+        EmListData* d = EM_LIST(no);
+        int j;
+
+        if (!aliveCapGanado(d->id) || !aliveCapWaitingK(k)) {
+            continue;
+        }
+        if (clearAlive) {
+            d->be_flag &= ~1;
+        }
+#if RE4DC_ALIVE_CAP_LOG
+        OSReport("alivecap: far delete drops held 0x%02x room %03x%s\n", no, (unsigned) pG->room_id,
+                 clearAlive ? "" : " (wrap: entry kept)");
+#endif
+        for (j = k + 1; j < aliveCapN; j++) {
+            aliveCapHeld[j - 1] = aliveCapHeld[j];
+            aliveCapSent[j - 1] = aliveCapSent[j];
+        }
+        aliveCapN--;
+        dropped++;
+    }
+    return dropped;
+}
+
+#if RE4DC_ALIVE_CAP_PARK
+// ALIVE_CAP_PARK=1 (PS2_CH1_ENEMY): when more than N are alive anyway (sends kept for their callers, event
+// Ganados), the farthest off-screen one is parked as the PS2 EmFarDelete picks (3D d2 > 3000, sphere y+1000 r1000
+// outside the view, not types 2/5/6/0xA/0xD/0x16, not flag 0x10000000) - but re-queued instead of deleted: its list
+// entry goes back to "alive, not set" and into the hold, so it counts as alive (SceCountEmAlive), is released again
+// below the cap and no kill / death link is recorded. Only an unhurt Ganado in its plain AI routine, created from a
+// list entry of this room, not a kept entry, and not in a room whose code holds enemy pointers of its sends (r101 has
+// its own cap; r104 / r10a / r10c / r10f / r11c / r11d wrappers or batches).
+static int aliveCapParkRoom()
+{
+    switch (pG->stage_no << 8 | pG->room_no) {
+    case 0x101: case 0x104: case 0x10A: case 0x10C: case 0x10F: case 0x11C: case 0x11D:
+        return 0;
+    }
+    return 1;
+}
+
+static void aliveCapPark(int live)
+{
+    static u32 last;
+    cEm* best = 0;
+    f32 bestD = 0.0f;
+    u32 i;
+
+    if (live <= RE4DC_ALIVE_CAP || !aliveCapRoom() || !aliveCapParkRoom() || (u32) (pG->Frame_cnt - last) < 30) {
+        return;
+    }
+    for (i = 0; i < EmMgr.nArray; i++) {
+        cEm* em = emSetWork(i);
+        f32 dx, dy, dz, d2;
+
+        if (!em || !aliveCapGanado(em->id) || !em->isAlive() || em->checkStatus(EM_STATUS_ACTIVE) == 0) {
+            continue;
+        }
+        switch (em->type) {
+        case 0x16: case 2: case 5: case 6: case 0xA: case 0xD:
+            continue;
+        }
+        if ((em->flag & 0x10000000) || em->r_no_0 != 1 || em->hp != em->hp_max || (em->dmg.m_Flag & 1)) {
+            continue;
+        }
+        const int no = em->emset_no;
+        if (no == 0xFF || aliveCapKeep(no)) {
+            continue;
+        }
+        EmListData* d = EM_LIST(no);
+        if (d->id != em->id || pG->stage_no != d->room >> 8 || pG->room_no != (d->room & 0xFF)) {
+            continue;
+        }
+        {
+            GeoSphere sph;
+
+            sph.pos = em->pos;
+            sph.pos.y += 1000.0f;
+            sph.r = 1000.0f;
+            if (collision_sphere_hexahedron(&sph, (GeoHexahedron*) CameraViewFrustumPtr(&pG->Cam))) {
+                continue;   // in view
+            }
+        }
+        dx = em->pos.x - pPL->pos.x;
+        dy = em->pos.y - pPL->pos.y;
+        dz = em->pos.z - pPL->pos.z;
+        d2 = dx * dx + dy * dy + dz * dz;
+        if (!(d2 > 3000.0f) || !(d2 > bestD)) {
+            continue;
+        }
+        bestD = d2;
+        best = em;
+    }
+    if (best == 0) {
+        return;
+    }
+    const int no = best->emset_no;
+    EmListData* d = EM_LIST(no);
+
+    last = pG->Frame_cnt;
+    d->be_flag = (u8) ((d->be_flag | 1) & ~2);   // alive in the list, not set: EmSetFromList2 can create it again
+    aliveCapPush(no, 0);
+    EmMgr.destroy(best);
+    aliveCapLast = pG->Frame_cnt;                 // the next release waits its 30 frames
+#if RE4DC_ALIVE_CAP_LOG
+    OSReport("alivecap: park 0x%02x room %03x frame %u live %d held %d\n", no, (unsigned) pG->room_id,
+             (unsigned) pG->Frame_cnt, live - 1, aliveCapN);
+#endif
+}
+#endif
+
+// Once per frame (ScenarioMove, busy = event / item / pause): one held Ganado in below the cap.
+extern "C" void re4dc_aliveCapMove(int busy)
+{
+    int k, n = 0, best = -1;
+    f32 bestD = -1.0f;
+
+#if RE4DC_ALIVE_CAP_LOG
+    {   // diagnostic: each new per-room peak of live Ganados
+        static u16 pkRoom;
+        static int pk;
+        const int live = aliveCapLive();
+
+        if (pG->room_id != pkRoom) {
+            pkRoom = pG->room_id;
+            pk = 0;
+        }
+        if (live > pk) {
+            pk = live;
+            OSReport("alivecap: peak %d room %03x frame %u held %d\n", live, (unsigned) pG->room_id,
+                     (unsigned) pG->Frame_cnt, re4dc_aliveCapHeldCount(0x10, 0x20));
+        }
+    }
+#endif
+#if RE4DC_ALIVE_CAP_PARK
+    if (!busy && pPL != 0) {
+        aliveCapPark(aliveCapLive());
+    }
+#endif
+    if (aliveCapN == 0 || busy || pPL == 0) {
+        return;
+    }
+    if ((u32) (pG->Frame_cnt - aliveCapLast) < 30 || aliveCapLive() >= RE4DC_ALIVE_CAP) {
+        return;
+    }
+    for (k = 0; k < aliveCapN; k++) {
+        const int no = aliveCapHeld[k];
+        if (!aliveCapWaitingK(k)) {
+            continue;   // set or killed by room code meanwhile, or another room: out of the hold
+        }
+        EmListData* d = EM_LIST(no);
+        const f32 dx = (f32) d->pos[0] * 10.0f - pPL->pos.x;
+        const f32 dz = (f32) d->pos[2] * 10.0f - pPL->pos.z;
+        const f32 dist = dx * dx + dz * dz;
+        aliveCapSent[n] = aliveCapSent[k];
+        aliveCapHeld[n++] = (u8) no;
+        if (dist > bestD) {
+            bestD = dist;
+            best = n - 1;
+        }
+    }
+    aliveCapN = n;
+    if (best < 0) {
+        return;
+    }
+    const int no = aliveCapHeld[best];
+    const int sent = aliveCapSent[best];
+    for (k = best + 1; k < aliveCapN; k++) {
+        aliveCapHeld[k - 1] = aliveCapHeld[k];
+        aliveCapSent[k - 1] = aliveCapSent[k];
+    }
+    aliveCapN--;
+    aliveCapLast = pG->Frame_cnt;
+    aliveCapReleasing = 1;
+    cEm* em = EmSetFromList2(no, 1);
+    aliveCapReleasing = 0;
+    if (em && sent) {
+        EmListSetAlive(no, 1);   // as the deferred setEm(..., setAlive 1) would have
+    }
+#if RE4DC_ALIVE_CAP_LOG
+    OSReport("alivecap: release 0x%02x room %03x frame %u live %d held %d %s%s\n", no, (unsigned) pG->room_id,
+             (unsigned) pG->Frame_cnt, aliveCapLive(), aliveCapN, em ? "ok" : "refused", sent ? " (send)" : "");
+#else
+    (void) em;
+#endif
+}
+
+// EmSetFromList2: 1 = a room-code send of a Ganado while N are alive, now held (errEm to the caller).
+extern "C" int re4dc_aliveCapDefer(int no, int id)
+{
+    int k;
+
+    if (aliveCapReleasing || !aliveCapGanado(id) || !aliveCapRoom() || aliveCapKeep(no)) {
+        return 0;
+    }
+    if (aliveCapLive() < RE4DC_ALIVE_CAP) {
+        return 0;
+    }
+    for (k = 0; k < aliveCapN; k++) {
+        if (aliveCapHeld[k] == no) {
+            return 1;   // already held: still waiting
+        }
+    }
+    if (aliveCapN >= (int) sizeof(aliveCapHeld)) {
+        return 0;
+    }
+    aliveCapPush(no, 1);
+#if RE4DC_ALIVE_CAP_LOG
+    OSReport("alivecap: defer send 0x%02x room %03x (live %d held %d)\n", no, (unsigned) pG->room_id, aliveCapLive(),
+             aliveCapN);
+#endif
+    return 1;
+}
+#endif
+
 // Room start: creates every list entry that is alive (be_flag bit0), not yet set (bit1), not
 // recorded dead, belongs to the current stage / room, has an id and is not blocked by the debug
 // filter; copies the entry into the work, marks it set (bit1, toggling bits 2/3), computes the
@@ -169,6 +606,21 @@ int checkListId(int no)
 void EmSetFromList()
 {
     u32 i;
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+    int capLive = -1;
+    int k, n = 0;
+
+    for (k = 0; k < aliveCapN; k++) {   // keep this room's waiting entries (sends deferred by its init function)
+        if (aliveCapWaitingK(k)) {
+            aliveCapSent[n] = aliveCapSent[k];
+            aliveCapHeld[n++] = aliveCapHeld[k];
+        }
+    }
+    aliveCapN = n;
+    if (aliveCapRoom()) {
+        capLive = aliveCapLive();   // Ganados the room's init function already set
+    }
+#endif
 
     for (i = 0; i < 256; i++) {
         EmListData* d = EM_LIST(i);
@@ -200,6 +652,19 @@ void EmSetFromList()
         if (EM_SET_ID_NG(d->id)) {
             continue;
         }
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+        if (capLive >= 0 && aliveCapGanado(d->id)) {
+            if (capLive >= RE4DC_ALIVE_CAP && aliveCapN < (int) sizeof(aliveCapHeld)) {
+                aliveCapPush((int) i, 0);
+#if RE4DC_ALIVE_CAP_LOG
+                OSReport("alivecap: hold 0x%02x room %03x (live %d cap %d)\n", (int) i, (unsigned) pG->room_id,
+                         capLive, RE4DC_ALIVE_CAP);
+#endif
+                continue;
+            }
+            capLive++;
+        }
+#endif
         em = EmCreate(d->id);
         if (em == 0) {
             pLog->err(0, 0, "EmSetFromList() Em set failed, Id = %x", d->id);
@@ -216,6 +681,9 @@ void EmSetFromList()
         EmSetDist(em);
         em->l_sub = 1.0e16f;
         em->move();
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+        aliveCapNoteFresh(em, (int) i);
+#endif
     }
 }
 
@@ -249,6 +717,11 @@ cEm* EmSetFromList2(int no, int chkDead)
     if (checkListId(no) == 0) {
         return errEm;
     }
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+    if (re4dc_aliveCapDefer(no, d->id)) {
+        return errEm;
+    }
+#endif
     em = EmCreate(d->id);
     if (em == 0) {
         pLog->err(0, 0, "EmSetFromList2() Em set failed, Id = %x", d->id);
@@ -265,6 +738,9 @@ cEm* EmSetFromList2(int no, int chkDead)
     EmSetDist(em);
     em->l_sub = 1.0e16f;
     em->move();
+#if defined(RE4DC_ALIVE_CAP) && RE4DC_ALIVE_CAP
+    aliveCapNoteFresh(em, no);
+#endif
     return em;
 }
 

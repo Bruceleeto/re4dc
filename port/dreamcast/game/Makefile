@@ -131,6 +131,29 @@ $(error LAKE_ZBIAS must be 0 or a decimal between 0.9 and 1.1 (e.g. 1.001))
 endif
 $(OBJDIR)/platform/native_lake.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_ZBIAS=$(LAKE_ZBIAS)f
 endif
+# PS2_CH1_ENEMY=1 (lane alivecap 2026-10-15, user 10-15 "the PS2 logic holistically for enemy spawns in chapter 1, with
+#   our game cutting out more when it hits our threshold"; CHANGES GAMEPLAY by design; default 0 = off): one umbrella
+#   for every PS2 enemy-spawn rule of the stage 1 route (1-1 .. 2-1: r100-r10e, r117-r119, r11a, r11b; table in
+#   C:\Game Dev\Emulators\ALIVECAP-20261015.md) plus the cap on top. It forces PS2_ENEMY_RULES=1 (list start bits:
+#   r101 villagers, r103 animals, r107 fish + Ganados, r10a snakes; r101 waves < 5 / villagers < 9; r107 areas 6/7/8),
+#   ORs PS2_ENEMY_ROOMS with 0x33f (0x01 r100 trap, 0x02 r101 s21 / dog, 0x04 r104, 0x08 r108 bell rows, 0x10 r11a,
+#   0x20 r11b, 0x100 r101 area-15 trio, 0x200 r118 0x7D), sets ALIVE_CAP=6 when not given (r101 through
+#   R101_ALIVE_CAP, the same N) and ALIVE_CAP_PARK=1 (more than N alive anyway: the farthest off-screen Ganado is
+#   parked and re-queued, never deleted) and R101_CAP_WAVES=1 (r101's reset waves capped too). PS2 gates stricter than the cap (r101 waves < 5, r111 < 5, r113 / r118 < 6)
+#   stay as they are. Chapter 2-2 / 2-3 bits (0x40 r11c, 0x80 r11d) are not part of it.
+PS2_CH1_ENEMY ?= 0
+ifneq ($(PS2_CH1_ENEMY),0)
+ifneq ($(PS2_CH1_ENEMY),1)
+$(error PS2_CH1_ENEMY must be 0 or 1)
+endif
+override PS2_ENEMY_RULES := 1
+override PS2_ENEMY_ROOMS := $(shell printf '0x%x' $$(( $(or $(PS2_ENEMY_ROOMS),0) | 0x33f )))
+ifeq ($(or $(ALIVE_CAP),0),0)
+override ALIVE_CAP := 6
+endif
+override ALIVE_CAP_PARK := 1
+override R101_CAP_WAVES := 1
+endif
 # PS2_ENEMY_RULES=1 (test 9 lane PS2EN, default 0; changes gameplay by design): the PS2 USA enemy rules of the
 # chapter 1 rooms. Enemy list emleon00 gets the PS2 start-alive bits / flags (stage.cpp, at list read); r101 sends
 # its reset waves when fewer than 5 Ganados are alive (GameCube: after 5 / 10 kills) and holds two villagers back
@@ -154,12 +177,56 @@ endif
 #        areas (flags 64/65) while fewer than 9 are alive (the ROUTE_CH22 r11a code, now also in chapter 2-1)
 #   0x20 r11b: the shore ambush leaves 0x3E/0x3F for later (PS2 area 0x0B, fewer than 2 em22 alive); the 8 fish
 #        are drawn / moved only while Leon is in PS2 area 0x0A
+#   0x40 r11c (needs ROUTE_CH22; lane alivecap 2026-10-15): Luis' cabin as on the PS2 (st1_3.rel): 7 new em13 rows,
+#        HP +200, Character 2 -> 6; waves of 5 refilled below 5 alive, kill limit 40 / timer 9000 (easy 30 / 7200)
+#   0x80 r11d (needs ROUTE_CH23; lane alivecap 2026-10-15): the PS2 Bella-sisters village (6 start dead and come
+#        in by area / reinforcement, HP +200, set / Character as the PS2 list)
+#   0x100 r101 (needs 0x02): the square trio 0x22-0x24 is not sent at the fight start but from PS2 area 15 (rsf 6 set,
+#        7 / 8 clear, fewer than 7 alive; rsf 11, emNum + 3). Needs include/r101_ps2_area15.h (PS2 quad, pending)
+#   0x200 r118: 0x7D held at R118Init, sent once in the PS2 area (Room_flg[2] bit 31 there) while fewer than 6 are
+#        alive (rsf 2). Needs include/r118_ps2_area.h (PS2 quad, pending)
+# ROUTE_CH22 no longer applies the r100 / r104 / r11a rows itself (bits 0x01 / 0x04 / 0x10 own them).
+# include/em_far_delete.h: the shared PS2 EmFarDelete / EmFarDeleteNoWrap helper (header-only; r301 / r327 lanes).
 PS2_ENEMY_ROOMS ?= 0
 ifneq ($(PS2_ENEMY_ROOMS),0)
 ifneq ($(PS2_ENEMY_RULES),1)
 $(error PS2_ENEMY_ROOMS needs PS2_ENEMY_RULES=1)
 endif
 $(OBJDIR)/src/game/stage.o $(OBJDIR)/mod/st1_0/src/st1/r100.o $(OBJDIR)/mod/st1_1/src/st1/r101.o $(OBJDIR)/mod/st1_1/src/st1/r104.o $(OBJDIR)/mod/st1_1/src/st1/r108.o $(OBJDIR)/mod/st1_3/src/st1/r108.o $(OBJDIR)/mod/st1_2/src/st1/r11a.o $(OBJDIR)/mod/st1_2/src/st1/r11b.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_ROOMS=$(PS2_ENEMY_ROOMS)
+$(OBJDIR)/mod/st1_3/src/st1/r11c.o $(OBJDIR)/mod/st1_3/src/st1/r11d.o $(OBJDIR)/mod/st1_3/src/st1/r118.o: GAME_CPPFLAGS += -DRE4DC_PS2_ENEMY_ROOMS=$(PS2_ENEMY_ROOMS)
+$(OBJDIR)/platform/ps2_enemy_ch22.o $(OBJDIR)/platform/ps2_enemy_ch23.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_ENEMY_ROOMS=$(PS2_ENEMY_ROOMS)
+endif
+# ALIVE_CAP=N (lane alivecap 2026-10-15, user rule 10-15 "Ganados at 6"; CHANGES GAMEPLAY by design; default 0 = off):
+#   at most N Ganados (ids 0x10..0x20) alive at once in every room. Start-list Ganados beyond N are held at room entry
+#   (their list entry untouched) and come in one at a time, at least 30 frames apart, outside events / pauses, while
+#   fewer than N are alive, farthest from Leon first (em_set.cpp). SceCountEmAlive counts held ones as alive, so room
+#   scripts' alive tests, waves and kill counts read as uncapped; SceDestroyEm drops held ones of its range. Room-code
+#   sends are not deferred. r101: with PS2_ENEMY_ROOMS bit 0x02 the cap is R101_ALIVE_CAP=N (crowd12's r101 hold
+#   order, queued sends and villager rule; the generic hold stands aside there); without the bit the generic hold
+#   runs in r101 too. Setting R101_ALIVE_CAP to another value as well is an error.
+# ALIVE_CAP_LOG=1 (diagnostic, default 0): "alivecap:" lines (holds, releases, destroys).
+# ALIVE_CAP_PARK=1 (default 0; set by PS2_CH1_ENEMY): when more than N are alive anyway (sends kept for callers that
+#   use the returned enemy, event Ganados), the farthest off-screen unhurt Ganado in its plain AI routine is parked:
+#   destroyed and re-queued in the hold (list entry alive, not set), so it still counts as alive and comes back below
+#   the cap; no kill or death link. Not in rooms whose code holds pointers of its sends (r101 r104 r10a r10c r10f
+#   r11c r11d).
+ALIVE_CAP ?= 0
+ALIVE_CAP_LOG ?= 0
+ifneq ($(ALIVE_CAP),0)
+ALIVE_CAP_R101 := $(shell [ $$(( ($(PS2_ENEMY_ROOMS)) & 2 )) -ne 0 ] && echo 1 || echo 0)
+ifneq ($(filter-out 0 $(ALIVE_CAP),$(R101_ALIVE_CAP)),)
+$(error ALIVE_CAP=$(ALIVE_CAP) with R101_ALIVE_CAP=$(R101_ALIVE_CAP): set ALIVE_CAP only (it sets r101's cap too))
+endif
+ifeq ($(ALIVE_CAP_R101),1)
+R101_ALIVE_CAP := $(ALIVE_CAP)
+endif
+$(OBJDIR)/src/game/em_set.o $(OBJDIR)/src/game/sce_com.o $(OBJDIR)/src/game/sce_sys.o: GAME_CPPFLAGS += -DRE4DC_ALIVE_CAP=$(ALIVE_CAP) -DRE4DC_ALIVE_CAP_R101=$(ALIVE_CAP_R101) -DRE4DC_ALIVE_CAP_LOG=$(ALIVE_CAP_LOG)
+ifneq ($(or $(ALIVE_CAP_PARK),0),0)
+$(OBJDIR)/src/game/em_set.o: GAME_CPPFLAGS += -DRE4DC_ALIVE_CAP_PARK=1
+endif
+# Room modules that call the shared PS2 far delete (include/em_far_delete.h: r301 / r327) see the cap's held
+# entries (RE4DC_ALIVE_CAP_ON; only that header tests it).
+$(OBJDIR)/mod/%.o: GAME_CPPFLAGS += -DRE4DC_ALIVE_CAP_ON=1
 endif
 # R101_ALIVE_CAP=N (lane crowd12 2026-10-14; CHANGES GAMEPLAY by design; default 0 = off; needs PS2_ENEMY_ROOMS bit 0x02):
 #   at most N Ganados alive at once in the r101 village fight. Start-list Ganados beyond N are held at room entry
@@ -173,6 +240,12 @@ R101_ALIVE_CAP ?= 0
 R101_CAP_LOG ?= 0
 ifneq ($(R101_ALIVE_CAP)$(R101_CAP_LOG),00)
 $(OBJDIR)/mod/st1_1/src/st1/r101.o: GAME_CPPFLAGS += -DRE4DC_R101_ALIVE_CAP=$(R101_ALIVE_CAP) -DRE4DC_R101_CAP_LOG=$(R101_CAP_LOG)
+endif
+# R101_CAP_WAVES=1 (lane alivecap 2026-10-15, set by PS2_CH1_ENEMY; default 0; needs R101_ALIVE_CAP): the reset waves go
+#   through the cap as well (queued beyond it; the wave's emNum += 5 counts the ones sent, each queued one adds its 1
+#   when released), so r101 never has more than N alive (crowd12's cap left the waves: up to 9).
+ifneq ($(or $(R101_CAP_WAVES),0),0)
+$(OBJDIR)/mod/st1_1/src/st1/r101.o: GAME_CPPFLAGS += -DRE4DC_R101_CAP_WAVES=1
 endif
 # em27ObaHitCk scans enemy slots through the sparse backing (workAt) instead of raw slot math, which read an
 # unbacked slot's 0xFF filler as a NaN position and dragged the fish to NaN (r10b dock / boss collision storm).
