@@ -1,0 +1,22 @@
+# r101box (crowd12 2026-10-15, STATIC_OBJ_BAKE event still): box 0x43 at 4012,0,-14241, knife from +z
+name r101box
+room 0x101
+pos 4012 0 -13300
+ang 3.1416
+find 0x00002000
+dead 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1e
+dead 0x1f 0x22 0x23 0x24 0x28 0x29 0x2a 0x2b 0x2c 0x2e
+dead 0x2f 0x30 0x31 0x32 0x36 0x37 0x38 0x39 0x3a 0x3c
+dead 0x3d 0x3e 0x3f 0x40 0x41 0x42 0x43 0x44 0x45 0x46
+inv default
+god
+act 250 0x0040 15
+act 265 0x0140 6
+act 300 0x0040 15
+act 315 0x0140 6
+# bench-window 300 600
+# STATIC_OBJ_BAKE (crowd12 2026-10-15, test 13): the r101 PS2 world package with the 14 baked static objects (placements 209..222), settled capture on test 12 data
+# bench-replace dc/native/r101/ps2-world.re4mesh=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.re4mesh
+# bench-replace dc/native/r101/ps2-world.r4pw=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.r4pw
+# bench-replace dc/native/r101/ps2-world.r4sg=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.r4sg
+# bench-replace dc/native/r101/ps2-world.ids=/mnt/c/Game Dev/Emulators/re4-assets-private/crowd12-bake-20261015/r101-t13/ps2-world.ids

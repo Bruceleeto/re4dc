@@ -372,6 +372,9 @@ extern "C" void re4dc_sob_room_leave();                     // model_bridge.cpp 
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
 extern "C" void re4dc_disc_meter_room(int what, unsigned room);  // platform/dvd_read_safe.cpp
 #endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+extern "C" void re4dc_sob_bake_room_leave();                // model_bridge.cpp STATIC_OBJ_BAKE
+#endif
 extern "C" void re4dc_room_leave(){
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
     re4dc_disc_meter_room(0,unsigned(pG->room_id));   // the room-entry load time starts at the door
@@ -394,6 +397,9 @@ extern "C" void re4dc_room_leave(){
 #endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
     re4dc_sob_room_leave();                              // merged static-object lists (heap-4 cells)
+#endif
+#if defined(RE4DC_STATIC_OBJ_BAKE) && RE4DC_STATIC_OBJ_BAKE
+    re4dc_sob_bake_room_leave();                         // baked-object state and rest copies (heap-4 cells)
 #endif
     re4dc_ui_retire_room();
     re4dc_room4_close();
@@ -491,6 +497,13 @@ extern "C" int re4dc_room_cycle_poll(){
     ++room_frames;
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
     if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+#endif
+#if defined(RE4DC_KOS_TRACE) && RE4DC_KOS_TRACE
+    if(room_frames%RE4DC_KOS_TRACE==0){  // KOS_TRACE (crowd.mk, diagnostic): KOS malloc headroom through the room
+        unsigned kf=0,ku=0,kb=0;re4dc_kos_heap_state(&kf,&ku,&kb);
+        re4dc_log("kos trace: room=%03x frame=%u tick=%u kos_free=%u kos_break=%u sum=%u\n",unsigned(pG?pG->room_id:0),
+            room_frames,unsigned(pG?pG->Frame_cnt:0),kf,kb,kf+kb);
+    }
 #endif
 #if RE4DC_DBG_WARP
     re4dc_warp_poll();                                  // test warp rig: placement log, area dump

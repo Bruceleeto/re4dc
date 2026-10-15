@@ -3488,6 +3488,126 @@ const std::uint32_t* ps2_vertex_alpha_lut(){
 #if RE4DC_PS2_PASS_MASK==2
 unsigned ps2_mask_stats[2]; // =2: placement-pass decisions checked, mismatched
 #endif
+#if RE4DC_PS2_PLACE_GATE
+// PS2_PLACE_GATE (game30.mk; render only, default 0; lane objs 2026-10-15 for crowd12's STATIC_OBJ_BAKE): game objects
+// baked into the PS2 world package own their placements. An owned placement is drawn by the world only while its object
+// says so (re4dc_ps2_place_gate(room, placement, 1): the game asks to draw it AND its pose equals the baked one); with 0
+// the object's live draw runs and the world skips it. Ownership is registered at object setup
+// (re4dc_ps2_place_own, before the first render; the first call for another room drops the old set). The last call per
+// placement holds: gate(..., 0) clears it (an object that leaves the baked pose or is deleted calls 0). Once per ui frame,
+// at the first PS2 pass (before the scene's pass 0 is submitted, after every move of the tick), the registered prepare
+// callback runs (re4dc_ps2_place_prepare_fn: the baking lane decides all its objects there, calling own() / gate()),
+// then the requests are latched, so all passes of a frame agree. The callback is dropped at room exit
+// (re4dc_ps2_mesh_retire): register it again at each room setup.
+namespace gate {
+constexpr unsigned kMax=512,kWords=kMax/32;
+unsigned room=~0U,latched=~0U,owned_n=0,prep_room=~0U,skipped=0;
+void (*prep)(unsigned)=nullptr;
+std::uint32_t owned[kWords],want[kWords],cur[kWords];
+#if RE4DC_PS2_PLACE_GATE==2
+void diag(unsigned r);  // =2 (diagnostic, no caller needed): owns every 8th placement, toggles them every 64 frames
+#endif
+void begin(unsigned r){
+    const unsigned f=re4dc_ui_frame();
+    if(f==latched)return;
+    latched=f;
+#if RE4DC_PS2_PLACE_GATE==2
+    diag(r);
+#endif
+    if(prep && prep_room==r)prep(r);
+    for(unsigned w=0;w<kWords;++w)cur[w]=want[w];
+}
+void retire(){prep=nullptr;prep_room=~0U;room=~0U;owned_n=0;latched=~0U;
+    for(unsigned w=0;w<kWords;++w)owned[w]=want[w]=cur[w]=0;}
+inline bool skip(unsigned placement){
+    return placement<kMax && ((owned[placement>>5]>>(placement&31U))&1U) && !((cur[placement>>5]>>(placement&31U))&1U);
+}
+void set_room(unsigned r){
+    if(r==room)return;
+    room=r;owned_n=0;
+    for(unsigned w=0;w<kWords;++w)owned[w]=want[w]=cur[w]=0;
+}
+}
+extern "C" void re4dc_ps2_place_prepare_fn(unsigned room,void (*fn)(unsigned room)){gate::prep=fn;gate::prep_room=room;}
+extern "C" int re4dc_ui_texture_resident(unsigned crc,unsigned fnv);
+// 1 when room's package is open, has this placement and every part texture of its mesh is resident (tex.pak key,
+// lookup only); 0 otherwise. The baking lane owns a placement only once it is ready (call it at room setup, or from
+// the prepare callback until it says 1): a missing key then only ever means the object's live draw.
+extern "C" int re4dc_ps2_place_ready(unsigned room,unsigned placement){
+    if(!ps2w.storage || !ps2w.parts || ps2w.room!=room)return 0;
+    const auto& pk=ps2w.package;bool found=false;
+    for(unsigned i=0;i<ps2w.nplacements;++i){
+        const auto& pl=ps2w.placements[i];
+        if(pl.placement!=placement)continue;
+        found=true;
+        const auto& mesh=pk.meshes()[pl.mesh];
+        for(unsigned k=0;k<mesh.part_count;++k){
+            const auto& q=ps2w.parts[mesh.first_part+k];
+            if(!re4dc_ui_texture_resident(q.crc,q.fnv))return 0;
+        }
+    }
+    return found?1:0;
+}
+extern "C" void re4dc_ps2_place_own(unsigned room,unsigned placement){
+    gate::set_room(room);
+    if(placement>=gate::kMax){re4dc_log("PS2GATE room=%03x placement=%u out of range\n",room,placement);return;}
+    const std::uint32_t b=1U<<(placement&31U);
+    if(!(gate::owned[placement>>5]&b)){gate::owned[placement>>5]|=b;++gate::owned_n;}
+}
+extern "C" void re4dc_ps2_place_gate(unsigned room,unsigned placement,int draw_world){
+    if(room!=gate::room || placement>=gate::kMax)return;
+    const std::uint32_t b=1U<<(placement&31U);
+    if(draw_world)gate::want[placement>>5]|=b;else gate::want[placement>>5]&=~b;
+}
+#if RE4DC_PS2_PLACE_GATE==2
+void gate::diag(unsigned r){
+    const unsigned f=re4dc_ui_frame();
+    for(unsigned p=0;p<kMax;p+=8){re4dc_ps2_place_own(r,p);re4dc_ps2_place_gate(r,p,(f>>6)&1U);}
+    if(!(f%300U))re4dc_log("PS2GATE diag room=%03x frame=%u owned=%u state=%u skipped=%u ready0=%d ready8=%d\n",r,f,owned_n,
+                           (f>>6)&1U,skipped,re4dc_ps2_place_ready(r,0),re4dc_ps2_place_ready(r,8));
+}
+#endif
+#endif
+#if RE4DC_PS2_AREA_HIDE
+// PS2_AREA_HIDE (game30.mk; render only; lane objs 2026-10-15, PS2-ENEMY-CODE-DIFF-20261015 item 11): PS2 room code
+// that shows / hides scenery groups by area (SmdSetTrans; be_flag bit 1 = drawn), applied to the PS2 world placements
+// only: the game's objects, flags and logic are untouched. r107: PS2 st1_1.rel R107Main (0xf130) reads Room_flg[2]
+// bits 31 / 30, which the PS2-only AEV flag areas 9 (flag 64 = bit 31) and 10 / 11 (flag 65 = bit 30) set each frame
+// while the player is inside; r107.cpp tests the same quads (read only) and reports the bits (re4dc_ps2_area_flags):
+//   bit 31: groups 60 70 80 90 drawn, 50 100 hidden;  bit 30: 90 100 drawn, 50 60 70 80 hidden;
+//   neither: 50 60 drawn, 70 80 90 100 hidden.
+// Groups -> placements are baked from the package's ps2-world.ids (t11-20261014/blackgc/r107, R4PW crc 9081e7fd, 71
+// placements) and used only when the open package's sidecar crc matches. (r11f's re-show of groups 30 / 15 after its
+// barn event is r11f.cpp r11f_ps2Area9: game objects, not this table.)
+namespace area {
+struct Group { unsigned id; std::uint32_t mask[3]; };
+struct Room { unsigned room; std::uint32_t crc; unsigned placements; Group groups[6]; std::uint8_t shown[3]; };
+constexpr Room kRooms[]={{0x107,0x9081e7fdU,71,{
+    {50,{0x000003e0U,0,0}},{60,{0x00078000U,0,0}},{70,{0x07800000U,0,0}},
+    {80,{0,0x00000fc0U,0}},{90,{0,0x001e0000U,0}},{100,{0,0x0fc00000U,0}}},
+    {0x03,0x30,0x1e}}};  // shown groups (bit g = groups[g]) for flag state 0 neither, 1 bit 30, 2 bit 31
+const Room* cur=nullptr; std::uint32_t hidden[3]={0,0,0};
+unsigned state=~0U,flags_room=0,flags=0,skipped=0;
+void open(unsigned room,std::uint32_t crc,unsigned n){
+    cur=nullptr;state=~0U;hidden[0]=hidden[1]=hidden[2]=0;
+    for(const auto& r:kRooms)if(r.room==room){
+        if(r.crc==crc && r.placements==n)cur=&r;
+        re4dc_log("PS2AREA room=%03x package crc=%08x placements=%u %s\n",room,unsigned(crc),n,cur?"ok":"mismatch: off");
+    }
+}
+void update(){
+    if(!cur || flags_room!=cur->room)return;  // r107.cpp has not reported this visit yet: draw everything
+    const unsigned k=(flags&2U)?2U:(flags&1U)?1U:0U;
+    if(k==state)return;
+    state=k;hidden[0]=hidden[1]=hidden[2]=0;
+    for(unsigned g=0;g<6;++g)if(!((cur->shown[k]>>g)&1U))for(unsigned w=0;w<3;++w)hidden[w]|=cur->groups[g].mask[w];
+    re4dc_log("PS2AREA room=%03x state=%u hidden=%08x %08x %08x skipped=%u\n",cur->room,k,unsigned(hidden[0]),
+              unsigned(hidden[1]),unsigned(hidden[2]),skipped);
+}
+inline bool hide(unsigned placement){return placement<96U && ((hidden[placement>>5]>>(placement&31U))&1U);}
+}
+extern "C" void re4dc_ps2_area_flags(unsigned room,unsigned flags){area::flags_room=room;area::flags=flags;}
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC
 // PS2_WORLD_DYNAMIC (game30.mk; render only): the PS2 world package is baked at each SMD row's rest pose, so a
 // scenery object the room code moves, turns or hides (SmdGetObjPtr / SmdSetTrans: r105's emblem puzzle and door,
@@ -3700,6 +3820,9 @@ bool ps2_open(){
         return false;
     }
     ps2w.storage=s;ps2w.bytes=total;ps2w.nplacements=h.placements;
+#if RE4DC_PS2_AREA_HIDE
+    area::open(ps2w.room,h.crc,h.placements);
+#endif
 #if RE4DC_PS2_WORLD_R11F_OWNER
     r11fSidecarCrc=h.crc;
 #endif
@@ -3984,6 +4107,13 @@ int ps2_pass(unsigned pass,float zfar){
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
 #endif
     auto& c=ps2w.count[pass];c={};
+#if RE4DC_PS2_AREA_HIDE
+    area::update();
+#endif
+#if RE4DC_PS2_PLACE_GATE
+    gate::begin(ps2w.room);
+    const bool gated=gate::owned_n && gate::room==ps2w.room;
+#endif
 #if RE4DC_SKY_ANY
     re4dc_ps2_sky_header=0;
 #endif
@@ -4127,6 +4257,12 @@ int ps2_pass(unsigned pass,float zfar){
         if(masked && !((ps2w.pass_mask[i]>>pass)&1U))continue;
 #endif
         const auto& pl=ps2w.placements[i];const auto& mesh=pk.meshes()[pl.mesh];
+#if RE4DC_PS2_AREA_HIDE
+        if(area::cur && area::hide(pl.placement)){++area::skipped;continue;}
+#endif
+#if RE4DC_PS2_PLACE_GATE
+        if(gated && gate::skip(pl.placement)){++gate::skipped;continue;}
+#endif
 #if RE4DC_PS2_PASS_MASK
         if(!masked)
 #endif
@@ -4628,6 +4764,9 @@ extern "C" void re4dc_ps2_mesh_retire(){
 #if RE4DC_PS2_WORLD_SOURCE_OWNER
     if(sourceWorldPackageGeneration!=~0U)++sourceWorldPackageGeneration;
     sourceWorldSidecarCrc=0;
+#endif
+#if RE4DC_PS2_PLACE_GATE
+    gate::retire();
 #endif
     ps2w.package.close();
     if(ps2w.storage)re4dc_static_free(ps2w.storage);

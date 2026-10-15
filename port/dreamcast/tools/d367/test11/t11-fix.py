@@ -77,6 +77,8 @@ T11_DATA = 'r119c,em29,fbec,r100tr4,smx101,blackgc14p'  # test 11 recipe: GC bak
 # sg101 (lane objs 10-15): PS2_STRIP_GROUPS=1 data for r101 = ps2lib/world/r101-sg4 (tools/ps2_strip_groups.py --groups 4
 # of the test 11 r101 package f5592282: same size, strips re-ordered into spatial groups, every meshlet draws the same
 # triangles (sgcheck.py) + ps2-world.r4sg group records, mesh crc checked at open). Harmless with the knob off.
+# v3pak: crowd12 STACK v3 tex.pak (tex_merge.py of tex-t11.pak + fx12 ps2lib + vram12 world VQ, wrap-safe marked)
+DATA['v3pak'] = {'dc/tex.pak': '/root/probe/lanes-20261014/crowd12/data/tex-v3-ws.pak'}
 DATA['sg101'] = {'dc/native/r101/ps2-world.%s' % x: PRIV + '/ps2lib/world/r101-sg4/ps2-world.%s' % x for x in ('re4mesh', 'r4sg')}
 # PS2 room objects (lane objs, docs/lanes/objs.md; Phase 2 B1 extended, test 12 candidate, NOT in T11_DATA): room
 # archives st1/rNNN.dar whose room-code set pieces and etc models (boxes, barrels, doors, racks, ladders, ...) carry
