@@ -6,6 +6,8 @@
 # tag: test-e7640ba9-20261015
 # source: e7640ba9
 # recipe: port/dreamcast/tools/d367/test12/t12-build.sh
+# image-sha256: 11f9ec3de6b727507ce88f59604f914cda45f57b6b6ea83acfdad3aac60f8eae
+# assets-zip: RE4DC-Test12-e7640ba9-Build-Assets.zip
 LOGIC_TRACE=0
 GAME_DECISION_TRACE=0
 ACTOR_TRANSACTION_DIAG=0
