@@ -16,8 +16,8 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
 | 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 | Fixed and checked in our tests; the problem was not console-only | 8 |
 | 🛠️ In progress | Being fixed now | 1 |
-| 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 16 |
+| 🔍 Investigating | Being reproduced or traced | 5 |
+| ⏸️ Open | Known, not yet worked on | 15 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -32,7 +32,8 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | After loading a save and resetting, the first room starts with less free memory (no crash seen) | test 9 | ⏸️ Open, being traced | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | The intro stops on `MISSING motion key read` (one disc read came back incomplete) | test 7 | 🟢 Fixed, needs console check: since test 8 the read is retried up to 3 times | [#25](https://github.com/lamb2k/re4dc/issues/25) |
 | Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
-| Black screen when started from DreamShell with an IDE mod | test 9 | ⏸️ Open: not tested yet; we test GDEMU and Flycast only | [#28](https://github.com/lamb2k/re4dc/issues/28) |
+| Black screen when started from DreamShell with an IDE mod | test 9, 10 | 🔍 Investigating: DreamShell's loader handles the game's fast "streaming" disc reads differently, so some reads come back wrong. A second test disc that uses plain disc reads and shows on screen what it is doing is being prepared | [#28](https://github.com/lamb2k/re4dc/issues/28) |
+| Freezes or crashes on some GDEMU units while other games work, often while a room loads; one freeze at the SEGA screen | test 7, 8 and later | 🔍 Investigating: the game reads the disc with a fast "streaming" mode that some drive emulators and older firmware handle differently. We are testing plain disc reads instead. Meanwhile: start the game from openMenu or GDMenu, and if your SD card tool has a "Shrink GDI" option, leave it off (a tester fixed a freeze at the SEGA screen this way). When you report, please tell us whether your GDEMU is an original or a clone, the firmware version shown in its menu, and your SD card's brand and size | [#17](https://github.com/lamb2k/re4dc/issues/17), [#24](https://github.com/lamb2k/re4dc/issues/24), [#25](https://github.com/lamb2k/re4dc/issues/25), [#27](https://github.com/lamb2k/re4dc/issues/27) |
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
 | The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie. Planned for test 13 | |
