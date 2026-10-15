@@ -145,9 +145,9 @@ MODELLED for ~37.6k in-frustum level-0 vertices, so a cut share s is worth about
 This overstates: the occluded clusters are the far ones, drawn at coarser LOD levels.
 - cell PVS (7-12%): ~1.0-1.8 ms MODELLED, ~1.3-2.2 corrected, at most. r103 farm: ~0 (its occludable world is
   dynamic placements, which a static set must keep).
-- per-view ceiling (48-50%): ~7 ms MODELLED, ~9 corrected, only with a runtime occlusion test that is itself cheap
-  (e.g. a few large occluders per room - house boxes - tested against cluster boxes per frame, like the r100 interior
-  portals); not built.
+- per-view ceiling (48-50%): this figure is WRONG as a ceiling (corrected below, "OCCLUDER_CULL"): it counts cluster
+  instances whose box meets the frustum but whose triangles are off screen, which the strip-group selection already
+  drops. What a box test against even a perfect depth buffer can cut is 6.2% (cross) / 13.5% (farm).
 
 Runtime (built, default 0, in the tree): PS2_PVS=1 (t2exact.mk) reads /cd/dc/native/rXXX/ps2-world.pvs, finds the
 camera's cell once per frame and skips clusters (and whole placements) whose bit is clear. Runtime toggle
@@ -170,7 +170,34 @@ cell mm, nx, nz) of 8-byte cells {u16 set (0xffff none), i16 ylo, yhi decimetres
 
 Verdict: the r101 cell PVS is worth ~1-2 ms MODELLED at most (under or near the coordinator's ~1 ms bar once LOD is
 counted), r103 ~0. Stopped here for the coordinator's decision (10-15: "if under ~1 ms at the cross, tell me before
-building more"). The per-view ceiling (~7 ms MODELLED) points at runtime occluder tests instead.
+building more"). Coordinator 10-15: cell PVS DROPPED (the PS2_PVS runtime stays in the tree, default 0; its "pvs 2"
+camera-log mode is the useful part).
+
+## OCCLUDER_CULL: runtime occluder test (funded 10-15 on the 48-50% ceiling; NOT built, ceiling re-measured)
+
+Offline extraction (tools/d367/ps2world/pvs/occ_build.py build): conservative planar rectangles from the package's
+static opaque triangles (50 mm coverage raster, eroded one cell, shrunk by cell + LOD error + 30 mm, plane pushed behind
+its triangles). r101: 1,146 rectangles (73 KB; ~100 kept = ~6 KB); r103: 13 (the farm's buildings are dynamic
+placements, which never occlude). Simulated runtime on the logged cameras (frames 500..799; 56 cross, 35 farm), cluster
+level, against the 25 m cull and frustum the game already applies:
+
+| test | r101 cross: in-frustum verts culled | r103 farm |
+|---|---|---|
+| 5-plane frusta of the 16 largest on-screen rectangles (the funded design) | 0.0% | 0.0% |
+| all rectangles fused into a 640 x 480 depth raster (hi-Z; far beyond the design) | 0.0% (0.7% at meshlet level) | 0.0% |
+| cluster box vs the TRUE depth buffer of all geometry (no occluder can do better) | 6.2% | 13.5% (dynamic placements counted as occluders) |
+| triangles never seen by a pixel (not reachable by any box test) | 61.9% of 7,339 in the view volume | 70.9% of 8,565 |
+
+Why: the clusters are large (vertex-weighted median extent 13.8 m) and 9.8k in-frustum vertices a frame belong to
+clusters that straddle the near plane; one visible pixel keeps a whole cluster. The flat walls that qualify as exact
+occluders cover ~15% of the screen and are not in front of whole clusters. Of the never-seen triangles at the cross,
+3,391 a frame are back faces (the PVR culls them; the CPU still transforms them), 1,148 front faces of 4 px or more are
+truly hidden, 793 are under 4 px (pixel sampling).
+
+ms: 6.2% x ~15 ms = ~0.9 ms MODELLED at the cross for a PERFECT occluder (unbuildable); the funded design measures 0.
+Verdict: NOT BUILT (the coordinator's rule: under ~1 ms at the cross, report first). What could pay instead is finer
+granularity (strip groups / meshlets culled by a cheap test, or smaller clusters offline), which is the world LOD /
+cluster layout lane's ground, not an occluder test.
 
 ## B6: read-side prefetch
 
@@ -194,7 +221,8 @@ Finding (MODELLED per-instruction profile, pcprof.py): both streams the backlog 
   fetches each such line from RAM before the store. MOVCA.L (allocate without the fetch) would remove those fills, an
   estimated 0.3-0.4 ms CONSOLE. It needs the whole 32-byte entry written, starting with the MOVCA store, inside the
   scheduled assembly kernel (mesh_fastpath_sched.hpp writes 24 of the 32 bytes). Per the optimization rule that needs a
-  console A/B, plus a reason why a layout change is not enough, before anyone builds it.
+  console A/B, plus a reason why a layout change is not enough, before anyone builds it. 10-15: now owned by the sh4zam
+  lane (knob SKIN_MOVCA); not a t2exact follow-up any more.
 
 ## B5: I-cache code size (HOT_COLD_SPLIT)
 
@@ -219,4 +247,7 @@ Image b5drW (committed knob) = b5crW (measured) objcopy image 24960240. Knob-off
 Not done yet: STRICT (it changes block order in logic code too: needs the trace pair), align / KOS gates, and the
 console bench disc (bench/definitive 702d82ef via t14/bench aa7554d6 + this knob, Part 1 fixtures, same-tree control;
 branch lane/t2exact-bench, worktree /root/probe/lanes-20261015/t2exact/bench, no commits yet).
-Finding for A6 / B5: layout alone moves the cross by up to +2.5 ms MODELLED (B4's code growth), more than this lever.
+LAYOUT WARNING (for every lane): layout alone moves the cross by up to +2.5 ms MODELLED (B4's code growth; the sh4zam
+lane saw +2.2 ms from moving _end by ~700 B with IMAGE_PAD_BYTES=704, knob off), more than this lever and most exact
+levers. A lever's MODELLED gain is only real when it beats a layout control, and the console prices D misses ~2.5x the
+model. See "Layout sweep" below.

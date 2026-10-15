@@ -9,7 +9,8 @@ parts in order, each part's clusters in order: native_static.cpp pvs::open count
 This instance numbering is the PVS's (and lane worldlod's) cluster id format: docs/lanes/t2exact.md "PVS format".
 
 Writes into <work dir>:
-  inst.tsv   inst placement placement_field part cluster pass cull dyn lo_x lo_y lo_z hi_x hi_y hi_z verts0 tris0
+  inst.tsv   inst placement placement_field part cluster pass cull dyn lo_x lo_y lo_z hi_x hi_y hi_z verts0 tris0 maxerr
+             m0..m11 (world-from-grid 3x4) g0x..g1z (the cluster's grid box)
   tris.bin   u32 N, N x {float a[3], b[3], c[3]; u32 inst; u32 flags}  level-0 triangles in world mm;
              flags bit 0 = occluder (opaque pass 0 of a static placement), bit 1 = two-sided (part cull 0)
   meta.json  package crcs / sizes, counts, world box
@@ -72,8 +73,11 @@ def main():
                 if len(t):
                     tris.append((t.astype(np.float32), inst, flags))
                     lo_all = np.minimum(lo_all, t.reshape(-1, 3).min(0)); hi_all = np.maximum(hi_all, t.reshape(-1, 3).max(0))
+                maxerr = max(p.levels[cl['first_level'] + l][2] for l in range(cl['level_count']))
                 rows.append([inst, pi, pl['placement'], part, c, meta['pass_'], meta['cull'], int(dyn)] +
-                            [round(float(x), 1) for x in lo] + [round(float(x), 1) for x in hi] + [nv, len(t)])
+                            [round(float(x), 1) for x in lo] + [round(float(x), 1) for x in hi] +
+                            [nv, len(t), round(float(maxerr), 2)] + ['%.9g' % x for x in M.reshape(-1)] +
+                            list(cl['bmin']) + list(cl['bmax']))
                 inst += 1
     n = sum(len(t) for t, _, _ in tris)
     rec = np.zeros(n, dtype=[('v', '<f4', (9,)), ('inst', '<u4'), ('flags', '<u4')])
@@ -84,7 +88,8 @@ def main():
     with open(work / 'tris.bin', 'wb') as f:
         f.write(struct.pack('<I', n)); f.write(rec.tobytes())
     with open(work / 'inst.tsv', 'w') as f:
-        f.write('inst\tplacement\tfield\tpart\tcluster\tpass\tcull\tdyn\tlo_x\tlo_y\tlo_z\thi_x\thi_y\thi_z\tverts0\ttris0\n')
+        f.write('inst\tplacement\tfield\tpart\tcluster\tpass\tcull\tdyn\tlo_x\tlo_y\tlo_z\thi_x\thi_y\thi_z\tverts0\ttris0\tmaxerr\t' + '\t'.join('m%d' % i for i in range(12)) +
+                '\tg0x\tg0y\tg0z\tg1x\tg1y\tg1z\n')
         for r in rows:
             f.write('\t'.join(str(x) for x in r) + '\n')
     meta = dict(room=room, mesh_crc=p.mesh_crc, mesh_bytes=p.mesh_bytes, sidecar_crc=p.sidecar_crc,

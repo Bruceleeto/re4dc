@@ -83,7 +83,7 @@ static inline float hit(const Tri& t, const float o[3], const float d[3]) {
     float tt = (t.e2[0] * q[0] + t.e2[1] * q[1] + t.e2[2] * q[2]) * inv;
     return tt > 1.0f ? tt : -1; // 1 mm: not the eye's own surface
 }
-struct Hit { float t; uint32_t inst; };
+struct Hit { float t; uint32_t inst, tri; };
 // One ray: nearest blocking occluder distance; every hit before it (any triangle) is collected.
 static float trace(const float o[3], const float d[3], float tmax, std::vector<Hit>& hits, float tmin = 0) {
     float inv[3]; for (int a = 0; a < 3; ++a) inv[a] = 1.0f / (std::fabs(d[a]) > 1e-12f ? d[a] : (d[a] < 0 ? -1e-12f : 1e-12f));
@@ -97,7 +97,7 @@ static float trace(const float o[3], const float d[3], float tmax, std::vector<H
                 const Tri& t = T[order[i]];
                 float th = hit(t, o, d);
                 if (th < tmin || th >= tmax) continue;
-                hits.push_back({th, t.inst});
+                hits.push_back({th, t.inst, order[i]});
                 if (t.flags & 1) { // occluder: blocks if two-sided or facing the eye
                     float dn = d[0] * t.n[0] + d[1] * t.n[1] + d[2] * t.n[2];
                     if ((t.flags & 2) || dn < 0) tmax = th;
@@ -194,6 +194,9 @@ int main(int argc, char** argv) {
           while (fgets(line, sizeof line, bf)) { float v[16]; int i = 0; char* q = line; for (; i < 16; ++i) { v[i] = strtof(q, &q); }
             uint32_t id = uint32_t(v[0]); if (id < ninst) for (int a = 0; a < 6; ++a) box[id][a] = v[8 + a]; } fclose(bf); }
         std::vector<uint8_t> out(cams.size() * 2 * nb, 0);
+        std::vector<uint32_t> pxc(cams.size() * size_t(ninst), 0); // pixels each instance shows in (ceilpx.bin)
+        const size_t tb = (T.size() + 7) / 8; std::vector<uint8_t> tvis(cams.size() * tb, 0); // triangles seen (ceilt.bin)
+        std::vector<float> zbuf(cams.size() * size_t(Wd) * Ht, 0); // view depth of the first blocking occluder (ceilz.bin; 0 = none)
         #pragma omp parallel for schedule(dynamic, 1)
         for (long ci = 0; ci < (long)cams.size(); ++ci) {
             const float* v = cams[ci].data(); const float* P = v + 12; const float cfar = v[19];
@@ -227,9 +230,16 @@ int main(int argc, char** argv) {
                 const float len = std::sqrt(dw[0] * dw[0] + dw[1] * dw[1] + dw[2] * dw[2]);
                 for (int r = 0; r < 3; ++r) dw[r] /= len;
                 const float tm = trace(eye, dw, cfar * len, hits, nearp * len);
-                for (const Hit& h : hits) if (h.t <= tm) vis[h.inst >> 3] |= uint8_t(1u << (h.inst & 7));
+                zbuf[(ci * size_t(Ht) + py) * Wd + px] = tm < cfar * len ? tm / len : 0.0f;
+                uint32_t* pc = &pxc[ci * size_t(ninst)]; uint32_t last = ~0u;
+                std::sort(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.inst < y.inst; });
+                for (const Hit& h : hits) if (h.t <= tm) tvis[ci * tb + (h.tri >> 3)] |= uint8_t(1u << (h.tri & 7));
+                for (const Hit& h : hits) if (h.t <= tm) { vis[h.inst >> 3] |= uint8_t(1u << (h.inst & 7)); if (h.inst != last) { ++pc[h.inst]; last = h.inst; } }
             }
         }
+        { FILE* q = fopen((W + "/ceilpx.bin").c_str(), "wb"); fwrite(pxc.data(), 4, pxc.size(), q); fclose(q); }
+        { FILE* q = fopen((W + "/ceilt.bin").c_str(), "wb"); fwrite(tvis.data(), 1, tvis.size(), q); fclose(q); }
+        { FILE* q = fopen((W + "/ceilz.bin").c_str(), "wb"); fwrite(zbuf.data(), 4, zbuf.size(), q); fclose(q); }
         FILE* o = fopen((W + "/ceil.bin").c_str(), "wb"); uint32_t m32 = cams.size(); fwrite(&m32, 4, 1, o); fwrite(&ninst, 4, 1, o);
         fwrite(out.data(), 1, out.size(), o); fclose(o);
         fprintf(stderr, "ceil: %zu cameras, %dx%d rays each\n", cams.size(), Wd, Ht);
