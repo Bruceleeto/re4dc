@@ -452,16 +452,16 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
         }
 #endif
 #if RE4DC_ACTOR_MATERIAL_RECORD
-        out.role=k;const auto* row=diagnostic?find(p->appearance,k):rec?&RE4DC_ROLE(rec->row[k]):
-                                   actor_current_role(m,p->info[k],p->appearance,k);
+        out.role=k;const auto* row=diagnostic?find(p->appearance,RE4DC_PLAN_ROLE(p,k)):rec?&RE4DC_ROLE(rec->row[k]):
+                                   actor_current_role(m,p->info[k],p->appearance,RE4DC_PLAN_ROLE(p,k));
 #else
-        out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
+        out.role=k;const auto* row=diagnostic?find(p->appearance,RE4DC_PLAN_ROLE(p,k)):actor_current_role(m,p->info[k],p->appearance,RE4DC_PLAN_ROLE(p,k));
 #endif
         if(!row){out.error=Error::MissingRole;return out;}
 #if RE4DC_ACTOR_PROOF_LEAN == 2
         if(!diagnostic) {
             ++actor_lean_c.owner;
-            if(!re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,k,RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
+            if(!re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,RE4DC_PLAN_ROLE(p,k),RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
                 ++actor_lean_c.owner_bad;out.error=Error::MissingOwnerProof;return out;
             }
         }
@@ -487,9 +487,9 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
             continue;
         }
 #endif
-        out.role=k;const auto* row=diagnostic?find(p->appearance,k):actor_current_role(m,p->info[k],p->appearance,k);
+        out.role=k;const auto* row=diagnostic?find(p->appearance,RE4DC_PLAN_ROLE(p,k)):actor_current_role(m,p->info[k],p->appearance,RE4DC_PLAN_ROLE(p,k));
         if(!row){out.error=Error::MissingRole;return out;}
-        if(!diagnostic && !re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,k,RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
+        if(!diagnostic && !re4dc_actor_material_owner_proof(m,p->info[k],p->appearance,RE4DC_PLAN_ROLE(p,k),RE4DC_ACTOR_MATERIAL_RECORD_REVISION)) {
             out.error=Error::MissingOwnerProof;return out;
         }
         out.error=info(p->info[k],*row,out,diagnostic);if(out.error!=Error::None)return out;
@@ -588,6 +588,11 @@ Result compare(cModel* m,const Re4dcActorPlan* p,bool diagnostic) {
     // source-path limitation only; target visual acceptance remains separate.
     if(registry && m->id==0x35)implemented|=Bump;
 #endif
+#endif
+#if RE4DC_NMR_POOL && RE4DC_NMR_DROP_BUMP
+    // NATIVE_MODEL_REGISTRY_POOL: a pool plan's source bump setup (the zealot accessory 0x213) reaches the same GX stubs
+    // as Del Lago's (model_registry.py source_drops "bump").
+    if(registry && p->pool)implemented|=Bump;
 #endif
 #if RE4DC_NMR_CROW
     // PS2_CROW (Phase 2 A3, user decision 2026-10-11): a registry crow (em23, 0x23) draws no bump stage (as the source

@@ -378,6 +378,38 @@ $(error PS2_CAST_BOAT=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_BOAT=1
 endif
+# NATIVE_MODEL_REGISTRY_POOL=1 (lane ps2cast 2026-10-15; default 0; render only): pool descriptors. A Ganado-class actor
+#              whose source infos vary per spawn (em10SetAccesory hoods / caps / accessories by cEm::flag, em10HandSet
+#              grip poses, the stage-3 soldiers' heads) has one package descriptor whose sections are a POOL of source BIN +
+#              TPL identities (package descriptor word 44 bit 24; one role row and one chunk per pool section, up to 48):
+#              the body, every head, every hand pose, every accessory the source can attach. The actor is admitted when
+#              each of its 1..8 source infos proves exactly one current pool row of that appearance
+#              (actor_lifetime.inc re4dc_actor_pool_bindings: the per-info proof of re4dc_actor_role_bindings), no two
+#              infos the same row and the first info, and only it, the body (section 0); its plan keeps source info order
+#              and names each role's pool section (Re4dcActorPlan::pool / section, in every object), and the certificate,
+#              the palette build and the run checks read the chunk and role row of that section
+#              (coarse_actor_owner_registry.inc registry_plan_shape, coarse_actor_material.inc RE4DC_PLAN_ROLE). Nothing
+#              lists combinations: an accessory or hand the pool lacks declines the actor to the whole source path, as
+#              before. Capacities with the pool: 128 role bits (66 room rows; needs the wide identity), 64 chunks / geometries,
+#              48 source BIN models, 64 texture facts, 160 part facts per package. A package with a pool descriptor is
+#              refused (whole package, every actor keeps its source path) by an image without the knob: stage pool
+#              packages only with it. Needs NATIVE_MODEL_REGISTRY_PACK=1.
+NATIVE_MODEL_REGISTRY_POOL ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_POOL),0 1),)
+$(error NATIVE_MODEL_REGISTRY_POOL must be 0 or 1)
+endif
+ifeq ($(NATIVE_MODEL_REGISTRY_POOL),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error NATIVE_MODEL_REGISTRY_POOL=1 needs NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_NMR_POOL=1
+PLATFORM_CPPFLAGS += -DRE4DC_NMR_POOL=1
+# Pool sections with a source bump stage (bump-only texture rows keyed 0-0, the drop rule) and up to three mask pairs
+# beside the atlas.
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_DROP_BUMP=1
+GAME_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
+endif
 # PS2_ASHLEY=1|2 (lane ps2cast 2026-10-14; default 0; render only): Ashley (pl11, the partner pSUB, model id 3; r117
 #              first) through the registry owner path with her PS2 mesh (tools/ps2_ashley.py: PS2 geometry / UVs / weights,
 #              the PS2 cloth influences moved onto the GC cloth links the source solver already moves - no second solver,

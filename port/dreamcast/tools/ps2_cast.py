@@ -180,6 +180,20 @@ PRESETS = {
     'zealot-em11-07': dict(archive='em11', sections=[(0x1fc, 'body'), (0x1fe, 'head'), (0x204, 'right-hand'), (0x208, 'left-hand')],
                            tpl=0x1fd, section_tpls={0x1fe: 0x201}, rooms=['r117'], types=[7], category='registry',
                            model_id=0x11, lit=True, subset_bones=True),
+    # NATIVE_MODEL_REGISTRY_POOL (lane ps2cast 2026-10-15): the type 7 zealot's whole section pool, so every spawn's
+    # source infos bind (em10ModelInit order: body, em10HeadSet head mot[2] / hit heads mot[3] / mot[4] with TPL mot[5];
+    # em10HandSet right mot[6..9] and left mot[11..15], TPL mot[0]; em10SetAccesory hoods mot[26] / mot[27] with TPL
+    # mot[0] and accessories mot[28..39] in BIN / TPL pairs). Not listed: the subArc TPL 0x220 accessory and the
+    # Wep_type 12 subArc hand (the actor then keeps its source path).
+    'zealot-em11-07p': dict(archive='em11', sections=[
+        (0x1fc, 'body'), (0x1fe, 'head'), (0x1ff, 'head-hit'), (0x200, 'head-hit2'),
+        (0x204, 'right-hand'), (0x205, 'right-open'), (0x206, 'right-point'), (0x207, 'right-grip'),
+        (0x208, 'left-hand'), (0x209, 'left-open'), (0x20a, 'left-point'), (0x20b, 'left-grip'), (0x20c, 'left-grip2'),
+        (0x202, 'hood'), (0x203, 'hood-up'),
+        (0x20d, 'acc0'), (0x20f, 'acc1'), (0x211, 'acc2'), (0x213, 'acc3'), (0x215, 'acc4'), (0x217, 'acc5')],
+        tpl=0x1fd, section_tpls={0x1fe: 0x201, 0x1ff: 0x201, 0x200: 0x201, 0x20d: 0x20e, 0x20f: 0x210, 0x211: 0x212,
+                                 0x213: 0x214, 0x215: 0x216, 0x217: 0x218},
+        rooms=['r117'], types=[7], category='registry', model_id=0x11, lit=True, subset_bones=True),
 }
 
 
