@@ -154,7 +154,7 @@ a View-far run each (FOG_FAR=1000000 FOG_FAR_CAP=1 logs cull_far per pass) or a 
 | (b) placement bake + (d) repeated per-frame work | group_visible 1.39 + concat 0.45 + dyn_source 0.21 are the repeated parts | yes, PS2_WORLD_LEAN=23 | 15.90 / 71.94 (hy23): -0.2 world, total within noise |
 | (c) cell PVS | at the bench view a per-view z-buffer hides 4-8 % of vertices at cluster / meshlet level, 0.1 % at placement level: <= 0.3-0.6 ms ideal, less from a cell; r101 heap free ~1.05 MB at the bench | no (not worth it for test 12) | - |
 | MESH_CLASSIFY=1 (existing) | - | arm owc | 22.30 / 78.53: rejected (classified meshlets take the unscheduled transform and the old walk; MeshDraw::draw 6.43) |
-| Morton strip order before meshlet chunking | -0.3..-0.5 (coordinator estimate); strip groups already sort strips spatially inside each meshlet, so what is left is meshlet-box tightness | not started | - |
+| Morton strip order before meshlet chunking | worldlean/morton.py (lane/objs-w) at the bench eye: re-chunking each cluster's level-0 strips in Z-order (same per-cluster meshlet limits; 588 -> 590 meshlets in view, corners 31,574 -> 31,476): without groups model 7.15 -> 6.61 (-0.54, the coordinator's -0.3..-0.5); on top of strip groups 5.29 -> 4.98 (-0.31 model, ~-0.25 hw by the (e) model-to-hw ratio) | not built: needs a re-meshleted r101 package + new r4sg + re-gate for ~0.25 ms; left for a decision | - |
 
 ### Knobs (lane/objs-w, all render only, default 0, game30.mk; knob-off image identical to c12V3htW de566ad4...)
 
@@ -193,6 +193,10 @@ a View-far run each (FOG_FAR=1000000 FOG_FAR_CAP=1 logs cull_far per pass) or a 
   rig; identical knob off: not from these knobs).
 - Image growth knob on ~6.5 KB (end 8c414dfc -> 8c41675c): heap 4 couples to image size (s30 gate above holds).
 - Flycast bench (emulator wall, not hw): ow0 19.16 fps 52.2 ms; ob31s 19.58 / 51.1; od31s 19.52 / 51.2.
+
+sg101 is derived from the r101 package the test 11 / V3 discs stage (re4mesh f5592282, r4pw 300a346f; checked in the
+bench payload manifests). If a recipe stages a different r101 package, regenerate r101-sg4 from it (ps2_strip_groups.py
++ sgcheck.py): the data set replaces the re4mesh, and the runtime refuses a stale r4sg only by its mesh crc.
 
 Recommended test 12 recipe additions: `PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1` + data `sg101`. Modelled
 r101 bench: total 71.83 -> 70.85 (-1.0 ms), world submit 16.13 -> 15.08. The 50 ms gate stays ~21 ms away; the rest is
