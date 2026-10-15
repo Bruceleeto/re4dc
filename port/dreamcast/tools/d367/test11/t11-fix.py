@@ -247,7 +247,9 @@ DATA['ashley13'] = {'dc/native/r117/registry.re4nmr': ASHLEY + '/r117/ashley-pl1
 BAKE13 = PRIV + '/crowd12-bake-20261015/r101-t13'
 DATA['bake13'] = {'dc/native/r101/ps2-world.%s' % x: '%s/ps2-world.%s' % (BAKE13, x) for x in ('re4mesh', 'r4pw', 'r4sg', 'ids')}
 T13D = os.environ.get('T13D', '/root/probe/lanes-20261015/t13rc/data')
-DATA['t13tex'] = {'dc/tex.pak': T13D + '/tex-t13.pak'}
+# RC round 3 (10-15): tex-t13v.pak = tex-t13.pak (2ba86e68) + Ashley's 9 pl11 pictures as VQ (test13/vq16-ashley13.txt;
+# r117 entry preload refused an effect picture with them 16-bit). t13-texpak.sh builds both.
+DATA['t13tex'] = {'dc/tex.pak': T13D + '/tex-t13v.pak'}
 CLASH += [('objs13d', 'objs13'), ('t13tex', 'leonhr')]
 # order: objs13d after items12 (its dars replace the test 12 ones), bake13 after sg101 / smx101, t13tex after t121tex
 T13_DATA = T121_DATA + ',objs13d,ashley13,bake13,t13tex'
