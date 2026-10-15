@@ -121,6 +121,17 @@ MERCHANT = PRIV + '/ps2lib/cast/r102/merchant-em18'
 DATA['merchant'] = {k: MERCHANT + '/' + k for k in ('dc/native/r102/registry.re4nmr', 'em/em18.drs')}
 CLASH += [('t12tex', o) for o in ('blackgc14p', 'blackgc14', 'blackgc', 'blackps2', 'leonhr', 'blackgc14v', 'blackgc14vl')]
 T12_DATA = 'r119c,em29,fbec,r100tr4,smx101,sg101,t12tex,objs12,merchant'
+# PS2 Ganado accessories (test 12 item, lane ps2cast 2026-10-15; tools/d367/ps2cast/ps2_accessories.py): the village
+# Ganados' cObj12 caps / hats / glasses (em15 ARC 0x25F..0x269, em10SetAccesory) with the PS2 geometry and the PS2
+# pictures (8 dc/tex packages, loose here; a release puts them in tex.pak). em15.drs keeps its size and every other
+# byte outside ARC 0x25F..0x268 (the span is re-laid out in place; 2 NTR rows rebased). Disc data only; NOT in T11_DATA.
+DATA['acc12'] = {'em/em15.drs': PRIV + '/ps2lib/cast/common/acc12/em15.drs',
+                 'tex': PRIV + '/ps2lib/cast/common/acc12/tex'}
+# acc12all: the same conversion in every Ganado archive that carries these entries (byte-identical GC and PS2 entries):
+# em12 (r100, r11a), em13 (r104), em15 (r101), em17 (r108; no ARC 0x262..0x264).
+DATA['acc12all'] = dict(DATA['acc12'], **{'em/%s.drs' % n: PRIV + '/ps2lib/cast/common/acc12/%s.drs' % n
+                                          for n in ('em12', 'em13', 'em17')})
+CLASH += [('acc12', 'acc12all')]
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
