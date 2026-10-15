@@ -20,7 +20,7 @@
 set -euo pipefail
 D=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${OUT:-/root/probe/lanes-20261014/t12rc/data}
-NAME=${NAME:-tex-t12d}
+NAME=${T12_PAK_NAME:-tex-t12d}  # not $NAME: WSL sets NAME to the host name
 BASE=/root/probe/lanes-20261014/t11/data/tex-t11.pak
 FX=${FX:-/root/probe/lanes-20261014/vram12/data/tex-t11-ps2lib-d5.pak}
 VR=${VR:-/root/probe/lanes-20261014/vram12/data/tex-vr12-d5.pak}
