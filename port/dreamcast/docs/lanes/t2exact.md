@@ -363,3 +363,45 @@ elsewhere roomproj.py's samples (door arrivals + ESL enemy sets, Leon's over-the
   do not change). About a day for the 16 rooms with gates, mostly the heap 4 proofs.
 - Evidence: C:\Flycast-Evidence\re4-dreamcast\t2exact-20261015\sgprice (per-room result.json + views.json, table.json);
   drivers /root/probe/lanes-20261015/t2exact/s/sgrooms.py + sgtable.py.
+
+## Job 2: SG_SELECT_LEAN (built; exact; below the bar on the layout-independent part; default 0, POC toggle)
+
+What it is (t2exact.mk SG_SELECT_LEAN=1, needs PS2_STRIP_GROUPS=1; render only): lean::sg_select_lean, sg_coef_lean and
+box_mask_lean in native_static.cpp. They give the same answers bit for bit as sg_select / sg_coef / box_mask:
+- Each plane keeps one term per axis (P = max(n, 0) or Q = min(n, 0)). A +0 term leaves the knob-off value unchanged,
+  so dropping it is exact anywhere.
+- The kept terms run in the knob-off order (P axes 1, 0, 2, then Q axes 0, 1, 2) as a serial fmac chain. GCC fuses the
+  first product on its own, so the chain is spelled with __builtin_fmaf (checked in the disassembly).
+- The coefficient table is a packed 16-byte pattern table (kTerms[8]); the crossed planes come from the mask without a
+  shift loop; the corner u16s are read straight from the group record; the meshlet's group records are prefetched as
+  soon as box_mask_lean says it crosses a plane.
+- Runtime switch re4dc_sg_lean_on: warp line "sglean 0|1", or re4dc_sg_select_lean_set(unsigned) for a POC disc row.
+  0 runs the original functions in the same image.
+
+Checks (FLYCAST):
+- =2 compare build, sg5rW: both versions run and every output is compared. r101 cross for 60 s gave 356,093
+  sg_select calls and 556,078 box tests, with sel_bad 0 and bm_bad 0. Evidence: t2exact-20261015\sgchk5-cross.
+- Knob-off identity: sgoffrP image c1ae83dd (test 13), and the 6 overlays are identical to t14rckP.
+
+Cost (MODELLED, same image, warp sglean 0 vs 1; r101 cross, frames 300..389 at stride 30, 3 traced frames; runs took
+63-65 s):
+
+| build | frame | sg_select | box_mask | sg_coef | I fills / frame |
+|---|---|---|---|---|---|
+| sg6rW (final, packed table) | 84.0 -> 83.3 | 1.32 -> 0.85 | 1.08 -> 0.61 | 0.30 -> 0.39 | 114,288 -> 102,985 |
+| sg3rW (unpacked table) | 84.5 -> 83.9 | 1.33 -> 0.88 | 1.08 -> 0.66 | 0.30 -> 0.44 | |
+| sg1rW (first version) | 84.5 -> 83.5 | | | | |
+
+- Layout-independent part (the hw model's base column, the pipeline without cache misses): sg_select -0.19,
+  box_mask -0.05, sg_coef +0.06. Net **-0.18 ms MODELLED**, under the ~0.4 ms bar.
+- The rest of the -0.7 is I-cache. The lean functions are shorter, and I fills fall 10% in this image. It came out at
+  -0.6 to -1.0 in all three builds, but it is a placement effect. See "Layout sweep": a code shift alone moves the cross
+  by +-1-2 ms MODELLED.
+- Estimate in the brief: -0.35..0.40 for sg_select plus 0.2-0.3 for box_mask. Measured: -0.19 and -0.05 in the pipe,
+  -0.46 and -0.47 in total with I-cache.
+- Verdict: kept as a default-off knob. The =1 build (sg6rW) carries the runtime toggle for the POC disc, where a console
+  A/B on the same image prices the I-cache part. Do not put it in a recipe on the MODELLED number. Job 1's farm figure
+  "1.21 with lean sg_select" used the brief's estimate. Use the measured pipe saving instead, which is about half of it.
+
+Evidence: hwmodel-sgs0-cross / sgs1-cross (final), sgq0/sgq1, sgr0/sgr1 (earlier), sgchk-cross (v1 check),
+sgchk5-cross (final check). Scripts: /root/probe/lanes-20261015/t2exact/s/bsg.sh, hwq.sh, cmpsg.sh, j2build.sh.

@@ -58,3 +58,23 @@ endif
 $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_PVS=1 -DRE4DC_PS2_PVS_DEFAULT=$(PS2_PVS_DEFAULT)
 $(OBJDIR)/dbgwarp_bridge.o: GAME_CPPFLAGS += -DRE4DC_PS2_PVS=1
 endif
+#
+# SG_SELECT_LEAN=1 (job 2; exact, render only; needs PS2_STRIP_GROUPS=1): lean::sg_select_lean / sg_coef_lean /
+# box_mask_lean in native_static.cpp give the same results bit for bit, cheaper: each plane keeps only its non-zero
+# terms of the knob-off fmac chain, in the same order (P = max(n, 0), Q = min(n, 0): one per axis; a +0 term leaves
+# the value as it was), the crossed planes are picked without a shift loop, the group box is converted once, the
+# plane records are read in order, and the meshlet's group records are prefetched as soon as box_mask_lean says it
+# crosses a plane. box_mask_lean is box_mask's expressions with the plane loop written out. =2: the check build (both
+# versions run, every output compared, SGLEAN ... sel_bad / bm_bad counted). Runtime switch re4dc_sg_lean_on (1; warp
+# line "sglean 0|1", re4dc_sg_select_lean_set() for a benchmark POC disc row): 0 runs the original functions.
+SG_SELECT_LEAN ?= 0
+ifneq ($(SG_SELECT_LEAN),0)
+ifeq ($(filter 1 2,$(SG_SELECT_LEAN)),)
+$(error SG_SELECT_LEAN must be 0, 1 or 2)
+endif
+ifneq ($(PS2_STRIP_GROUPS),1)
+$(error SG_SELECT_LEAN needs PS2_STRIP_GROUPS=1)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_SG_SELECT_LEAN=$(SG_SELECT_LEAN)
+$(OBJDIR)/dbgwarp_bridge.o: GAME_CPPFLAGS += -DRE4DC_SG_SELECT_LEAN=$(SG_SELECT_LEAN)
+endif
