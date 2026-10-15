@@ -86,6 +86,13 @@ DATA['objs12'] = {k: v for _r in ('r100', 'r101') for k, v in DATA['objs-' + _r]
 # PS2 pictures with material pairs (tools/ps2_objects_tex.py v2: flag-4 parts get a pair package keyed (new colour, GC
 # mask); the lane items 421b7251 rules) in re4-assets-private/objs-20261014/tex14 (tex13 = colour-only, superseded).
 # objst-r11a carries the r11a2 geometry (+ et1000).
+# r119 dark block study (test 14): the p2b 10-11 package with BIN 0x22 (tree) AND ETM et1100 (box) converted (look lane:
+# the block shows only with both; r119c = BIN 0x22 only is in T11_DATA).
+DATA['r119-both'] = {'st1/r119.dar': PRIV + '/p2b-20261011/objects/r119b/r119.dar'}
+# objst-r119 (test 14): BIN 0x22 (tree) + ETM et1100 (box) PS2 geometry (p2b r119b) with their PS2 pictures (tex14/r119).
+# The look lane's dark block = the PS2 box geometry sampling the GC box picture (a dark shard where the GC box breaks
+# into white pieces); logic is identical with both converted (t119-c vs t119-b STRICT 902 ticks).
+DATA['objst-r119'] = {'st1/r119.dar': OBJS + '/tex14/r119/r119.dar', 'tex': OBJS + '/tex14/r119/tex'}
 DATA['objs-r11a2'] = {'st1/r11a.dar': OBJS + '/r11ao2/r11a.dar'}
 TEX14 = OBJS + '/tex14'
 for _r in OBJS_ROOMS:
