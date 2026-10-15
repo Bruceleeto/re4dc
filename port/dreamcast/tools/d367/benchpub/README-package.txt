@@ -6,7 +6,7 @@ console. It cannot be played: there is no title menu and no New Game, and
 it saves nothing (it does not touch your VMU). To play, use the current test
 release: https://github.com/lamb2k/re4dc/releases
 
-Build SHA_PLACEHOLDER: the test 12.1 program and data, plus the two scripted
+Build SHA_PLACEHOLDER: the test 13 program and data, plus the two scripted
 benchmark scenes.
 
 What it does (about 4 minutes, no input needed)
