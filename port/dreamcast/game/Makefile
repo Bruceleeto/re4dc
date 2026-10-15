@@ -1431,6 +1431,20 @@ MOVIE_WINDOW ?= 0
 # census (blocks, free extents, largest, size histogram) every 120 frames and after each preload.
 VRAM_PAGES ?= 0
 VRAM_CENSUS ?= 0
+# VRAM_ROOM_LOG=1 (lane vram12 D4, render/log only, default 0 = image unchanged; needs UI_VRAM=1 VRAM_PAGES=1): the
+# per-room VRAM report of the CLAUDE.md graphics memory rule (native_ui.cpp: "vram room:" pinned / dynamic / other /
+# free / largest free block, "vram gaps:" refusals, thrash-guard skips, no contiguous block, GameCube effect pictures,
+# dropped parts, silent sound blocks) at each room-entry preload, every 600 frames and at the room change. Gates:
+# tools/d367/vram/vram_gate.py, fullplay/fp_check.py.
+VRAM_ROOM_LOG ?= 0
+ifneq ($(filter-out 0 1,$(VRAM_ROOM_LOG)),)
+$(error VRAM_ROOM_LOG must be 0 or 1)
+endif
+ifeq ($(VRAM_ROOM_LOG),1)
+ifneq ($(UI_VRAM)$(VRAM_PAGES),11)
+$(error VRAM_ROOM_LOG=1 needs UI_VRAM=1 VRAM_PAGES=1)
+endif
+endif
 ifneq ($(VRAM_PAGES),1)
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/vram_pages.o,$(PLATFORM_OBJS))
 endif
@@ -1455,6 +1469,7 @@ $(OBJDIR)/pipeline30.h: pipeline30-force
 	@printf '#define RE4DC_PT_BLEND_FIX %s\n' '$(PT_BLEND_FIX)' >> $@.tmp
 	@printf '#define RE4DC_TEX_CHECK %s\n' '$(TEX_CHECK)' >> $@.tmp
 	@printf '#define RE4DC_VRAM_PAGES %s\n#define RE4DC_VRAM_CENSUS %s\n' '$(VRAM_PAGES)' '$(VRAM_CENSUS)' >> $@.tmp
+	@printf '#define RE4DC_VRAM_ROOM_LOG %s\n' '$(VRAM_ROOM_LOG)' >> $@.tmp
 	@printf '#define RE4DC_UI_HANDLES %s\n#define RE4DC_UI_HEADERS %s\n' '$(UI_HANDLES)' '$(UI_HEADERS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_RESIDENT %s\n#define RE4DC_TEX_RESIDENT_RESERVE_KB %s\n#define RE4DC_TEX_PAYLOAD_CRC %s\n#define RE4DC_TEX_SLOTS %s\n' '$(TEX_RESIDENT)' '$(TEX_RESIDENT_RESERVE_KB)' '$(TEX_PAYLOAD_CRC)' '$(TEX_SLOTS)' >> $@.tmp
 	@printf '#define RE4DC_TEX_KEEP %s\n#define RE4DC_PVR_LATCH %s\n' '$(TEX_KEEP)' '$(PVR_LATCH)' >> $@.tmp
