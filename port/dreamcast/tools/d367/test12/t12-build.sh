@@ -54,7 +54,8 @@ T12=${T12-$T12REC}
 T122="RETIRE_KOS_FLOOR=65536"
 # test 13 items on the 12.2 recipe (10-15): T13 knobs (e.g. ROOM_CHANGE_EVICT=60), arm vP (play).
 T13=${T13-}
-# test 14 items on the 12.2 recipe (10-15): T14 knobs (e.g. SS_HOLD_RESTORE=1 CORE_PIN=1), arms wP (play) / wT (trace).
+# test 14 items on the 12.2 recipe (10-15): T14 knobs (e.g. SS_HOLD_RESTORE=1 CORE_PIN=1 MOTION_COLD_POOL=262144; with
+# T13="ROOM_CHANGE_EVICT=60"), arms wP (play) / wT (trace).
 T14=${T14-}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 MC="MCHECK_LEONGC=1 TEX_CHECK=2"

@@ -198,6 +198,10 @@ T121_DATA = T12_DATA + ',blackps2w,t121tex'  # order: after t12tex (its blackgc 
 # r000.tsv = the core set (4 HUD pictures, CORE_PIN=1). sha256 1196b77d41d7d0e1.
 T14D = os.environ.get('T14D', '/root/probe/lanes-20261015/squeeze/rel14')
 DATA['res14'] = {'dc/resident.bin': T14D + '/resident.bin'}
+# Test 14 r103 (10-15): res14r3 = res14 + vram/resident/r103.tsv (52 keys, 491,052 B VRAM: the farm view and the r101
+# door entry; 47-51 first-sight uploads per 45 s of farm play before, 0 after). 246 records, sha256 8a307ffc3770058a.
+T14R3D = os.environ.get('T14R3D', '/root/probe/lanes-20261015/squeeze/rel14r3')
+DATA['res14r3'] = {'dc/resident.bin': T14R3D + '/resident.bin'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
