@@ -33,13 +33,21 @@ Gates (Flycast counts; no console measurement). Evidence C:\Flycast-Evidence\re4
     H2 + r102-shop STRICT / MUST-IDENTICAL; knob-off identical to a65045fe; r108 declined 872 -> 0; r11a 1,801 -> 0
   host gate   tools/d367/swap_park_test.sh: SS_CERT HOST GATES PASS (4 variants)
   stills      C:\Game Dev\Emulators\ps2cast-20261014\ps2stills\PS2CAST-SHEET.png (GC on DC | PS2 on DC | PS2 PCSX2)
-Optional A2 (merchant lighting, cheap): PS2_CAST_MERCHANT_LIT=1 (needs PS2_CAST_MERCHANT=1; code commit on lane/ps2cast3)
+Optional A2 (merchant lighting, cheap): PS2_CAST_MERCHANT_LIT=1 (needs PS2_CAST_MERCHANT=1; code ca6257d2)
   The merchant's registry plan takes the source GX lighting record (NATIVE_MODEL_REGISTRY_SOURCE_LIGHT bit 5, the path
   em17 / em22 / em23 / bosses already use) instead of the flat constant colour. Robe / coat be_flag 0x20 infos keep the
   constructor-white colour, so actor_source_lighting's one-material check should accept them; a refusal would decline
   the whole merchant to the GC source path (ATD 26), so it is gated by a census before it joins.
-  Status: knob-off image eafa01ab (identical); knob-on arms build (p7ltW _end 8c41399c = merchant-only p6mtW, char-data
-  slack 416 B); Flycast census / stills / H2 NOT RUN yet (host at 9 Flycasts, lane cap 1 below 8).
+  Gates (test 11 base, Flycast counts; no console measurement):
+    knob-off identity   p7tP == p3tP == test 11 eafa01ab
+    census r102         t7-r102lit (all three knobs + census): merchant18-c0 planned/admitted 1,800/1,800, declined 0
+                        (no lighting refusal); SSCERT unpark 1/1, 8/8; texchk fails 0; LEONGC 0; HALT/MISSING 0
+    H2 STRICT           h2-t3kT (knobs off, pad 320 -> _end 8c4159dc) vs h2-t7lT (A + A2 + B, _end 8c4159dc): STRICT,
+                        decisions MUST-IDENTICAL, 4,701 ticks, drift 0, overruns 0; s30 340/340 heap_before 126,688 both
+    r102 shop STRICT    r102t-t3kT vs r102t-t7lT: STRICT, MUST-IDENTICAL, 3,001 ticks, drift 0, overruns 0
+    image cost          0 B over A + B (_end unchanged); char-data slack 416 B (W arm)
+    stills              ps2stills/MERCHANT-LIT-SHEET.png: lit robe darker and less brown (crop mean 37,38,37 flat ->
+                        35,34,31 lit; PS2 35,35,31); PS2's blue rim / sheen still missing - a look call for the user
 Known limits: without A2 the merchant draws flat (no source light; robe reads brown-black, PS2 blue-black); r102 VRAM headroom
 falls from ~130 KB to ~56 KB; r11a proof is weak (the em12 is off screen at the warp); grip hands stay GC-source
 geometry on the native path (as for appearances 1-4).
