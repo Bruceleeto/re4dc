@@ -141,9 +141,11 @@ load_screen 0.32, dyn_source 0.21), actor submit 18.55.
 | r101 benchmark view (old objs base, hw 700:899 stride 7): world submit / total ms | 16.15 / 88.32 | 22.11 / 91.27 | 24.80 / 98.36 (70 m) | stays 25 m (coordinator 10-14: rule); church / houses behind the stake are sky at 25 m (sheet far-r101.png) |
 | r101 GPU proxy ms | 9.75 | 10.16 | 8.93 | |
 | r100 bridge view (w100, 700:819 stride 7) total ms | 33.27 | 33.27 | 33.27 (42.7 m) | View far free at this view (7 placements drawn either way; GPU proxy 11.69 = 11.69); one view only, not a wide one |
-| r11b wide view | queued (jobs-far.txt f11b/g11b/s11b) | | | |
+| r11b x11b view (rsf 0x11b 0 + goto 200 -58471 1875 -12698, hw 700:819 stride 7): world / total ms | 7.93 / 65.01 | 9.15 / 66.56 | 9.49 / 66.28 (270 m) | stays 25 m: View far +1.56 world / +1.27 total (just over ~1 ms), no visible gain (sheet far-r11b.png) |
+| r11b GPU proxy ms | 17.50 | | 17.51 | |
 
-Source View far known: r101 70 m, r100 cut 0 42.7 m (house cut 24.8 m, the source's own). The other route rooms need
+(The first r11b rows, w11b entry warp, were invalid: the r11bs00 entry movie covers the window, then the screen
+stays black.) Decisions: r101 25 m, r100 View far, r11b 25 m. Source View far known: r101 70 m, r100 cut 0 42.7 m (house cut 24.8 m, the source's own). The other route rooms need
 a View-far run each (FOG_FAR=1000000 FOG_FAR_CAP=1 logs cull_far per pass) or a parse of the room camera data: not done.
 
 ### Options ranked (estimates first, then built)
@@ -201,3 +203,67 @@ bench payload manifests). If a recipe stages a different r101 package, regenerat
 Recommended test 12 recipe additions: `PS2_WORLD_LEAN=23 PS2_STRIP_GROUPS=1 PS2_ROOM_PIN=1` + data `sg101`. Modelled
 r101 bench: total 71.83 -> 70.85 (-1.0 ms), world submit 16.13 -> 15.08. The 50 ms gate stays ~21 ms away; the rest is
 actor submit (18.55) and logic, not world culling.
+
+### Pre-transform strip rejection (coordinator 10-15 item: price first)
+
+Already built: PS2_STRIP_GROUPS is per-meshlet strip-group bounds baked offline into the package (r4sg) and tested
+against the frustum before transform. Pricing finer bounds from the existing counts (worldlean/stripcull.py at the
+bench eye -15300,1721,2377 yaw 90 pitch -8; MODELLED cost 40 cyc/vertex, 80/strip, 100/group test; base transform +
+walk 6.85 model ms): sorted groups of 4 (shipped) save 1.86, 8 save 1.89, 16 save 1.55, 64 (about per strip) 1.15.
+Finer rejection gains nothing more: the group test itself costs more than the vertices it saves. At runtime strips
+culled after transform fell from ~46 % to ~21 % of walked strips (oe31s: 3.2 M culled vs 11.7 M emitted over 3,600
+frames). What is left is the group test (sg_select 1.04 + box_mask 0.61 hw ms); only a fipr/asm version might take
+~0.5 ms off it, and that is not built (no measured case yet that justifies it under the CLAUDE.md rule).
+
+### PS2 per-area scenery hiding: PS2_AREA_HIDE (lane/objs-w a5188bc0; PS2-ENEMY-CODE-DIFF-20261015 item 11)
+
+- r107: PS2 st1_1.rel R107Main (0xf130) reads Room_flg[2]: bit 31 -> SMD groups 60 70 80 90 drawn, 50 100 hidden;
+  bit 30 -> 90 100 drawn, 50 60 70 80 hidden; neither -> 50 60 drawn, 70 80 90 100 hidden (SmdSetTrans(id, 1) =
+  drawn, be_flag bit 1). The bits come from PS2-only AEV flag areas (PS2 AEV record 0xA0 B, payload at 0x60): area 9
+  -> flag 64 (bit 31), areas 10 / 11 -> flag 65 (bit 30), trigger inside, player.
+- Port: r107.cpp tests the same three quads read only (no flag written; STRICT by construction) and hands the bits to
+  native_static.cpp area::, which skips the hidden groups' placements from a baked table (room 0x107, package R4PW crc
+  9081e7fd, 71 placements; any other crc or count logs "mismatch: off"). r11f's PS2 re-show of groups 30 / 15 after
+  the barn event is already r11f.cpp r11f_ps2Area9 (game objects): nothing new there.
+- Knob-off image identical (oa0htW de566ad4...). sa107-1b (w107 warp, v3pak): `PS2AREA ... ok`, state 0 hidden
+  07800000 0fde0fc0; pass-0 placements 61 -> 41, parts 70 -> 46, transformed vertices 4.565 M -> 4.325 M (-5.3 %),
+  emitted strips 753,960 -> 751,494; stills identical at that view (sheets\area-r107.png).
+- hw ms: knob off ha107-0 world 7.38 / total 47.73 (MODELLED, hw nominal, 700:819 stride 7). Knob on: about -0.2 ms
+  MODELLED from the counters; the hw-model rerun (ha107-1) is pending (Flycast freeze 10-15; the first ha107-1 ran on
+  the crc-off binary and is renamed *-CRCOFF-INVALID).
+
+### Static object bake hooks (answered crowd12 10-15)
+
+- The 9 r101 cObj00 (BIN 0x20, burning stake) were not baked by this lane: the PS2 r101 scenario SMD already has the
+  stake (SMD_016 + pole SMD_120) and the world package draws all 209 SMD placements; ps2_objects.py --world-owned 0x20
+  (0f071172) empties the GC copy. Lighting: prelit PS2 vertex colour x SMX ColorRGB + fog, no dynamic lights.
+- Hooks: R4PW placement per OBJ group ('g ...#SMD_n#SMX_id#'), ps2_room_ids.py -> ps2-world.ids (R4ID, crc tied);
+  runtime: the native_static.cpp ps2_pass placement loop (where PS2_WORLD_DYNAMIC and PS2_AREA_HIDE skip placements).
+  Smallest change for a game-owned bake: a per-placement owned bitmask + re4dc_ps2_place_gate(room, placement, draw)
+  set in the object's move / matUpdate before render (< 1 KB). A late opaque submit is not cheap (pass 0 is submitted
+  during the scene draw, the OP list cannot reopen).
+
+## Test 14 objects (coordinator 10-15; ON HOLD from 10-15 ~02:00 for the village)
+
+- tools/ps2_objects_tex.py v2 (47b8e299; the commit text says 125 images, the route set is 112 images + 22 pairs):
+  flag-4 parts keep the mask record's GC key and get a pair package keyed (new colour key, GC mask key) holding PS2
+  colour RGB + mask alpha; the mask is the PS2 TPL entry closest to the GC mask (4-bit n*17, accepted at mean abs
+  difference <= 16, good matches <= 6), else the GC mask resampled; --pak proves each mask key (the GC pair must be in
+  tex-v3-ws.pak). Outputs re4-assets-private/objs-20261014/tex14 (sha256.txt; tex13 superseded).
+- Still GC pictures: r100 BIN 0x33 (texture from the Leon archive, outside the room archive), r117 BIN 0x1f (one GC
+  image sampled by PS2 images 0, 1, 3). r10b / r11b BIN 0x1e / 0x1f masks keep the GC mask (PS2 error 45.8 / 97.2).
+- Gates (fixtures fix/g14-<r>-{c,t}-objstT.json + g14-<r>-t-objsmW.json, evaluator g14eval.sh):
+
+| room | warp STRICT + decision_cmp | TEX_CHECK=2 | LEON-GC | pair missing | PS2 keys seen loading |
+|---|---|---|---|---|---|
+| r102 | 2402 ticks MUST-IDENTICAL | PASS | PASS | 0 | 5 / 12 (window pair 711d7345 loaded) |
+| r103 | 2402 ticks MUST-IDENTICAL | not run (mcheck refused: C: floor guard) | not run | - | - |
+| r104..r11b | not run (on hold) | | | | |
+
+- r119 (BIN 0x22 tree + ETM et1100 box): the look lane's "hang" is the scripted `freeze 950` + 30 s watchdog (all three
+  arms hit it: r119c ui 712, r119b 696, r119t 738); logic is identical (t119-c vs t119-b and t119-c vs t119-t: STRICT
+  902 ticks MUST-IDENTICAL); r119b-m / r119t-m / r119c-m all TEXCHK PASS, LEON-GC PASS, pair missing 0. The "dark
+  block" is a broken-box fragment: GC draws white splinters, the PS2 et1100 geometry draws a flat dark-grey shard. The
+  tex14/r119 PS2 pictures (3e0bf632-0f5d6eba tree, 058ec2b1-11e00663 box; both seen loading) do NOT change it (sheets
+  r119-tex14.png, r119-shard-zoom.png: identical shard with GC or PS2 pictures), so it is not the picture: suspect the
+  PS2 et1100 fragment part's UVs / normals / colour as converted. Open; r119 stays BIN 0x22 only (r119c) until then.
