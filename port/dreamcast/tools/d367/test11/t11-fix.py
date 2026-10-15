@@ -191,6 +191,13 @@ DATA['blackps2w'] = {k: v for k, v in DATA['blackps2'].items() if k != 'tex' and
 T121D = os.environ.get('T121D', '/root/probe/t12dark/data')
 DATA['t121tex'] = {'dc/tex.pak': T121D + '/tex-t121.pak'}
 T121_DATA = T12_DATA + ',blackps2w,t121tex'  # order: after t12tex (its blackgc meshes and tex.pak are replaced)
+# Test 14 #1 (VRAM rule gap, 10-15): r101's resident list made complete (vram_gate strict: 0 uploads after the room-entry
+# preload at the r101 cross and the r101 entry; 12.2 had 24). res14 = dc/resident.bin = vram/resident_keys.py pack of
+# vram/resident/r*.tsv: r101 152 -> 190 keys (+18 PS2 item and 9 breakable pictures of test 12's items12 / objs12b, the
+# r100/common effect pictures r101 draws, 7 PS2 world keys; ~210 KB VRAM), sub screen (radio call) loads left out.
+# sha256 33c9e22f2f5c9303. Program unchanged.
+T14D = os.environ.get('T14D', '/root/probe/lanes-20261015/squeeze/rel14')
+DATA['res14'] = {'dc/resident.bin': T14D + '/resident.bin'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

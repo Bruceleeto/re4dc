@@ -6,6 +6,9 @@
       VRAM_ROOM_LOG=1 logs: a load belongs to the room of the next "vram room: r=..." line; the last <loads> loads
       before each "native texture preload: frame=... loads=<loads>" line are that pass's own and are left out.
       Merged into <out.tsv> if it exists (rows kept, new keys added): key, width, height, fmt, runs.
+      Loads while the sub screen is open ("subscreen backing: open" .. "close": radio calls, the attache case, the
+      map; the game is paused) are left out (test 14 #1): they are the sub screen's own pictures, 430 KB for the
+      post-bell call in r101, which no room list can hold beside the room's set.
   resident_keys.py pack <out.bin> <list.tsv>...
       dc/resident.bin: 16-byte records (u16 room, width, height, format; u32 crc, fnv), little endian, sorted by
       room then key, padded with room-0 records to whole 512-byte pieces (native_ui.cpp preload_resident reads
@@ -23,12 +26,22 @@ from pathlib import Path
 LOAD = re.compile(r'^native UI: load /cd/dc/tex/./([0-9a-f]{8}-[0-9a-f]{8})\.re4tex (\d+)x(\d+) fmt=(\d+)')
 ROOM = re.compile(r'^vram room: r=([0-9a-f]+) ')
 PRE = re.compile(r'^native texture preload: frame=\d+ picked=\d+ resident=\d+ loads=(\d+)')
+SS_OPEN = re.compile(r'^subscreen backing: open ')
+SS_CLOSE = re.compile(r'^subscreen backing: close ')
 
 
 def first_sight(log, room):
-    out, pending = [], []
+    out, pending, subscreen = [], [], False
     for ln in Path(log).read_text(errors='replace').splitlines():
+        if SS_OPEN.match(ln):
+            subscreen = True
+            continue
+        if SS_CLOSE.match(ln):
+            subscreen = False
+            continue
         m = LOAD.match(ln)
+        if m and subscreen:
+            continue
         if m:
             pending.append((m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))))
             continue
