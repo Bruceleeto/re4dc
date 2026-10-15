@@ -327,6 +327,29 @@ $(error TRUCK_DIAG=1 needs ROUTE_CH23=1 DBG_WARP=1)
 endif
 $(OBJDIR)/mod/em3b/src/em3b/em3b.o: GAME_CPPFLAGS += -DRE4DC_TRUCK_DIAG=1
 endif
+# SUB_EM_FUNC=1: SetSubDamage stores Ashley's routine-4 handler explicitly (the decomp's PowerPC r4 pin in
+# cSubChar::setEmFunc is dropped off PowerPC, so the handler was an uninitialised local: the guest rebooted when the
+# r200 truck ran Ashley over, and any other SetSubDamage on Ashley - em3c, boats - calls garbage). Default 0 keeps
+# the image identical.
+SUB_EM_FUNC ?= 0
+ifeq ($(filter $(SUB_EM_FUNC),0 1),)
+$(error SUB_EM_FUNC must be 0 or 1)
+endif
+ifeq ($(SUB_EM_FUNC),1)
+$(OBJDIR)/src/game/pl_sub.o: GAME_CPPFLAGS += -DRE4DC_SUB_EM_FUNC=1
+endif
+# MOVIE_POLL_SETTLE=1: a route movie's first audio polls tolerate KOS snd_stream_poll's -1 for a stale channel
+# position (the AICA has not restarted the stream's channel yet, so it still reports the previous voice's offset,
+# beyond the stream buffer) for up to 200 ms after snd_stream_start, instead of ending the movie (terminal 3, no
+# picture). r11f s02/s10 failed this way whenever a game voice had just played on that channel ("chan0(0).pos =
+# 21589"); r11f's movie guard then blocks progression. Default 0 keeps the image identical.
+MOVIE_POLL_SETTLE ?= 0
+ifeq ($(filter $(MOVIE_POLL_SETTLE),0 1),)
+$(error MOVIE_POLL_SETTLE must be 0 or 1)
+endif
+ifeq ($(MOVIE_POLL_SETTLE),1)
+$(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_POLL_SETTLE=1
+endif
 ifneq ($(ROUTE_CH23),0)
 ifneq ($(ROUTE_CH23)$(ROUTE_CH21)$(ROUTE_OVL),111)
 $(error ROUTE_CH23 must be 0 or 1 and needs ROUTE_CH21=1 ROUTE_OVL=1)
@@ -971,7 +994,8 @@ endif
 # - DISC_BOOT_LOG=2: the disc log goes on screen only once a read misbehaves (=1: always during the boot, the #28 discs);
 # - KOS_DISC_FIX=1: a build-time patched copy of KOS fs_iso9660.c (upstream aeee10d9: one mutex, no multi-thread /cd
 #   deadlock or garbage handles) and cdrom.c (exec_cmd_timed's abort deadlock, reinit_ex's endless retry, a settle
-#   delay after a drive reset) is linked in place of libkallisti's (patches/kos-804b319-*.patch; KOS is not modified);
+#   delay after a drive reset, no stale GD DMA completion: kos-804b319-cdrom-dma-done.patch) is linked in place of
+#   libkallisti's (patches/kos-804b319-*.patch; KOS is not modified);
 # - the /cd mount takes the data track that holds the ISO9660 volume descriptor, not the last one (GD MENU Card
 #   Manager's "Shrink GDI" splits the HD area into track 3 + track 4: platform/gdrom_mount.cpp).
 # Packaging (mkgdi.sh, not a make knob): PAD_1ST=1 pads 1ST_READ.BIN to whole sectors; PRODUCT= sets the product number.
@@ -1009,11 +1033,21 @@ $(KOSFIX)/fs_iso9660.c: $(KOS_BASE)/kernel/arch/dreamcast/fs/fs_iso9660.c $(KOS_
 	cp $< $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/
 	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-fs < $(KOS_PATCHES)/kos-804b319-fs-iso9660-aeee10d9.patch
 	cp $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/fs_iso9660.c $@
-$(KOSFIX)/cdrom.c: $(KOS_BASE)/kernel/arch/dreamcast/hardware/cdrom.c $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+# kos-804b319-cdrom-dma-done.patch (lane discread 10-15, the LinkOrder console stops): a GD DMA read that the BIOS
+# reported completed straight away left a DMA completion to be signalled later, which ended the NEXT DMA wait before its
+# data landed (console only). Stale completions are drained before every DMA and a DMA read returns with the GD-DMA
+# engine idle; the counts (drained / closed) are on the crash screen's stage row ("gd s<n> e<n>").
+$(KOSFIX)/cdrom.c: $(KOS_BASE)/kernel/arch/dreamcast/hardware/cdrom.c $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch $(KOS_PATCHES)/kos-804b319-cdrom-dma-done.patch
 	@rm -rf $(KOSFIX)/p-cd && mkdir -p $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware
 	cp $< $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/
 	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-cd < $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-cd < $(KOS_PATCHES)/kos-804b319-cdrom-dma-done.patch
 	cp $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/cdrom.c $@
+$(OBJDIR)/platform/crash_screen.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_DMA_COUNTERS=1
+endif
+# The stage row's GD DMA counters (platform/kos_dma_counters.h: empty unless KOS_DISC_FIX=1).
+$(OBJDIR)/platform/crash_screen.o: PLATFORM_CPPFLAGS += -include $(CURDIR)/platform/kos_dma_counters.h
+ifeq ($(KOS_DISC_FIX),1)
 # -fmacro-prefix-map: cdrom.c's __FILE__ (assert / dbglog) names kosfix/cdrom.c, not $(OBJDIR): the image must not
 # depend on the build label or directory (build-public.sh and fp_twin.sh rebuild the release image elsewhere).
 $(KOSFIX)/%.o: $(KOSFIX)/%.c
