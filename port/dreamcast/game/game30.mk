@@ -1807,6 +1807,52 @@ endif
 AVK_SFLAGS += -DRE4DC_ACTOR_LIGHT_N16=1
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_LIGHT_N16=$(ACTOR_LIGHT_N16)
 endif
+# ACTOR_MOVCA=1 (lane memlay 2026-10-15; render only, default 0: nothing changes): the position kernels allocate
+#              each meshlet cache entry's 32-byte line with movca.l before its first store, so the write-only
+#              output no longer read-allocates a line from RAM (hw model census, benchmark-r101 cap 6: ~5.3k of
+#              those fills per frame in avk_pos_*). emit / emit_sq write the flags word themselves (the line's
+#              flags / oargb words are not primed any more); word 7 (oargb) reaches the TA unprimed, and these
+#              headers have no specular, so the TA ignores it. mkavk.py movca_lines.
+ACTOR_MOVCA ?= 0
+ifneq ($(ACTOR_MOVCA),0)
+ifneq ($(ACTOR_MOVCA),1)
+$(error ACTOR_MOVCA must be 0 or 1)
+endif
+ifeq ($(ACTOR_VTX_KERNEL),0)
+$(error ACTOR_MOVCA needs ACTOR_VTX_KERNEL)
+endif
+ifneq ($(filter-out 0,$(NATIVE_ACTOR_UV16)),)
+$(error ACTOR_MOVCA needs NATIVE_ACTOR_UV16=0 (word 7 carries the clipper's u there))
+endif
+AVK_SFLAGS += -DRE4DC_ACTOR_MOVCA=1
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_MOVCA=1
+endif
+# ACTOR_NO_CLEAR=1 (lane memlay 2026-10-15; render only, default 0: nothing changes): repeated per-part clears on
+#              the actor path (MEMPROF, benchmark-r101 on 12.1: ~240 KB of memset per frame) are dropped where the
+#              cleared words are never read: lights_reset sets the fold's fields one by one (as MEMSET_LEAN, plus
+#              half_post), Lights::prepared is not default-initialised (assigned before pass_lights_exact reads it),
+#              re4dc_model_submit builds its Leon x0.5 / static "plain" copies only when they are used, and the
+#              Frame cache invalidation drops entries as prepare_frame does instead of rewriting four Frames.
+ACTOR_NO_CLEAR ?= 0
+ifneq ($(ACTOR_NO_CLEAR),0)
+ifneq ($(ACTOR_NO_CLEAR),1)
+$(error ACTOR_NO_CLEAR must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_actor_fast.o $(OBJDIR)/platform/native_model.o: PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_NO_CLEAR=1
+endif
+# MEM_MOVCA=1 (lane memlay 2026-10-15; default 0: nothing changes): memset / memcpy through link wraps
+#              (platform/memprof.cpp): every whole 32-byte line of a cached main-RAM (P1) destination is allocated
+#              with movca.l and then fully written, so it is not read from RAM first (the write-allocate fill);
+#              memcpy also prefetches the next source line. Head / tail bytes, small calls (< 64 bytes) and
+#              other areas (P2 uncached, P4) go to the library routines unchanged. The bytes written are the same.
+MEM_MOVCA ?= 0
+ifneq ($(MEM_MOVCA),0)
+ifneq ($(filter-out 0,$(MEMPROF)),)
+$(error MEM_MOVCA and MEMPROF both wrap memset / memcpy)
+endif
+GAME_LDFLAGS += -Wl,--wrap=memset -Wl,--wrap=memcpy
+$(OBJDIR)/platform/memprof.o: PLATFORM_CPPFLAGS += -DRE4DC_MEM_MOVCA=1
+endif
 
 GAME_FP_CONTRACT ?= fast
 GAME_O2 ?= 0

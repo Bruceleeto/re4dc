@@ -173,6 +173,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         lds r3,fpul
@@ -246,6 +249,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         fmul fr7,fr5
         lds r3,fpul
@@ -331,6 +337,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         lds r3,fpul
@@ -385,6 +394,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         lds r3,fpul
@@ -436,6 +448,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         fmul fr7,fr5
         lds r3,fpul
@@ -487,6 +502,9 @@ _re4dc_avk_pos_skin_s16:
         pref @r0
         mov.w @(4,r5),r0
         fcmp/gt fr8,fr0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         lds r3,fpul
@@ -779,6 +797,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr4
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         fmov.s fr5,@-r7
@@ -854,6 +875,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         fmul fr7,fr5
         fmov.s fr1,@-r7
@@ -941,6 +965,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr4
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         fmov.s fr5,@-r7
@@ -997,6 +1024,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr4
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         fmov.s fr5,@-r7
@@ -1050,6 +1080,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         fmul fr7,fr5
         fmov.s fr1,@-r7
@@ -1103,6 +1136,9 @@ _re4dc_avk_pos_skin_u16:
         rotcl r4
         float fpul,fr4
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         fmul fr3,fr1
         fmov.s fr5,@-r7
@@ -1372,6 +1408,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -1441,6 +1480,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         rotcl r4
         pref @r0
@@ -1515,6 +1557,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -1560,6 +1605,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -1604,6 +1652,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         rotcl r4
         pref @r0
@@ -1648,6 +1699,9 @@ _re4dc_avk_pos_rigid_s16:
         add r0,r0
         mov.w @r1+,r3
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -1811,6 +1865,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr4
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -1882,6 +1939,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr0
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         pref @r0
         fmul fr7,fr5
@@ -1958,6 +2018,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr4
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2004,6 +2067,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr4
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2049,6 +2115,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr0
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         pref @r0
         fmul fr7,fr5
@@ -2094,6 +2163,9 @@ _re4dc_avk_pos_rigid_u16:
         float fpul,fr4
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2261,6 +2333,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr5
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -2334,6 +2409,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr1
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         rotcl r4
         pref @r0
@@ -2413,6 +2491,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr5
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -2456,6 +2537,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr5
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -2499,6 +2583,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr1
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         rotcl r4
         pref @r0
@@ -2542,6 +2629,9 @@ _re4dc_avk_pos_rigid6_s16:
         fadd fr13,fr5
         add r14,r0
         add r12,r0
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         rotcl r4
         pref @r0
@@ -2713,6 +2803,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2788,6 +2881,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         pref @r0
         fmul fr7,fr5
@@ -2868,6 +2964,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2916,6 +3015,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1
@@ -2963,6 +3065,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr2,@-r7
         pref @r0
         fmul fr7,fr5
@@ -3010,6 +3115,9 @@ _re4dc_avk_pos_rigid6_u16:
         mov.w @r1+,r3
         add r12,r0
         rotcl r4
+#if RE4DC_ACTOR_MOVCA
+        movca.l r0,@r7
+#endif
         fmov.s fr6,@-r7
         pref @r0
         fmul fr3,fr1

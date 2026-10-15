@@ -49,6 +49,16 @@
 #include "re4dc_platform.h"
 #endif
 #include "warp_late.h"
+// ACTOR_NO_CLEAR (game30.mk; render only, default 0): repeated per-part clears on the actor path are dropped where
+// the cleared words are never read (lights_reset, Lights::prepared, the Frame cache invalidation).
+#ifndef RE4DC_ACTOR_NO_CLEAR
+#define RE4DC_ACTOR_NO_CLEAR 0
+#endif
+// ACTOR_MOVCA (game30.mk; render only, default 0): the position kernels allocate each meshlet cache entry's line
+// with movca.l (no fill from RAM: the line is written before it is read); emit / emit_sq write the flags word.
+#ifndef RE4DC_ACTOR_MOVCA
+#define RE4DC_ACTOR_MOVCA 0
+#endif
 #include "../../room/pvr_geometry.hpp"
 #include <algorithm>
 #include <cmath>
@@ -1586,7 +1596,13 @@ struct Lights {
     float dir[3][4]{};       // normal space, x nq (w = 0)
     alignas(8) float color[16]{};
     const SourceLighting* source = nullptr;
+#if RE4DC_ACTOR_NO_CLEAR
+    // ACTOR_NO_CLEAR: the exact path's prepared lights are not default-initialised (~0.4 KB per Lights): they are
+    // read only by pass_lights_exact, after a fold that returned false, and the callers assign them on that return.
+    union PreparedSlot { re4dc::render::PreparedSourceLights v; PreparedSlot() {} } prepared_slot;
+#else
     re4dc::render::PreparedSourceLights prepared;
+#endif
     float view_dot[3]{};     // light . direction from the part centre to the camera (view space)
 #if RE4DC_ACTOR_PROBE_LIGHT
     bool probe = false;      // ACTOR_PROBE_LIGHT: the actor's probe (ambient + one direction)
@@ -1598,14 +1614,22 @@ struct Lights {
 };
 // The fold's start state. MEMSET_LEAN=1 (crowd.mk; render only): every field but `prepared` is reset; prepared is
 // read only by pass_lights_exact (a fold that returned false), and the callers assign it on that return.
+#if RE4DC_ACTOR_NO_CLEAR
+#define RE4DC_PREPARED(L) ((L).prepared_slot.v)
+#else
+#define RE4DC_PREPARED(L) ((L).prepared)
+#endif
 inline void lights_reset(Lights& L) {
-#if defined(RE4DC_MEMSET_LEAN) && RE4DC_MEMSET_LEAN
+#if (defined(RE4DC_MEMSET_LEAN) && RE4DC_MEMSET_LEAN) || RE4DC_ACTOR_NO_CLEAR
     L.fast = false; L.constant = false; L.count = 0; L.constant_rgb = 0;
     for (unsigned i = 0; i < 3; ++i) { for (unsigned c = 0; c < 4; ++c) L.dir[i][c] = 0.0f; L.view_dot[i] = 0.0f; }
     for (unsigned i = 0; i < 16; ++i) L.color[i] = 0.0f;
     L.source = nullptr;
 #if RE4DC_ACTOR_PROBE_LIGHT
     L.probe = false;
+#endif
+#if RE4DC_ACTOR_NO_CLEAR && defined(RE4DC_LEON_LIGHT_HEADROOM) && RE4DC_LEON_LIGHT_HEADROOM
+    L.half_post = false;  // build_lights only ever sets it (a Lights reused across parts must start clear)
 #endif
 #else
     L = Lights{};
@@ -2423,6 +2447,10 @@ inline pvr_vertex_t* emit(pvr_vertex_t* dst, const pvr_vertex_t* cache, const u8
         : [dst] "+r"(dst), [index] "+r"(index), [n] "+r"(n)
         : [cache] "r"(cache), [five] "r"(5)
         : "r0", "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "t", "memory");
+#if RE4DC_ACTOR_MOVCA
+    // ACTOR_MOVCA: cache entries allocated by movca.l carry no primed flags word (emit_sq).
+    for (pvr_vertex_t* v = dst - n; v != dst; ++v) v->flags = PVR_CMD_VERTEX;
+#endif
     dst[-1].flags = PVR_CMD_VERTEX_EOL;
     return dst;
 #else
@@ -2588,6 +2616,42 @@ inline std::uint32_t* emit_sq(std::uint32_t* sq, const pvr_vertex_t* cache, cons
         if (k + 1 == n) w[0] = eol;
         re4dc_ta_hash(w, 32);
     }
+#endif
+#if RE4DC_ACTOR_MOVCA
+    // ACTOR_MOVCA: the position kernels allocate cache entries with movca.l, so an entry's flags word is not
+    // primed: every vertex's flags word is written here (PVR_CMD_VERTEX in the branch's delay slot, then EOL over
+    // it on the last one), as emit_meshlet already does for whole meshlets.
+    const std::uint32_t vtx = PVR_CMD_VERTEX;
+    __asm__ __volatile__(
+        "fschg\n"
+        "1:\n\t"
+        "mov.b   @%[index]+,r0\n\t"
+        "and     #127,r0\n\t"
+        "shld    %[five],r0\n\t"
+        "add     %[cache],r0\n\t"
+        "fmov    @r0+,dr0\n\t"
+        "fmov    @r0+,dr2\n\t"
+        "fmov    @r0+,dr4\n\t"
+        "fmov    @r0+,dr6\n\t"
+        "add     #32,%[sq]\n\t"
+        "fmov    dr6,@-%[sq]\n\t"
+        "fmov    dr4,@-%[sq]\n\t"
+        "fmov    dr2,@-%[sq]\n\t"
+        "fmov    dr0,@-%[sq]\n\t"
+        "dt      %[n]\n\t"
+        "bf/s    2f\n\t"
+        "mov.l   %[vtx],@%[sq]\n\t"
+        "mov.l   %[eol],@%[sq]\n"
+        "2:\n\t"
+        "pref    @%[sq]\n\t"
+        "tst     %[n],%[n]\n\t"
+        "bf/s    1b\n\t"
+        "add     #32,%[sq]\n\t"
+        "fschg\n"
+        : [sq] "+r"(sq), [index] "+r"(index), [n] "+r"(n)
+        : [cache] "r"(cache), [five] "r"(5), [eol] "r"(eol), [vtx] "r"(vtx)
+        : "r0", "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "t", "memory");
+    return sq;
 #endif
     __asm__ __volatile__(
         "fschg\n"
@@ -3663,7 +3727,7 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
     // attenuation. Same light order, ambient start, clamp, material and TEV scale; results differ from the reference
     // evaluator only in float rounding (the 8-bit colour, rarely by one step).
     const SourceLighting& S = *L.source;
-    const re4dc::render::PreparedSourceLights& P = L.prepared;
+    const re4dc::render::PreparedSourceLights& P = RE4DC_PREPARED(L);
     const bool vertex_colour = (S.ambient_vertex || S.material_vertex) && e.p.colors;
     struct FastLight { float x, y, z, dx, dy, dz, a0, a1, a2, k0, k1, k2, r, g, b; };
     FastLight fl[8];
@@ -3734,7 +3798,7 @@ void pass_lights_exact(Part& e, const Lights& L, const Records& r, unsigned n) {
 #endif
                  );
         const u8* color = (L.source->ambient_vertex || L.source->material_vertex) && e.p.colors ? e.p.colors + r.ci(i) * 4 : white;
-        re4dc::render::evaluate_prepared_source_lighting(w[0], w[1], w[2], nn[0], nn[1], nn[2], *L.source, L.prepared, color, rgb);
+        re4dc::render::evaluate_prepared_source_lighting(w[0], w[1], w[2], nn[0], nn[1], nn[2], *L.source, RE4DC_PREPARED(L), color, rgb);
         const u32 a = e.colors ? u32(e.colors[r.ci(i) * 4 + 3]) << 24 : e.alpha;
         e.cache.v[i].argb = a | (channel(rgb[0] * 255.0f) << 16) | (channel(rgb[1] * 255.0f) << 8) | channel(rgb[2] * 255.0f);
     }
@@ -4836,7 +4900,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
 
     Lights lights;
     G1PC_LIGHT(p, f, blob->center);
-    if (!RE4DC_PART_LIGHTS(p, f, blob->center, lights)) lights.prepared = re4dc::render::prepare_actor_lights(*p.lighting);
+    if (!RE4DC_PART_LIGHTS(p, f, blob->center, lights)) RE4DC_PREPARED(lights) = re4dc::render::prepare_actor_lights(*p.lighting);
     lights.source = p.lighting;
     const unsigned tier = crowd_class > 0 ? crowd_tier(p, crowd_class) : kTierFull;
     if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant
@@ -5406,7 +5470,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     G1PC_PART(p, true);
     if (!constant_source || !w.lights_ready || w.lights.source != p.lighting) {
         G1PC_LIGHT(p, f, blob->center);
-        if (!RE4DC_PART_LIGHTS(p, f, blob->center, *lp)) lp->prepared = re4dc::render::prepare_actor_lights(*p.lighting);
+        if (!RE4DC_PART_LIGHTS(p, f, blob->center, *lp)) RE4DC_PREPARED(*lp) = re4dc::render::prepare_actor_lights(*p.lighting);
         lp->source = p.lighting;
         w.lights_ready = constant_source;
     }

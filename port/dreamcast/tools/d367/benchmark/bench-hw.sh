@@ -34,7 +34,7 @@ else
 fi
 WARPF=${BENCH_WARP:-$HERE/benchmark-$SC-warp.txt}
 FIX=$LOG/fix/hw-$N.json
-python3 $T11/t11-fix.py $L $FIX --data $D${BENCH_DATA_EXTRA:-} --warp $WARPF > $LOG/fix-hw-$N.txt || exit 1
+python3 $T11/t11-fix.py $L $FIX --data ${BENCH_DATA:-$D}${BENCH_DATA_EXTRA:-} --warp $WARPF > $LOG/fix-hw-$N.txt || exit 1
 python3 $HERE/fix-replace.py $FIX $WARPF >> $LOG/fix-hw-$N.txt || exit 1
 E=$EV/hwmodel-$N
 [ ! -e "$E" ] || { echo "$E exists"; exit 1; }

@@ -430,6 +430,26 @@ HEADER = """/* platform/avk_sh4.S -- ACTOR_VTX_KERNEL (game30.mk): the actors30 
 """
 
 
+def movca_lines(o):
+    """ACTOR_MOVCA (game30.mk; render only, default 0): every vertex of a position kernel writes its five words
+    with fmov.s ...,@-r7 starting at r7 = entry + 24 (v at 20, u, z, y, x). Before the first of each five a
+    movca.l r0,@r7 allocates the entry's 32-byte cache line without fetching it from RAM (the line is written
+    before anything reads it; r0 is any value: it lands in the argb word, which every lighting branch writes
+    for all of the meshlet's records before anything reads the entry). Words 0 (flags) and 7 (oargb) of a
+    line allocated this way hold stale cache contents: the emit copies write the flags word themselves under
+    the knob, and word 7 is not read by the TA for these headers (no specular). Off: the #if lines vanish and
+    the kernel is byte-identical."""
+    res, k = [], 0
+    for line in o:
+        if re.match(r"\s*fmov\.s\s+fr\d+,@-r7\s*$", line):
+            if k % 5 == 0:
+                res += ["#if RE4DC_ACTOR_MOVCA", "        movca.l r0,@r7", "#endif"]
+            k += 1
+        res.append(line)
+    assert k and k % 5 == 0, k
+    return res
+
+
 def main():
     out = [HEADER]
     rep = []
@@ -437,6 +457,7 @@ def main():
                         ("pos_rigid_s16", {"pf"}), ("pos_rigid_u16", {"u16", "pf"}),
                         ("pos_rigid6_s16", {"pf", "p6"}), ("pos_rigid6_u16", {"u16", "pf", "p6"})):
         o, c = pos_kernel(name, flags)
+        o = movca_lines(o)
         if "p6" in flags:  # assembled only with AVK_RIGID6 (game30.mk), so the knob-off image is unchanged
             o = ["#if RE4DC_AVK_RIGID6"] + o + ["#endif"]
         out += o + [""]
