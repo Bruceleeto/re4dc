@@ -11,8 +11,8 @@ parents run = S source parents (u8, 0xff = root) followed by the slot map (bones
 joint indices), the bind run = S rest inverses. Sections may be attachment models (head / hair / hands: a local part
 table whose attach ids name distinct source joints) instead of the full skeleton. The target image is PS2_ASHLEY's
 (RE4DC_NMR_ASHLEY): up to 32 source texture facts and 10 source BIN models per package and 17 texture facts per role
-(pl11 TPL 5 has 17 images), and in
-r117 a 256 KiB package + skin ceiling (the loader allocates the actual size; other rooms keep 192 KiB).
+(pl11 TPL 5 has 17 images), and
+a 256 KiB package + skin ceiling in her rooms (the loader allocates the actual size; packages without --slots keep 192 KiB).
 
 --ch22-luis-coverage (default off, --package-room 11c only): the exact pinned
 Luis conversion retains all six source identities while head/face share one
@@ -513,8 +513,9 @@ def main():
         SLOTS = True
         PACK_CAPACITY['ftex'] = 32  # the PS2_ASHLEY image (RE4DC_NMR_ASHLEY): pl11 TPLs 5 + 8 + 0xB = 28 images
         PACK_CAPACITY['fmodel'] = 10  # and 10 source BIN models (5 shared + the hands 0xC..0x10 of three hand sets)
-        if package_room == 0x117:
-            PACK_MAX_BYTES = 256 * 1024  # RE4DC_NMR_ASHLEY: r117 package + skin ceiling (Ashley + her mask runs)
+        # RE4DC_NMR_ASHLEY: a 256 KiB package + skin ceiling (Ashley + her mask runs) in every room she follows Leon to
+        # (r117, then the chapter 2 rooms; coarse_actor_registry_pack_check.inc RE4DC_NMR_PACK_KIB applies to every room).
+        PACK_MAX_BYTES = 256 * 1024
     if '--ch23-facts' in args:
         args.remove('--ch23-facts')
         PACK_CAPACITY['fpart'] = 128  # RE4DC_ROUTE_CH23, coarse_actor_registry_pack_check.inc
