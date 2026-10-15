@@ -791,6 +791,14 @@ endif
 # made blocking so it gets the same wait; DVD_READ_SAFE never aborts a refused request while the GD DMA is running (up
 # to 2 s); a short or failed DVDReadAsyncPrio read is retried on a fresh handle (3 tries) and then reported
 # DVD_RESULT_FATAL instead of a partial count. Each event logs a "disc read verify:" line.
+# DISC_GD_ATOMIC=1 (test 11 console faults, default 0; same file): every GD-ROM BIOS syscall KOS makes runs with
+# interrupts masked. KOS's vblank and G1 DMA handlers call the BIOS (exec_server, check_command) from interrupt context
+# and write the cdrom driver's shared cmd_response/cmd_status, while a thread may be inside a BIOS call of its own;
+# the BIOS is not re-entrant. Flycast's HLE BIOS runs each syscall atomically, so it never shows this.
+DISC_GD_ATOMIC ?= 0
+ifneq ($(filter $(DISC_GD_ATOMIC),0 1),$(DISC_GD_ATOMIC))
+$(error DISC_GD_ATOMIC must be 0 or 1)
+endif
 DISC_READ_VERIFY ?= 0
 ifneq ($(filter $(DISC_READ_VERIFY),0 1),$(DISC_READ_VERIFY))
 $(error DISC_READ_VERIFY must be 0 or 1)
@@ -803,7 +811,7 @@ DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
 DVD_STUCK_ADDR ?= 0
-ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),00000)
+ifneq ($(DVD_READ_SAFE)$(DVD_STUCK_TEST)$(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY)$(DISC_GD_ATOMIC),000000)
 ifeq ($(IO_PROBE),1)
 $(error DVD_READ_SAFE / DVD_STUCK_TEST / DISC_READ_FALLBACK and IO_PROBE=1 wrap the same cdrom entry points)
 endif
@@ -814,6 +822,10 @@ $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLB
 endif
 ifeq ($(DISC_READ_FALLBACK),1)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=1
+endif
+ifeq ($(DISC_GD_ATOMIC),1)
+GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_GD_ATOMIC=1
 endif
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DVD_READ_SAFE=$(DVD_READ_SAFE) -DRE4DC_DVD_STUCK_TEST=$(DVD_STUCK_TEST) -DRE4DC_DVD_STUCK_ADDR=$(DVD_STUCK_ADDR)
 else

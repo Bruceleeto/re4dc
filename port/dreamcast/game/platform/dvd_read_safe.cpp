@@ -236,6 +236,40 @@ extern "C" int __wrap_cdrom_stream_stop(bool abort_dma)
 }
 #endif
 
+#if defined(RE4DC_DISC_GD_ATOMIC) && RE4DC_DISC_GD_ATOMIC
+// DISC_GD_ATOMIC=1 (Makefile): each GD-ROM BIOS syscall runs with interrupts masked, so KOS's vblank / G1 DMA handlers
+// (which call exec_server and check_command from interrupt context) never enter the BIOS while a thread is inside it.
+#include <dc/syscalls.h>
+#define RE4DC_GD_WRAP(ret, name, params, args)                                  \
+    extern "C" ret __real_syscall_gdrom_##name params;                          \
+    extern "C" ret __wrap_syscall_gdrom_##name params                           \
+    {                                                                           \
+        const irq_mask_t o = irq_disable();                                     \
+        const ret r = __real_syscall_gdrom_##name args;                         \
+        irq_restore(o);                                                         \
+        return r;                                                               \
+    }
+#define RE4DC_GD_WRAP_VOID(name, params, args)                                  \
+    extern "C" void __real_syscall_gdrom_##name params;                         \
+    extern "C" void __wrap_syscall_gdrom_##name params                          \
+    {                                                                           \
+        const irq_mask_t o = irq_disable();                                     \
+        __real_syscall_gdrom_##name args;                                       \
+        irq_restore(o);                                                         \
+    }
+RE4DC_GD_WRAP(int, check_drive, (cd_check_drive_status_t* st), (st))
+RE4DC_GD_WRAP(gdc_cmd_hnd_t, send_command, (cd_cmd_code_t cmd, void* params), (cmd, params))
+RE4DC_GD_WRAP(cd_cmd_chk_t, check_command, (gdc_cmd_hnd_t h, cd_cmd_chk_status_t* st), (h, st))
+RE4DC_GD_WRAP_VOID(exec_server, (void), ())
+RE4DC_GD_WRAP(int, abort_command, (gdc_cmd_hnd_t h), (h))
+RE4DC_GD_WRAP_VOID(dma_callback, (uintptr_t cb, void* param), (cb, param))
+RE4DC_GD_WRAP(int, dma_transfer, (gdc_cmd_hnd_t h, const cd_transfer_params_t* p), (h, p))
+RE4DC_GD_WRAP(int, dma_check, (gdc_cmd_hnd_t h, size_t* size), (h, size))
+RE4DC_GD_WRAP_VOID(pio_callback, (uintptr_t cb, void* param), (cb, param))
+RE4DC_GD_WRAP(int, pio_transfer, (gdc_cmd_hnd_t h, const cd_transfer_params_t* p), (h, p))
+RE4DC_GD_WRAP(int, pio_check, (gdc_cmd_hnd_t h, size_t* size), (h, size))
+#endif
+
 extern "C" int __wrap_cdrom_stream_start(int sector, int cnt, bool dma)
 {
 #if RE4DC_DVD_STUCK_TEST
