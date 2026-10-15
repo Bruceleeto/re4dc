@@ -227,7 +227,31 @@ DATA['blackps2w'] = {k: v for k, v in DATA['blackps2'].items() if k != 'tex' and
 T121D = os.environ.get('T121D', '/root/probe/t12dark/data')
 DATA['t121tex'] = {'dc/tex.pak': T121D + '/tex-t121.pak'}
 T121_DATA = T12_DATA + ',blackps2w,t121tex'  # order: after t12tex (its blackgc meshes and tex.pak are replaced)
-NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
+# Test 13 (t13/rc, 2026-10-15; TEST13-SCOPE.md, test13/t13-build.sh T13REC; rebuild the pak: test13/t13-texpak.sh):
+#   objs13d  = objs13 (lane objs e19e146e, v5) without its loose pictures: the 15 room dars r102..r11b, r117..r11b (breakables
+#              back to GameCube: the "dark box debris" fix); their 32 pictures are in t13tex
+#   ashley13 = PS2_ASHLEY=2 + PS2_ASHLEY_ROOMS=1 (lane ps2cast3 d940cbc0, user choice B): r117's package (registry.re4nmr,
+#              no room package there), r118's second package (partner.re4nmr beside the room's own registry.re4nmr) and the
+#              texture-prepared em/pl11.drs (596b29aa); her 4 pictures are in t13tex. The other Ashley rooms (r111 r112 r113
+#              r11c r11f) are chapter 2-2 / 2-3, not on this disc.
+#   bake13   = STATIC_OBJ_BAKE=1 (lane crowd12-t13 ce0b7a82): the r101 world package with the 14 baked objects appended
+#              (re4-assets-private/crowd12-bake-20261015/r101-t13, built on smx101 f5592282 + strip groups); replaces sg101
+#   t13tex   = dc/tex.pak = tex_merge.py over tex-t12d.pak of tex-t121.pak (12.1, b097d061), tex-t13o.pak (lane objs,
+#              06e18e13: tex-t12d + the 32 objs13 pictures) and Ashley's 4 pictures (texpack.py)
+OBJS13D = {k: v for k, v in DATA['objs13'].items() if k != 'tex'}
+DATA['objs13d'] = OBJS13D
+ASHLEY = PRIV + '/ps2lib/cast'
+DATA['ashley13'] = {'dc/native/r117/registry.re4nmr': ASHLEY + '/r117/ashley-pl11/dc/native/r117/registry.re4nmr',
+                    'dc/native/r118/partner.re4nmr': ASHLEY + '/r118/ashley-pl11/dc/native/r118/partner.re4nmr',
+                    'em/pl11.drs': ASHLEY + '/r117/ashley-pl11/em/pl11.drs'}
+BAKE13 = PRIV + '/crowd12-bake-20261015/r101-t13'
+DATA['bake13'] = {'dc/native/r101/ps2-world.%s' % x: '%s/ps2-world.%s' % (BAKE13, x) for x in ('re4mesh', 'r4pw', 'r4sg', 'ids')}
+T13D = os.environ.get('T13D', '/root/probe/lanes-20261015/t13rc/data')
+DATA['t13tex'] = {'dc/tex.pak': T13D + '/tex-t13.pak'}
+CLASH += [('objs13d', 'objs13'), ('t13tex', 'leonhr')]
+# order: objs13d after items12 (its dars replace the test 12 ones), bake13 after sg101 / smx101, t13tex after t121tex
+T13_DATA = T121_DATA + ',objs13d,ashley13,bake13,t13tex'
+NAME =re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
 def sha(p):
