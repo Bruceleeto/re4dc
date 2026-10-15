@@ -382,6 +382,10 @@ void load()
         } else if (!strcmp(k, "after_reset")) {
             wp.after_reset = true;
 #endif
+#if defined(RE4DC_KOS_SQUEEZE) && RE4DC_KOS_SQUEEZE
+        } else if (!strcmp(k, "squeeze")) {
+            // KOS_SQUEEZE (platform/os.cpp reads this line at OSInit)
+#endif
         } else {
             re4dc_log("warp: unknown line '%s'\n", k);
         }

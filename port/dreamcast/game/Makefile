@@ -1568,6 +1568,28 @@ endif
 ifeq ($(KOS_WATCH),1)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_WATCH=1
 endif
+# KOS_SQUEEZE=1 (diagnostic, test builds only, default 0 = image unchanged; 2026-10-15 console out-of-memory gate):
+# right after OSInit carves the source arena (ARENA_FIT leaves ARENA_FIT_KOS_BYTES to KOS), hold KOS_SQUEEZE_BYTES of
+# KOS malloc for the whole run: one block (KOS_SQUEEZE_FRAG=0), or 4 KiB pieces each followed by a 4 KiB block that is
+# freed again (KOS_SQUEEZE_FRAG=1: the same bytes held, the space above them broken into 4 KiB holes). It makes Flycast's
+# KOS heap as small, or as broken up, as a console's: preview 2 had 7-8.5 KB minimum headroom in the Flycast r101 fight
+# and ran out of KOS on the console; preview 1's first radio call could not get 12,248 B on the console. A line
+# "squeeze <bytes> [frag]" in /cd/dc/warp.txt overrides both at run time (one warp twin serves every level). Logs
+# "kos squeeze:" (held bytes, pieces, headroom before / after); with KOS_WATCH=1 the "kos watch:" lines also give
+# top= (the largest block: sbrk room + the top chunk) and holes= (free chunks below the top).
+KOS_SQUEEZE ?= 0
+KOS_SQUEEZE_BYTES ?= 0
+KOS_SQUEEZE_FRAG ?= 0
+ifneq ($(filter $(KOS_SQUEEZE),0 1),$(KOS_SQUEEZE))
+$(error KOS_SQUEEZE must be 0 or 1)
+endif
+ifneq ($(filter $(KOS_SQUEEZE_FRAG),0 1),$(KOS_SQUEEZE_FRAG))
+$(error KOS_SQUEEZE_FRAG must be 0 or 1)
+endif
+ifeq ($(KOS_SQUEEZE),1)
+$(OBJDIR)/platform/os.o: PLATFORM_CPPFLAGS += -DRE4DC_KOS_SQUEEZE=1 -DRE4DC_KOS_SQUEEZE_BYTES=$(KOS_SQUEEZE_BYTES) -DRE4DC_KOS_SQUEEZE_FRAG=$(KOS_SQUEEZE_FRAG)
+$(OBJDIR)/dbgwarp_bridge.o: GAME_CPPFLAGS += -DRE4DC_KOS_SQUEEZE=1
+endif
 VRAM_ROOM_LOG ?= 0
 ifneq ($(filter-out 0 1,$(VRAM_ROOM_LOG)),)
 $(error VRAM_ROOM_LOG must be 0 or 1)

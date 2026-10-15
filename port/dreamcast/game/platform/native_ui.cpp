@@ -5175,7 +5175,12 @@ extern "C" void re4dc_ui_present(){
         const unsigned head = kf + kb;
         if (head + 2048 <= kw_min || frame % 60 == 0) {
             if (head < kw_min) kw_min = head;
-            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u\n", frame, kf, ku, kb, head, kw_min);
+            // top: the largest block KOS can still hand out in one piece (sbrk room + the top chunk); holes: free
+            // chunks below the top (smaller pieces only)
+            const struct mallinfo mi = mallinfo();
+            const unsigned keep = (unsigned) mi.keepcost;
+            re4dc_log("kos watch: frame=%u free=%u used=%u break=%u headroom=%u min=%u top=%u holes=%u\n", frame, kf, ku, kb, head,
+                      kw_min, kb + keep, kf > keep ? kf - keep : 0u);
         }
     }
 #endif
