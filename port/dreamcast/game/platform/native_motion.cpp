@@ -13,7 +13,10 @@ extern "C" { unsigned long long re4dc_motion_wait_total_us; }
 #ifndef RE4DC_MOTION_RESERVE_SPILL
 #define RE4DC_MOTION_RESERVE_SPILL 0
 #endif
-#if RE4DC_MOTION_RESERVE_SPILL
+#ifndef RE4DC_MOTION_COLD_POOL
+#define RE4DC_MOTION_COLD_POOL 0
+#endif
+#if RE4DC_MOTION_RESERVE_SPILL || RE4DC_MOTION_COLD_POOL
 extern "C" int re4dc_static_heap_free();   // ui_bridge.cpp: heap 4 free bytes (-1 when inactive)
 #endif
 #include <kos.h>
@@ -96,6 +99,15 @@ bool hold;
 #endif
 Owner owners[32]{};
 Re4dcMotionStats stats{};
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+// MOTION_STATS_LOG (Makefile): keys used per binding (bits by entry), for the window, the 5-window block and since bind.
+unsigned char ws_win[kArchives][32], ws_blk[kArchives][32], ws_all[kArchives][32];
+unsigned ws_windows;
+inline void ws_touch(const Binding& b,unsigned i) {
+    const unsigned k=unsigned(&b-bindings);if(k>=kArchives || i>=256)return;
+    const unsigned char m=(unsigned char)(1u<<(i&7));ws_win[k][i>>3]|=m;ws_blk[k][i>>3]|=m;ws_all[k][i>>3]|=m;
+}
+#endif
 std::uint64_t stamp;
 mutex_t lock=MUTEX_INITIALIZER;
 unsigned word(const unsigned char* p) { unsigned n;std::memcpy(&n,p,4);return n; }
@@ -225,6 +237,9 @@ void release_binding(Binding& b) {
     if(b.seen)re4dc_motion_free(b.seen);
 #endif
     re4dc_motion_free(b.slots);b={};
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+    {const unsigned k=unsigned(&b-bindings);if(k<kArchives){std::memset(ws_win[k],0,32);std::memset(ws_blk[k],0,32);std::memset(ws_all[k],0,32);}}
+#endif
 }
 #if RE4DC_MOTION_PRESSURE_BYTES
 // Called only under Locked, before a miss allocates its payload. Archive and
@@ -238,6 +253,10 @@ void pressure_room_for(unsigned bytes) {
 #endif
     if(bytes>RE4DC_MOTION_PRESSURE_BYTES)fail("motion pressure clip exceeds budget");
     while(stats.resident_bytes>RE4DC_MOTION_PRESSURE_BYTES-bytes) {
+#if defined(RE4DC_MOTION_PRESSURE_GROW) && RE4DC_MOTION_PRESSURE_GROW
+        // MOTION_PRESSURE_GROW: over the cap, evict only while heap 4 would keep less than the margin after this key.
+        if(re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_PRESSURE_GROW))break;
+#endif
         Binding* victim=nullptr;unsigned index=0;
         std::uint64_t oldest=~std::uint64_t(0);
         for(auto& q:bindings) {
@@ -287,6 +306,9 @@ unsigned char* oom_evict_alloc(unsigned bytes) {
 #endif
 unsigned* load(Binding& b,unsigned i) {
     const auto* e=record(b,i);auto& s=b.slots[i];
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+    ws_touch(b,i);
+#endif
     if(s.data) { ++stats.hits;s.used=++stamp; }
     else {
         ++stats.misses;const auto started=timer_us_gettime64();
@@ -329,6 +351,23 @@ unsigned* load(Binding& b,unsigned i) {
                     static unsigned spills;
                     if(++spills<=4 || (spills&1023)==0)re4dc_log("motion reserve: spill #%u bytes=%u heap4=%d\n",spills,bytes,re4dc_static_heap_free());
                     break;
+                }
+#endif
+#if RE4DC_MOTION_COLD_POOL && RE4DC_MOTION_PRESSURE_BYTES
+                // MOTION_COLD_POOL (game30.mk): both slabs busy; this key joins the pressure pool (already evicted down
+                // to the cap) while heap 4 keeps the margin; a failed allocation evicts a slab user below, as before.
+                if(
+#if RE4DC_MOTION_BOUNDED_R11F
+                    !b.bounded &&
+#endif
+                    re4dc_static_heap_free()>=int(bytes+RE4DC_MOTION_COLD_POOL)) {
+                    data=static_cast<unsigned char*>(re4dc_motion_alloc(bytes));
+                    static unsigned pooled,refused;
+                    if(data) {
+                        if(++pooled<=4 || (pooled&255)==0)re4dc_log("motion cold pool: use #%u bytes=%u resident=%u heap4=%d\n",pooled,bytes,stats.resident_bytes,re4dc_static_heap_free());
+                        break;
+                    }
+                    if(++refused<=4 || (refused&255)==0)re4dc_log("motion cold pool: allocation failed #%u bytes=%u, slab eviction\n",refused,bytes);
                 }
 #endif
                 unsigned victim=b.count;std::uint64_t oldest=~std::uint64_t(0);
@@ -447,6 +486,25 @@ extern "C" int re4dc_motion_thread_busy(const void* owner) {
     irq_restore(old);return busy!=0;
 }
 extern "C" void re4dc_motion_get_stats(Re4dcMotionStats* out) { Locked guard;*out=stats; }
+#if defined(RE4DC_MOTION_STATS_LOG) && RE4DC_MOTION_STATS_LOG
+// dvd_read_safe.cpp, each DISCRD window close: one MOTWS line per bound archive (keys used: count / bytes).
+extern "C" void re4dc_motion_ws_window() {
+    Locked guard;const bool blk_end=++ws_windows%5==0;
+    for(unsigned k=0;k<kArchives;++k) {
+        const auto& b=bindings[k];if(!b.archive)continue;
+        unsigned n[3]={0,0,0},by[3]={0,0,0},cold=0;
+        for(unsigned i=0;i<b.count && i<256;++i) {
+            const unsigned char m=(unsigned char)(1u<<(i&7));const unsigned sz=aligned(word(record(b,i)+4));
+            if(ws_win[k][i>>3]&m){++n[0];by[0]+=sz;if(!word(record(b,i)+16))cold+=sz;}
+            if(ws_blk[k][i>>3]&m){++n[1];by[1]+=sz;}
+            if(ws_all[k][i>>3]&m){++n[2];by[2]+=sz;}
+        }
+        re4dc_log("MOTWS: archive=%u entries=%u win=%u/%u (cold %u) block5=%u/%u%s bind=%u/%u resident=%u\n",b.bytes,b.count,
+                  n[0],by[0],cold,n[1],by[1],blk_end?" end":"",n[2],by[2],b.resident);
+        std::memset(ws_win[k],0,32);if(blk_end)std::memset(ws_blk[k],0,32);
+    }
+}
+#endif
 extern "C" int re4dc_motion_bind(void* archive,unsigned bytes) {
     Locked guard;auto* a=static_cast<unsigned char*>(archive);
     if(!a || bytes<16)return 0;

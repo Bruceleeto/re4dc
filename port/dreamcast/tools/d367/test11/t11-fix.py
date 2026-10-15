@@ -253,7 +253,18 @@ DATA['t13tex'] = {'dc/tex.pak': T13D + '/tex-t13v.pak'}
 CLASH += [('objs13d', 'objs13'), ('t13tex', 'leonhr')]
 # order: objs13d after items12 (its dars replace the test 12 ones), bake13 after sg101 / smx101, t13tex after t121tex
 T13_DATA = T121_DATA + ',objs13d,ashley13,bake13,t13tex'
-NAME =re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
+# Test 14 #1 (VRAM rule gap, 10-15): r101's resident list made complete (vram_gate strict: 0 uploads after the room-entry
+# preload at the r101 cross and the r101 entry; 12.2 had 24). res14 = dc/resident.bin = vram/resident_keys.py pack of
+# vram/resident/r*.tsv: r101 152 -> 190 keys (+18 PS2 item and 9 breakable pictures of test 12's items12 / objs12b, the
+# r100/common effect pictures r101 draws, 7 PS2 world keys; ~210 KB VRAM), sub screen (radio call) loads left out.
+# r000.tsv = the core set (4 HUD pictures, CORE_PIN=1). sha256 1196b77d41d7d0e1.
+T14D = os.environ.get('T14D', '/root/probe/lanes-20261015/squeeze/rel14')
+DATA['res14'] = {'dc/resident.bin': T14D + '/resident.bin'}
+# Test 14 r103 (10-15): res14r3 = res14 + vram/resident/r103.tsv (52 keys, 491,052 B VRAM: the farm view and the r101
+# door entry; 47-51 first-sight uploads per 45 s of farm play before, 0 after). 246 records, sha256 8a307ffc3770058a.
+T14R3D = os.environ.get('T14R3D', '/root/probe/lanes-20261015/squeeze/rel14r3')
+DATA['res14r3'] = {'dc/resident.bin': T14R3D + '/resident.bin'}
+NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
 def sha(p):

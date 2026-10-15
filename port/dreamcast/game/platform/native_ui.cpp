@@ -438,6 +438,28 @@ unsigned pack_error_skips; bool preload_after_pack;
 // one closes if a claim released uploads.
 unsigned vram_claims,claim_released;
 #endif
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+// CORE_PIN (subscreen.mk): the core keys (dc/resident.bin room 0), collected by preload_resident; load() never evicts
+// an entry holding one.
+constexpr unsigned kCoreKeys=16;
+Key core_keys[kCoreKeys];unsigned core_nkeys;
+inline bool core_pinned(const Entry& e){for(unsigned k=0;k<core_nkeys;++k)if(core_keys[k]==e.key)return true;return false;}
+#define RE4DC_CORE_PINNED(e) core_pinned(e)
+#else
+#define RE4DC_CORE_PINNED(e) false
+#endif
+#if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE && RE4DC_TEX_RESIDENT
+// SS_HOLD_RESTORE (subscreen.mk): the uploads load() evicts while the sub screen hold is open and that the room drew in
+// the kHoldWindow frames before the hold (the HUD, the view behind the call) are remembered; after the last unclaim a
+// preload pass restricted to them brings them back before play resumes. Others load on first sight, as before (a full
+// room pass after a call reloaded 95 r101 keys, 1.6 s in Flycast, most of them not in view).
+constexpr unsigned kHoldWindow=60,kHoldKeys=64;
+Key hold_keys[kHoldKeys];unsigned hold_nkeys,hold_frame,hold_dropped;bool hold_restore;
+#define RE4DC_HOLD_EVICTED(e) do{if(vram_claims && (e).frame+kHoldWindow>=hold_frame){ \
+    if(hold_nkeys<kHoldKeys)hold_keys[hold_nkeys++]=(e).key;else ++hold_dropped;}}while(0)
+#else
+#define RE4DC_HOLD_EVICTED(e) ((void)0)
+#endif
 re4dc::texture::SourceIdentityTable room_identities,core_identities,option_identities,player_identities,weapon_identities;unsigned identity_hits;
 // Match the recovered loader's four module owners; texture uploads still share
 // the existing cache and VRAM budget. These views own no texels or allocations.
@@ -3022,7 +3044,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
     Entry* slot=nullptr;
     for(auto& e:entries) if(!e.valid){slot=&e;break;}
-    if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
+    if(!slot) for(auto& e:entries) if(!RE4DC_ENTRY_PINNED(e) && !RE4DC_CORE_PINNED(e) && (!slot || e.frame<slot->frame)) slot=&e;
     if(!slot) {RE4DC_PROFILE_COUNT(TextureNoSlot,1);RE4DC_TEXCHK_FAIL(key,"no-slot");return nullptr;}
 #if RE4DC_TEX_RESIDENT
     // Never evict a resident texture for a package that is not on the disc:
@@ -3054,7 +3076,7 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
         fs_close(f);
     }
 #endif
-    if(slot->valid){RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();}
+    if(slot->valid){RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();RE4DC_HOLD_EVICTED(*slot);}
     close_entry(*slot); // caller has completed both TA and render fences
     char path[96];RE4DC_TEX_PATH(path,key);
     re4dc_log("native UI: load %s %ux%u fmt=%u\n",path,image.width,image.height,image.format);
@@ -3099,9 +3121,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
     // Without a pipeline, re4dc_ui_begin() quiesced the render before this frame.
     auto evict=[slot]{
         Entry* victim=nullptr;
-        for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
+        for(auto& e:entries) if(&e!=slot && e.valid && !RE4DC_ENTRY_PINNED(e) && !RE4DC_CORE_PINNED(e) && (!victim || e.frame<victim->frame)) victim=&e;
         if(!victim) return false;
-        RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();close_entry(*victim);++reclaimed;return true;
+        RE4DC_PROFILE_COUNT(TextureEvictions,1);RE4DC_FX_EVICTED();RE4DC_HOLD_EVICTED(*victim);close_entry(*victim);++reclaimed;return true;
     };
 #if RE4DC_TEX_META_EVICT
     // TEX_META_EVICT=1 (Makefile; render only): each open package keeps its descriptor prefix (header + texture record,
@@ -3535,7 +3557,16 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
           re4dc::texture::RangeRead::ok;++pieces){
         for(unsigned i=0;i<32 && n+resident<limit;++i){
             const Rec& r=buf[i];
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+            if(!r.room && r.width && (r.crc|r.fnv)){   // CORE_PIN: a core key, pinned and listed in every room
+                const Key ck{r.crc,r.fnv};bool have=false;
+                for(unsigned k=0;k<core_nkeys && !have;++k)have=core_keys[k]==ck;
+                if(!have && core_nkeys<kCoreKeys)core_keys[core_nkeys++]=ck;
+            }
+            if((r.room!=src.room && r.room) || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
+#else
             if(r.room!=src.room || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
+#endif
             ++resident_listed;
             const Key key{r.crc,r.fnv};
             bool known=false;
@@ -3549,6 +3580,9 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
     }
     if(pieces)re4dc_log("native texture preload: resident list room=%03x pieces=%u listed=%u picked=%u\n",src.room,pieces,
                         resident_listed,resident_picked);
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+    if(pieces)re4dc_log("native texture preload: core keys=%u (pinned)\n",core_nkeys);
+#endif
 }
 #endif
 #if RE4DC_IO_PROBE
@@ -3717,6 +3751,19 @@ void preload_identities(){
             for(unsigned j=i;j>m;--j)preload_picks[j]=preload_picks[j-1];
             preload_picks[m++]=p;
         }
+    }
+#endif
+#if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE
+    if(hold_restore){
+        // SS_HOLD_RESTORE: this pass loads only the keys the sub screen evicted from the view before it opened.
+        unsigned m=0;
+        for(unsigned i=0;i<n;++i){
+            bool keep=false;
+            for(unsigned k=0;k<hold_nkeys && !keep;++k)keep=hold_keys[k]==preload_picks[i].key;
+            if(keep)preload_picks[m++]=preload_picks[i];
+        }
+        re4dc_log("native texture hold restore: picks=%u of %u (remembered %u)\n",m,n,hold_nkeys);
+        n=m;hold_restore=false;hold_nkeys=0;
     }
 #endif
 #if defined(RE4DC_ROOM_CHANGE_EVICT) && RE4DC_ROOM_CHANGE_EVICT
@@ -4115,12 +4162,20 @@ extern "C" int re4dc_ui_vram_claim(unsigned bytes){return vram_claim(bytes,false
 // SS_PACK=1: the packed sub screen backing holds the preload like a claim but releases nothing here;
 // it takes free pool blocks as it fills and only then re4dc_ui_reclaim_one (counted in claim_released).
 extern "C" void re4dc_ui_vram_hold(){
+#if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE
+    if(!vram_claims){hold_frame=frame;hold_nkeys=0;hold_dropped=0;}   // SS_HOLD_RESTORE: a new hold
+#endif
     ++vram_claims;
     re4dc_log("native texture hold: claims=%u free=%u\n",vram_claims,(unsigned)pvr_mem_available());
 }
 #endif
 extern "C" void re4dc_ui_vram_unclaim(){
     if(!vram_claims)return;
+#if defined(RE4DC_SS_HOLD_RESTORE) && RE4DC_SS_HOLD_RESTORE
+    // SS_HOLD_RESTORE: a pass of only the remembered keys, unless a claim release already asks for the full pass.
+    if(vram_claims==1 && !claim_released && hold_nkeys){preload_pending=true;hold_restore=true;
+        re4dc_log("native texture hold restore: keys=%u dropped=%u\n",hold_nkeys,hold_dropped);}
+#endif
     if(!--vram_claims && claim_released){preload_pending=true;claim_released=0;}
     re4dc_log("native texture unclaim: claims=%u preload=%d free=%u\n",vram_claims,preload_pending?1:0,(unsigned)pvr_mem_available());
 }
