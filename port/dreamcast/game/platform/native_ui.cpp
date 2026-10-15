@@ -2105,6 +2105,12 @@ HudBatch speed_batch;
 extern "C" int re4dc_tick_log_snapshot(const char** name, unsigned* avg_us, unsigned* max_us, int max, unsigned* seq);
 extern "C" unsigned re4dc_speed_gpu10(void);
 extern "C" int re4dc_quality_render(void);
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+extern "C" int re4dc_pmc_row(unsigned* code, unsigned* val10);  // pace.cpp
+#endif
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+extern "C" int re4dc_disc_meter_hud(unsigned* lit, unsigned* rate, unsigned* load_ms);  // platform/dvd_read_safe.cpp
+#endif
 constexpr int kPhaseRows=11;
 unsigned phase_v[kPhaseRows];unsigned phase_seq=~0U;
 void phase_refresh(){
@@ -2131,6 +2137,9 @@ void phase_refresh(){
 void speed_draw(){
     unsigned v[3];
     int s;
+#if defined(RE4DC_PHASE_METER) && RE4DC_PHASE_METER
+    phase_refresh();   // the PHASES: log line each window, also while the counter is off
+#endif
     const bool counter=re4dc_speed_screen(v)!=0,note=re4dc_speed_note(&s)!=0;
     if(!counter && !note)return;
     HudBatch& b=speed_batch;b.n=1;
@@ -2156,6 +2165,28 @@ void speed_draw(){
         static const std::uint32_t kPhaseColour[kPhaseRows]={0xe080ff80U,0xe0ffff60U,0xe0ffffffU,0xe0ff9060U,0xe0ffb090U,
             0xe0a0d0ffU,0xe0c0c0c0U,0xe0e0a0ffU,0xe080ffffU,0xe0909090U,0xe0ffffffU};
         for(int k=0;k<kPhaseRows;++k)hud_number(b,500,SY+k*18,phase_v[k],k!=1,kPhaseColour[k]);
+#endif
+#if defined(RE4DC_PMC_ROW) && RE4DC_PMC_ROW
+        {   // PMC_ROW: event code (25 D-miss freeze, 24 I-miss freeze, 4 / 5 OC read / write misses, 8 IC misses), value
+            unsigned code=0,val=0;
+            if(re4dc_pmc_row(&code,&val)){
+                hud_number(b,440,SY+kPhaseRows*18,code,false,0xe0ff6060U);
+                hud_number(b,500,SY+kPhaseRows*18,val,true,0xe0ff6060U);
+            }
+        }
+#endif
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+        {   // DISC_READ_METER: the read marker (green: a GD-ROM read in flight, orange: one ran since the last drawn frame,
+            // dim: none), then reads/s, KB/s and game-thread blocked ms/s, then the room-entry load time in ms (5 s)
+            unsigned lit=0,rate[3]={},load=0;
+            const int room=re4dc_disc_meter_hud(&lit,rate,&load);
+            hud_rect(b,40,64,20,20,lit==2?0xf040ff40U:lit==1?0xf0ffa020U:0x40ffffffU);
+            constexpr float RY=SY+(kPhaseRows+1)*18;
+            hud_number(b,380,RY,rate[0],false,0xe060ff60U);
+            hud_number(b,440,RY,rate[1],false,0xe060ff60U);
+            hud_number(b,500,RY,rate[2],false,0xe060ff60U);
+            if(room)hud_number(b,500,RY+18,load,false,0xe0ffff60U);
+        }
 #endif
     }
 #if defined(RE4DC_SPEED_VMU_OFF) && RE4DC_SPEED_VMU_OFF

@@ -864,6 +864,18 @@ endif
 ifeq ($(DISC_READ_VERIFY),1)
 $(OBJDIR)/platform/dvd.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_VERIFY=1
 endif
+# DISC_READ_METER=1 (T12 Phases disc, 2026-10-15; display / log only, default 0; needs DVD_READ_SAFE=1 and
+# PHASE_METER=1): counts every GD-ROM drive call the game makes (cdrom_stream_start, cdrom_stream_request,
+# cdrom_read_sectors_ex: fs_iso9660 reads all files through them, so tex.pak, motion, sound, effect and room reads all
+# count) in platform/dvd_read_safe.cpp's wraps: a marker square lit while a read is in flight (green) or ran since the
+# last drawn frame (orange), a row with reads/s, KB/s and ms/s the game thread spent inside those calls (the last pace
+# window), and the room-entry load time (StageSet entry, or room enter for the first room, to the first gameMainLoop
+# frame in the room), shown for 5 s. "DISCRD:" log lines per window with reads and per room entry. The read path only
+# updates counters (interrupts masked for the few instructions) and reads the timer when the game thread calls.
+DISC_READ_METER ?= 0
+ifneq ($(filter $(DISC_READ_METER),0 1),$(DISC_READ_METER))
+$(error DISC_READ_METER must be 0 or 1)
+endif
 DISC_READ_FALLBACK ?= 0
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
@@ -886,8 +898,20 @@ GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_se
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_GD_ATOMIC=1
 endif
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DVD_READ_SAFE=$(DVD_READ_SAFE) -DRE4DC_DVD_STUCK_TEST=$(DVD_STUCK_TEST) -DRE4DC_DVD_STUCK_ADDR=$(DVD_STUCK_ADDR)
+ifeq ($(DISC_READ_METER),1)
+ifeq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
+GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex
+endif
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+$(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+endif
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
+ifeq ($(DISC_READ_METER),1)
+$(error DISC_READ_METER=1 needs DVD_READ_SAFE=1 (it counts in the platform/dvd_read_safe.cpp wraps))
+endif
 endif
 .PHONY: io-probe-force
 $(OBJDIR)/io-probe.h: io-probe-force

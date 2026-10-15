@@ -176,3 +176,27 @@ endif
 $(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_PHASE_METER=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PHASE_METER=1
 endif
+
+# PMC_ROW=1 (T12 Phases disc, 2026-10-15; display / log only, default 0; needs PHASE_METER=1): one more row under the phase
+# column from the SH-4 performance counter 2 (KOS keeps counter 1 for its ns timer). One event per one-second window,
+# in turn: 0x25 pipeline freeze by D-cache miss, 0x24 freeze by I-cache miss (cycles, shown in 0.1 ms per drawn
+# frame), 0x04 operand-cache read misses, 0x05 operand-cache write misses, 0x08 instruction-cache misses (shown in
+# 0.1 k per drawn frame). The event code is drawn left of the value (25, 24, 4, 5, 8). A whole window per event
+# (not a per-tick rotation), so draw / skip ticks cannot alias with the event (10-04 hwcal trap). "PMC:" log line.
+PMC_ROW ?= 0
+ifneq ($(filter $(PMC_ROW),0 1),$(PMC_ROW))
+$(error PMC_ROW must be 0 or 1)
+endif
+ifeq ($(PMC_ROW),1)
+ifneq ($(PHASE_METER),1)
+$(error PMC_ROW=1 needs PHASE_METER=1)
+endif
+$(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_PMC_ROW=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_PMC_ROW=1
+endif
+# DISC_READ_METER (Makefile, next to DVD_READ_SAFE) draws in the PHASE_METER column.
+ifeq ($(DISC_READ_METER),1)
+ifneq ($(PHASE_METER),1)
+$(error DISC_READ_METER=1 needs PHASE_METER=1)
+endif
+endif

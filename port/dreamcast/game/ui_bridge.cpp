@@ -369,7 +369,13 @@ extern "C" void re4dc_leon_hands_room_enter();              // coarse_actor_leon
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
 extern "C" void re4dc_sob_room_leave();                     // model_bridge.cpp STATIC_OBJ_BATCH
 #endif
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+extern "C" void re4dc_disc_meter_room(int what, unsigned room);  // platform/dvd_read_safe.cpp
+#endif
 extern "C" void re4dc_room_leave(){
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    re4dc_disc_meter_room(0,unsigned(pG->room_id));   // the room-entry load time starts at the door
+#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     // Must run before any native owner or source heap is retired.
     if(!re4dc_movie_world_before_room_retire()){
@@ -412,6 +418,9 @@ extern "C" void re4dc_warp_poll(void);
 extern "C" void re4dc_std_room_enter(unsigned room);   // platform/native_static.cpp
 #endif
 extern "C" void re4dc_room_enter(){
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    re4dc_disc_meter_room(1,unsigned(pG->room_id));   // or here for the first room (no door)
+#endif
 #if RE4DC_QUALITY
     re4dc_quality_freeze("room");
 #endif
@@ -480,6 +489,9 @@ extern "C" int re4dc_room_cycle_poll(){
     re4dc_w11_room_poll(generation);                    // death / life fixture (sscrn_bridge.cpp)
 #endif
     ++room_frames;
+#if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
+    if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+#endif
 #if RE4DC_DBG_WARP
     re4dc_warp_poll();                                  // test warp rig: placement log, area dump
 #endif
