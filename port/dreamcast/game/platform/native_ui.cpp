@@ -8050,6 +8050,9 @@ extern "C" int re4dc_ui_movie_present_now(){
 #endif
     stream_open();
     movie_draw();
+#if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
+    bench_banner_draw();   // bench.mk: the banner over movie pictures too (same TR list as movie_draw)
+#endif
     stream_close(true);
 #if RE4DC_D349_RENDERER_STACK
     desired_list=list;

@@ -5,6 +5,11 @@
 #   BW = DBG_WARP=1 WARP_AFTER_RESET=1 (the scenes are warp fixtures, each armed from a soft reset)
 #        GAME_TICK_LOG=60 PHASE_METER=1 DISC_READ_METER=1 (the Phases disc meters: CPU per tick, disc reads)
 #        BENCHMARK=1 BENCH_ID=<tree sha8>
+#        ARENA_FIT_KOS_BYTES=262144 ($BENCH_KOS): KOS keeps 64 KiB more than the release (196608), heap 4 64 KiB less.
+#        Why: the soft reset between the scenes carries r101's KOS use (~126 KB, the "phase=enter drift kos=" line) into
+#        the r100 load, and the KOS out-of-memory gate at 48 KiB failed on the 196608 split (0270a29d: "Out of memory"
+#        in the r100 load after the reset, and at the r101 entry with 4 KiB pieces, 12 KB thread stack). The release
+#        r101 -> r100 backtrack carries the same use; that is a release finding, not changed here.
 # Arms (label prefix $LP, default bp):
 #   B  the benchmark disc program
 #   Q  B + KOS_SQUEEZE=1 KOS_WATCH=1 (the KOS out-of-memory gate twin; a "squeeze <bytes> <frag>" warp line sets it)
@@ -20,7 +25,7 @@ mkdir -p $K/programs
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1760000000}
 REC=$(sed 's/^.*PC_SAMPLER=1 //' $BASE/candidate.txt)
 ID=${BENCH_ID:-$(git -C $T rev-parse --short=8 HEAD)}
-BW="DBG_WARP=1 WARP_AFTER_RESET=1 GAME_TICK_LOG=60 PHASE_METER=1 DISC_READ_METER=1 BENCHMARK=1 BENCH_ID=$ID"
+BW="DBG_WARP=1 WARP_AFTER_RESET=1 GAME_TICK_LOG=60 PHASE_METER=1 DISC_READ_METER=1 BENCHMARK=1 BENCH_ID=$ID ARENA_FIT_KOS_BYTES=${BENCH_KOS:-262144}"
 TOOL=/opt/toolchains/dc/sh-elf/bin
 bin() { $TOOL/sh-elf-objcopy -R .stack -O binary $1 /tmp/bp-$$.bin && sha256sum < /tmp/bp-$$.bin | cut -c1-64; rm -f /tmp/bp-$$.bin; }
 b() { local lab=$1; shift; local t0=$(date +%s)

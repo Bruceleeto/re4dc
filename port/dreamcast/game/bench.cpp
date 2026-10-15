@@ -416,7 +416,7 @@ extern "C" void __wrap_OSInit(void)
                                   "GITHUB.COM/LAMB2K/RE4DC - RELEASES",
                                   "",
                                   "IT RUNS TWO SCRIPTED SCENES BY ITSELF",
-                                  "(ABOUT 3 MINUTES), THEN SHOWS RESULTS.",
+                                  "(ABOUT 4 MINUTES), THEN SHOWS RESULTS.",
                                   "AFTER START DO NOT TOUCH THE CONTROLLER.",
                                   "PHOTOGRAPH THE RESULTS SCREEN."};
             for (const char* s : body) { fb_text(fb, 60, y, 2, 2, s[0] == 'G' ? kGreen : kWhite, s); y += 22; }
