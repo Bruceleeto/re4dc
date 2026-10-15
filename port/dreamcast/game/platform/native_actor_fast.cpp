@@ -5061,6 +5061,9 @@ int one_chunk_core(Re4dcModelPart& p, OneWindow& w, const SkinEntry* known, cons
 int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     if (p.positions) return -1;
     ++stats.parts;
+#if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
+    re4dc_callprof_part(p.model, 1);
+#endif
     const SkinEntry* se = nullptr;
     Re4dcActorSource src{};
     if (!one_qualifies(p, se, src)) { ++stats.declined; return 0; }
