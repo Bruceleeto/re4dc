@@ -98,7 +98,13 @@ T15_R="KOS_SBRK_LAST_PAGE=1"
 #      (dc/native/ganado/ganado_lod.re4gl, sha256 46566154; in T15_DATA). Check the candidate's boot log for
 #      "GANADOLOD level=2 name=g70" in r101 and "level=0" at the r101s30 event. _end +928 B.
 T15_4="GANADO_LOD=1 GANADO_LOD_LEVEL=2 GANADO_LOD_PACK=/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4"
+#   F  SUB_EM_FUNC=1 MOVIE_POLL_SETTLE=1 (lane ch22-1014 9b401bc0 / 4835a107, cherry-picked fc30290b / 9a0b9ea7; fix-only):
+#      STRICT vs kT stop 2000 on h2 fight / r101 bell / door103 (t15srT, evidence t15int-20261015 st{A,B,C}); s40 movie
+#      1175/1175 both arms.
+T15_F="SUB_EM_FUNC=1 MOVIE_POLL_SETTLE=1"
+#   H  HUD fix (t15/hud, CORE_PIN=2 + SS_HOLD_RESTORE=1 + data res16): merged default 0, gated (door103 vram PASS, r105 =
+#      control, STRICT door103); in T15REC on the coordinator's call.
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
