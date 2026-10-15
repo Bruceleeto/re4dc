@@ -688,13 +688,15 @@ namespace sobake {
 // scenery not yet submitted): decide every baked object of the room and gate its placement.
 void decide(unsigned room);
 }
+extern "C" void re4dc_sob_bake_room_leave();
 // Render_before (re4dc_prepare_model_assets): room state, placements owned, the prepare callback registered.
 extern "C" void re4dc_sob_bake_frame(){
     using namespace sobake;
     const unsigned room=pG->room_id;
     unsigned g,c,b,st,rf;
     if(!re4dc_room4_state(&g,&c,&b,&st,&rf)){S=nullptr;return;}
-    if(S && (S->generation!=g || S->room!=room))S=nullptr;
+    if(S && S->generation!=g)S=nullptr;          // the room heap was retired with its cells
+    if(S && S->room!=room)re4dc_sob_bake_room_leave();  // same heap, the game moved on: give the cells back
     if(!S){
         unsigned first=kN,n=0;
         for(unsigned i=0;i<kN;++i)if(kTable[i].room==room){if(first==kN)first=i;++n;}
