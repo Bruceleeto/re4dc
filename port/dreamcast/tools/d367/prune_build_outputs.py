@@ -37,6 +37,10 @@ Never:
     tool saves git diff (binary, incl. staged), git stash list, untracked list and a bundle of the unpushed
     commits into /root/probe/_prune-manifests/backups/.
 
+Fixes 2026-10-15 evening: idleness is the newest FILE mtime (directory mtimes are bumped by a prune itself);
+out-*/build-* dirs whose objects were already pruned still count as build dirs (their ELFs/overlays go);
+a unit holding a process cwd or open file is skipped; evening lanes/releases added to the protected names.
+
 Options: --apply, --idle-hours H, --no-windows, --windows-only, --top NAME (only /root/probe/NAME; repeat),
          --list (print every unit, not only the summary), --quiet.
 """
@@ -57,9 +61,9 @@ PROTECT_NAMES = ['sh4zam*', 't2exact*', 'farhalf*', 'worldlod*', 'skiptick*', 'p
                  'RE4DC-Test14-Candidate*', 'RE4DC-Benchmark-Part1*', 'RE4DC-Benchmark-Part2*',
                  'RE4DC-Benchmark-ZAMR*', 'RE4DC-Benchmark-WLODP*', 'RE4DC-Bench-LinkOrder2*',
                  'RE4DC-Bench-LinkOrder-D*', 'LO Control*', 'RE4DC-SD-Backups*', 'RE4DC-superseded-discs*',
-                 '_prune-manifests', '_archive*', 'iso-src*', 'mirror*', 're4data', 'orig', 'orig-*']
+                 '_prune-manifests', '_archive*', '_bundles', '_wip-backup*', 't15*', 'out-t13*', 'out-t14*', 'out-t15*', '*poc101*', '*POC101*', 'poc*', 'logicwaste*', 'worldvert*', 'leonlod*', 't14rc*', 'kit-check-test14', 'discread', 'd3verify', '*LinkOrder*', 'abbench', 'benchwork', 'iso-src*', 'mirror*', 're4data', 'orig', 'orig-*']
 # current release (test 13 source 05e5ff76) and the test 14 candidate (source bb2c4c51, image aa0f40a1, t14/rc 63df6c0f)
-KEEP_TOKENS = ['05e5ff76', 'bb2c4c51', 'aa0f40a1', '63df6c0f']
+KEEP_TOKENS = ['05e5ff76', 'bb2c4c51', 'aa0f40a1', '63df6c0f', 'e2048df6', '12dddcac']
 
 OBJDIR_RE = re.compile(r'^(out-.+|obj|obj[-_.].+|objs|build|build[-_.].+|builds|.+-obj|objdir.*|_build)$')
 OBJ_EXT = {'.o', '.d', '.gch', '.elf', '.ovl'}
@@ -69,6 +73,24 @@ BIG = 50 * 1024 ** 2
 SRC_DISC_MAX = int(1.2 * 1024 ** 3)
 GENERIC = {'obj', 'objs', 'build', 'builds', 'out', 'disc', 'discs', 'tree', 'base', 'work', 'stage', 'tmp',
            'data', 'bench', 'gdemu', 'logs', 'fix', 'hold', 'route', 'lanes'}
+
+
+def _open_paths():
+    s = set()
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue
+        for l in ['cwd'] + ['fd/' + x for x in (os.listdir('/proc/%s/fd' % pid) if os.access('/proc/%s/fd' % pid, os.R_OK) else [])]:
+            try:
+                p = os.readlink('/proc/%s/%s' % (pid, l))
+            except OSError:
+                continue
+            if p.startswith('/root/probe'):
+                s.add(p)
+    return sorted(s)
+
+
+OPEN_PATHS = _open_paths()
 
 
 def log(*a):
@@ -178,7 +200,7 @@ class Scan:
             st = os.lstat(d)
         except OSError:
             return 0
-        newest = st.st_mtime
+        newest = 0
         try:
             it = list(os.scandir(d))
         except OSError:
@@ -376,7 +398,7 @@ def main():
                     continue
             else:
                 if kind == 'objdir':
-                    if uobj not in sc.objunits:
+                    if uobj not in sc.objunits and not os.path.basename(uobj).startswith(('out-', 'build-')):
                         continue           # an objdir-named dir without .o files: not a build dir
                     unit = uobj
                 else:
@@ -400,6 +422,8 @@ def main():
                         if tkn in unit:
                             why = 'release token ' + tkn
                             break
+                if not why and any(op == unit or op.startswith(unit + '/') for op in OPEN_PATHS):
+                    why = 'in use by a process'
                 if not why and u['newest'] > cutoff:
                     why = 'active (%.1f h ago)' % ((now - u['newest']) / 3600)
                 if not why:
