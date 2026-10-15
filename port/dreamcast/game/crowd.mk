@@ -585,3 +585,12 @@ SOB_DIAG ?= 0
 ifneq ($(SOB_DIAG),0)
 $(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_SOB_DIAG=1
 endif
+
+# STATIC_OBJ_BATCH=1 (lane crowd12 2026-10-15; render only, default 0): the static GC-path object classes (doors,
+# boxes, racks, windows, rack rifles) submit each run of identical-record display lists of one info as one actor
+# part (model_bridge.cpp sob::), from a cached concatenation of the raw GX lists (96 KiB heap budget). Matrices,
+# poses and lights stay live; any mismatch submits the lists one by one as before.
+STATIC_OBJ_BATCH ?= 0
+ifneq ($(STATIC_OBJ_BATCH),0)
+$(OBJDIR)/model_bridge.o: GAME_CPPFLAGS += -DRE4DC_STATIC_OBJ_BATCH=1
+endif
