@@ -878,6 +878,60 @@ DISC_READ_METER ?= 0
 ifneq ($(filter $(DISC_READ_METER),0 1),$(DISC_READ_METER))
 $(error DISC_READ_METER must be 0 or 1)
 endif
+# DISC_COMPAT=1 (test 14 items 11/12, lane discread 2026-10-15, default 0): the disc-read compatibility set for GDEMU
+# units and clones, ODEs and loaders (RE4DC-DISC-COMPAT-RESEARCH-20261015.md section 6), one knob:
+# - DISC_READ_FALLBACK=2: plain sector reads only (no cdrom_stream start / cancel per read, so no stream is ever
+#   cancelled with data queued and DVD_READ_SAFE's 10 ms force-abort of a refused stream request cannot run), each read
+#   a bounded GD command (DMA, then DMA after a bounded drive re-init, then PIO), bounded cdrom_reinit;
+# - DISC_BOOT_LOG=2: the disc log goes on screen only once a read misbehaves (=1: always during the boot, the #28 discs);
+# - KOS_DISC_FIX=1: a build-time patched copy of KOS fs_iso9660.c (upstream aeee10d9: one mutex, no multi-thread /cd
+#   deadlock or garbage handles) and cdrom.c (exec_cmd_timed's abort deadlock, reinit_ex's endless retry, a settle
+#   delay after a drive reset) is linked in place of libkallisti's (patches/kos-804b319-*.patch; KOS is not modified);
+# - the /cd mount takes the data track that holds the ISO9660 volume descriptor, not the last one (GD MENU Card
+#   Manager's "Shrink GDI" splits the HD area into track 3 + track 4: platform/gdrom_mount.cpp).
+# Packaging (mkgdi.sh, not a make knob): PAD_1ST=1 pads 1ST_READ.BIN to whole sectors; PRODUCT= sets the product number.
+DISC_COMPAT ?= 0
+ifneq ($(filter $(DISC_COMPAT),0 1),$(DISC_COMPAT))
+$(error DISC_COMPAT must be 0 or 1)
+endif
+ifeq ($(DISC_COMPAT),1)
+ifneq ($(filter $(origin DISC_READ_FALLBACK),command line environment),)
+ifneq ($(DISC_READ_FALLBACK),2)
+$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2)
+endif
+endif
+override DISC_READ_FALLBACK := 2
+override KOS_DISC_FIX := 1
+DISC_BOOT_LOG ?= 2
+endif
+DISC_BOOT_LOG ?= 1
+ifneq ($(filter $(DISC_BOOT_LOG),1 2),$(DISC_BOOT_LOG))
+$(error DISC_BOOT_LOG must be 1 or 2)
+endif
+KOS_DISC_FIX ?= 0
+ifneq ($(filter $(KOS_DISC_FIX),0 1),$(KOS_DISC_FIX))
+$(error KOS_DISC_FIX must be 0 or 1)
+endif
+ifeq ($(KOS_DISC_FIX),1)
+KOSFIX := $(OBJDIR)/kosfix
+KOS_PATCHES := $(CURDIR)/../patches
+PLATFORM_OBJS += $(KOSFIX)/fs_iso9660.o $(KOSFIX)/cdrom.o
+$(KOSFIX)/fs_iso9660.c: $(KOS_BASE)/kernel/arch/dreamcast/fs/fs_iso9660.c $(KOS_PATCHES)/kos-804b319-fs-iso9660-aeee10d9.patch
+	@rm -rf $(KOSFIX)/p-fs && mkdir -p $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs
+	cp $< $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/
+	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-fs < $(KOS_PATCHES)/kos-804b319-fs-iso9660-aeee10d9.patch
+	cp $(KOSFIX)/p-fs/kernel/arch/dreamcast/fs/fs_iso9660.c $@
+$(KOSFIX)/cdrom.c: $(KOS_BASE)/kernel/arch/dreamcast/hardware/cdrom.c $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+	@rm -rf $(KOSFIX)/p-cd && mkdir -p $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware
+	cp $< $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/
+	patch --fuzz=0 -s -p1 -d $(KOSFIX)/p-cd < $(KOS_PATCHES)/kos-804b319-cdrom-hang-fixes.patch
+	cp $(KOSFIX)/p-cd/kernel/arch/dreamcast/hardware/cdrom.c $@
+$(KOSFIX)/%.o: $(KOSFIX)/%.c
+	kos-cc $(KOS_CFLAGS) -O2 -MMD -MP -c $< -o $@
+endif
+ifeq ($(DISC_COMPAT),1)
+$(OBJDIR)/platform/gdrom_mount.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_COMPAT=1
+endif
 # DISC_READ_FALLBACK=2 (issue #28 v2, 2026-10-15; v1 gave a black screen under the ISO loader): no cdrom streams at all
 # (fs_iso9660 reads by sector reads), every sector read is a bounded GD command polled from the calling thread (DMA, then
 # DMA after a bounded drive re-init, then PIO; the one that works is reported and kept), cdrom_reinit is wrapped with a
@@ -907,6 +961,7 @@ $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_REA
 endif
 ifeq ($(DISC_READ_FALLBACK),2)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG)
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check

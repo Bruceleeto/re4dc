@@ -1,6 +1,6 @@
 #!/bin/bash
 # D367 W10: GDEMU image (GDI) from the same inputs as mkdisc-hardlink.sh.
-#   [SECTOR=2352|2048] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] [INPUT_CHARSET=..] \
+#   [SECTOR=2352|2048] [PAD_1ST=0|1] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] [INPUT_CHARSET=..] \
 #     mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]
 #
 # Standard three-track GD-ROM layout, the one GDEMU and Flycast expect:
@@ -57,6 +57,20 @@ if ! bash "$KOS/utils/elf2bin/elf2bin" "$ELF" "$WORK/prog.bin" >/dev/null 2>&1 |
   "${SH_OBJCOPY:-/opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy}" -R .stack -O binary "$ELF" "$WORK/prog.bin"
 fi
 test -s "$WORK/prog.bin"
+# PAD_1ST=1 (test 14 DISC_COMPAT packaging, default 0): 1ST_READ.BIN padded with zeros to a whole number of 2048-byte
+# sectors. KOS issue #1492 (a MODE ODE): an unpadded 1ST_READ.BIN left BIOS read residue that stalled or wedged KOS's
+# first GD command; padding cured it. The zeros load just past the image's data, into .bss, which crt0 clears anyway.
+if [ "${PAD_1ST:-0}" = 1 ]; then
+  pb=$(stat -c %s "$WORK/prog.bin"); pp=$(( (pb + 2047) / 2048 * 2048 ))
+  NM=${SH_NM:-/opt/toolchains/dc/sh-elf/bin/sh-elf-nm}
+  bss=$("$NM" "$ELF" | awk '$3=="__bss_start"{print $1}'); endv=$("$NM" "$ELF" | awk '$3=="_end"{print $1}')
+  # the padding must land inside [__bss_start, _end) (the image is loaded at 0x8c010000)
+  { [ -n "$bss" ] && [ -n "$endv" ] && [ $(( 0x8c010000 + pb )) -ge $(( 0x$bss - 32 )) ] && \
+    [ $(( 0x8c010000 + pp )) -le $(( 0x$endv )) ]; } || \
+    { echo "mkgdi: PAD_1ST: image end $(printf %x $(( 0x8c010000 + pb ))) is not at .bss ($bss.._end $endv)" >&2; exit 1; }
+  [ $pp = $pb ] || truncate -s $pp "$WORK/prog.bin"
+  echo "mkgdi: 1ST_READ.BIN $pb -> $pp bytes (PAD_1ST=1)" >&2
+fi
 cp "$WORK/prog.bin" "$WORK/cdroot/1ST_READ.BIN"
 
 cat > "$WORK/ip.txt" <<IPTXT

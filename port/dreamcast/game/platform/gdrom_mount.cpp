@@ -20,6 +20,36 @@
 
 extern "C" int __real_cdrom_read_toc(cd_toc_t* toc, bool high_density);
 
+#if defined(RE4DC_DISC_COMPAT) && RE4DC_DISC_COMPAT
+// DISC_COMPAT (test 14, lane discread): KOS mounts the LAST data track (cdrom_locate_data_track). GD MENU Card Manager's
+// "Shrink GDI" splits the HD area into track 3 (IP.BIN + the ISO9660 tree) and track 4 (file data at the same LBAs), so
+// KOS found no file system and every /cd open failed (#17). The last data track is kept when it holds a primary volume
+// descriptor ("\1CD001" 16 sectors in); otherwise the first data track that does is mounted: toc->last is cut back to
+// it, which is all cdrom_locate_data_track and fs_iso9660 use (file LBAs are absolute, so track 4 is still read).
+#include <string.h>
+static bool has_pvd(uint32_t fad)
+{
+    alignas(32) static uint8_t sec[2048];
+    return cdrom_read_sectors_ex(sec, fad + 16, 1, true) == ERR_OK && !memcmp(sec, "\1CD001", 6);
+}
+static void mount_fs_track(cd_toc_t* toc)
+{
+    const int first = TOC_TRACK(toc->first), last = TOC_TRACK(toc->last);
+    if (first < 1 || last > 99 || first > last) return;
+    int t = last;
+    while (t >= first && TOC_CTRL(toc->entry[t - 1]) != 4) --t;
+    if (t < first || has_pvd(TOC_LBA(toc->entry[t - 1]))) return;  // the normal image: unchanged
+    for (int u = first; u < t; ++u) {
+        if (TOC_CTRL(toc->entry[u - 1]) != 4 || !has_pvd(TOC_LBA(toc->entry[u - 1]))) continue;
+        re4dc_log("gdrom: /cd from data track %d (FAD %lu): the last data track %d has no file system (split image)\n",
+                  u, (unsigned long) TOC_LBA(toc->entry[u - 1]), t);
+        toc->last = (toc->last & ~0x00FF0000u) | ((uint32_t) u << 16);
+        return;
+    }
+    re4dc_log("gdrom: no data track holds a file system\n");
+}
+#endif
+
 extern "C" int __wrap_cdrom_read_toc(cd_toc_t* toc, bool high_density)
 {
     if (!high_density) {
@@ -28,6 +58,9 @@ extern "C" int __wrap_cdrom_read_toc(cd_toc_t* toc, bool high_density)
         // is retried a few times before falling back to the original request.
         for (int tries = 0; tries < 4 && cdrom_get_status(&status, &type) < 0; tries++) type = -1;
         if (type == CD_GDROM && __real_cdrom_read_toc(toc, true) == 0) {
+#if defined(RE4DC_DISC_COMPAT) && RE4DC_DISC_COMPAT
+            mount_fs_track(toc);
+#endif
             const uint32_t fad = cdrom_locate_data_track(toc);
             if (fad) {
                 static bool logged;

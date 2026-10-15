@@ -1,0 +1,95 @@
+RE4DC (lane discread, 2026-10-15, test 14 item 11): two hang fixes and a settle delay in KallistiOS 804b319
+kernel/arch/dreamcast/hardware/cdrom.c. Applied by game/Makefile KOS_DISC_FIX=1 to a build-time copy of the file
+(the KOS checkout is not modified).
+- cdrom_exec_cmd_timed: on a timeout it called cdrom_abort_cmd() while still holding the G1 ATA semaphore through
+  sem_wait_scoped; abort_cmd waits on that semaphore when no DMA is in progress, so the thread blocked forever.
+  The semaphore is now released before the abort.
+- cdrom_reinit_ex: the CD_CMD_INIT retry loop ran forever while the drive kept answering "disc changed"; 8 tries.
+- cdrom_abort_cmd: 100 ms after the BIOS reset + init that follows an abort timeout (GDEMU clones need time after a
+  reset before the next CMD_INIT: KOS PR #957).
+
+diff --git a/kernel/arch/dreamcast/hardware/cdrom.c b/kernel/arch/dreamcast/hardware/cdrom.c
+index 116c500..9a1441a 100644
+--- a/kernel/arch/dreamcast/hardware/cdrom.c
++++ b/kernel/arch/dreamcast/hardware/cdrom.c
+@@ -173,16 +173,23 @@ int cdrom_exec_cmd(cd_cmd_code_t cmd, void *param) {
+ }
+ 
+ int cdrom_exec_cmd_timed(cd_cmd_code_t cmd, void *param, uint32_t timeout) {
++    int rv;
+ 
+-    sem_wait_scoped(&_g1_ata_sem);
++    /* RE4DC: an explicit lock instead of sem_wait_scoped. On a timeout the G1 ATA
++       semaphore is released before cdrom_abort_cmd(), which takes it again itself
++       (no DMA is in progress here): with the scoped lock the abort waited on the
++       semaphore this thread held, forever. */
++    sem_wait(&_g1_ata_sem);
+     cmd_hnd = cdrom_req_cmd(cmd, param);
+ 
+     if(cmd_hnd <= 0) {
++        sem_signal(&_g1_ata_sem);
+         return ERR_SYS;
+     }
+ 
+     /* Start the process of executing the command. */
+     if(cdrom_poll(&cmd_hnd, timeout, cdrom_check_cmd_done) == ERR_TIMEOUT) {
++        sem_signal(&_g1_ata_sem);
+         cdrom_abort_cmd(1000, true);
+         return ERR_TIMEOUT;
+     }
+@@ -192,19 +199,23 @@ int cdrom_exec_cmd_timed(cd_cmd_code_t cmd, void *param, uint32_t timeout) {
+     }
+ 
+     if(cmd_response == CD_CMD_COMPLETED || cmd_response == CD_CMD_STREAMING) {
+-        return ERR_OK;
++        rv = ERR_OK;
+     }
+     else if(cmd_response == CD_CMD_NOT_FOUND) {
+-        return ERR_NO_ACTIVE;
++        rv = ERR_NO_ACTIVE;
+     }
+     else if(cmd_status.err1 == 2) {
+-        return ERR_NO_DISC;
++        rv = ERR_NO_DISC;
+     }
+     else if(cmd_status.err1 == 6) {
+-        return ERR_DISC_CHG;
++        rv = ERR_DISC_CHG;
++    }
++    else {
++        rv = ERR_SYS;
+     }
+ 
+-    return ERR_SYS;
++    sem_signal(&_g1_ata_sem);
++    return rv;
+ }
+ 
+ int cdrom_abort_cmd(uint32_t timeout, bool abort_dma) {
+@@ -234,6 +245,10 @@ int cdrom_abort_cmd(uint32_t timeout, bool abort_dma) {
+         rv = ERR_TIMEOUT;
+         syscall_gdrom_reset();
+         syscall_gdrom_init();
++        /* RE4DC: let the drive settle before the next command. GDEMU clones were
++           left with an invalid TOC when CMD_INIT followed a reset too soon (KOS
++           PR #957). */
++        thd_sleep(100);
+     }
+ 
+     cmd_hnd = 0;
+@@ -330,11 +345,13 @@ int cdrom_reinit(void) {
+ 
+ /* Enhanced cdrom_reinit, takes the place of the old 'sector_size' function */
+ int cdrom_reinit_ex(cd_read_sec_part_t sector_part, int cdxa, int sector_size) {
+-    int r;
++    int r, tries = 0;
+ 
++    /* RE4DC: a drive (or disc emulator) that keeps reporting a disc change
++       looped here forever; give it 8 tries. */
+     do {
+         r = cdrom_exec_cmd_timed(CD_CMD_INIT, NULL, 10000);
+-    } while(r == ERR_DISC_CHG);
++    } while(r == ERR_DISC_CHG && ++tries < 8);
+ 
+     if(r == ERR_NO_DISC || r == ERR_SYS || r == ERR_TIMEOUT) {
+         return r;

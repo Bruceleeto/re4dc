@@ -493,7 +493,13 @@ void put_row(const Fb& fb, int row, const char* s, uint16_t fg)
         }
     }
 }
-bool screen_on() { return g_fatal || re4dc_ui_frame() == 0; }
+#ifndef RE4DC_DISC_BOOT_LOG
+#define RE4DC_DISC_BOOT_LOG 1
+#endif
+// DISC_BOOT_LOG=1 (the #28 test discs): on screen through the whole boot. =2 (DISC_COMPAT): only once a warning or an
+// error was noted (then with every line so far), so a healthy boot shows nothing.
+volatile bool g_trouble;
+bool screen_on() { return g_fatal || (re4dc_ui_frame() == 0 && (RE4DC_DISC_BOOT_LOG == 1 || g_trouble)); }
 void draw_all()
 {
     Fb fb;
@@ -519,7 +525,8 @@ void draw_all()
 void header()
 {
     if (g_head[0][0]) return;
-    snprintf(g_head[0], sizeof(g_head[0]), "RE4DC disc check v2 - issue 28 test 2");
+    snprintf(g_head[0], sizeof(g_head[0]), RE4DC_DISC_BOOT_LOG == 1 ? "RE4DC disc check v2 - issue 28 test 2"
+                                                                     : "RE4DC disc log - a disc read had trouble");
     // The GD-ROM syscall vectors: a loader (DreamShell's ISO loader) points them at its own code.
     snprintf(g_head[1], sizeof(g_head[1]), "photo if it stops. gd vec %08lx %08lx",
              (unsigned long) *(volatile uint32_t*) 0x8C0000BCu, (unsigned long) *(volatile uint32_t*) 0x8C0000C0u);
@@ -546,6 +553,7 @@ extern "C" void re4dc_disc_note(int level, const char* fmt, ...)
     strncpy(dn::g_line[k], b, dn::kCols);
     dn::g_line[k][dn::kCols] = 0;
     dn::g_lev[k] = (uint8_t) level;
+    if (level >= 2) dn::g_trouble = true;
     irq_restore(o);
     if (dn::screen_on()) dn::draw_all();
 }

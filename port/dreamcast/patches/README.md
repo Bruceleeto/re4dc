@@ -68,3 +68,12 @@ notices. The modified `pvr_irq.c` (both patches) retains Megan Potter's 2002/200
 patches are provided under the same [KOS License](LICENSE.KOS); keep that notice and
 license with redistributed source or binary documentation. Upstream pinned
 [AUTHORS](https://github.com/KallistiOS/KallistiOS/blob/804b3195ebd1a06a27cc2b3a5eacf7a2429040a3/AUTHORS).
+
+## Build-time KOS file fixes (DISC_COMPAT / KOS_DISC_FIX, test 14)
+
+`kos-804b319-fs-iso9660-aeee10d9.patch` (upstream KallistiOS aeee10d9, "fs_iso9660: Fix deadlock and cache races
+between threads") and `kos-804b319-cdrom-hang-fixes.patch` (ours: the `cdrom_exec_cmd_timed` abort deadlock, the
+endless `cdrom_reinit_ex` retry, a settle delay after a drive reset) are NOT applied to the KOS tree and are not part
+of `tools/setup-toolchain.sh`. With `KOS_DISC_FIX=1` (set by `DISC_COMPAT=1`) game/Makefile copies the two KOS files
+into the build's object directory, applies these patches (`patch --fuzz=0`) and links the results in place of
+libkallisti's `fs_iso9660.o` and `cdrom.o`. Both files are identical in the d336 and d367 worktrees.
