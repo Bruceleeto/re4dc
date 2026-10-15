@@ -132,6 +132,22 @@ DATA['acc12'] = {'em/em15.drs': PRIV + '/ps2lib/cast/common/acc12/em15.drs',
 DATA['acc12all'] = dict(DATA['acc12'], **{'em/%s.drs' % n: PRIV + '/ps2lib/cast/common/acc12/%s.drs' % n
                                           for n in ('em12', 'em13', 'em17')})
 CLASH += [('acc12', 'acc12all')]
+# PS2 pickups / debris (lane items, docs/lanes/items.md; test 12 candidate, NOT in T11_DATA). tools/ps2_items.py pack
+# writes the PS2 item models (ITM), the breakable debris models (Efm in the room EFF and the ETM .eff members) and their
+# PS2 pictures over the GC bytes in place (payload size unchanged), on top of lane objs' dars (objs-20261014/<room>o;
+# r119: r119c). items-<room> therefore replaces objs-<room> (and r119c). 'items' = every route room + core.das (core
+# EFF debris) + the 18 SS/cmn pick-up zoom models + tex-items.pak (tex-t11.pak + the 71 PS2 item / debris packages).
+# Pair the arm with EFM_PS2_CUT=1 to stop drawing the debris models the PS2 deleted. Disc data only.
+ITEMS_ROOMS = 'r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r117 r118 r119 r11a r11b'.split()
+ITEMS = PRIV + '/items-20261014'
+for _r in ITEMS_ROOMS:
+    DATA['items-' + _r] = {'st1/%s.dar' % _r: '%s/%si/%s.dar' % (ITEMS, _r, _r)}
+DATA['items'] = {k: v for _r in ITEMS_ROOMS for k, v in DATA['items-' + _r].items()}
+DATA['items']['etc/core.das'] = ITEMS + '/core/core.das'
+DATA['items']['dc/tex.pak'] = ITEMS + '/tex-items.pak'
+for _f in sorted(Path(ITEMS + '/sscmn').glob('itm*')) if Path(ITEMS + '/sscmn').is_dir() else []:
+    DATA['items']['ss/cmn/' + _f.name] = str(_f)
+CLASH += [('items', 'leonhr')]
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
