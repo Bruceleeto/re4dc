@@ -1,16 +1,28 @@
 #!/bin/bash
 # D367 W10: GDEMU image (GDI) from the same inputs as mkdisc-hardlink.sh.
-#   [SECTOR=2352|2048] [PAD_1ST=0|1] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] [INPUT_CHARSET=..] \
-#     mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]
+#   [LAYOUT=standard|legacy] [SECTOR=2352|2048] [PAD_1ST=0|1] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] \
+#     [INPUT_CHARSET=..] [MKDCDISC=<binary>] mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]
 #
-# Standard three-track GD-ROM layout, the one GDEMU and Flycast expect:
-#   track01  LBA 0       MODE1 data, low-density area: small ISO9660 placeholder
-#   track02  LBA 756     audio, 302 sectors of silence (the "warning" track slot)
-#   track03  LBA 45000   MODE1 data, high-density area: IP.BIN in the 16 system
-#                        sectors, then the ISO9660 game tree. Directory extents
-#                        are absolute LBAs (genisoimage -C 0,45000).
-# The game tree is built exactly as mkdisc-hardlink.sh builds it (data tree
-# hard-linked, fixtures under /dc/), so the CUE and the GDI carry the same files.
+# LAYOUT=standard (default; the release disc format from test 15 on, CONTRIBUTING-PORT.md section 8): the standard
+# GD-ROM layout, written by the community tool mkdcdisc (-F gdi), pinned at v0.0.4 / 2b98b0d9 (setup-mkdcdisc.sh):
+#   track01  LBA 0       MODE1 data, low-density area: 450 sectors, ISO9660 with COPYRIGH.TXT / ABSTRACT.TXT /
+#                        BIBLIOGR.TXT and the IP.BIN header in all 16 system sectors (IP0000.BIN)
+#   track02  LBA 600     audio, 526 sectors of silence (the "warning" track)
+#   track03  LBA 45000   MODE1 data, high-density area: IP.BIN (header, TOC1, SEGA licence code, mkdcdisc's GD-ROM
+#                        bootstrap; no licence-screen logo), then the ISO9660 game tree (Rock Ridge names, absolute
+#                        extents), padded to LBA 549150 (the end of a real GD-ROM): the files sit at the outer end of
+#                        the disc, 1ST_READ.BIN last, 150 sectors before the end.
+# The console test of 2026-10-16 (GDEMU, slot 167 "RE4DC Test14 Standard GDI": "new gdi runs fine") ran this layout;
+# the users' GDEMU-only failures (#27, LinkOrder) were on the legacy one. The image is checked with disc_lint.py
+# (standard profile) before this script returns. Contributors swap their program into it with tools/swap-program.py.
+# About 213 MB more on the SD card than the legacy layout (the padding is zeros; zips shrink it away).
+#
+# LAYOUT=legacy (explicit opt-in, internal benchmark / harness discs only; test releases up to test 14): the old
+# genisoimage layout (no TOC1, track01 606 sectors with a README.TXT, track02 at LBA 756, track03 ending with its last
+# file, 1ST_READ.BIN first, Joliet + Rock Ridge). It never goes on a test release.
+#
+# The game tree is built exactly as mkdisc-hardlink.sh builds it (data tree hard-linked, fixtures under /dc/), so the
+# CUE and the GDI carry the same files, in both layouts.
 #
 # Boot chain differences from the CD-R image:
 #   - 1ST_READ.BIN is NOT scrambled. The boot ROM descrambles only on a CD-ROM
@@ -20,9 +32,8 @@
 #     (game/platform/gdrom_mount.cpp) redirects that to track 3 on a GD-ROM.
 #     An ELF built without that wrap boots this image and then cannot open /cd.
 #
-# SECTOR=2352 (default) writes raw MODE1 tracks with EDC/ECC (tools/d367/mode1raw.c,
-# built with the host cc), the Redump/TOSEC form every GDEMU firmware reads.
-# SECTOR=2048 writes .iso data tracks (Flycast reads both; smaller on the SD card).
+# SECTOR=2352 (default) writes raw MODE1 tracks with EDC/ECC (the Redump/TOSEC form every GDEMU firmware reads).
+# SECTOR=2048 writes .iso data tracks (Flycast reads both; not for the SD card).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 ELF=${1:?usage: mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]}
@@ -30,6 +41,7 @@ DATA=${2:?usage: mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]}
 OUTDIR=${3:?usage: mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]}
 EXTRA=${4:-}
 KOS=${KOS_TOOLS_BASE:-/root/work/kos}
+LAYOUT=${LAYOUT:-standard}
 SECTOR=${SECTOR:-2352}
 # Peripherals (makeip README bit table): VGA box, memory card (VMU),
 # Start+A+B+directions, X, Y, analog L/R triggers, analog stick. Add 0x200
@@ -40,11 +52,16 @@ TITLE=${TITLE:-RE4DC}
 # UTF-8 extracted trees can opt in; retain the legacy source-mirror default.
 INPUT_CHARSET=${INPUT_CHARSET:-iso8859-1}
 HD_LBA=45000
-T1_SECTORS=606   # track02 then starts at 756 after its 150-sector pregap
-T2_SECTORS=302   # 4 s minimum audio track
+case "$LAYOUT" in standard|legacy) ;; *) echo "mkgdi: LAYOUT must be standard or legacy" >&2; exit 1 ;; esac
 case "$SECTOR" in 2352|2048) ;; *) echo "mkgdi: SECTOR must be 2352 or 2048" >&2; exit 1 ;; esac
 [ -d "$DATA" ] || { echo "mkgdi: data directory $DATA missing" >&2; exit 1; }
 [ -z "$EXTRA" ] || [ -d "$EXTRA" ] || { echo "mkgdi: fixtures directory $EXTRA missing" >&2; exit 1; }
+if [ "$LAYOUT" = standard ]; then
+  MKDCDISC=${MKDCDISC:-$(command -v mkdcdisc || echo /root/work/tools/mkdcdisc/builddir/mkdcdisc)}
+  [ -x "$MKDCDISC" ] || { echo "mkgdi: no mkdcdisc at $MKDCDISC (build the pinned one: tools/d367/setup-mkdcdisc.sh)" >&2; exit 1; }
+  "$MKDCDISC" --help 2>&1 | sed -n 1p | grep -q 'mkdcdisc v0.0.4 ' ||
+    { echo "mkgdi: $MKDCDISC is not mkdcdisc v0.0.4 (the release layout is pinned; tools/d367/setup-mkdcdisc.sh)" >&2; exit 1; }
+fi
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/re4dc-gdi.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -71,6 +88,75 @@ if [ "${PAD_1ST:-0}" = 1 ]; then
   [ $pp = $pb ] || truncate -s $pp "$WORK/prog.bin"
   echo "mkgdi: 1ST_READ.BIN $pb -> $pp bytes (PAD_1ST=1)" >&2
 fi
+
+# Game tree, as mkdisc-hardlink.sh builds it.
+cp -al "$DATA"/. "$WORK/cdroot/"
+if [ -n "$EXTRA" ]; then
+  mkdir -p "$WORK/cdroot/dc"
+  cp -r "$EXTRA"/. "$WORK/cdroot/dc/"
+fi
+
+if [ "$LAYOUT" = standard ]; then
+  # mkdcdisc adds the boot file itself (-b, unscrambled), last on the disc; a 1ST_READ.BIN in the data tree (an
+  # extracted release) would be a second copy, so it goes (the tree is hard-linked: only the link is removed).
+  rm -f "$WORK/cdroot/1ST_READ.BIN" "$WORK/cdroot/1st_read.bin"
+  mkdir -p "$WORK/mkdc-tmp"
+  # File order: libisofs places files of equal sort weight by the host's inode numbers (the order mkdcdisc's staging
+  # copy happened to allocate them). A sort file with one weight per file, in byte order of the disc paths, fixes the
+  # placement by the names alone (first path innermost; mkdcdisc still pins 1ST_READ.BIN last). What stays host
+  # dependent is the Rock Ridge inode serial in each directory record (PX), metadata no loader reads: compare two
+  # images by their files (fullplay/fp_iso.py manifest + diff, or disc_lint.py --compare), not by track hashes.
+  (cd "$WORK/cdroot" && find . -type f | LC_ALL=C sort) > "$WORK/files.txt"
+  if grep -q '[[:space:]]' "$WORK/files.txt"; then
+    echo "mkgdi: a disc path has whitespace (mkdcdisc sort files cannot name it):" >&2; grep '[[:space:]]' "$WORK/files.txt" >&2; exit 1
+  fi
+  awk -v n="$(wc -l < "$WORK/files.txt")" '{print substr($0, 2), n - NR + 1}' "$WORK/files.txt" > "$WORK/sort.txt"
+  # Fixed IP.BIN fields (as the console-tested test 14 standard image): maker RE4DC, V1.000, 20260920, no licence-screen
+  # logo (-m). The volume and file dates come from SOURCE_DATE_EPOCH (DISC_EPOCH, default 2026-09-20 00:00 UTC), not
+  # from the build day.
+  if ! TZ=UTC SOURCE_DATE_EPOCH=${DISC_EPOCH:-1789862400} "$MKDCDISC" --no-banner --color never -v 1 -F gdi \
+      --gdi-sector-size "$SECTOR" -b "$WORK/prog.bin" -D "$WORK/cdroot" -m -n "$TITLE" -a RE4DC -s "$PRODUCT" \
+      -P V1.000 -r 20260920 -H "$PERIPHERALS" -V RE4DCROOM -S "$WORK/sort.txt" --temp-dir "$WORK/mkdc-tmp" \
+      -o "$OUTDIR/disc.gdi" > "$WORK/mkdcdisc.log" 2>&1; then
+    cat "$WORK/mkdcdisc.log" >&2; echo "mkgdi: mkdcdisc failed" >&2; exit 1
+  fi
+  if grep -ai 'warning' "$WORK/mkdcdisc.log" >&2; then
+    echo "mkgdi: mkdcdisc warned (above); the release layout needs a clean run" >&2; exit 1
+  fi
+  ext=bin; [ "$SECTOR" = 2352 ] || ext=iso
+  for f in disc.gdi track01.$ext track02.raw track03.$ext; do
+    [ -s "$OUTDIR/$f" ] || { echo "mkgdi: mkdcdisc wrote no $f" >&2; ls -l "$OUTDIR" >&2; exit 1; }
+  done
+  # IP.BIN as it is on the disc (the high-density system area), for reference
+  python3 - "$OUTDIR/track03.$ext" "$SECTOR" "$OUTDIR/IP.BIN" <<'PY'
+import sys
+t, ss, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+with open(t, 'rb') as f, open(out, 'wb') as w:
+    for i in range(16):
+        f.seek(i * ss + (16 if ss == 2352 else 0)); w.write(f.read(2048))
+PY
+  if [ "$SECTOR" = 2352 ]; then
+    python3 "$here/disc_lint.py" --profile standard "$OUTDIR/disc.gdi" > "$OUTDIR/disc_lint.txt" ||
+      { grep -vE '^(ok|WARN) ' "$OUTDIR/disc_lint.txt" >&2; echo "mkgdi: disc_lint (standard) failed" >&2; exit 1; }
+    tail -1 "$OUTDIR/disc_lint.txt"
+  fi
+  {
+    echo "layout standard (mkdcdisc $("$MKDCDISC" --help 2>&1 | sed -n 1p | awk '{print $2}'))"
+    echo "sector_bytes $SECTOR"
+    for f in track01.$ext track02.raw track03.$ext; do
+      ss=$SECTOR; [ $f = track02.raw ] && ss=2352
+      echo "$f sectors $(( $(stat -c %s "$OUTDIR/$f") / ss )) bytes $(stat -c %s "$OUTDIR/$f")"
+    done
+    echo "game_bytes $(du -sbL "$WORK/cdroot" | cut -f1) boot_bytes $(stat -c %s "$WORK/prog.bin")"
+  } | tee "$OUTDIR/layout.txt"
+  echo "built $OUTDIR/disc.gdi"
+  ls -l "$OUTDIR"
+  exit 0
+fi
+
+# ---- LAYOUT=legacy (internal discs only) ----
+T1_SECTORS=606   # track02 then starts at 756 after its 150-sector pregap
+T2_SECTORS=302   # 4 s minimum audio track
 cp "$WORK/prog.bin" "$WORK/cdroot/1ST_READ.BIN"
 
 cat > "$WORK/ip.txt" <<IPTXT
@@ -93,13 +179,6 @@ test "$(stat -c %s "$WORK/IP.BIN")" -eq 32768
 for want in "SEGA SEGAKATANA" "SEGA ENTERPRISES" "GD-ROM1/1" "1ST_READ.BIN"; do
   head -c 256 "$WORK/IP.BIN" | grep -aq "$want" || { echo "mkgdi: IP.BIN lacks '$want'" >&2; exit 1; }
 done
-
-# Game tree, as mkdisc-hardlink.sh builds it.
-cp -al "$DATA"/. "$WORK/cdroot/"
-if [ -n "$EXTRA" ]; then
-  mkdir -p "$WORK/cdroot/dc"
-  cp -r "$EXTRA"/. "$WORK/cdroot/dc/"
-fi
 
 # track03: IP.BIN + ISO9660 at LBA 45000 (absolute extents), written straight
 # to OUTDIR because it is the big file. Rock Ridge and Joliet carry the real
@@ -139,6 +218,7 @@ cp "$WORK/IP.BIN" "$OUTDIR/IP.BIN"
 t3_sectors=$(( $(stat -c %s "$OUTDIR/$t3f") / SECTOR ))
 hd_cap=$((549150 - HD_LBA))   # GD-ROM high-density area ends at LBA 549150 (~1.03 GB of user data)
 {
+  echo "layout legacy"
   echo "sector_bytes $SECTOR"
   echo "track01 lba 0 sectors $T1_SECTORS bytes $(stat -c %s "$OUTDIR/$t1f")"
   echo "track02 lba $t2_lba sectors $T2_SECTORS bytes $(stat -c %s "$OUTDIR/track02.raw")"

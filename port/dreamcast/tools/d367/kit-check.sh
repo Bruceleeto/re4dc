@@ -18,9 +18,13 @@
 #     (sh-elf-objcopy -O binary) equals the release's, and the overlays too; with no assets (game/public-assets,
 #     PRIVATE_OFF) it builds; the warp twin (DBG_WARP=1 TEX_CHECK=2 MCHECK_LEONGC=1) builds;
 #   6 swap-program.py puts the play program (+ padscript-newgame.txt) and the warp twin (+ warp r101-entry) on the
-#     release disc, on ext4 under WORK.
+#     release disc, on ext4 under WORK; with RACE_FIXTURE=<door103 warp fixture> also the warp twin + that fixture
+#     (disc-race, for the GDEMU race gate fullplay/gdemu_gate.sh: copy it to C: once, pass - as the fixture);
+#   7 every swapped disc passes disc_lint.py, loader and standard profiles (KIT_LINT_STANDARD= skips the standard
+#     profile, for a release made before test 15 in the legacy layout).
 # Then run, in Git Bash:  bash port/dreamcast/tools/d367/kit-boot.sh <WORK>   (Flycast: title, New Game, r101).
-# Env: WORK (default /root/probe/kit-check-<test>), JOBS, RE4DC_KOS_BASE (default the maintainers' KOS).
+# Env: WORK (default /root/probe/kit-check-<test>), JOBS, RE4DC_KOS_BASE (default the maintainers' KOS), RACE_FIXTURE,
+#      KIT_LINT_STANDARD.
 # Builds go through /root/probe/d367-buildslot.sh when it exists (one at a time per slot).
 set -euo pipefail
 PORT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -84,6 +88,20 @@ python3 "$PORT/tools/swap-program.py" "$GD" "$WORK/out-play" "$WORK/disc-play" \
   --add dc/padscript.txt="$PORT/tools/padscript-newgame.txt" | tail -1
 python3 "$PORT/tools/swap-program.py" "$GD" "$WORK/out-warp" "$WORK/disc-warp" --add dc/warp.txt="$WORK/warp.txt" | tail -1
 cp "$WORK/out-play/syms.txt" "$WORK/disc-play/syms.txt"; cp "$WORK/out-warp/syms.txt" "$WORK/disc-warp/syms.txt"
+DISCS="play warp"
+if [ -n "${RACE_FIXTURE:-}" ]; then   # the warp twin + a door103 fixture: the disc the GDEMU race gate runs (rule 5)
+  python3 "$PORT/tools/swap-program.py" "$GD" "$WORK/out-warp" "$WORK/disc-race" --add dc/warp.txt="$RACE_FIXTURE" | tail -1
+  cp "$WORK/out-warp/syms.txt" "$WORK/disc-race/syms.txt"; DISCS="$DISCS race"
+fi
 rm -rf "$WORK/out-bare/obj" "$WORK/out-play/obj" "$WORK/out-warp/obj"
+
+step "7 disc_lint the swapped discs (loader + standard profiles)"
+for d in $DISCS; do
+  for prof in loader ${KIT_LINT_STANDARD-standard}; do
+    python3 "$PORT/tools/d367/disc_lint.py" --profile $prof "$WORK/disc-$d/disc.gdi" > "$WORK/disc_lint-$prof-$d.txt" ||
+      { grep -vE '^(ok|WARN) ' "$WORK/disc_lint-$prof-$d.txt"; echo "kit-check: disc-$d fails disc_lint ($prof)"; exit 1; }
+    echo "disc-$d: $(tail -1 "$WORK/disc_lint-$prof-$d.txt" | sed 's#/.*/##')"
+  done
+done
 echo
 echo "KIT-CHECK BUILD OK (test $TEST). Boot gate, in Git Bash: bash port/dreamcast/tools/d367/kit-boot.sh $WORK"
