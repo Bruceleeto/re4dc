@@ -115,3 +115,61 @@ padded control oCrT, PAD_T 2304; h2 aligned 1990 of 2001 ticks, capture ring gap
 10/10 at 48 KiB on the final play recipe (fight min 14,168 B, door 16,616, leave 14,232, call 31,976); menu walk: the row
 cycles NEAR -> OFF -> FULL -> NEAR and View distance FULL -> NEAR -> SHORT -> FULL (log `options: foliage ...`). Sheet:
 mist-20261016/OPTIONS-SHEET.png (menu crops beside the r100 woods still at each setting).
+
+## FOLIAGE Off follow-up: only the card keys (85128754)
+
+Off first dropped the whole translucent world pass (the tester's patch), which removed r109's cabin walls and floor (alpha
+238 surfaces). Now foliage_keys.inc has a class 4 (soft cards below the opaque level with cut-out holes: shadow strips,
+mist, grass fades; 61 keys, drawn as before at Full and Near) and Off drops classes 1-4 only. Unlisted translucent parts
+(surfaces without holes such as the cabin walls and floor, water, keys outside the chapter 1 census) and the vertex-alpha
+overlays always draw. Near is unchanged (classes 1-3 keep their levels; the generator adds class 4 after them).
+
+| view (Flycast TA) | FULL | NEAR | first OFF | OFF now |
+|---|---|---|---|---|
+| r100 woods path | 3.81 | 1.89 | 0.93 | 1.16 (GPU 9.7 ms MODELLED hi; first Off 8.9) |
+| r100 start | 2.74 | 1.06 | 0.41 | 0.66 |
+| r101 cross (world32) | - | - | - | 1.50 |
+| r109 entry | 6.79 | 6.79 | 2.11 (walls gone) | 6.35 (walls and floor drawn) |
+| r11b shore | 7.62 | 7.60 | 7.46 | 7.60 |
+
+Gates (85128754 on t15/int 6b5bc9b0): knob-off identity (T15_T="" rP image 1b56f915 = 6b5bc9b0, 6 overlays); STRICT +
+decisions MUST-IDENTICAL h2 / bell / door103 at Near (stop 2000, padded control, full tick range); TEXCHK 8/8; KOS squeeze 10/10 at 48 KiB
+on the play recipe (fight min 14,712 B, door 17,160, leave 14,776, call 32,520). Sheet: mist-20261016/OFF-FIX-SHEET.png.
+
+## HAZE_SPRITE_CUT: no haze / mist sprites (test 15.1 hotfix, lane nohaze16)
+
+User 10-16: "i don't think we need those sprites at all", then "let's make off really mean off". Knob `HAZE_SPRITE_CUT=1`
+(game/hwfog.mk; render only; default 0 = no code; recipe group `T15_HZ`): no haze / mist sprite is drawn in any room, at
+every Foliage setting (it is not a menu choice). Cut in src/game/esp_sub.cpp `EspSpriteEmit`: every Esp15 camera haze
+sprite (the PS2 recipe rows' near haze, after HW_FOG_HAZE has seen it, and every other Esp15), every Esp48 mist sheet, and
+the r118 / r11c PS2 haze additions (sampled as before, no quad submitted). The distant haze stays as the PVR fog table:
+the HW_FOG_HAZE rows (r100 / r101 / r106 / r107 / r109) and the EFFECT_HAZE_LEAN M3 veil (r100 / r101 / r103) are fed
+before the cut, and every room keeps its own fog. Rooms whose haze was sprites only (r10b / r11b / r119 lake and shore,
+r104, r11a and the other stage-1 rows without a fog row) keep their room fog but lose the near mist (a clearer look; the
+user's call). Log: one `haze cut: room=...` line per room with the previous room's count. Ships with the Foliage Off
+fix (85128754): Off leaves out every card key (classes 1-4, the mist card e967b886 is class 2) and the haze sprites.
+
+Translucent screens (Flycast TA, flycast6, the same ticks in both arms; the r100 woods path view before its freeze, the
+r101 cross bench view; test 15 = arm t15rcmW, 15.1 = t151mW, both with TEX_CHECK=2 / MCHECK_LEONGC=1). GPU ms are
+MODELLED with the two fits above (hi about 3.3 ms, lo about 0.14 ms per TR screen), not console:
+
+| view | Foliage | test 15 | 15.1 | change | GPU change MODELLED hi / lo |
+|---|---|---|---|---|---|
+| r100 woods path | Full | 4.05 | 3.91 | -0.14 | -0.46 / -0.02 ms |
+| r100 woods path | Near (default) | 1.49 | 1.45 | -0.04 | -0.13 / -0.01 ms |
+| r100 woods path | Off | 0.40 (first Off: no TR world) | 0.64 | +0.24 (walls, floors, water kept) | +0.8 / +0.03 ms |
+| r101 cross | Full | 3.04 | 2.08 | -0.97 | -3.2 / -0.14 ms |
+| r101 cross | Near (default) | 2.59 | 1.64 | -0.95 | -3.1 / -0.13 ms |
+| r101 cross | Off | 1.77 | 0.82 | -0.95 | -3.1 / -0.13 ms |
+
+At r100 the haze was already thin (EFFECT_HAZE_LEAN M3 + the HW_FOG_HAZE row): the sprites were 0.04-0.14 screens. At the
+r101 cross they were about 0.95 screens (the camera haze plus an Esp48 mist sheet, tex cb). Haze sprites cut per room in
+the gate runs (Flycast): r101 931 over the bell fixture, r104 588, r11a 2,852.
+
+Gates (t15.1/rc, program 0a4ef1b4, image d0d6364a; evidence C:\Flycast-Evidencee4-dreamcast
+ohaze16-20261016):
+knob-off identity (kP image 12dddcac + 6 overlays = test 15's kP); STRICT + decisions MUST-IDENTICAL h2 / bell / door103
+(stop 2000) against the test 15 trace arm t15rcrT (h2 s30 340/340 both); KOS squeeze 10/10 at 48 KiB (fight min 12,248 B,
+call 30,056, door 14,696, leave 12,312); GDEMU race 0/10; TEXCHK=2 + LEON-GC PASS r100 r101 r103 r107 r10b r118 r119 (wrap
+0); release check t15rel.conf PASS (the comingsoon goal and the reset segment's r102 4 refusals / 61,312 B match test 15's
+known rows) and the align crash suite PASS. _end -960 B against test 15 (8c4240f8 -> 8c423d38).

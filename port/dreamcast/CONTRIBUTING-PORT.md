@@ -31,9 +31,9 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 * `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
 
 The Build-Assets zip holds the generated character data the release program was built with
-(`ps2leon/`, `ps2ganado/`, and from test 15 `glod/ganado_lod.re4gl`, the lighter villager meshes named by
-`GANADO_LOD_PACK`), so your program draws the same characters as the release. From test 15 it also carries, under
-`re4dc-assets/disc/<disc path>`, the disc data files that changed in test 15 (the chapter 1 sound files
+(`ps2leon/`, `ps2ganado/`, and `glod/ganado_lod.re4gl`, the lighter villager meshes named by
+`GANADO_LOD_PACK`), so your program draws the same characters as the release. It also carries, under
+`re4dc-assets/disc/<disc path>`, the disc data files this release changed (the chapter 1 sound files
 `st1/r103.dar` and `bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
 they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
@@ -99,7 +99,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test15/release-knobs.txt` (test 15; its header names the source commit). The maintainers write that file from
+`tools/d367/test15/release-knobs.txt` (test 15.1, a hotfix; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -161,9 +161,13 @@ fogged while the scenery seen through its doors and windows still fades out befo
 distance are not saved: every boot starts in Standard and Full. Foliage (Full, Near or Off, knobs `FOLIAGE_TRIM`
 (the level word and the boot level, hwfog.mk) and `FOLIAGE_OPTION` (the row)): the translucent PS2 world parts whose
 texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table platform/include/foliage_keys.inc, built
-from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and the whole
-translucent world pass is left out at Off; soft decals, shadow strips and ground blends stay translucent. It is not
-saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
+from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and every listed
+card key (classes 1-4, soft shadow / mist / grass cards included) is left out at Off; surfaces without cut-out holes
+(walls, floors, water), unlisted keys and the vertex-alpha overlays always draw. It is not
+saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (Near). From test 15.1 the knob `HAZE_SPRITE_CUT=1`
+(hwfog.mk, recipe group `T15_HZ`; render only) leaves out every haze / mist sprite at every Foliage setting: the camera
+haze around Leon (Esp15), the mist sheets (Esp48) and the r118 / r11c PS2 haze additions; the distant haze stays as the
+fog table (`HW_FOG_HAZE`, `EFFECT_HAZE_LEAN`), which is fed before the cut. Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 
 ## 6. Send a patch
