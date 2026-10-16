@@ -1,5 +1,17 @@
 # D367 play build checklist (user, 2026-10-09 current state at top)
 
+## 2026-10-16: chapter 1 sounds (data set snd16 + AICA_STR_ENT_MAX=48; lane audio16)
+
+Stage data set **snd16** (t11-fix.py; after objs13d) and build with **AICA_STR_ENT_MAX=48** (game Makefile, default 32;
++512 B .bss). Never one without the other: the 45-entry bgm/aica_str.dat is refused whole by a 32-entry reader
+("bgm/aica_str.dat header invalid", every disc stream silent), and the 48-entry reader with the old 18-entry file is
+harmless but leaves the 27 streams silent. snd16 = st1/r103.dar with its ROOM / FOOT banks prebuilt (aica_banks.py fit;
+r103 footsteps and ambience) + the ch1 stream file (aica_banks.py streams --streams ch1: r104/r107 0:10, r102 0:25, r106
+0:7, r104 0:21, r108 0:51, death 0:0, r100 0:18 / 1:34, r101 1:62 / 1:59, r104 1:134, r10b 1:29, merchant 1:180..194).
+Check per room (60 s warps): `aica: blk 6 ... (prebuilt, slot 8)` for r103 with no "does not fit", `unm=0` in the
+`aica: se=` lines, `aica: t=... stream 0:10 start` in r104 / r107, `stream 1:185 start` near the r102 merchant, and
+45 `aica: stream N:M sbb=` lines at boot. Evidence C:\Flycast-Evidence\re4-dreamcast\audio16-20261016.
+
 ## 2026-10-11: DVD_READ_SAFE=1 (disc stream reads recover from KOS's stuck DMA flag)
 
 Flag **DVD_READ_SAFE=1**; no staged file. Lets the El Gigante GC texture bake (reg-gig-gctex) back in: with it, r119
