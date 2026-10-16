@@ -1,7 +1,10 @@
 # Lane water16: chapter 1 room water, PS2 look (2026-10-16)
 
-Branch `lane/water16` (from t15/int ae3d2c8b), worktree `/root/probe/lanes-20261016/water`. Not landed: the user judges
-the look on `C:\Game Dev\Emulators\water-20261016\WATER-SHEET.png`. Knob `WATER_PS2` (default 0, render only).
+Branch `lane/water16` (rebased on t15/int 43284ef9), worktree `/root/probe/lanes-20261016/water`. Knob `WATER_PS2`
+(Makefile default 0, render only). User 10-16 "ok option a for water" (look sheet
+`C:\Game Dev\Emulators\water-20261016\WATER-SHEET.png`): test 15 recipe `T15_W=WATER_PS2=1` with
+`WATER_PS2_ROOMS=0x17` = r107 (pool), r108 (river), r10a / r11a (lake from the shore, day / night). r10b and r11b keep
+today's water: their preloads are at the byte limit after lane resident16, so there is no VRAM for the water pictures.
 
 ## What the PS2 does (source of truth for cuts)
 
@@ -43,7 +46,7 @@ em27 fish, Leon's splash).
 - `espgen45.cpp` `re4dc_water_ps2_draw` (OT callback queued from `EspgenTrans` once per drawn image): per row, area
   gate (`EffGetAreaState`, read only) or "generator 42/45 live", FX level, final colour, the GameCube effect texture
   by id (FX_PS2_PACK puts the PS2 picture under each GameCube key), the animation pattern AnmMove would show from
-  the vblank clock (every `WATER_PS2_FLIP`-th picture, default 4), and the scroll offset. Nothing in the game state
+  the vblank clock (every `WATER_PS2_FLIP`-th picture, default 8), and the scroll offset. Nothing in the game state
   changes: no effect slot, generator, area or Rnd() draw.
 - `platform/include/native_water_ps2.inc`: each layer is an eye-centred 8x8 grid (t*|t| spacing) out to the fog reach
   (where table fog reaches 0.995), cells beyond 1.5x the near cell size as direct strips, near cells through
@@ -55,27 +58,33 @@ em27 fish, Leon's splash).
 
 Water pictures are already converted offline (FX_PS2_PACK: PAL4 ARGB4444, 2,224 B per 64x64 frame). Lists of the keys
 each room's water adds: `tools/d367/water/resident/r<room>.tsv` (`water_resident.py list`: first-sight keys of the
-WATER_PS2=1 run that the WATER_PS2=0 run of the same warp did not load). Data set `water16` (t11-fix.py) =
-res16 + these rows (93 records). With it r10a / r11a / r107 / r108 / r11b preload the water keys at room entry (0 water
-loads after the preload); r10b's preload is already full today (`full=1`, 2.28 of 2.44 MB pinned), so its 17 water
-keys load at first sight: r10b needs the resident lane's room list / VRAM room first (see gates).
+WATER_PS2=1 run that the WATER_PS2=0 run of the same warp did not load). Data set `water16h` (t11-fix.py, in T15_DATA after res16h) = res16h +
+the r107 r108 r10a r11a rows (1064 + 28 records, sha256 f043586efa564000; file in t15k/data/water16h). The four rooms
+preload their water keys at room entry: 0 water loads after the preload, 0 refusals. r10b / r11b lists wait in
+`resident/after-room-lists/`: r10b's and r11b's preloads are at the 2,182,400 B limit (resident16), so they need a VQ
+trade first.
 
 ## Gates (lean, <= 1 min runs; evidence `C:\Flycast-Evidence\re4-dreamcast\water-20261016`)
 
-- Knob-off identity: rP image 72d5a307 = control (t15/int ae3d2c8b), overlays identical.
-- TEXCHK PASS 12/12 (6 rooms x today / new).
-- VRAM (data water16 = res16 + r107/r10a/r11a lists, FLIP 8): r10a / r11a / r107 0 refusals, 0 water loads after the
-  preload. r10b / r11b / r108 are VRAM-short today (effect refusals 12 / 43 / 0): the water adds +5 / +7..51 / +2, so
-  WATER_PS2_ROOMS=0x15 (r107 r10a r11a) until lane resident16 frees room; with 0x15 those rooms equal today exactly.
-  Their lists wait in tools/d367/water/resident/after-room-lists/.
-- STRICT + decisions MUST-IDENTICAL (stop 600): r10a, r107 (final arms w16urT vs w16yrT, _end padded equal), r10b on
-  f3fdcb62 FLIP 8. **OPEN: r10b final pair FAILS at tick 189 (room entry; Rnd), reproducible on both reruns; each
-  arm repeats itself exactly.** Suspect: first-sight water texture loads in the r10b room-entry frames move the
-  preload pass time (us 67 ms vs 117 ms at frame 185). Next: trace r10b with WATER_PS2_ROOMS=0x15 (expect STRICT), then
-  find what the on-arm does in r10b frames 182-188.
-- KOS squeeze 48 KiB 10/10 PASS (f3fdcb62, _end +6,496 B; door at 75 s): min headroom fight 10,880 B. Final _end
-  +6,560 B (rP), not re-squeezed.
-- _end: +6,560 B (code 4.7 KB + table 1.3 KB).
+Final, merged tree (lane/water16 on t15/int 43284ef9, recipe T15REC with T15_W, T15_DATA with water16h):
+- Knob-off identity: T15_W="" rP (w16NrP) image ad77fc56 == t15/int 43284ef9 rP (w16CrP), 6 overlays identical.
+- STRICT + decisions MUST-IDENTICAL, on (w16TrT) vs off (w16UrT, _end padded equal 8c42f718): r10a, r107, r108
+  (stop 600, 602 ticks each), h2 (244 ticks in 60 s), bell (832), door103 (1189). Runs `v-w16{T,U}rT-*`.
+- TEXCHK (w16MmW): r107 / r108 / r10a / r11a fails=0.
+- VRAM (rT pairs + mW runs): r107 / r108 / r10a / r11a refusals 0, guard 0, nocontig 0; 0 water loads after the
+  preload; r108 pinned 1,657,228 B at preload, free 852,832 B (largest 761,856).
+- KOS squeeze 48 KiB 10/10 PASS (twin fpw16s2W of rP 7a00f725): min headroom fight 14,264 B, call 32,072, door
+  16,712, leave100 / leave103 14,328. Evidence `kos2/`.
+- _end: rP +6,592 B (8c4235d8 vs 8c421c18).
+
+r10b STRICT (10-16, solved): the pair failed at tick 189 because the water queue ran in the room-entry frames before
+the frame's prim buffer exists; AddOtDirect failed and logged a "GetPrimBuff() PTR ERR / PrimBuffer OVERFLOW!!" pair per
+image (16 lines). Those log writes moved the r10b room-entry timing, so the ENEMY2 sound bank arrived one frame
+earlier and Rnd() diverged. `re4dc_water_ps2_queue` now skips frames with no prim buffer (no log, no OT entry): r10b
+with the water on (mask 0x3f) is STRICT (u-w16prT vs u-w16irT, 602 ticks), as are r10a / r107 / r10b at mask 0x15.
+
+Console test pair (DBG_WARP twins, boot straight into r10a at the sheet view, god mode; Flycast 27.5 fps on vs 28.9
+off, not console): `console\r10a-water-on\disc.gdi` and `console\r10a-water-off\disc.gdi`.
 
 ## Rebuild
 

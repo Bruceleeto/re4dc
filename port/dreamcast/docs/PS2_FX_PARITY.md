@@ -48,7 +48,7 @@ GC records matched to PS2 records by EFF, table, effect id, texture and position
 
 Changed records (matched, a render field differs) are not restyled by PS2_FX_GEN: a generic restyle of colour / size / fades would rewrite effect state, so only the hand rows (camera haze kPs2Haze, r104 statics) do it. Added PS2 records are never drawn (user decision: no wholesale PS2 EFF); the one hand-qualified addition is PS2_FX_ADDITIONS (r118 area 6, r11c haze).
 
-## Water (lane water16, WATER_PS2, default 0; docs/lanes/water16.md)
+## Water (lane water16, WATER_PS2; test 15 recipe T15_W, rooms r107 r108 r10a r11a; docs/lanes/water16.md)
 
 The PS2 cut the generator water: `Espgen42_Trans` is `jr ra` and `Espgen45_Trans` only clears a flag, so neither draws.
 Its rooms draw the water as stacked Esp08 world planes instead (dark base 0xf7, two scrolling 0xf2 layers, an animated
