@@ -17,7 +17,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed in test 8 / 9 / 9.1 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 19 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 2 |
-| ⏸️ Open | Known, not yet worked on | 17 |
+| ⏸️ Open | Known, not yet worked on | 18 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -68,6 +68,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | ⏸️ Open: Near (the default) and Full draw the cabin normally | |
 | Village (r101): the burning stake is missing its crossbar and a pyre plank, and the rails of the fence by the house are missing (scenery simplification) | test 15 | ⏸️ Open: fix in test 16 | |
 | The item menu's confirm popup does not look as it did in test 13 | test 14, 15 | ⏸️ Open: fix in test 16 | |
+| In r102, right after loading a save, a few effect pictures are not drawn while video memory is full (test 15: 4 refused; test 14: 76) | test 14, 15 | ⏸️ Open: fix planned for test 16 (the room's pictures are loaded again in one pass after a save is loaded) | [#33](https://github.com/lamb2k/re4dc/issues/33) |
 
 ## Sound
 
