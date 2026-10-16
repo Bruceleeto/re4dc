@@ -1,25 +1,55 @@
-"""fs_pack.py <work dir> <room hex, e.g. 101> <out far-shell.fsh>: shell.npz (fs_blender.py material mode) -> FSH1.
+"""fs_pack.py <work dir> <room hex, e.g. 101> <out far-shell.fsh> [uv tol] [--lod1 <work dir>] [--cell mm]:
+shell.npz (fs_blender.py material mode) -> FSH1. With --lod1, a coarser build of the same room (same eyes, fewer
+triangles) is packed as the far level: per 12 m XZ cell the runtime draws the fine groups while the cell's nearest
+point is closer than the split distance, else the coarse ones (version 2).
 
 FSH1 (little endian; runtime platform/far_shell.inc):
-  header 32: 'FSH1', u32 version 1, groups, materials, vertices, strip_bytes, crc32(everything after the header), room
+  header 32: 'FSH1', u32 version (1, or 2 with levels), groups, materials, vertices, strip_bytes,
+             crc32(everything after the header), room
   materials x16: u32 crc, fnv; u16 width, height; u32 0            (the world texture keys; pass 0 = opaque header)
-  groups x64: f32 lo[3], hi[3] (world mm box), origin[3], scale (position = origin + i16 x scale), ub, vb (uv base);
-              u32 first_vertex; u16 vcount (<= 256), material; u32 first_strip, strip_bytes   (sorted by material)
+  groups x64: f32 lo[3], hi[3] (world mm box: the cell's box over both levels), origin[3], scale (position = origin +
+              i16 x scale), ub, vb (uv base); u32 first_vertex; u16 vcount (<= 256), material (bits 0-13; version 2:
+              bit 14 = fine level of a cell that has a coarse one, bit 15 = coarse level); u32 first_strip, strip_bytes
   vertices x12: i16 x, y, z; u16 rgb565 (prelit colour); i16 u, v (uv = base + i / 2048)
   strips: per group, [n][n vertex indices (u8, group-local)]...  (n >= 3, triangle strips, culling off)
-Groups = (material, XZ cell) split so that no group has more than 256 vertices.
+Groups = (level, material, XZ cell) split so that no group has more than 256 vertices.
 """
 import json, struct, sys, zlib
 from pathlib import Path
 import numpy as np
 
-work, room, out = Path(sys.argv[1]), int(sys.argv[2], 16), Path(sys.argv[3])
-UV_TOL = float(sys.argv[4]) if len(sys.argv) > 4 else 0.03
-S = np.load(work / "shell.npz")
+args = sys.argv[1:]
+lod1 = None
+if "--lod1" in args:
+    i = args.index("--lod1"); lod1 = Path(args[i + 1]); args = args[:i] + args[i + 2:]
+CELL = 12000.0
+if "--cell" in args:
+    i = args.index("--cell"); CELL = float(args[i + 1]); args = args[:i] + args[i + 2:]
+work, room, out = Path(args[0]), int(args[1], 16), Path(args[2])
+UV_TOL = float(args[3]) if len(args) > 3 else 0.03
 tex = json.loads((work / "extract.json").read_text())["textures"]
-pos, tri, uv, col, key, piece = S["pos"], S["tri"], S["uv"], S["col"], S["key"], S["piece"]
+levels = [np.load(work / "shell.npz")] + ([np.load(lod1 / "shell.npz")] if lod1 else [])
+pos_l, tri_l, uv_l, col_l, key_l, lev_l = [], [], [], [], [], []
+off = 0
+for L, S in enumerate(levels):
+    pos_l.append(S["pos"]); tri_l.append(S["tri"] + off); uv_l.append(S["uv"]); col_l.append(S["col"])
+    key_l.append(S["key"][:, :2]); lev_l.append(np.full(len(S["tri"]), L)); off += len(S["pos"])
+pos, tri, uv, col, key, lev = (np.concatenate(x) for x in (pos_l, tri_l, uv_l, col_l, key_l, lev_l))
+cen = pos[tri].mean(1)
+cxz = np.floor(cen[:, [0, 2]] / CELL).astype(int)
+cells = sorted(set(map(tuple, cxz.tolist())))
+cidx = {c: i for i, c in enumerate(cells)}
+piece = np.array([cidx[tuple(c)] for c in cxz.tolist()])
+# the cell's box over both levels (one draw decision per cell, so fine and coarse never overlap or leave a gap)
+cbox = {}
+for f in range(len(tri)):
+    P = pos[tri[f]]
+    lo, hi = cbox.get(piece[f], (P.min(0), P.max(0)))
+    cbox[piece[f]] = (np.minimum(lo, P.min(0)), np.maximum(hi, P.max(0)))
+has_coarse = set(piece[lev == 1].tolist())
 mkeys = sorted({(int(k[0]), int(k[1])) for k in key})
 midx = {k: i for i, k in enumerate(mkeys)}
+assert len(mkeys) < 16384
 fmat = np.array([midx[(int(k[0]), int(k[1]))] for k in key])
 
 
@@ -60,10 +90,10 @@ def stripify(tris):
 
 
 groups, verts, strip_bytes = [], [], bytearray()
-order = sorted(set(zip(fmat.tolist(), piece.tolist())))
-for m, pc in order:
-    faces = np.where((fmat == m) & (piece == pc))[0]
-    # split into chunks of <= 256 unique corners
+order = sorted(set(zip(fmat.tolist(), lev.tolist(), piece.tolist())))
+for m, L, pc in order:
+    faces = np.where((fmat == m) & (lev == L) & (piece == pc))[0]
+    flag = (1 << 15) if L == 1 else ((1 << 14) if (lod1 and pc in has_coarse) else 0)
     chunk, corners = [], {}
     chunks = []
     bypos = {}
@@ -93,6 +123,7 @@ for m, pc in order:
         chunk.append(tuple(corners[c] for c in ids))
     if chunk:
         chunks.append((chunk, corners))
+    blo, bhi = cbox[pc]
     for ctris, cmap in chunks:
         clist = sorted(cmap, key=lambda c: cmap[c])
         P = pos[[c[0] for c in clist]]
@@ -111,13 +142,21 @@ for m, pc in order:
         s0 = len(strip_bytes)
         for s in stripify(ctris):
             strip_bytes += bytes([len(s)] + s)
-        groups.append(struct.pack("<12fIHHII", *lo, *hi, *lo, scale, *base, first, len(clist), m,
+        box_lo, box_hi = (blo, bhi) if lod1 else (lo, hi)
+        groups.append(struct.pack("<12fIHHII", *box_lo, *box_hi, *lo, scale, *base, first, len(clist), m | flag,
                                   s0, len(strip_bytes) - s0))
 mats = b"".join(struct.pack("<2I2HI", k[0], k[1], tex["%08x-%08x" % k]["w"], tex["%08x-%08x" % k]["h"], 0) for k in mkeys)
 body = mats + b"".join(groups) + b"".join(verts) + bytes(strip_bytes)
-head = struct.pack("<4s7I", b"FSH1", 1, len(groups), len(mkeys), len(verts), len(strip_bytes), zlib.crc32(body), room)
+head = struct.pack("<4s7I", b"FSH1", 2 if lod1 else 1, len(groups), len(mkeys), len(verts), len(strip_bytes),
+                   zlib.crc32(body), room)
 out.write_bytes(head + body)
-rep = dict(room="r%03x" % room, bytes=len(head) + len(body), groups=len(groups), materials=len(mkeys), vertices=len(verts),
-           strip_bytes=len(strip_bytes), triangles=int(len(tri)))
+nv = [0, 0]
+for g in groups:
+    vc, mat = struct.unpack_from("<HH", g, 52)
+    nv[1 if mat & 0x8000 else 0] += vc
+rep = dict(room="r%03x" % room, bytes=len(head) + len(body), groups=len(groups), materials=len(mkeys),
+           vertices=len(verts), fine_vertices=nv[0], coarse_vertices=nv[1], strip_bytes=len(strip_bytes),
+           triangles=int((lev == 0).sum()), coarse_triangles=int((lev == 1).sum()), cells=len(cells),
+           cells_with_coarse=len(has_coarse))
 (work / "pack.json").write_text(json.dumps(rep, indent=1))
 print(json.dumps(rep))

@@ -9,8 +9,9 @@
 // (tools/d367/farshell, far-shell.fsh per room) is the opaque world surfaces seen beyond the cut from the room's
 // reachable positions, simplified offline (collapse decimation, small parts and spikes dropped), each triangle textured
 // with the world texture under it (UVs extended from the source triangle, the prelit colour sampled per corner): no new
-// textures, so no VRAM. Groups = (material, 8 m XZ cell); a group is drawn when its box reaches beyond the cut and is in
-// the view before Full's far. Its depth is pushed back by kBias (z = 1/w x kBias), so where a straddling group overlaps
+// textures, so no VRAM. Groups = (level, material, 12 m XZ cell); a group is drawn when its box reaches beyond the cut and
+// is in the view before Full's far. Version 2 files carry two levels per cell (fine, and a coarse one beyond the split
+// halfway between the cut and Full: 18.75 m at Short); both levels of a cell share the cell's box, so one decision picks one. Its depth is pushed back by kBias (z = 1/w x kBias), so where a straddling group overlaps
 // the near world, the real world wins the depth test. The game camera, View._zfar and all logic are untouched.
 // Runtime mode (warp line `farshell 0|1|2`): 0 = VIEW_DIST_OPTION as before (every pass and the fog cut), 1 = shell
 // (default), 2 = the opaque cut with Full fog / PT / TR and no shell (the pricing arm that isolates the shell's cost).
@@ -49,7 +50,7 @@ void open(unsigned room) {
     if (f != FILEHND_INVALID) fs_close(f);
     if (!why) {
         const Head* h = reinterpret_cast<const Head*>(st.block);
-        if (std::memcmp(h->magic, "FSH1", 4) || h->version != 1U || h->room != room || !h->groups || !h->materials ||
+        if (std::memcmp(h->magic, "FSH1", 4) || (h->version != 1U && h->version != 2U) || h->room != room || !h->groups || !h->materials ||
             32U + 16U * h->materials + 64U * h->groups + 12U * h->vertices + h->strip_bytes != size ||
             ps2_crc32(st.block + 32, size - 32U) != h->crc)
             why = "header";
@@ -70,7 +71,7 @@ void open(unsigned room) {
             st.lut = lut;
             for (unsigned g = 0; g < h->groups && !why; ++g) {
                 const Group& q = st.groups[g];
-                if (q.material >= h->materials || !q.vcount || q.vcount > 256U || q.first_vertex + q.vcount > h->vertices ||
+                if ((q.material & 0x3fffU) >= h->materials || (h->version == 1U && q.material >= h->materials) || !q.vcount || q.vcount > 256U || q.first_vertex + q.vcount > h->vertices ||
                     q.first_strip + q.strip_bytes > h->strip_bytes)
                     why = "group";
             }
@@ -135,6 +136,7 @@ extern "C" int re4dc_far_shell_draw(float cut, float full) {
     const float az0 = v[8], az1 = v[9], az2 = v[10], az3 = v[11];
     const float fz0 = az0 < 0 ? -az0 : az0, fz1 = az1 < 0 ? -az1 : az1, fz2 = az2 < 0 ? -az2 : az2;
     const std::uint32_t* const lut = st.lut;
+    const float split = .5f * (cut + full);   // fine / coarse level split (version 2 files): 18.75 m at Short
     for (unsigned gi = 0; gi < ng; ++gi) {
         const Group& g = st.groups[gi];
         // depth range of the box (view space looks down -z): centre depth +- the half extents on |view z row| (the
@@ -144,14 +146,19 @@ extern "C" int re4dc_far_shell_draw(float cut, float full) {
             const float d = -(az0 * (g.lo[0] + ex) + az1 * (g.lo[1] + ey) + az2 * (g.lo[2] + ez) + az3);
             const float r = fz0 * ex + fz1 * ey + fz2 * ez;
             if (d + r <= cut || d - r >= full) continue;
+            // version 2 levels (box = the cell's box over both): fine while the cell's nearest point is closer than
+            // the split, coarse beyond it
+            const unsigned level = g.material >> 14;
+            if (level && ((level == 1U) != (d - r < split))) continue;
         }
         const re4dc::render::DrawBounds b{{g.lo[0], g.lo[1], g.lo[2]}, {g.hi[0], g.hi[1], g.hi[2]}};
         if (!re4dc::render::group_visible(b, v, P, V, near, full, 0)) continue;
-        if (g.material != open_mat) {
+        const unsigned mat = g.material & 0x3fffU;
+        if (mat != open_mat) {
             if (sq) { re4dc_model_direct_end(slots); sq = nullptr; }
-            const Mat& m = st.mats[g.material];
+            const Mat& m = st.mats[mat];
             const unsigned key[6] = {m.crc, m.fnv, m.w, m.h, 0U, 0U};
-            open_mat = g.material;
+            open_mat = mat;
             if (!re4dc_ps2_world_direct_begin(key, &out)) { ++st.refused; continue; }
             sq = out.sq; slots = 0; us = out.u_scale; vs = out.v_scale; ++st.headers;
         }
