@@ -1114,9 +1114,14 @@ endif
 # DISC_POLL_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0): a sector read polls its GD command with thd_pass for N ms
 # before it sleeps (a KOS sleep ends at the next 10 ms scheduler tick). Lane discread load-time experiment.
 DISC_POLL_SPIN_MS ?= 0
+# DISC_LAND_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0 = image unchanged; lane plainread16 2026-10-16): after a DMA
+# sector read reports done, wait for the G1 GD-DMA engine to finish with thd_pass for up to N ms before sleeping. A KOS
+# sleep lasts until the next 10 ms scheduler tick; on units that report COMPLETED before the data lands (GDEMU, the
+# flycast-console gdemu / weak profiles) that made every plain read cost >= 10 ms.
+DISC_LAND_SPIN_MS ?= 0
 ifeq ($(DISC_READ_FALLBACK),2)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS) -DRE4DC_DISC_LAND_SPIN_MS=$(DISC_LAND_SPIN_MS)
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check

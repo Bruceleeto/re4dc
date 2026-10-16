@@ -519,6 +519,9 @@ void put_row(const Fb& fb, int row, const char* s, uint16_t fg)
 #ifndef RE4DC_DISC_POLL_SPIN_MS
 #define RE4DC_DISC_POLL_SPIN_MS 0
 #endif
+#ifndef RE4DC_DISC_LAND_SPIN_MS
+#define RE4DC_DISC_LAND_SPIN_MS 0
+#endif
 #ifndef RE4DC_DISC_BOOT_LOG
 #define RE4DC_DISC_BOOT_LOG 1
 #endif
@@ -826,7 +829,12 @@ int read_dma(void* buf, uint32_t lba, size_t cnt, const char* what)
     if (rv != ERR_OK) return rv;
     // The G1 GD-DMA engine may still be moving bytes after the BIOS says done (1 s bound).
     const uint64_t t0 = ms();
-    while ((*(volatile uint32_t*) 0xA05F7418u & 1u) && ms() - t0 < 1000) thd_sleep(1);
+    // DISC_LAND_SPIN_MS (Makefile): yield (thd_pass) for up to that long before sleeping. A KOS sleep lasts until the
+    // next 10 ms scheduler tick, so on a unit that reports COMPLETED before its DMA lands (GDEMU) every read cost >= 10 ms.
+    while ((*(volatile uint32_t*) 0xA05F7418u & 1u) && ms() - t0 < 1000) {
+        if (RE4DC_DISC_LAND_SPIN_MS && ms() - t0 < RE4DC_DISC_LAND_SPIN_MS) thd_pass();
+        else thd_sleep(1);
+    }
     if (!landed(buf, size, what, lba)) {
         re4dc_disc_note(3, "disc: %s lba=%u n=%u did not land", what, (unsigned) lba, (unsigned) cnt);
         return ERR_SYS;
