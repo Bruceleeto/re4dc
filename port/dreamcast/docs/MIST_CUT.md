@@ -96,3 +96,22 @@ Gates (arm fM = the key table above, branch wip/mist16-20261016): STRICT + decis
 0 MISALIGN at r100 woods and r109 (FOLIAGE_TRIM=1 twin, interpreter, 240 s); KOS squeeze 10/10 at 48 KiB (fight min 10,848 B;
 _end +2,048 B on the play recipe). Stills: mist-20261016/FOLIAGE-SHEET.png. Look not yet approved: NEAR loses the far leaf
 litter beyond 12 m (r100 start view).
+
+## FOLIAGE_OPTION: the Options row (test 15, user 10-16 "I approve near", "ship with full near and off then log the issue")
+
+Options "FOLIAGE  FULL / NEAR / OFF" below View distance (option_rows.cpp, viewdist16 row pattern), T15REC group T15_T
+(`FOLIAGE_TRIM=1 FOLIAGE_OPTION=1`; `T15_T=""` = control). Boots at Near; this boot only, like View distance. Warp line
+`foliage 0|1|2` for stills. OFF keeps today's behaviour (no world translucent pass), which also removes the r109 cabin's
+walls and floor: KNOWN_ISSUES row (open), fixed by the follow-up below.
+
+Trap found on the way: `re4dc_foliage` was defined inside native_static.cpp's anonymous namespace, so its symbol was the
+mangled `_GLOBAL__N_1` name. option_rows.cpp (also in an anonymous namespace) happened to link to it; dbgwarp_bridge.cpp's
+`foliage` warp line linked to a generated stub (missing.txt `_re4dc_foliage` on the warp builds). Fixed in 23ef7a61 (file
+scope, the same close/reopen pattern as re4dc_ps2_sky_header); missing.txt is empty again on every arm.
+
+Final-arm gates (23ef7a61, recipe T15REC with T15_T, on t15/int 1a8d97aa): knob-off identity (T15_T="" rP vs t15/int rP:
+image a93cb52c, 6 overlays identical); STRICT + decisions MUST-IDENTICAL at the default Near on h2 / bell / door103 (stop 2000,
+padded control oCrT, PAD_T 2304; h2 aligned 1990 of 2001 ticks, capture ring gaps); TEXCHK pass on 8 runs; KOS squeeze
+10/10 at 48 KiB on the final play recipe (fight min 14,168 B, door 16,616, leave 14,232, call 31,976); menu walk: the row
+cycles NEAR -> OFF -> FULL -> NEAR and View distance FULL -> NEAR -> SHORT -> FULL (log `options: foliage ...`). Sheet:
+mist-20261016/OPTIONS-SHEET.png (menu crops beside the r100 woods still at each setting).
