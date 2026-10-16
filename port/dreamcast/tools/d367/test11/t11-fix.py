@@ -296,6 +296,11 @@ T15_DATA = T14_DATA + ',cast15,glod,res16'  # res16 after res14r3: the HUD fix c
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
 T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
 DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
+# FAR_SHELL (lane farshell16, 2026-10-16, proof of concept): far-shell.fsh per room (tools/d367/farshell, built from the
+# test 14 candidate's r101 / r100 / r10b PS2 world packages; the world's own texture keys; fsh3 = v3: densified eyes, 6000 triangles, max_dev 1.5 m). Disc data only; read by
+# FAR_SHELL=1 builds at View distance Near / Short.
+FSH = os.environ.get('FSH', PRIV + '/farshell-20261016/fsh3')
+DATA['fsh1'] = {'dc/native/%s/far-shell.fsh' % r: FSH + '/%s/far-shell.fsh' % r for r in ('r100', 'r101', 'r10b')}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

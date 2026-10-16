@@ -2789,6 +2789,10 @@ extern "C" int re4dc_static_gate(const void* object,const float mv[12],const flo
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane
 #endif
+#if RE4DC_FAR_SHELL
+extern "C" int re4dc_far_shell_keeps_fog(void);       // far_shell.inc
+extern "C" void re4dc_far_shell_note_far(float far);
+#endif
 namespace {
 // Last GXSetFog state (gx_stub.cpp) and the source View far plane seen by the
 // model bridge. Temporary type-0 calls (effects, filters, thermal/black) reach
@@ -2873,6 +2877,9 @@ extern "C" float re4dc_fog_far_for_gate(float far){ // re4dc_fog_note_far's clam
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+#if RE4DC_FAR_SHELL
+    if(!re4dc_far_shell_keeps_fog())   // FAR_SHELL: Full's fog (and its gates) while the shell replaces the far world
+#endif
     far=re4dc_view_far(far);
 #endif
     return far;
@@ -2883,6 +2890,10 @@ extern "C" void re4dc_fog_note_far(float far){
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+#if RE4DC_FAR_SHELL
+    re4dc_far_shell_note_far(far);
+    if(re4dc_far_shell_keeps_fog())fog_view_cut=false;else
+#endif
     {const float v=re4dc_view_far(far);fog_view_cut=v<far;far=v;}   // Options View distance (render only)
 #endif
     fog_now.far=far;
@@ -4020,6 +4031,11 @@ bool hidden(unsigned i){
 }
 } // namespace pvs
 #endif
+#if RE4DC_FAR_SHELL
+#define RE4DC_FAR_SHELL_PART 1
+#include "far_shell.inc"
+#undef RE4DC_FAR_SHELL_PART
+#endif
 bool ps2_open(){
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return false; // BEFORE storage/room-mismatch paths
@@ -4235,6 +4251,13 @@ bool ps2_open(){
 #endif
     re4dc_log("PS2MESH open bytes=%u version=%u meshes=%u parts=%u meshlets=%u vertices=%u placements=%u heap=%d->%d\n",
         total,mh.version,mh.mesh_count,mh.part_count,mh.meshlet_count,mh.vertex_count,h.placements,before,re4dc_static_heap_free());
+#if RE4DC_FAR_SHELL
+#if RE4DC_PS2_WORLD_ROOMS
+    farshell::open(ps2w.room);   // FAR_SHELL: the room's far shell, read with its world package
+#else
+    farshell::open(0x101);
+#endif
+#endif
 #if RE4DC_PS2_VERTEX_ALPHA
     {unsigned marked=0;for(unsigned i=0;i<h.parts;++i)marked+=ps2w.parts[i].reserved&1U;
      re4dc_log("PS2VA marked_parts=%u of %u (ARGB4444 vertex alpha, translucent pass)\n",marked,unsigned(h.parts));}
@@ -4942,6 +4965,11 @@ void pc_scan(unsigned frame){
 }
 }
 #endif
+#if RE4DC_FAR_SHELL
+#define RE4DC_FAR_SHELL_PART 2
+#include "far_shell.inc"
+#undef RE4DC_FAR_SHELL_PART
+#endif
 extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
 #if RE4DC_PS2_WORLD_R11F_OWNER
     if(r11fNativeClaimed())return r11fNativePass(pass,zfar);
@@ -5099,6 +5127,9 @@ extern "C" void re4dc_ps2_mesh_retire(){
 #endif
 #if RE4DC_PS2_PLACE_GATE
     gate::retire();
+#endif
+#if RE4DC_FAR_SHELL
+    farshell::close();
 #endif
     ps2w.package.close();
     if(ps2w.storage)re4dc_static_free(ps2w.storage);

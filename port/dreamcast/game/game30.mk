@@ -308,6 +308,23 @@ ifeq ($(VIEW_DIST_OPTION),1)
 GAME_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 endif
+# FAR_SHELL=1 (lane farshell16, proof of concept 2026-10-16; default 0 = no code; render only; needs VIEW_DIST_OPTION=1 and
+#   PS2_WORLD_MESH): at View distance Near / Short the PS2 world's opaque pass stops at the cut, but the fog, the PT / TR
+#   world passes, actors and objects keep Full's far, and the room's far shell (dc/native/rXXX/far-shell.fsh, built by
+#   tools/d367/farshell from the room's PS2 world package; the world's own textures, no new VRAM) is drawn beyond the cut
+#   (platform/far_shell.inc). No file for a room = Short without shell there. DBG_WARP builds: warp line `farshell 0|1|2`
+#   (0 the View distance cut as before, 1 shell, 2 opaque cut only, for pricing).
+FAR_SHELL ?= 0
+ifneq ($(filter-out 0 1,$(FAR_SHELL)),)
+$(error FAR_SHELL must be 0 or 1)
+endif
+ifeq ($(FAR_SHELL),1)
+ifneq ($(VIEW_DIST_OPTION),1)
+$(error FAR_SHELL needs VIEW_DIST_OPTION=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_FAR_SHELL=1
+PLATFORM_CPPFLAGS += -DRE4DC_FAR_SHELL=1
+endif
 # RENDER_DOUBLE=1 (debug fallback): Standard / Fast show each line twice instead of alternating lines.
 ifneq ($(RENDER_DOUBLE),1)
 PLATFORM_CPPFLAGS += -DRE4DC_RES_ALTERNATE=1

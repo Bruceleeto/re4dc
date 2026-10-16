@@ -58,6 +58,9 @@
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 extern "C" void re4dc_view_dist_set(int level, const char* why);   // option_rows.cpp (Options View distance)
 #endif
+#if defined(RE4DC_FAR_SHELL) && RE4DC_FAR_SHELL
+extern "C" void re4dc_far_shell_set(int mode, const char* why);   // native_static.cpp far_shell.inc
+#endif
 #include "global.h"
 #include "player.h"
 #include "room_data.h"
@@ -475,6 +478,11 @@ void load()
             // VIEW_DIST_OPTION (option_rows.cpp): the Options View distance at load, 0 full / 1 near / 2 short (render
             // only; stills and the forced-Short STRICT arm without a menu walk)
             re4dc_view_dist_set((int) num(tok[1]), "warp");
+#endif
+#if defined(RE4DC_FAR_SHELL) && RE4DC_FAR_SHELL
+        } else if (!strcmp(k, "farshell") && n >= 2) {
+            // FAR_SHELL (far_shell.inc): 0 the View distance cut as before, 1 the far shell, 2 opaque cut only (pricing)
+            re4dc_far_shell_set((int) num(tok[1]), "warp");
 #endif
 #if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
         } else if (!strcmp(k, "bench") && n >= 5) {
