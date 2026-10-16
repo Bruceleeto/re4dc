@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 16, 2026. The current public build is console test 15 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)); test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
+Last updated: October 16, 2026. The current public build is console test 15.1 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)), a hotfix of test 15: no haze or mist sprites around Leon, and Foliage Off leaves out every see-through card. Test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -88,6 +88,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- | --- |
 | At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
 | Pauses when entering rooms | all | ⏸️ Open | |
+| The frame rate drops for a few seconds and then recovers, with no clear reason (for example outdoors in the woods, r100) | test 9.1 and later | 🔍 Investigating. Test 15.1 no longer draws the see-through haze and mist sprites around Leon, in any room and at every Foliage setting (the distant haze is still drawn as fog), and Foliage Off now leaves out every see-through brush, leaf, shadow and mist card. Together with Foliage these were most of the see-through layers outdoors. Please tell us whether the drops remain on test 15.1 | [#29](https://github.com/lamb2k/re4dc/issues/29) |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. From test 15 the on-screen display also keeps its pictures through the village radio call | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 | View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon). At Short, in the first area and the village, a simplified far view keeps the landmarks, but thin things in the distance (fence slats, wires, bare branches, small props) are missing there | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |

@@ -176,7 +176,10 @@ texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table plat
 from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and every listed
 card key (classes 1-4, soft shadow / mist / grass cards included) is left out at Off; surfaces without cut-out holes
 (walls, floors, water), unlisted keys and the vertex-alpha overlays always draw. It is not
-saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
+saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). From test 15.1 the knob `HAZE_SPRITE_CUT=1`
+(hwfog.mk, recipe group `T15_HZ`; render only) leaves out every haze / mist sprite at every Foliage setting: the camera
+haze around Leon (Esp15), the mist sheets (Esp48) and the r118 / r11c PS2 haze additions; the distant haze stays as the
+fog table (`HW_FOG_HAZE`, `EFFECT_HAZE_LEAN`), which is fed before the cut. Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 Far shell (knob `FAR_SHELL`, needs `VIEW_DIST_OPTION`; game/platform/far_shell.inc): in a room that has a
 `dc/native/rXXX/far-shell.fsh` (r100 and r101 in test 15), Short cuts only the world's opaque pass; the fog,
