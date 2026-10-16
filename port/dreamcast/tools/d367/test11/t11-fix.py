@@ -296,6 +296,17 @@ T15_DATA = T14_DATA + ',cast15,glod,res16'  # res16 after res14r3: the HUD fix c
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
 T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
 DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
+# Lane resident16 (2026-10-16, VRAM rule: a room's textures load once at its entry): res16c = res16 + resident lists for
+# every chapter 1 room and r119 (vram/resident/r100 r102 r104..r10b r119 new; r101 / r103 merged with the lane's runs),
+# resident_keys.py pack r000 r100 r101 r102 r103 r104 r105 r106 r107 r108 r109 r10a r10b r119: 846 records, sha256
+# e29a4e7bb3cd9510. Order: after res16 (replaces dc/resident.bin). Data only (ROOM_RESIDENT=1 reads it).
+RS16D = os.environ.get('RS16D', '/root/probe/lanes-20261016/resident-k/data')
+DATA['res16c'] = {'dc/resident.bin': RS16D + '/res16c/resident.bin'}
+# vq16c = the test 15 tex.pak (tex-t13v.pak) with the 34 chapter 1 pictures of vram/vq16-ch1.txt re-encoded as
+# full-codebook VQ (vram/vq16c-texpak.sh: Leon pl08 atlas + parts, PS2 world pictures of r102 r105 r108 r10b, r108's
+# em17 cast; 2,572,288 -> 391,168 B, PSNR 26.8..57.5 dB) so each room's set fits the budget. LOOK CHANGE: needs the
+# user's still-pair decision (look/vq16c-*). sha256 206293ae45bec7cb.
+DATA['vq16c'] = {'dc/tex.pak': RS16D + '/vq16c/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
