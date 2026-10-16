@@ -28,6 +28,7 @@ struct State {
     const Head* h = nullptr; const Mat* mats = nullptr; const Group* groups = nullptr; const Vert* verts = nullptr;
     const std::uint8_t* strips = nullptr;
     const std::uint32_t* lut = nullptr;   // RGB565 -> ARGB8888 by byte: [0,256) high byte, [256,512) low byte (OR them)
+    const float* tight = nullptr;         // version 2: per group its own vertex box (lo[3], hi[3]); the file box is the cell's
     // per 120 frames
     unsigned frames = 0, shown = 0, groups_drawn = 0, vtx = 0, strip_verts = 0, strips_cut = 0, headers = 0, refused = 0;
 };
@@ -45,12 +46,19 @@ void open(unsigned room) {
     const unsigned size = f != FILEHND_INVALID ? unsigned(fs_total(f)) : 0U;
     const char* why = f == FILEHND_INVALID ? "absent" : nullptr;
     if (!why && (size < 32U || size > 524288U)) why = "size";
-    if (!why && !(st.block = static_cast<unsigned char*>(re4dc_static_alloc(((size + 31U) & ~31U) + 2048U)))) why = "heap";
+    // version 2 files need a per-group box table after the colour table: peek at the header for the group count
+    Head peek{};
+    if (!why && fs_read(f, &peek, sizeof(peek)) != ssize_t(sizeof(peek))) why = "read";
+    if (!why && fs_seek(f, 0, SEEK_SET) != 0) why = "seek";
+    const unsigned extra = !why && peek.version == 2U && peek.groups <= 8192U ? 24U * peek.groups : 0U;
+    if (!why && !(st.block = static_cast<unsigned char*>(re4dc_static_alloc(((size + 31U) & ~31U) + 2048U + extra))))
+        why = "heap";
     if (!why && fs_read(f, st.block, size) != ssize_t(size)) why = "read";
     if (f != FILEHND_INVALID) fs_close(f);
     if (!why) {
         const Head* h = reinterpret_cast<const Head*>(st.block);
-        if (std::memcmp(h->magic, "FSH1", 4) || (h->version != 1U && h->version != 2U) || h->room != room || !h->groups || !h->materials ||
+        if (std::memcmp(h->magic, "FSH1", 4) || (h->version != 1U && h->version != 2U) || h->room != room || !h->groups ||
+            !h->materials || (h->version == 2U && 24U * h->groups != extra) ||
             32U + 16U * h->materials + 64U * h->groups + 12U * h->vertices + h->strip_bytes != size ||
             ps2_crc32(st.block + 32, size - 32U) != h->crc)
             why = "header";
@@ -69,12 +77,23 @@ void open(unsigned room) {
                 lut[256U + b] = (gl << 2) << 8 | (b5 << 3) | (b5 >> 2);
             }
             st.lut = lut;
+            float* tight = h->version == 2U ? reinterpret_cast<float*>(lut + 512) : nullptr;
             for (unsigned g = 0; g < h->groups && !why; ++g) {
                 const Group& q = st.groups[g];
                 if ((q.material & 0x3fffU) >= h->materials || (h->version == 1U && q.material >= h->materials) || !q.vcount || q.vcount > 256U || q.first_vertex + q.vcount > h->vertices ||
                     q.first_strip + q.strip_bytes > h->strip_bytes)
                     why = "group";
+                else if (tight) {   // the group's own box from its i16 grid: culling stays as tight as version 1
+                    float* t = tight + 6 * g;
+                    for (unsigned a = 0; a < 3; ++a) { t[a] = 3.0e38f; t[3 + a] = -3.0e38f; }
+                    for (unsigned i = 0; i < q.vcount; ++i) {
+                        const Vert& v = st.verts[q.first_vertex + i];
+                        const float p[3] = {q.origin[0] + v.x * q.scale, q.origin[1] + v.y * q.scale, q.origin[2] + v.z * q.scale};
+                        for (unsigned a = 0; a < 3; ++a) { t[a] = p[a] < t[a] ? p[a] : t[a]; t[3 + a] = p[a] > t[3 + a] ? p[a] : t[3 + a]; }
+                    }
+                }
             }
+            st.tight = tight;
         }
     }
     if (why) {
@@ -141,17 +160,25 @@ extern "C" int re4dc_far_shell_draw(float cut, float full) {
         const Group& g = st.groups[gi];
         // depth range of the box (view space looks down -z): centre depth +- the half extents on |view z row| (the
         // same range as the 8 corners), then the frustum test to Full's far
+        const float* lo = g.lo;
+        const float* hi = g.hi;
+        if (const unsigned level = g.material >> 14) {
+            // version 2 levels: the file box is the cell's box over both levels, so one decision per cell picks one
+            // level (fine while the cell's nearest point is closer than the split, coarse beyond it); culling then
+            // uses the group's own box
+            const float ex = .5f * (hi[0] - lo[0]), ey = .5f * (hi[1] - lo[1]), ez = .5f * (hi[2] - lo[2]);
+            const float d = -(az0 * (lo[0] + ex) + az1 * (lo[1] + ey) + az2 * (lo[2] + ez) + az3);
+            const float r = fz0 * ex + fz1 * ey + fz2 * ez;
+            if ((level == 1U) != (d - r < split)) continue;
+        }
+        if (st.tight) { lo = st.tight + 6 * gi; hi = lo + 3; }
         {
-            const float ex = .5f * (g.hi[0] - g.lo[0]), ey = .5f * (g.hi[1] - g.lo[1]), ez = .5f * (g.hi[2] - g.lo[2]);
-            const float d = -(az0 * (g.lo[0] + ex) + az1 * (g.lo[1] + ey) + az2 * (g.lo[2] + ez) + az3);
+            const float ex = .5f * (hi[0] - lo[0]), ey = .5f * (hi[1] - lo[1]), ez = .5f * (hi[2] - lo[2]);
+            const float d = -(az0 * (lo[0] + ex) + az1 * (lo[1] + ey) + az2 * (lo[2] + ez) + az3);
             const float r = fz0 * ex + fz1 * ey + fz2 * ez;
             if (d + r <= cut || d - r >= full) continue;
-            // version 2 levels (box = the cell's box over both): fine while the cell's nearest point is closer than
-            // the split, coarse beyond it
-            const unsigned level = g.material >> 14;
-            if (level && ((level == 1U) != (d - r < split))) continue;
         }
-        const re4dc::render::DrawBounds b{{g.lo[0], g.lo[1], g.lo[2]}, {g.hi[0], g.hi[1], g.hi[2]}};
+        const re4dc::render::DrawBounds b{{lo[0], lo[1], lo[2]}, {hi[0], hi[1], hi[2]}};
         if (!re4dc::render::group_visible(b, v, P, V, near, full, 0)) continue;
         const unsigned mat = g.material & 0x3fffU;
         if (mat != open_mat) {
