@@ -11,7 +11,8 @@
 # Output: $P (default C:\Game Dev\Emulators\RE4DC-Test15-Candidate): gdemu\, the GDEMU zip, the Build-Assets zip,
 # README.txt, SHA256SUMS.txt. Not published: the gates run on this package first.
 # Env: L (play label, default t15rcrP), R (work dir), P (output, /mnt/c path), SRC_SHA (default the build's stack.txt),
-#      NOZIP=1 (gdemu folder only; dry runs), PKG_SRC.
+#      NOZIP=1 (gdemu folder only; dry runs), PKG_SRC, TN (test name in the folder and the assets zip, default 15;
+#      test 15.1 hotfix: TN=15.1 L=t151rP R=/root/probe/lanes-20261016/nohaze/k).
 set -e
 R=${R:-/root/probe/lanes-20261016/t15rc}
 L=${L:-t15rcrP}
@@ -21,9 +22,10 @@ export PKG_SRC=${PKG_SRC:-/root/probe/lanes-20261015/t15k/pkgsrc-t14cand}
 KF=$T/test15/release-knobs.txt
 SHA=${SRC_SHA:-$(head -1 $O/stack.txt | cut -c1-8)}
 DATE=$(date +%Y%m%d)
-P=${P:-"/mnt/c/Game Dev/Emulators/RE4DC-Test15-Candidate"}
+TN=${TN:-15}
+P=${P:-"/mnt/c/Game Dev/Emulators/RE4DC-Test$TN-Candidate"}
 Z=RE4DC-Console-Test-$SHA-$DATE-GDEMU.zip
-A=RE4DC-Test15-$SHA-Build-Assets.zip
+A=RE4DC-Test$TN-$SHA-Build-Assets.zip
 [ $(wc -l < $O/stack.txt) -le 1 ] || { echo "out-$L was built from a dirty tree"; cat $O/stack.txt; exit 1; }
 [ -d "$PKG_SRC" ] || { echo "PKG_SRC $PKG_SRC is missing"; exit 1; }
 python3 $T/release-knobs.py check $O/candidate.txt $KF || { echo "test15/release-knobs.txt does not match out-$L (rewrite it: release-knobs.py write)"; exit 1; }
@@ -44,7 +46,7 @@ tr -d '\r' < $T/test15/README-package.txt | sed "s/SHA_PLACEHOLDER/$SHA/g" | sed
 cmp <(cut -c1-64 $R/SHA256SUMS-inner.txt) <(cut -c1-64 $R/gdemu-sha256.txt) && echo tracks-match-ext4-build
 if [ "${NOZIP:-0}" != 1 ]; then
   cd "$P"
-  rm -f RE4DC-Console-Test-*-GDEMU.zip RE4DC-Test15-*-Build-Assets.zip
+  rm -f RE4DC-Console-Test-*-GDEMU.zip RE4DC-Test$TN-*-Build-Assets.zip
   python3 - "$P" "$Z" "$R/SHA256SUMS-inner.txt" <<'E'
 import sys, zipfile, os
 p, z, sums = sys.argv[1:4]
