@@ -1511,6 +1511,20 @@ endif
 ifeq ($(MOVIE_FENCE_RETRY),1)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_FENCE_RETRY=1
 endif
+# OVL_ID_GUARD=1 (test 15, robustness): each route overlay names the main image it was linked against. gen_overlay.py
+# writes header words 14/15 = FNV-1a of the main image's .text and the .text byte count (RE4DC_OVL_ID=1 in link.sh's
+# environment); routeOverlayLoad (platform/modules.cpp) hashes its own .text once and stops with re4dc_missing("route
+# overlay built for another program") on a mismatch, instead of relocating another build's overlay into this image (the
+# r118 fixture fault, 10-15). swap-program.py copies the overlays with the program, so release discs always match.
+# Default 0: the image and the overlays are byte-identical.
+OVL_ID_GUARD ?= 0
+ifeq ($(filter $(OVL_ID_GUARD),0 1),)
+$(error OVL_ID_GUARD must be 0 or 1)
+endif
+ifeq ($(OVL_ID_GUARD),1)
+LINK_ENV += RE4DC_OVL_ID=1
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_OVL_ID_GUARD=1
+endif
 
 $(TARGET): $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a $(OBJS) $(GAME30_LINK_INPUTS) tools/link.sh tools/gen_aliases.py tools/gen_missing.py platform/aliases-manual.ld
 	@if [ "$(PVR_STREAM)" = 1 ]; then test "$$($(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-nm -g --defined-only $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a | grep -Ec ' T _pvr_(set_manual_flip|resolve_frame)$$')" -eq 2 || { echo 'PVR_STREAM requires the pinned manual-flip KOS patch' >&2; exit 1; }; fi

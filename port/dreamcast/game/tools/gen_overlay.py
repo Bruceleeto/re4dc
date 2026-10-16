@@ -15,6 +15,7 @@ Output, little endian: a 64-byte header (u32 words)
    0 magic 'RE4O'   1 version 1      2 image bytes    3 relocation count
    4 link address A 5 prolog        6 epilog         7 data  8 data_end  9 bss  10 bss_end
   11 pristine       (5-11: offsets from A)            12 FNV-1a of the image  13 of the relocations
+  14 main image id (FNV-1a of its .text)  15 its .text bytes   (OVL_ID_GUARD, RE4DC_OVL_ID=1; else 0)
 then the image bytes, then the relocation offsets (u32, from the image start).
 """
 import os
@@ -93,7 +94,14 @@ def main():
             sys.exit("gen_overlay: %s not inside %s" % (n, section))
         offs.append(v - a)
     rel = b"".join(struct.pack("<I", r) for r in relocs)
-    head = struct.pack("<16I", MAGIC, 1, len(img_a), len(relocs), a, *offs, fnv(img_a), fnv(rel), 0, 0)
+    # OVL_ID_GUARD (RE4DC_OVL_ID=1): words 14/15 = FNV-1a of the main image's .text (whole words) and its byte count,
+    # checked by routeOverlayLoad against the running program. Otherwise 0 (the overlays stay byte-identical).
+    ident = [0, 0]
+    if os.environ.get("RE4DC_OVL_ID") == "1":
+        text = binary(elf_a, ["-j", ".text"])
+        text = text[:len(text) & ~3]
+        ident = [fnv(text), len(text)]
+    head = struct.pack("<16I", MAGIC, 1, len(img_a), len(relocs), a, *offs, fnv(img_a), fnv(rel), *ident)
     with open(out, "wb") as f:
         f.write(head + img_a + rel)
     print("gen_overlay: %s %u bytes, %u relocations, image outside it identical at both addresses -> %s" %

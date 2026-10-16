@@ -105,6 +105,8 @@ if [ -n "$OVL" ]; then
         rm -f obj/overlay-b.elf
         i=$((i + 1))
     done
+    # OVL_ID_GUARD (RE4DC_OVL_ID=1): the image's own identity word pair, after every overlay compared the image
+    if [ "${RE4DC_OVL_ID:-0}" = 1 ]; then python3 tools/ovl_id_patch.py "$TARGET" || exit 1; fi
     for s in $OVL; do sh-elf-objcopy -R "$s" "$TARGET"; done
 fi
 sh-elf-size $TARGET
