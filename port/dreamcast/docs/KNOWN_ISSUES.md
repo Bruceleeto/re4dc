@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 15, 2026. The current public build is console test 13 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)). Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
+Last updated: October 16, 2026. The current public build is console test 15 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)); test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -56,17 +56,20 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Leon and most villagers are not lit by the scene's lights | test 8 | 🟢 Fixed in test 15: Leon is lit by the scene's lights from test 12, with a soft fill light that brings him close to the GameCube brightness. From test 15 the villagers take their colour from the lights around each of them (the same light probe as Leon), drawn flat: one colour per body part, no shading across the body | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn (the PS2 version has none either). From test 15 the pool, the river and the lake seen from the shore draw their water the PS2 way (needs console check); from test 16 the open lake (Del Lago, and the lake at night) does too | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Some rooms look almost pitch black: the r11b lake shore (dark dock and ground, near-black sky), r117, r108 | test 12 | 🟢 Fixed in test 12.1: the rooms use the PS2 room lighting, and the r11b / r119 mist is drawn as in test 10 | |
-| Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
+| Shadows draw incorrectly: solid black shadow shapes, and some wooden fence rails in the valley (r106) drawn solid black | test 7 to test 10 | 🟢 Fixed in test 12 / 12.1: the soft ground shadows from test 7; the rails were unlit pieces (no ambient added) and the room now uses the PS2 room lighting, so they draw as dark wood like the PS2 (checked in test 14 and 15) | [#20](https://github.com/lamb2k/re4dc/issues/20) |
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | A few effect pictures are the GameCube ones: two shared room effects seen in most chapter 1 rooms, one in r101 / r103 / r106 and one animated effect in r117; every other effect uses the PS2 pictures | test 12, 13 | ⏸️ Open: the PS2 version has no matching picture for these four; the full-play checks of test 12.2 and test 13 found no others. The 31 shared fire, smoke and spark pictures that test 12 took from the GameCube now use the PS2 pictures | |
 | The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | 🟢 Fixed in test 15: lit by the room lights | |
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
+| The night lake (start of chapter 2-1): the torches have no flames and the rain is missing | test 10 and later | ⏸️ Open: they use drawing paths not yet converted; planned with the PS2 amounts (about 100 rain streaks) | [#30](https://github.com/lamb2k/re4dc/issues/30) |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
-| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 16: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
+| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 15.1: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
 | In the village (r101) the burning stake has lost its crossbar and a plank of the pyre (the simplified village scenery of test 15) | test 15 | 🟢 Fixed in test 16: the stake and the pyre keep their full detail (checked in game at the village cross) | |
 | In the village (r101) the fence by the house on the right of the square shows only its posts, without its rails (the simplified village scenery of test 15) | test 15 | ⏸️ Open: keeping that fence's detail in the scenery simplification did not bring the rails back, so they are lost in a later step; a hand fix is planned | |
+| The item menu's confirm popup does not look as it did in test 13 | test 14, 15 | ⏸️ Open | |
+| In r102, right after loading a save, a few effect pictures are not drawn while video memory is full (test 15: 4 refused; test 14: 76) | test 14, 15 | ⏸️ Open: fix planned for a later test (the room's pictures are loaded again in one pass after a save is loaded) | [#33](https://github.com/lamb2k/re4dc/issues/33) |
 
 ## Sound
 
@@ -77,33 +80,36 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The chapter results music is silent on the third results screen | test 7 and earlier | 🟢 Fixed in test 8: the music that plays after each chapter's results (chapters 1-1, 1-2 and 1-3, on the save screen) is on the disc. The results table itself has no music, as in the original game: the chapter end stops the room music and starts none | |
 | Footsteps and room ambience are silent in r103 (the farm) | test 13, 14 | 🟢 Fixed in test 15: r103's footstep and ambience sounds are converted for the Dreamcast again (ambience 16 kHz, footsteps 11 kHz, the same rates as the other rooms). The later chapter 1 rooms already had theirs | |
 | Some music and voices are silent: the r104 and r107 room music, the r106 battle music, the r102 room music and the merchant's voice, the "you died" screen music, and a few short event jingles (r100, r101, r104, r108, r10b) | all | 🟢 Fixed in test 15: these music and voice tracks are now on the disc. Only one of them plays at a time, so a voice that starts while another track plays can still be silent, as before | |
+| Radio call subtitles fall behind the voice, more as the call goes on | test 14, 15 | ⏸️ Open: fix in test 16 | |
 
 ## Performance and loading
 
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
-| Below the 30 fps / full speed target, slowest in the village fight | all | ⏸️ Open: PS2 enemy and effect reductions under way | |
 | At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
 | Pauses when entering rooms | all | ⏸️ Open | |
-| The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. The on-screen display still reloads its pictures after the village radio call (4 small pictures); that part waits for a later test | |
+| The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. From test 15 the on-screen display also keeps its pictures through the village radio call | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
 | View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon). At Short, in the first area and the village, a simplified far view keeps the landmarks, but thin things in the distance (fence slats, wires, bare branches, small props) are missing there | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
-## Console checklist for test 13
+## Console checklist for test 15
 
-Test 13: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 10, plus: do the radio calls open and close without a crash screen, and are the controller and VMU found at start-up?)
+Test 15: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 13, plus: do rooms load on your GDEMU without a freeze (#27), and does the r100 cliff cutscene after the first house play?)
 
 These fixes can only be confirmed on a real Dreamcast, because emulators draw the old and new versions the same.
-If you play test 13 on a console, please report on any of these in a bug report:
+If you play test 15 on a console, please report on any of these in a bug report:
 
 1. **Long play in the village and the first house.** Play for 20 minutes or more, through room loads. Any crash screen?
 2. **Trees and fences by the first house.** Do branch tips, leaves and fence gaps show the sky or wall behind them, or
    solid blocks?
 3. **Curtains and walls in the first house.** Textured, or flat, striped or noisy?
 4. **Speed display** (hold R, press START until it shows on screen). Is the counter fully visible?
-5. **Leaving the village after the fight** (test 12.2, 13). After the village fight, walk on to the next room (back to
-   r100, or on to r103). Any crash screen while it loads, or missing effect pictures right after the door?
+5. **Leaving the village after the fight** (test 12.2 and later). After the village fight, walk on to the next room
+   (back to r100, or on to r103). Any crash screen while it loads, or missing effect pictures right after the door?
+6. **Room loads on GDEMU** (test 14 and later). Do doors and room loads finish without a freeze?
+7. **The r100 cliff cutscene** (test 15). After the first house, does the cliff cutscene play, and does the game go on
+   normally after it?
 
 An item moves to ✅ Confirmed fixed after a console report.
 
