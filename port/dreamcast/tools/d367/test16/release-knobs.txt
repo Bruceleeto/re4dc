@@ -3,12 +3,12 @@
 # out-<label>/candidate.txt; checked by tools/d367/kit-check.sh; read by build-public.sh. Do not edit.
 # @ASSETS@ = the unpacked Build-Assets zip (re4dc-assets/).
 # test: 16
-# tag: test-5339313b-20261016
-# source: 5339313b
+# tag: test-72871476-20261016
+# source: 72871476
 # recipe: port/dreamcast/tools/d367/test16/t16-build.sh
-# image-sha256: 7cce77ba3c957b5fb2a2164b1599a4a63ec057fd917697752950d2d9a16afdd4
-# assets-zip: RE4DC-Test16-5339313b-Build-Assets.zip
-# disc-sets: snd16,water16i,vq16w,wt16r101
+# image-sha256: d551dab26d5f86f30fc19bd8c437d2d528840e2e09766d8bae59a38f9a7201d6
+# assets-zip: RE4DC-Test16-72871476-Build-Assets.zip
+# disc-sets: snd16,water16i,vq16w
 LOGIC_TRACE=0
 GAME_DECISION_TRACE=0
 ACTOR_TRANSACTION_DIAG=0
@@ -180,8 +180,6 @@ GANADO_LIT_NEAREST=0
 VIEW_DIST_OPTION=1
 SS11_PRELOAD=1
 WATER_PS2=1
-WORLD_VERT=1
-WORLD_VERT_LEVEL=5
 FOLIAGE_TRIM=1
 FOLIAGE_OPTION=1
 RADIO_SUB_RT=1
