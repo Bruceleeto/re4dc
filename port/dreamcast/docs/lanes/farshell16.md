@@ -119,9 +119,46 @@ Gates on the final code (c13f20d1 image; docs after):
 | VRAM room log | refusals 0, guard 0, nocontig 0 in every run |
 | Indoor (r100 house interior, viewdist16 rule in) | interior unfogged as Full; the window shows the shell (cmp-indoor.png); the shed window at the r100 path shows the village (cmp-houseF-merged.png) |
 
+## Vertex cut and Short only (10-16 late; user: "short shell + half vertices seems like the right balance")
+
+Shipped: fsh6 (params v6) and the shell at Short only (`far_shell_cut_on()` needs View distance 2; Near keeps its plain
+cut). r101 3,191 triangles / 6,634 vertices (v3 5,997 / 13,457), r100 2,886 / 7,044 (v3 5,995 / 14,177); files 119,744
+/ 122,363 B (v3 216,730 / 222,018); static heap at room entry r101 121,888 B, r100 124,512 B (v3 218,880 / 224,192).
+How: fs_blender.py weld 150 mm (was 20; the far-seen faces become connected sheets instead of a soup that is 80 % border
+vertices), collapse to the budget weighted by `protect_by: border` (border vertices weight 0.3: plain collapse erodes
+open sheets from their borders, which is what made v1 / v7 lose the r100 bridge cliffs and r101 roofs), and fs_pack.py
+integer UV shifts (repeat-wrapped textures: a triangle's UVs move by whole tiles so neighbours share corners; same
+pixels; -5 % vertices). Lost against v3: posts and slats thinner than ~15 cm beyond 12.5 m (welded away). The bridge
+reads better (no floating plank shards).
+Tried and dropped: continuous UVs (fs_uvfield.py: streaks on ~half the triangles), shared planar maps per cell
+(fs_uvaffine.py: 11,640 vertices at best), corner UVs carried through the collapse (uv_mode loop: 12,492), plain
+3,000-triangle collapse (7,093 vertices but holes in cliffs and houses), steep-face / distance weights (holes), a
+coarse distance level (fsh5: no gain).
+
+Final numbers on the merged tree e5c1d6f6 (lane + t15/int 6b5bc9b0: world32 r101, water16, Foliage Near default),
+hw model MODELLED, console-fit in brackets, not console; r101 cross benchmark-r101-v3, global 500:1399, arm fs16mrW,
+fixture t14rc package + T15 data after T14 incl. water16h, wv32r101 and fsh (= fsh6):
+| Arm | ms / frame |
+|---|---|
+| Full | 60.69 (64.57) |
+| Short | 50.37 (53.81) |
+| Short + shell (fsh6) | 57.58 (61.38): -3.11 (-3.19) vs Full |
+Shell draw 2.23 ms there (v3 on the pre-merge arm: 2.90); per frame at the cross 2,073 vertices / 90 groups (v3 3,537 /
+92). Same arm and data before the merge (fs16frW): v3 61.1 -> v6 60.4, shell 2.90 -> 2.06. r100 house siege (fs16frW):
+shell 0.43 -> 0.38 ms. The rest of Short + shell over Short is Full's fog, PT / TR world passes and actors beyond the cut.
+
+Gates on the merged tree (evidence C:\Flycast-Evidencee4-dreamcastarshell-20261016):
+| Gate | Result |
+|---|---|
+| Knob-off identity (T15_FS="" fs16nrP vs t15/int 6b5bc9b0 fs16urP) | IDENTITY PASS |
+| _end | rP 8c4240f8 -> 8c425038 (+3,904 B) |
+| STRICT + decisions at Short (fs16nrT T15_FS="" vs fs16mrT, fixtures with fsh6 + world32) | fight STRICT 802 ticks, bell 397, door103 1702, 0 overruns; decisions MUST-IDENTICAL 802 / 397 / 1701 |
+| TEXCHK + stills (fs16mmW: r101 cross, walk B, r100 bridge, house window, shed window) | 5/5 fails 0, LEON-GC 0, MISSING / HALT 0; FARSHELL-V6-STILLS.png |
+| VRAM room log | 0 B new; r101 pinned 2,314,072 free 220,544 largest 10,240; r100 pinned 2,015,286 free 494,784 largest 387,072; refusals / guard / nocontig 0 in every run |
+| KOS squeeze 48 KiB (twin fpfs16sq3W from fs16mrP, release identity OK; base t14cand package, no shell files on it) | 10/10 PASS, 0 OOM: fight min 9,024 B, call 39,624, door 15,784 (75 s), leave100 9,224, leave103 9,224 |
 ## Next (not done)
 
 - Remaining chapter 1 outdoor rooms (r103 farm, where the console cut saved 12.2 ms, r104 ... r10a): build a shell per
   room with tools/d367/farshell and add the room to DATA['fsh'].
 - Console confirmation (geometry lever >= 3 ms: the trust policy needs a console A/B before an fps claim).
-- Cheaper shell: fewer UV-split corners needs a different texture mapping (and a new look check).
+- Console confirmation of the Short + shell number (geometry lever >= 3 ms).
