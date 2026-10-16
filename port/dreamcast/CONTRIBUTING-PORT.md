@@ -34,8 +34,7 @@ The Build-Assets zip holds the generated character data the release program was 
 (`ps2leon/`, `ps2ganado/`, and `glod/ganado_lod.re4gl`, the lighter villager meshes named by
 `GANADO_LOD_PACK`), so your program draws the same characters as the release. It also carries, under
 `re4dc-assets/disc/<disc path>`, the newer disc data files (the chapter 1 sound files `st1/r103.dar` and
-`bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak`, the village world in `dc/native/r101/` and the far shells
-`dc/native/r100/far-shell.fsh` and `dc/native/r101/far-shell.fsh`);
+`bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
 they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
 every release). Downloads are kept, so a second run only rebuilds.
@@ -183,7 +182,8 @@ haze around Leon (Esp15), the mist sheets (Esp48) and the r118 / r11c PS2 haze a
 fog table (`HW_FOG_HAZE`, `EFFECT_HAZE_LEAN`), which is fed before the cut. Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 Far shell (knob `FAR_SHELL`, needs `VIEW_DIST_OPTION`; game/platform/far_shell.inc): in a room that has a
-`dc/native/rXXX/far-shell.fsh` (r100 and r101 in the release), Short cuts only the world's opaque pass; the fog,
+`dc/native/rXXX/far-shell.fsh` (built for r100 and r101; not in the release yet: it loads at room entry at every View
+distance, and r100's 122 KB shell starves heap 4 at the s30 movie, so it waits for a load-at-Short version), Short cuts only the world's opaque pass; the fog,
 the cut-out and see-through world surfaces, characters and objects keep Full's distance, and the room's far shell (a
 simplified copy of the far world, about 3,000 triangles textured with the world's own textures, so no extra graphics
 memory) is drawn beyond the cut, so landmarks stay visible. Build a shell with tools/d367/farshell (README there;

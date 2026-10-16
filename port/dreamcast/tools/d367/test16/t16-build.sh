@@ -3,11 +3,13 @@
 # Test 16 (user 10-16, "slice test 16 into two"): t15/int e22bf562 + lane/nohaze16 0a4ef1b4 (the test 15.1 haze-sprite
 # removal). Its recipe T16REC is test15/t15-build.sh's T15REC at this commit, which already holds every test 16 group:
 #   test 15 (6b5bc9b0) groups T15_2 .. T15_T, the 15.1 group T15_HZ (HAZE_SPRITE_CUT=1), and the test 16 groups
-#   T15_FS (FAR_SHELL=1, far shell at View distance Short) and T15_RS (RADIO_SUB_RT=1, radio subtitles follow the voice);
+#   T15_RS (RADIO_SUB_RT=1, radio subtitles follow the voice); NOT T15_FS (FAR_SHELL=1): coordinator decision (a) 10-16,
+#   the far shell moves to test 17 (it loads r100's far-shell.fsh, 122 KB of heap 4, at room entry at every View distance,
+#   and the r100 s30 movie then ran out of heap 4: 2 Ganados not spawned in every diagnostic arm; t16rc evidence h2-rW);
 #   the option A disc reads (T14_DISC = DISC_COMPAT=1 DISC_READ_FALLBACK=3 DISC_LAND_SPIN_MS=20) and the PS2 water in
 #   r10b / r11b (WATER_PS2_ROOMS default 0x3f) are defaults of this tree; the Foliage Off fix is code under FOLIAGE_OPTION.
-# Data: T16_DATA in test11/t11-fix.py (= T15_DATA of e22bf562: water16i + vq16w, the r101 world version C wt16r101, the
-#   far shells fsh). Package: test16/t16-package.sh (standard GD-ROM layout).
+# Data: T16_DATA in test11/t11-fix.py (= T15_DATA of e22bf562 without the far shells fsh: water16i + vq16w, the r101
+#   world version C wt16r101). Package: test16/t16-package.sh (standard GD-ROM layout).
 # Arms (as t15-build.sh): rP release play, rW warp, mW warp + TEX_CHECK=2 + MCHECK_LEONGC=1, rT trace, kP / kW / kT
 #   knob-off (no test 15 / 16 knobs). Test 16 adds:
 #   qP / qT / qW  the test 15.1 program on this tree: T16REC with the test 16 changes off (T15_FS="" T15_RS="", test 15's
@@ -16,6 +18,7 @@
 # Env: T (tree, default /root/probe/lanes-20261016/t16rc/tree), K (logs, default /root/probe/lanes-20261016/t16rc),
 #      LP (label prefix, default t16rc), XON (extra knobs, test only), PAD_T / PAD_K.
 set -u
+export T15_FS=${T15_FS-}   # test 16: no far shell (decision (a)); T15_FS=FAR_SHELL=1 builds it for test 17 work
 D=$(cd "$(dirname "$0")" && pwd)
 export T=${T:-/root/probe/lanes-20261016/t16rc/tree} K=${K:-/root/probe/lanes-20261016/t16rc} LP=${LP:-t16rc}
 Q15=(env T15_FS= T15_RS= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WATER_PS2=1 WATER_PS2_ROOMS=0x17" LP=${LP}q)

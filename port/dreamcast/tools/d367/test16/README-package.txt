@@ -26,9 +26,6 @@ New in test 16:
   Lago boat fight and the lake shore at night.
 * In the village (r101) the burning stake and the pyre keep their full
   detail again. The fence by the house still misses its rails.
-* View distance Short: the first area (r100) and the village (r101)
-  show a simplified copy of the distant scenery beyond the cut, so the
-  houses, trees and hills stay in view.
 
 From test 15.1 (hotfix):
 * The see-through haze and mist sprites around Leon are no longer drawn,

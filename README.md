@@ -20,7 +20,7 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test 16 (test 15.1 on a standard GD-ROM disc image for the GDEMU freezes, radio call subtitles that keep up with the voice, PS2 water out on the lake, the village stake and pyre in full detail, a simplified far view at View distance Short, and an automatic switch to plain disc reads when a fast read fails). Desktop packages will return with a later test build;
+The latest build is console test 16 (test 15.1 on a standard GD-ROM disc image for the GDEMU freezes, radio call subtitles that keep up with the voice, PS2 water out on the lake, the village stake and pyre in full detail, and an automatic switch to plain disc reads when a fast read fails). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
@@ -65,8 +65,7 @@ Standard (the default, the full 640x480 picture) or FSAA, which smooths edges by
 slower in busy scenes. View distance is how far the scenery is drawn: Full (the default, as on the PS2), Near or
 Short. Near and Short fade the distant scenery into the fog sooner, which makes busy outdoor scenes faster; the
 game plays the same. Inside a house the room around you stays clear, and only what you see through the doors and
-windows fades. In the first area and the village, Short draws a simplified copy of the distant scenery
-instead, so houses, trees and the hills stay in view. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
+windows fades. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
 are drawn: Near (the default) draws the leaf and brush cards with sharp edges and only up to about 12 m, where the
 fog hides them anyway, which makes the woods faster; Full draws all of them blended, as on the PS2; Off leaves them
 out, with the soft shadow and grass cards (fastest; walls, floors and water are always drawn). FSAA, View distance
@@ -82,7 +81,7 @@ up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
-* Test 16: the disc is a standard GD-ROM image, laid out like a pressed GD-ROM, for the GDEMU-only freezes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); when a fast disc read fails, the game switches to plain sector reads for the rest of the session ([#28](https://github.com/lamb2k/re4dc/issues/28)); radio call subtitles follow the voice; the lake (the Del Lago boat fight and the night shore) draws its water the PS2 way; the burning stake and the pyre in the village keep their full detail; at View distance Short the first area and the village show a simplified copy of the distant scenery.
+* Test 16: the disc is a standard GD-ROM image, laid out like a pressed GD-ROM, for the GDEMU-only freezes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); when a fast disc read fails, the game switches to plain sector reads for the rest of the session ([#28](https://github.com/lamb2k/re4dc/issues/28)); radio call subtitles follow the voice; the lake (the Del Lago boat fight and the night shore) draws its water the PS2 way; the burning stake and the pyre in the village keep their full detail.
 * Test 15.1 (hotfix): no haze or mist sprites around Leon in any room (the distant haze stays as fog); Foliage Off leaves out every see-through brush, leaf, shadow and mist card, and the r109 cabin keeps its walls and floor.
 * Test 15: the r100 cliff cutscene plays again; footsteps and ambience in the farm, the missing room music, the merchant's voice and other chapter 1 sounds; the villagers and the merchant are lit by the room's lights; PS2 models for the traps, bats, snake, fish, the boat and the r104 / r117 / r118 enemies; the pool, river and lake from the shore draw their water the PS2 way; every chapter 1 room keeps its textures in graphics memory; Options rows View distance and Foliage (both reset at each boot).
 * Test 14: a disc read fix for the GDEMU freezes and crashes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); the village keeps all its textures in graphics memory; the farm (r103) reads the disc far less; less work per frame.
