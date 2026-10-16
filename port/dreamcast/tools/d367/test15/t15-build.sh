@@ -126,7 +126,12 @@ T15_S="AICA_STR_ENT_MAX=48"
 T15_M="MOVIE_WORLD_ARENA=1 MOVIE_WORLD_ARENA_S30=1"
 # lane doorpause16 (cfa76c2e, 10-16): skip reading the zero padding after converted sound banks (-0.8 s per door at 2 MB/s, exact)
 T15_D="SND_PAD_SKIP=1"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D"
+# lane ganlit16 (de25aabe, user 10-16 "Option a for lighting"): villagers take their colour from the room's lights through
+#   the per-actor probe, still flat (one colour per part). ACTOR_PROBE_LIGHT 1 -> 2 for the whole recipe (overrides T11REC's =1:
+#   the last assignment on the make line wins); Leon is drawn exactly as with =1 (probe_eligible only adds Ganados).
+#   NEAREST=0 = no per-vertex Ganado light (option (a), -0.08 ms cross MODELLED). Render only. No data.
+T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

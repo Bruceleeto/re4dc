@@ -107,6 +107,12 @@ extern "C" void re4dc_pace_test_tick(void);
 extern "C" int re4dc_loadind_active;
 extern "C" void re4dc_loadind_frame();
 #endif
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+#define RE4DC_OTHER_UNIT "main"
+#include "other_profile.h"
+#else
+#define OTHER_PHASE(p) ((void)0)
+#endif
 void SetPrimBuffPtr();
 #if defined(RE4DC_MODEL_WALK_CHECK) && RE4DC_MODEL_WALK_CHECK
 extern "C" void re4dc_ot_check(const char* where);  // model_asset_bridge.cpp (debug only)
@@ -259,6 +265,7 @@ RESTART:
             // Render_swap); the logic tick below runs in full either way.
             re4dc_pace_begin();
 #endif
+            OTHER_PHASE(4); // definitive bench_iter boundary: after pace_begin
             StopwatchInit();
             ProcessTickInit();
             MWC("top");
@@ -275,7 +282,9 @@ RESTART:
             ClearOt();
             MWC("clear");
             pG->Frame_cnt++;
+            OTHER_PHASE(0);
             TaskScheduler();
+            OTHER_PHASE(4);
             MWC("tasks");
 #if RE4DC_VMU_CONTEXT && !defined(__PPC__)
             re4dc_vmu_snapshot();
@@ -348,6 +357,7 @@ RESTART:
             DC.check();
             Block.checkCondition();
             ProcessTickGet(3, "DRAW REMAIN");
+            OTHER_PHASE(5);
 #if RE4DC_PACE_CATCHUP
             if (!re4dc_pace_skipping)
 #endif

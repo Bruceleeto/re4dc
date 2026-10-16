@@ -61,9 +61,12 @@ int main() {
 #endif
         if (!took) continue;
 #if RE4DC_LEON_LIGHT_FILL
-        const unsigned probe_count = leon ? 2U : 1U;  // LEON_LIGHT_FILL: Leon's second direction is the camera fill
+        unsigned probe_count = leon ? 2U : 1U;  // LEON_LIGHT_FILL: Leon's second direction is the camera fill
 #else
-        const unsigned probe_count = 1U;
+        unsigned probe_count = 1U;
+#endif
+#if defined(RE4DC_GANADO_LIT_FILL) && RE4DC_GANADO_LIT_FILL > 0
+        if (!leon) probe_count = 2U;  // GANADO_LIT_FILL: the Ganados' camera fill
 #endif
         assert(build_lights(p, f, centre, b) && b.count == 1 && a.count == probe_count && a.fast && a.probe && !a.constant);
         for (unsigned c = 0; c < 3; ++c) {
@@ -204,8 +207,8 @@ int main() {
         for (unsigned i = 0; i < 2; ++i) skin_light_dirs(h, L, i, nullptr);
         for (unsigned k = 0; k < 24; ++k) assert(near(all[k], each[k], 1e-7f));
         assert(!near(all[4], 0, 1e-6f) || !near(all[5], 0, 1e-6f) || !near(all[6], 0, 1e-6f));
-#if RE4DC_ACTOR_PROBE_LIGHT >= 2
-        SourceLighting gs = base(1);  // a Ganado (model id 0x12): one direction, no fill
+#if RE4DC_ACTOR_PROBE_LIGHT >= 2 && !(defined(RE4DC_GANADO_LIT_FILL) && RE4DC_GANADO_LIT_FILL > 0)
+        SourceLighting gs = base(1);  // a Ganado (model id 0x12): one direction, no fill (unless GANADO_LIT_FILL)
         gs.lights[0].position[0] = 5100; gs.lights[0].color[0] = 220;
         Re4dcModelPart gp = part(gs, &model_b, I);
         Lights G{}; assert(probe_lights(gp, f, G) && G.count == 1 && near(G.color[4], 0, 0) && near(G.dir[1][0], 0, 0));
@@ -231,6 +234,78 @@ int main() {
         std::printf("PASS LEON_LIGHT_TOGGLE: flat 128, warm hue, headroom x0.5, probe full scale\n");
     }
 #endif
+#if RE4DC_GANADO_LIT
+    {   // GANADO_LIT: only the RE4DC_GANADO_LIT_NEAREST nearest crowd models are marked for the per-vertex probe light;
+        // the next one keeps the mark while within 10% of the Nth's distance; a model first seen this frame is unmarked
+        static int models[6];
+        auto rank = [&](const float* d, unsigned n) {
+            ++frame_serial;
+            for (unsigned i = 0; i < n; ++i) {
+                CrowdEntry* e = nullptr;
+                for (unsigned k = 0; k < crowd_count; ++k) if (crowd[k].model == &models[i]) e = &crowd[k];
+                if (!e) { e = &crowd[crowd_count++]; *e = CrowdEntry{&models[i], d[i], frame_serial, kTierNear}; }
+                e->distance = d[i]; e->seen = frame_serial;
+            }
+            ++frame_serial; crowd_rank();
+        };
+        const int N = RE4DC_GANADO_LIT_NEAREST;
+        const float d1[6] = {9000, 3000, 4000, 12000, 2500, 6000};  // nearest first: 4, 1, 2, 5, 0, 3
+        rank(d1, 6);
+        const unsigned order[6] = {4, 1, 2, 5, 0, 3};
+        for (unsigned r = 0; r < 6; ++r) assert(crowd_lit(&models[order[r]]) == (N < 0 || int(r) < N));
+        static int stranger;
+        assert(!crowd_lit(&stranger));
+        if (N >= 1) {   // hysteresis: the lit model falls to rank N but stays within 10% of the new Nth: kept
+            const unsigned last = order[N - 1], next = order[N];
+            float d2[6]; for (unsigned i = 0; i < 6; ++i) d2[i] = d1[i];
+            d2[last] = d1[next]; d2[next] = d1[next] * 0.95f;  // the next one moves just ahead of it
+            rank(d2, 6);
+            assert(crowd_lit(&models[next]) && crowd_lit(&models[last]));
+            d2[last] = d2[next] * 1.5f + 1000.0f;            // now clearly farther: dropped
+            rank(d2, 6);
+            assert(crowd_lit(&models[next]) && !crowd_lit(&models[last]));
+        }
+#if RE4DC_GANADO_LIT_TOGGLE
+        SourceLighting gs = base(1); gs.lights[0].position[0] = 5100; gs.lights[0].color[0] = 220;
+        Re4dcModelPart gp = part(gs, &model_b, I);
+        re4dc_ganlit_set(0); ++frame_serial;
+        Lights G0{}; assert(!probe_lights(gp, f, G0));                    // mode 0: Ganados off the probe (test 15)
+        re4dc_ganlit_set(1); assert(ganlit_nearest == 0);                 // probe, every Ganado flat
+        re4dc_ganlit_set(9); assert(ganlit_nearest == -1);                // every near-tier Ganado per vertex
+        re4dc_ganlit_set(3); assert(ganlit_nearest == 2);
+        Lights G1{}; ++frame_serial; assert(probe_lights(gp, f, G1) && G1.probe);
+        re4dc_ganlit_set(N < 0 ? 9U : unsigned(N) + 1U);
+#endif
+#if RE4DC_GANADO_LIT_FILL
+        {   // GANADO_LIT_FILL: a Ganado's second direction is the camera fill, F% of its probe total; Leon unchanged
+#if RE4DC_GANADO_LIT_TOGGLE
+            re4dc_ganlit_fill_set(40);
+            const float F = 0.40f;
+#else
+            const float F = RE4DC_GANADO_LIT_FILL / 100.0f;
+#endif
+            SourceLighting fs = base(1); fs.lights[0].position[0] = 5100; fs.lights[0].position[2] = -900;
+            fs.lights[0].color[0] = fs.lights[0].color[1] = fs.lights[0].color[2] = 220;
+            Re4dcModelPart fp = part(fs, &model_b, I);
+            ++frame_serial;
+            Lights G{}; assert(probe_lights(fp, f, G) && G.count == 2 && near(G.view_dot[1], 1, 0));
+            const float t = std::sqrt(100.0f * 100 + 50.0f * 50 + 900.0f * 900);
+            const float cam[3] = {-100 / t, 50 / t, 900 / t};
+            for (unsigned c = 0; c < 3; ++c) {
+                assert(near(G.dir[1][c], cam[c] * f.nq, 1e-6f));
+                assert(near(G.color[4 + c], 0.5f * F * (220.0f + fs.ambient[c]), 1e-3f));
+            }
+#if RE4DC_GANADO_LIT_TOGGLE
+            re4dc_ganlit_fill_set(0);
+            Lights Z{}; ++frame_serial; assert(probe_lights(fp, f, Z) && Z.count == 1);
+#endif
+            std::printf("PASS GANADO_LIT_FILL: camera fill in direction 1 for the probe-lit Ganados\n");
+        }
+#endif
+        crowd_count = 0;
+        std::printf("PASS GANADO_LIT nearest=%d: per-vertex mark on the N nearest, 10%% hysteresis, new models unmarked\n", N);
+    }
+#endif
     std::printf("PASS ACTOR_PROBE_LIGHT=%d: one-light parity with build_lights, folds, per-frame cache, Leon part basis, declines, palette directions, shared probe record, source immutable\n", RE4DC_ACTOR_PROBE_LIGHT);
 }
 '''
@@ -246,7 +321,11 @@ class ActorProbeLight(unittest.TestCase):
             for n, (level, extra) in enumerate(((1, []), (2, []), (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1']),
                                  (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_TOGGLE=1']),
                                  (1, ['-DRE4DC_LEON_LIGHT_HEADROOM=1', '-DRE4DC_LEON_LIGHT_FILL=45']),
-                                 (2, ['-DRE4DC_LEON_LIGHT_FILL=30']))):
+                                 (2, ['-DRE4DC_LEON_LIGHT_FILL=30']),
+                                 (2, ['-DRE4DC_GANADO_LIT=1', '-DRE4DC_GANADO_LIT_NEAREST=1']),
+                                 (2, ['-DRE4DC_GANADO_LIT=1', '-DRE4DC_GANADO_LIT_NEAREST=2', '-DRE4DC_GANADO_LIT_TOGGLE=1', '-DRE4DC_GANADO_LIT_FILL=-1']),
+                                 (2, ['-DRE4DC_GANADO_LIT=1', '-DRE4DC_GANADO_LIT_NEAREST=-1', '-DRE4DC_GANADO_LIT_FILL=40', '-DRE4DC_LEON_LIGHT_FILL=45']),
+                                 (2, ['-DRE4DC_GANADO_LIT=1', '-DRE4DC_GANADO_LIT_NEAREST=0']))):
                 exe = t / f'probe-{n}'
                 cmd = ['g++', '-std=c++20', '-O2', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
                        '-DRE4DC_LEON_SOURCE_LIGHT=1', f'-DRE4DC_ACTOR_PROBE_LIGHT={level}', *extra, '-I' + str(t),
@@ -285,6 +364,18 @@ class ActorProbeLightKnobs(unittest.TestCase):
                 ({'LEON_LIGHT_FILL': 'x', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'},
                  'LEON_LIGHT_FILL must be an integer 0..100'),
                 ({'LEON_LIGHT_FILL': '45', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, None),
+                ({'GANADO_LIT': '0'}, None),
+                ({'GANADO_LIT': '2'}, 'GANADO_LIT / GANADO_LIT_TOGGLE are 0 or 1'),
+                ({'GANADO_LIT': '1', 'ACTOR_PROBE_LIGHT': '1', 'LEON_SOURCE_LIGHT': '1'}, 'GANADO_LIT=1 needs ACTOR_PROBE_LIGHT=2'),
+                ({'GANADO_LIT': '1', 'GANADO_LIT_NEAREST': '9', 'ACTOR_PROBE_LIGHT': '2', 'LEON_SOURCE_LIGHT': '1',
+                  'PS2_GANADO_LIT': '1', 'CROWD_LOD': '1', 'PS2_GANADO': '1', 'GIGANTE_LIGHTS': '1'}, 'GANADO_LIT_NEAREST must be -1..7'),
+                ({'GANADO_LIT': '1', 'ACTOR_PROBE_LIGHT': '2', 'LEON_SOURCE_LIGHT': '1', 'PS2_GANADO_LIT': '1',
+                  'CROWD_LOD': '1', 'PS2_GANADO': '1', 'GIGANTE_LIGHTS': '1'}, None),
+                ({'GANADO_LIT_FILL': '30'}, 'GANADO_LIT_FILL needs GANADO_LIT=1'),
+                ({'GANADO_LIT': '1', 'GANADO_LIT_FILL': '101', 'ACTOR_PROBE_LIGHT': '2', 'LEON_SOURCE_LIGHT': '1', 'PS2_GANADO_LIT': '1',
+                  'CROWD_LOD': '1', 'PS2_GANADO': '1', 'GIGANTE_LIGHTS': '1'}, 'GANADO_LIT_FILL must be an integer 0..100'),
+                ({'GANADO_LIT_TOGGLE': '1', 'GANADO_LIT': '1', 'ACTOR_PROBE_LIGHT': '2', 'LEON_SOURCE_LIGHT': '1',
+                  'PS2_GANADO_LIT': '1', 'CROWD_LOD': '1', 'PS2_GANADO': '1', 'GIGANTE_LIGHTS': '1'}, 'GANADO_LIT_TOGGLE=1 needs GANADO_LIT=1 DBG_WARP=1'),
             ]
             for knobs, err in cases:
                 args = ['make', '-f', str(mk), '--dry-run', '--no-print-directory', 'all', 'ACTOR_TRANSACTION=1', 'LEON_NATIVE_PIPE=0']
