@@ -105,3 +105,51 @@ world32's own (the cross, and the road at tick 270).
 - Private meshes: `re4-assets-private\worldtest-20261016`: r101 (C3), r101-binsonly, r102, r106, r106-N, r108 and
   r10a, with SHA256SUMS.
 - Pricing: `price-1.json`.
+
+## Test 16 landing: r101 version C (2026-10-16)
+
+The user accepted the plan: no structural world cuts for now; the tool may cut terrain and rock only; structure is
+simplified by hand later. Version C of r101 lands in t15/int for test 16 (test 15 stays frozen at 6b5bc9b0).
+
+**Data (T15_DATA wv32r101 -> wt16r101).** The world32 recipe, plus these at level 0:
+
+- bins 0x2d, 0x10, 0x65, 0xa4, 0x7f, 0x80, 0x95 and 0xd;
+- a vertex box over the stake and pyre (x -7000..1500, y -500..6500, z -7000..-1500 to 7000).
+
+The data is in `re4-assets-private/world-r101-wt16-20261016`, with SHA256SUMS and RECIPE.txt. Its wv5 mesh hash
+starts 32b9d913. The set keeps 0.642 of the corners (world32 kept 0.619).
+
+The cost is MODELLED, not measured: world p90 15.11 ms and worst view 20.41 ms. world32 was 14.06 / 18.90; the
+pre-world32 world was 19.95 / 26.06.
+
+**Gates.** The build was lane/worldtest16 5197fa04, which is t15/int 189ac886 plus the data swap. ELFs: w16mrP, w16mrT
+and w16mmW. Each "o" run used the t15/int data; each "n" run used wt16r101 on the same ELF.
+
+| Gate | Result |
+| --- | --- |
+| Knob-off identity | PASS. The w16mrP program image is identical to the w16brP image (189ac886): fed16888, 3368208 bytes. The 6 overlays and syms are identical too. No game or Makefile source changed. |
+| STRICT + decisions, h2 (r100) | STRICT, MUST-IDENTICAL, 2002 ticks, drift 0 |
+| STRICT + decisions, bell (r101) | STRICT, MUST-IDENTICAL, 2002 ticks, drift 0 |
+| STRICT + decisions, door103 (r101 to r103) | STRICT, MUST-IDENTICAL, 2002 ticks, drift 0 |
+| KOS squeeze, twin fpw16sq2W | 10/10 PASS. Minimum headroom 11416 B; minimum top block 4576 B. |
+| TEXCHK / LEON-GC at the cross (mW) | PASS / PASS for o and n: fails 0, 0 fallback frames |
+| VRAM, r101 | o equals n. At the bell: used 2191832, free 342784, 448 textures, missing 0, rejects 0. No thrash or "no contiguous" lines. The world mesh is in main RAM, and the level-5 block is sized by level 0. |
+| GDEMU race (console Flycast, gdemu profile, door103) | 10/10 seeds reach r103. No MISSING, HALT, FAULT or bad-read lines. WORLDVERT 101 loaded=5. |
+| Still pair at the cross | `C:\Game Dev\Emulators\worldtest-20261016\TEST16-r101-cross.png`. The crossbar is back and the pyre plank is kept. |
+
+**Fence rails.** The rails of the house fence (right of the pyre) are still missing.
+
+- Version C5 added a second vertex box over the fence (bins 0x7e and 0x94: x 17500..24500, y -500..3600,
+  z -7000..-1000).
+- diffverts confirmed that every fence vertex survives the ladder. Even so, the rails still did not draw in game
+  (run m-still-c5d).
+- So the rails are lost after the vertex reduction, in the batching, spatial or strip-group steps. That needs a
+  separate look or a hand fix.
+- C5 was not landed. Its cost is +0.15 ms p90 MODELLED.
+- KNOWN_ISSUES now has two rows: the stake and pyre are fixed in test 16; the fence rails stay open.
+
+**Landing.** lane/worldtest16-land: 5197fa04, then the KNOWN_ISSUES split, merged with origin t15/int 39d815d7.
+
+- The water16b, radiosub16 and foliage changes landed in between. The data swap does not touch them.
+- The T15_DATA line keeps their vq16w and water16i.
+- Evidence: `C:\Flycast-Evidence\re4-dreamcast\wt16land-20261016` (m-*, strict\, kos\, gdemu\, _tools\).
