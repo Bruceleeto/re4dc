@@ -133,5 +133,5 @@ overlays always draw. Near is unchanged (classes 1-3 keep their levels; the gene
 | r11b shore | 7.62 | 7.60 | 7.46 | 7.60 |
 
 Gates (85128754 on t15/int 6b5bc9b0): knob-off identity (T15_T="" rP image 1b56f915 = 6b5bc9b0, 6 overlays); STRICT +
-decisions MUST-IDENTICAL h2 / bell / door103 at Near (stop 2000, padded control, full tick range); TEXCHK 8/8; KOS squeeze
-(see TEST15-SCOPE). Sheet: mist-20261016/OFF-FIX-SHEET.png.
+decisions MUST-IDENTICAL h2 / bell / door103 at Near (stop 2000, padded control, full tick range); TEXCHK 8/8; KOS squeeze 10/10 at 48 KiB
+on the play recipe (fight min 14,712 B, door 17,160, leave 14,776, call 32,520). Sheet: mist-20261016/OFF-FIX-SHEET.png.
