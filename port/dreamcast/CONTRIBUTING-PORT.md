@@ -113,6 +113,18 @@ Either way, measure your change against your own build with the change switched 
 your overlays in place. Everything else on the disc is unchanged. Use a release made from the same or a
 close source revision; a program much newer than the release may need data files the release lacks.
 
+From test 16 on the release disc is a standard GD-ROM image (section 8), and `swap-program.py` keeps it one
+(on an older release disc it appends a longer file after the end of track 3 instead): your
+`1ST_READ.BIN` stays the last file and ends where the release's did; if it is longer, the files it would
+cover move into the free space in front of the first file, and a file that no longer fits its old place
+moves there too. Only the directory records of the changed files are rewritten (IP.BIN with its table of
+contents, the volume descriptors and the path tables stay as they are), every changed sector gets its
+error-correction codes again, and the tool reads the new disc back before it finishes. Then check it:
+
+    python3 port/dreamcast/tools/d367/disc_lint.py mydisc/disc.gdi
+
+It must end with `DISC_LINT PASS ... profile=standard violations=0` (`contrib.sh` runs this for you).
+
 To start a new game by itself (useful for repeatable tests), add the scripted pad file:
 
     ... mydisc --add dc/padscript.txt=port/dreamcast/tools/padscript-newgame.txt
@@ -142,10 +154,24 @@ fogged while the scenery seen through its doors and windows still fades out befo
 distance are not saved: every boot starts in Standard and Full. Foliage (Full, Near or Off, knobs `FOLIAGE_TRIM`
 (the level word and the boot level, hwfog.mk) and `FOLIAGE_OPTION` (the row)): the translucent PS2 world parts whose
 texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table platform/include/foliage_keys.inc, built
-from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and the whole
-translucent world pass is left out at Off; soft decals, shadow strips and ground blends stay translucent. It is not
+from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and every listed
+card key (classes 1-4, soft shadow / mist / grass cards included) is left out at Off; surfaces without cut-out holes
+(walls, floors, water), unlisted keys and the vertex-alpha overlays always draw. It is not
 saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
+Far shell (knob `FAR_SHELL`, needs `VIEW_DIST_OPTION`; game/platform/far_shell.inc): in a room that has a
+`dc/native/rXXX/far-shell.fsh` (r100 and r101 in test 15), Short cuts only the world's opaque pass; the fog,
+the cut-out and see-through world surfaces, characters and objects keep Full's distance, and the room's far shell (a
+simplified copy of the far world, about 3,000 triangles textured with the world's own textures, so no extra graphics
+memory) is drawn beyond the cut, so landmarks stay visible. Build a shell with tools/d367/farshell (README there;
+Windows Python and Blender 5.2) from the room's PS2 world package. Near, and rooms without a file, keep the plain cut. Warp line
+`farshell 0|1|2` (0 = plain cut, 1 = shell, 2 = opaque cut without the shell, for pricing).
+Radio call subtitles (knob `RADIO_SUB_RT`, game/subscreen.mk; src/Sscrn/ss_term.cpp): the GameCube steps a call's
+subtitle sequence once per 30 Hz sub screen frame, while the voice plays from the AICA in real time. With the knob
+each call frame runs the steps owed since the voice began to sound (KOS timer, platform/audio_aica.cpp
+`re4dc_aica_stream_started`), so the pages stay with the voice when a call frame takes longer than 1/30 s. The game
+is stopped under the sub screen, so logic is unchanged. Test builds can add `RADIO_SUB_LOG=1` for one log line per
+subtitle page (time since the voice started).
 
 ## 6. Send a patch
 
@@ -188,27 +214,33 @@ the decompilation build.
 
 ## 8. Disc image and compatibility
 
-Draft for test 15 (2026-10-16, not yet a release rule).
+The release disc format from test 16 on (decided 2026-10-16; test 15 still ships the old layout). Users had reported freezes and crashes on GDEMU
+with this game only ([#27](https://github.com/lamb2k/re4dc/issues/27), "LinkOrder"); the image then was laid out by
+our own script and differed from a pressed GD-ROM in several ways (no table of contents in IP.BIN, a data track
+that ended with its last file, the program first instead of last, a non-standard low-density track). The same game
+mastered in the standard layout below ran fine on the maintainers' GDEMU console on 2026-10-16.
 
 **One image.** Each test release ships one disc image: a standard three-track GD-ROM GDI with raw 2,352-byte
-sectors, laid out the way the community tool [mkdcdisc](https://gitlab.com/simulant/mkdcdisc) writes `-F gdi`:
+sectors, laid out the way the community tool [mkdcdisc](https://gitlab.com/simulant/mkdcdisc) writes `-F gdi`
+(the release packaging runs mkdcdisc v0.0.4 itself, through `tools/d367/mkgdi.sh`):
 
 | Track | Start (LBA) | What it holds |
 | --- | --- | --- |
-| `track01.bin` | 0 | data, low-density area: a small ISO9660 volume (COPYRIGH.TXT, ABSTRACT.TXT, BIBLIOGR.TXT) with the IP.BIN header in its system area (IP0000.BIN) |
+| `track01.bin` | 0 | data, low-density area: 450 sectors, a small ISO9660 volume (COPYRIGH.TXT, ABSTRACT.TXT, BIBLIOGR.TXT) with the IP.BIN header in all 16 system sectors (IP0000.BIN) |
 | `track02.raw` | 600 | audio: 526 sectors of silence (the "warning" track) |
-| `track03.bin` | 45000 | data, high-density area: IP.BIN (header, TOC1, SEGA licence code, bootstrap), then the game's ISO9660 tree; padded to LBA 549150, the end of a real GD-ROM, with `1ST_READ.BIN` as the last file |
+| `track03.bin` | 45000 | data, high-density area: IP.BIN (header, TOC1, SEGA licence code, bootstrap), then the game's ISO9660 tree (Rock Ridge names); padded to LBA 549150, the end of a real GD-ROM; the files sit at the outer end of the disc and `1ST_READ.BIN` is the last file, 150 sectors before the end |
 
 `disc.gdi` is four CRLF lines (`3`, then `number LBA type 2352 file 0` per track). GDEMU, MODE, USB-GDROM,
 DreamShell and Flycast all read this form. Put the four files in their own numbered folder on the SD card; don't
-rename them. If your card manager offers **Shrink GDI**, leave it off (test 14 and later still mount a shrunk image,
-but an unshrunk one is what we test).
+rename them, and don't mix track files of two tests in one folder. `track03.bin` is about 1.2 GB (the padding is
+zeros, so the zip is not much bigger than before). If your card manager offers **Shrink GDI**, leave it off: an
+unshrunk image is what we test.
 
-**How the game reads it (test 15 and later).** The game keeps the drive's fast streaming reads (KallistiOS
-`cdrom_stream_*`, as in test 14) and checks that every read really arrived. The first time a stream or sector read
+**How the game reads it (test 16 and later).** The game keeps the drive's fast streaming reads (KallistiOS
+`cdrom_stream_*`, as in tests 14 and 15) and checks that every read really arrived. The first time a stream or sector read
 fails, times out or comes back without its data, the game switches to plain sector reads (one bounded "read N sectors"
 command per request, the way most discs are read) for the rest of the session and never starts a stream again; the
-read that failed is redone the plain way. Make knobs, all in the test 15 recipe's disc set
+read that failed is redone the plain way. Make knobs, all in the release recipe's disc set
 (`tools/d367/test15/t15-build.sh`, `T14_DISC`):
 
 | Knob | What it does |
@@ -221,21 +253,35 @@ Test only: `DISC_FAIL_TEST=2 DISC_FAIL_AFTER_S=20` makes stream reads fail after
 Plain reads from the start can also use `STORAGE_BOUNCE_ALIGNED=1` and `TEX_PACK_WINDOW=128` (with `tex.pak` reordered
 by `tools/d367/texpak_order.py`, data set `texord16`); they are not in the recipe.
 
-**How it is checked.** Every image goes through three checks before it is published:
+**How it is checked.** Every release image goes through these checks before it is published (the release packaging
+script, `tools/d367/test16/t16-package.sh`, refuses to package an image that fails the first one):
 
-1. `python3 port/dreamcast/tools/d367/disc_lint.py <gdemu>/disc.gdi` (the `standard` profile): track count, types
-   and LBAs; whole sectors; sync, MSF header, EDC and ECC of a sector sample; every IP.BIN field (hardware and maker
-   ID, GD-ROM device info, area symbols and the matching region text, peripherals, version, date, boot file, the
-   unmodified SEGA licence code, the TOC1 table); the ISO9660 volume (absolute extents, path table, names KOS can
-   look up, no overlapping files, the boot file present and last); padding to LBA 549150; the low-density headers.
-   It exits non-zero on any violation. `--profile loader` keeps only the rules a loader needs; `--compare a.gdi b.gdi`
-   prints two images side by side.
-2. The GDEMU disc-timing gate in the console-like Flycast (`tools/d367/fullplay/gdemu_gate.sh`, see
-   `docs/tools/flycast-console.md`) under both disc profiles, 10 seeds each, r101 plus the r103 door load:
-   `RE4DC_GD_PROFILE=gdemu` (a GDEMU that answers before its data has landed) and `RE4DC_GD_PROFILE=weak` (a weak or
-   clone unit: about 600 KiB/s, like `read_limit = 600` in GDEMU.ini, and several milliseconds per command).
-   Pass = no stop and no bad read in any run.
-3. A plain Flycast boot of the image itself to the title and New Game.
+1. `python3 port/dreamcast/tools/d367/disc_lint.py <gdemu>/disc.gdi`, both profiles, 0 violations: `standard`
+   (the default) checks the track count, types and LBAs; whole sectors; sync, MSF header, EDC and ECC of a sector
+   sample; every IP.BIN field (hardware and maker ID, GD-ROM device info, area symbols and the matching region text,
+   peripherals, version, date, boot file, the unmodified SEGA licence code, the TOC1 table); the ISO9660 volume
+   (absolute extents, path table, names KOS can look up, no overlapping files, the boot file present and last);
+   padding to LBA 549150; the low-density headers. `--profile loader` keeps only the rules a loader needs.
+   `--compare a.gdi b.gdi` prints two images side by side. It exits non-zero on any violation.
+2. The program and the game files on the disc are the release build's, byte for byte (`tools/d367/fullplay/fp_iso.py
+   manifest` of track 3; the packaging compares `1ST_READ.BIN` with the build's program image).
+3. The GDEMU disc-timing gate in the console-like Flycast (`tools/d367/fullplay/gdemu_gate.sh`, see
+   `docs/tools/flycast-console.md`) on the release disc with the warp twin swapped in, under both disc profiles,
+   10 seeds each, r101 plus the r103 door load: `RE4DC_GD_PROFILE=gdemu` (a GDEMU that answers before its data has
+   landed) and `RE4DC_GD_PROFILE=weak` (a weak or clone unit: about 600 KiB/s, like `read_limit = 600` in
+   GDEMU.ini, and several milliseconds per command). Pass = no stop and no bad read in any run.
+4. The contributor kit (`tools/d367/kit-check.sh`): a clean checkout builds the release program byte for byte,
+   `swap-program.py` puts it and the warp twin on the release disc, both swapped discs pass `disc_lint.py` (both
+   profiles) and boot in Flycast (`tools/d367/kit-boot.sh`).
+
+Two images of the same files can differ in the Rock Ridge inode numbers of their directory records (mkdcdisc numbers
+them in the order the build machine created the files); the file placement does not (`mkgdi.sh` gives mkdcdisc a sort
+file in path order). Compare images by their files, not by track hashes. Internal benchmark and harness discs may
+still use the old layout with `LAYOUT=legacy mkgdi.sh ...`; a test release never does. `swap-program.py` still
+accepts an old-layout disc from an earlier release (it appends a longer file after the end of track 3, as before).
+
+To build mkdcdisc for the packaging: `tools/d367/setup-mkdcdisc.sh` (the pinned commit; needs `meson`,
+`ninja-build`, `pkg-config`, `libisofs-dev`). Contributors don't need it.
 
 **Compatibility reports.** Please add a row when you play a test build on a loader we have not listed:
 
@@ -257,10 +303,13 @@ On every test release, in the same landing as the release recipe, before the rel
    --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name>`.
 2. Point `RELEASE_KNOBS` in `build-public.sh` at it (one line), and update the release names in this page.
 3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip>`), not by hand.
-4. Run `tools/d367/kit-check.sh <knob file> <out-<label>> <package dir>` (knob file = recipe, zip = recipe,
-   these docs name no older release, a clean checkout of the release commit rebuilds the release program
-   byte for byte, builds without assets, swaps onto the release disc), then `tools/d367/kit-boot.sh <WORK>`
-   (the swapped discs boot to New Game and r101 in Flycast). A release does not publish until both pass.
+   The package script (`tools/d367/<test>/t<N>-package.sh`) masters the standard GD-ROM image (section 8) and
+   runs `disc_lint.py` on it, loader and standard profiles.
+4. Run `RACE_FIXTURE=<door103 fixture> tools/d367/kit-check.sh <knob file> <out-<label>> <package dir>` (knob
+   file = recipe, zip = recipe, these docs name no older release, a clean checkout of the release commit rebuilds
+   the release program byte for byte, builds without assets, swaps onto the release disc, every swapped disc passes
+   `disc_lint.py`), then `tools/d367/kit-boot.sh <WORK>` (the swapped discs boot to New Game and r101 in Flycast)
+   and the GDEMU race gate on `<WORK>/disc-race` (section 8, check 3). A release does not publish until all pass.
 
 ## Questions
 

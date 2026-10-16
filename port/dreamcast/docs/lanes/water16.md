@@ -86,6 +86,24 @@ with the water on (mask 0x3f) is STRICT (u-w16prT vs u-w16irT, 602 ticks), as ar
 Console test pair (DBG_WARP twins, boot straight into r10a at the sheet view, god mode; Flycast 27.5 fps on vs 28.9
 off, not console): `console\r10a-water-on\disc.gdi` and `console\r10a-water-off\disc.gdi`.
 
+## Lane water16b: r10b / r11b on (10-16)
+
+User 10-16: VQ room textures by default when it frees needed capacity (PSNR >= ~29 dB; UI / text / alpha-critical stay
+16-bit), and r10a water "looks good and adds almost no framerate impact" on the console. Branch `lane/water16b` on
+t15/int 6b5bc9b0: WATER_PS2_ROOMS default 0x3f (all six rooms); data vq16w (replaces vq16cs) + water16i (replaces water16h).
+- VQ plan: room_census.py over 7 lake runs (resident16's r10bb / r10bm / r10bw / k10b / glake warps + g10b / g11b) with
+  the water on, vq_plan.py target 1,950,000 B, ARGB4444 pictures excluded (alpha), unknown-owner fe58ea1c left 16-bit:
+  7 RGB565 keys (vram/vq16-lake.txt), PSNR 29.5-52.8 dB, 1,081,344 -> 149,504 B.
+- r11b had no resident list: vram/resident/r11b.tsv (20 first-sight keys of g11b) is new.
+- Gates (Flycast, evidence water-20261016 c2-*, x-* / x2-*, kos3):
+  - knob-off identity: T15_W="" rP image 6eb7c652 == t15/int 6b5bc9b0, 6 overlays;
+  - STRICT + decisions MUST-IDENTICAL, on (x16TrT) vs off (x16UrT, _end equal 8c430298), new data in both: r10b 601
+    ticks, r11b 602, h2 244, bell 877, door103 1188;
+  - VRAM: r10b preload 1,842,624 B (full=0; was 2,182,592 full=1), r11b 1,760,800; 0 refusals, 0 loads after the
+    preload in every lake run (r11b had 19);
+  - TEXCHK 0 fails (r10b, r11b, glake); KOS squeeze 10/10 PASS, min headroom fight 11,352 B;
+  - still pair (record only): `C:\Game Dev\Emulators\water-20261016\WATER-LAKE-PAIR.png`.
+
 ## Rebuild
 
     python3 port/dreamcast/tools/d367/water/water_ps2_table.py --out src/game/water_ps2_table.inc --md /tmp/rows.md

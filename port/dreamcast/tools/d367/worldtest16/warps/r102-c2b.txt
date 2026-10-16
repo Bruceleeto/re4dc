@@ -1,0 +1,8 @@
+name wt-r102-c2b
+viewdist 0
+room 0x102
+pos -12210 -8720 38420
+ang 2.749
+inv default
+god
+freeze 400
