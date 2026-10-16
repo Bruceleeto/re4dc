@@ -123,7 +123,7 @@ echo "== disc"
 rm -rf "$OUT/disc"
 python3 "$PORT/tools/swap-program.py" "$DL/$GDEMU" "$OUT/build" "$OUT/disc"
 # the disc check every release disc passes (CONTRIBUTING-PORT.md section 8): the loader rules must hold; the standard
-# GD-ROM layout rules hold on every release from test 15 on (an older release disc is in the legacy layout)
+# GD-ROM layout rules hold on every release from test 16 on (an older release disc is in the legacy layout)
 python3 "$PORT/tools/d367/disc_lint.py" --profile loader "$OUT/disc/disc.gdi" > "$OUT/disc_lint.txt" ||
   { grep -vE '^(ok|WARN) ' "$OUT/disc_lint.txt"; die "the new disc fails disc_lint (loader profile): $OUT/disc_lint.txt"; }
 python3 "$PORT/tools/d367/disc_lint.py" --profile standard "$OUT/disc/disc.gdi" | tail -1 || true

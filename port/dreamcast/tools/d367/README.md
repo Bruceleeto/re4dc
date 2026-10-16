@@ -651,7 +651,7 @@ bash port/dreamcast/tools/d367/assets.sh discover r100 --repo <tree> --obj <OBJD
 `GDI=1 GDI_OUT=/mnt/d/... stage.sh ...` also writes a GDI from the same tree through
 `mkgdi.sh`, which also runs on its own with the `mkdisc-hardlink.sh` arguments:
 
-Default `LAYOUT=standard` (2026-10-16, the release disc from test 15 on; CONTRIBUTING-PORT.md section 8): the
+Default `LAYOUT=standard` (2026-10-16, the release disc from test 16 on; CONTRIBUTING-PORT.md section 8): the
 standard GD-ROM layout written by mkdcdisc v0.0.4 (`setup-mkdcdisc.sh` builds the pinned commit; `MKDCDISC=` points
 at another binary), checked with `disc_lint.py` (standard profile) before `mkgdi.sh` returns:
 

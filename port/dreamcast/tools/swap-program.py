@@ -16,7 +16,7 @@ What it writes, the way the release packaging (tools/d367/mkgdi.sh) does:
     against this ELF's addresses, so a program without its own overlays would crash in those rooms.
 
 The disc layout is read from the image:
-  standard  the release image from test 15 on: the standard GD-ROM layout that mkdcdisc writes
+  standard  the release image from test 16 on: the standard GD-ROM layout that mkdcdisc writes
             (CONTRIBUTING-PORT.md section 8). Track 3 runs to LBA 549150, the end of a real GD-ROM; the
             files sit at the outer end of the disc and 1ST_READ.BIN is the last file, 150 sectors before
             the end. The track keeps its length, so IP.BIN (with its TOC1), the volume descriptors and the

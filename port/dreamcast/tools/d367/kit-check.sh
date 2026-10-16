@@ -21,7 +21,7 @@
 #     release disc, on ext4 under WORK; with RACE_FIXTURE=<door103 warp fixture> also the warp twin + that fixture
 #     (disc-race, for the GDEMU race gate fullplay/gdemu_gate.sh: copy it to C: once, pass - as the fixture);
 #   7 every swapped disc passes disc_lint.py, loader and standard profiles (KIT_LINT_STANDARD= skips the standard
-#     profile, for a release made before test 15 in the legacy layout).
+#     profile, for a release made before test 16 in the legacy layout).
 # Then run, in Git Bash:  bash port/dreamcast/tools/d367/kit-boot.sh <WORK>   (Flycast: title, New Game, r101).
 # Env: WORK (default /root/probe/kit-check-<test>), JOBS, RE4DC_KOS_BASE (default the maintainers' KOS), RACE_FIXTURE,
 #      KIT_LINT_STANDARD.

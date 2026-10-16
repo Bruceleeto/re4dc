@@ -3,7 +3,7 @@
 #   [LAYOUT=standard|legacy] [SECTOR=2352|2048] [PAD_1ST=0|1] [PERIPHERALS=0799810] [PRODUCT=T0000] [TITLE=..] \
 #     [INPUT_CHARSET=..] [MKDCDISC=<binary>] mkgdi.sh <elf> <datadir> <outdir> [fixturesdir]
 #
-# LAYOUT=standard (default; the release disc format from test 15 on, CONTRIBUTING-PORT.md section 8): the standard
+# LAYOUT=standard (default; the release disc format from test 16 on, CONTRIBUTING-PORT.md section 8): the standard
 # GD-ROM layout, written by the community tool mkdcdisc (-F gdi), pinned at v0.0.4 / 2b98b0d9 (setup-mkdcdisc.sh):
 #   track01  LBA 0       MODE1 data, low-density area: 450 sectors, ISO9660 with COPYRIGH.TXT / ABSTRACT.TXT /
 #                        BIBLIOGR.TXT and the IP.BIN header in all 16 system sectors (IP0000.BIN)
@@ -17,7 +17,7 @@
 # (standard profile) before this script returns. Contributors swap their program into it with tools/swap-program.py.
 # About 213 MB more on the SD card than the legacy layout (the padding is zeros; zips shrink it away).
 #
-# LAYOUT=legacy (explicit opt-in, internal benchmark / harness discs only; test releases up to test 14): the old
+# LAYOUT=legacy (explicit opt-in, internal benchmark / harness discs only; test releases up to test 15): the old
 # genisoimage layout (no TOC1, track01 606 sectors with a README.TXT, track02 at LBA 756, track03 ending with its last
 # file, 1ST_READ.BIN first, Joliet + Rock Ridge). It never goes on a test release.
 #

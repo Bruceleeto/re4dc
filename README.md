@@ -30,7 +30,7 @@ The release page also has the test build checksums (`SHA256SUMS.txt`) and the te
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
-Disc format: from test 15 the disc is a standard GD-ROM image (the layout of pressed GD-ROMs, as the mkdcdisc tool
+Disc format: from test 16 the disc is a standard GD-ROM image (the layout of pressed GD-ROMs, as the mkdcdisc tool
 writes it; `track03.bin` is about 1.2 GB), which fixes the GDEMU-only freezes of earlier tests; leave "Shrink GDI" off.
 See [section 8 of CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md#8-disc-image-and-compatibility).
 No BIOS or personal VMU saves are included; keep your existing saves separately.

@@ -113,7 +113,8 @@ Either way, measure your change against your own build with the change switched 
 your overlays in place. Everything else on the disc is unchanged. Use a release made from the same or a
 close source revision; a program much newer than the release may need data files the release lacks.
 
-The release disc is a standard GD-ROM image (section 8), and `swap-program.py` keeps it one: your
+From test 16 on the release disc is a standard GD-ROM image (section 8), and `swap-program.py` keeps it one
+(on an older release disc it appends a longer file after the end of track 3 instead): your
 `1ST_READ.BIN` stays the last file and ends where the release's did; if it is longer, the files it would
 cover move into the free space in front of the first file, and a file that no longer fits its old place
 moves there too. Only the directory records of the changed files are rewritten (IP.BIN with its table of
@@ -206,7 +207,7 @@ the decompilation build.
 
 ## 8. Disc image and compatibility
 
-The release disc format from test 15 on (decided 2026-10-16). Users had reported freezes and crashes on GDEMU
+The release disc format from test 16 on (decided 2026-10-16; test 15 still ships the old layout). Users had reported freezes and crashes on GDEMU
 with this game only ([#27](https://github.com/lamb2k/re4dc/issues/27), "LinkOrder"); the image then was laid out by
 our own script and differed from a pressed GD-ROM in several ways (no table of contents in IP.BIN, a data track
 that ended with its last file, the program first instead of last, a non-standard low-density track). The same game
@@ -229,7 +230,7 @@ zeros, so the zip is not much bigger than before). If your card manager offers *
 unshrunk image is what we test.
 
 **How it is checked.** Every release image goes through these checks before it is published (the release packaging
-script, `tools/d367/test15/t15-package.sh`, refuses to package an image that fails the first one):
+script, `tools/d367/test16/t16-package.sh`, refuses to package an image that fails the first one):
 
 1. `python3 port/dreamcast/tools/d367/disc_lint.py <gdemu>/disc.gdi`, both profiles, 0 violations: `standard`
    (the default) checks the track count, types and LBAs; whole sectors; sync, MSF header, EDC and ECC of a sector
