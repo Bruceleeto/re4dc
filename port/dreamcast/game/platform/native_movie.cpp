@@ -169,6 +169,13 @@ bool cabin_movie_identity();
 static_assert(sizeof(plm_buffer_t)==52 && sizeof(plm_video_t)==716,"review movie arena decoder ABI");
 unsigned movie_world_token=0,movie_scope=0,movie_epoch=1,movie_readers=0;
 bool movie_full_call=false,movie_retiring=false,movie_finishing=false;
+bool movie_world_id(unsigned id){
+    return id==0x11f10 || id==0x11f11
+#if RE4DC_MOVIE_WORLD_ARENA_S30
+        || id==0x10030
+#endif
+        ;
+}
 struct MovieFinishScope {
     bool active;
     MovieFinishScope():active(movie_world_token!=0){if(active)movie_finishing=true;}
@@ -346,7 +353,22 @@ void* audio(snd_stream_hnd_t,int requested,int* received){
     if(take)m.last_real_sample=m.samples+take/4;
     m.samples+=bytes/4;*received=requested;return m.callback;
 }
+#if defined(RE4DC_MOVIE_POLL_SETTLE) && RE4DC_MOVIE_POLL_SETTLE
+// MOVIE_POLL_SETTLE (Makefile): right after snd_stream_start the AICA may not have restarted the stream's channel,
+// so snd_stream_poll reads the previous voice's play offset (beyond the stream buffer) and returns -1. That is not
+// a stream failure: for 200 ms after start it is a no-refill pass (the ring was primed before the start).
+int poll_audio(){
+    const int r=snd_stream_poll(m.stream);
+    if(r==-1 && m.started && timer_us_gettime64()-m.start<200000ULL){
+        static unsigned long long logged_start;
+        if(logged_start!=m.start){logged_start=m.start;re4dc_log("route movie audio settle: id=%05x stale channel position after start\n",m.id);}
+        return 0;
+    }
+    return r;
+}
+#else
 int poll_audio(){return snd_stream_poll(m.stream);}
+#endif
 // Sequential transport through the shared ReaderGuard: 32 KiB aligned chunks,
 // the header is sector padded so every full chunk stays aligned.
 bool transport(void* destination,unsigned bytes){
@@ -536,9 +558,9 @@ bool open(unsigned id){
     const unsigned long long video_us=(unsigned long long)m.expected_frames*1001000ULL/30,audio_us=(unsigned long long)m.audio_bytes*1000000ULL/128000;
     m.duration_us=video_us>audio_us?video_us:audio_us;
 #if RE4DC_MOVIE_WORLD_ARENA
-    if(movie_full_call && movie_scope==id && (id==0x11f10 || id==0x11f11)){
+    if(movie_full_call && movie_scope==id && movie_world_id(id)){
         if(movie_world_token || m.width!=288 || m.height!=192 || !m.full || !RE4DC_ROUTE_MOVIE_YUV ||
-           !re4dc_movie_stream_idle() || m.expected_frames!=(id==0x11f10?265u:321u))return false;
+           !re4dc_movie_stream_idle() || m.expected_frames!=(id==0x11f10?265u:id==0x11f11?321u:340u))return false;
         movie_world_token=re4dc_ps2_mesh_movie_borrow(id);
         if(!movie_world_token)return false; // eligible arena attempt has NO heap fallback
     }
@@ -1219,7 +1241,7 @@ extern "C" int re4dc_movie_cancel(){
     return m.entered?finish(RE4DC_MOVIE_CANCEL):RE4DC_MOVIE_CANCEL;
 }
 #if RE4DC_MOVIE_WORLD_ARENA
-extern "C" void re4dc_movie_world_scope(unsigned id){movie_scope=(id==0x11f10 || id==0x11f11)?id:0;}
+extern "C" void re4dc_movie_world_scope(unsigned id){movie_scope=movie_world_id(id)?id:0;}
 extern "C" int re4dc_movie_world_active(){return movie_world_token!=0;}
 extern "C" void* re4dc_movie_world_sep_alloc(unsigned bytes){
     return movie_world_token?re4dc_ps2_mesh_movie_alloc(movie_world_token,bytes):nullptr;

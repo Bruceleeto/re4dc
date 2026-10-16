@@ -57,6 +57,9 @@ extern "C" void re4dc_coarse_end(unsigned vertices);
 extern "C" void re4dc_log(const char* fmt, ...);
 extern "C" void* re4dc_ui_movie_texture() __attribute__((weak));   // ROUTE_MOVIES builds
 extern "C" void re4dc_fog_note_far(float far) __attribute__((weak));   // NATIVE_FOG builds
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane (render only)
+#endif
 extern "C" int ESP_IsActive(cEsp* esp);                             // esp.cpp (C linkage)
 #if RE4DC_COARSE_WORLD
 // COARSE_WORLD (game30.mk, lane wd test): the world beyond the flat collision (coarse_world.cpp; data in
@@ -855,6 +858,12 @@ extern "C" int re4dc_coarse_tick(int dropped)
     return ctx;
 }
 
+#define RE4DC_OTHER_UNIT "coarse"
+#include "other_profile.h"
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+namespace { struct OtherPhaseOther { ~OtherPhaseOther() { OTHER_PHASE(4); } }; }
+#endif
+
 // Render() of a coarse image: the whole opaque view, before the effect / HUD OTs.
 extern "C" void re4dc_coarse_draw(void)
 {
@@ -865,12 +874,21 @@ extern "C" void re4dc_coarse_draw(void)
     if (!pG || !SatMgr.pArray) {
         return;
     }
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+    OtherPhaseOther otherPhaseOther;
+#endif
+    OTHER_PHASE(3);
     const std::uint64_t t0 = timer_us_gettime64();
 #if RE4DC_PS2_WORLD_DRAW
     // Texture/file work must precede coarse_begin acquiring the TA store queues.
     setup_camera();
     if(re4dc_fog_note_far)re4dc_fog_note_far(View._zfar);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    // Options View distance (render only): the benchmark disc's world-distance sweep far plane (bench.cpp)
+    g_ps2_world=re4dc_ps2_world_draw(G_ROOM_ID,g_S,re4dc_view_far(View._zfar))!=0;
+#else
     g_ps2_world=re4dc_ps2_world_draw(G_ROOM_ID,g_S,View._zfar)!=0;
+#endif
 #endif
     Out o{re4dc_coarse_begin(1), 0, 0};
     if (!o.sq) {
@@ -958,7 +976,9 @@ extern "C" void re4dc_coarse_draw(void)
         o.sq = re4dc_coarse_begin(1);
     }
 #endif
+    OTHER_PHASE(2);
     draw_actors(o);
+    OTHER_PHASE(4);
     draw_effects(o);
     if (o.sq) {
         re4dc_coarse_end(o.n);

@@ -37,6 +37,9 @@ extern "C" void* re4dc_static_alloc(unsigned);
 extern "C" void re4dc_static_free(void*);
 extern "C" int re4dc_static_heap_free();
 extern "C" unsigned re4dc_ui_frame();
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane (render only)
+#endif
 extern "C" void re4dc_log(const char*,...);
 #if defined(RE4DC_CALLPROF) && RE4DC_CALLPROF
 extern "C" void re4dc_callprof_log(unsigned frame,unsigned frames); // platform/callprof.cpp
@@ -712,7 +715,11 @@ extern "C" int re4dc_ps2_world_source_draw(){
 #endif
     using namespace re4dc::room::ps2;
     RE4DC_PS2_WORLD_FOG_LATCH();
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=re4dc_view_far(RE4DC_PS2_FAR);   // Options View distance
+#else
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=RE4DC_PS2_FAR;
+#endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     re4dc_ps2_source_pass_begin(0);
     const int drawn=re4dc_ps2_mesh_draw(0,state.far);

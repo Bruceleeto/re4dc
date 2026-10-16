@@ -256,7 +256,9 @@ def main():
     spec = importlib.util.spec_from_file_location('build_blob', FASTPATH); bb = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bb)
     flags, bounds = c['stream'][2], c['stream'][16:32]
-    oblob, ost = build_run(bb, O_tris, c['positions'], c['normals'], c['uv'], flags, bounds)
+    # a section whose every PS2 triangle lies on a masked GC material (the zealot accessories 0x20F / 0x217) has no
+    # opaque run: mask_only (NATIVE_MODEL_REGISTRY_POOL packages; the pinned Luis hair is ps2_luis_mask.py's)
+    oblob, ost = build_run(bb, O_tris, c['positions'], c['normals'], c['uv'], flags, bounds) if O_tris else (b'', {})
     hblob, hst = build_run(bb, H_new, c['positions'], c['normals'], uvb, flags, bounds)
     (out / 'opaque.blob').write_bytes(oblob); (out / 'hair.blob').write_bytes(hblob); (out / 'hair.uv').write_bytes(uvb)
     # coincidence: triangles over the same three positions (rounded to 1/16 mm) across and within the runs
@@ -269,6 +271,7 @@ def main():
     co = [gr for gr in groups.values() if len(gr) > 1]
     cross = [gr for gr in co if len({x[0] for x in gr}) > 1]
     rep = dict(tool='tools/ps2_mask_runs.py', cast=str(cast), header_sha256=sha(hdr.read_bytes()), section=sec,
+               **({'mask_only': True} if not O_tris else {}),
                source='atlas-rgba ' + sha(Path(a.atlas_rgba).read_bytes()) if atlas is not None else 'gc-bake',
                gc=dict(drs_sha256=sha(db), bin=a.bin, tpl=a.tpl, colour_image=ci, mask_image=mi,
                        masked_triangles=int(masked.sum()), triangles=len(S['v'])),

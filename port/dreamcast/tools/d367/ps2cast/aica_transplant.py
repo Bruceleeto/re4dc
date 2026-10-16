@@ -29,7 +29,12 @@ for (t, mo, ms, ao, asz), (t2, mo2, ms2, ao2, asz2) in zip(sorted(rb), sorted(pb
         sys.exit('MRAM part differs for bank %d' % t)
     import struct
     if struct.unpack_from('<I', rel, ao)[0] != ab.MAGIC:
-        sys.exit('release bank %d is not AICA-converted' % t)
+        # the release left this bank in GC format (em2a: the base disc's archive): keep the prepared copy, which must
+        # then be the release's own bytes
+        if rel[ao:ao + asz] != prep[ao2:ao2 + asz2]:
+            sys.exit('release bank %d is not AICA-converted and differs from the prepared copy' % t)
+        print('bank %d: GC format on the release too (kept)' % t)
+        continue
     if mir_p != '-':
         mir = open(mir_p, 'rb').read()
         mbs = ab.sound_blocks(mir, 0) or []

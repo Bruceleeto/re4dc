@@ -17,6 +17,8 @@
 #              by reason and the largest accepted rest-inverse deviation, and the scene census of every model whose
 #              first OT pass reaches the transaction (native, crowd-skip, declined, registry-declined, absent).
 #              With 0 none of the census storage, counters or the per-actor scene walk is compiled.
+# NATIVE_MODEL_REGISTRY_CENSUS_PERIOD (diagnostic, default 600): the census report period in UI frames (a one-minute
+#              room check reaches a report before its deadline with e.g. 150). Only with the census; 600 adds no define.
 # NATIVE_MODEL_REGISTRY_DIR: a private bundle from tools/d367/model_registry.py (native_model_registry.h, the three
 #              source-row includes, tex/). Stage its tex/*.re4tex on the disc (dc/tex/<crc>-<fnv>.re4tex).
 # NATIVE_MODEL_REGISTRY_PACK (default 0: the compiled provider above, kept as a diagnostic):
@@ -70,6 +72,7 @@ endif
 endif
 NATIVE_MODEL_REGISTRY ?= 0
 NATIVE_MODEL_REGISTRY_CENSUS ?= 0
+NATIVE_MODEL_REGISTRY_CENSUS_PERIOD ?= 600
 NATIVE_MODEL_REGISTRY_PACK ?= 0
 NATIVE_MODEL_REGISTRY_TX ?= 0
 ifeq ($(filter $(NATIVE_MODEL_REGISTRY_TX),0 1 2),)
@@ -95,6 +98,15 @@ ifeq ($(NATIVE_MODEL_REGISTRY),0)
 ifneq ($(NATIVE_MODEL_REGISTRY_CENSUS),0)
 $(error NATIVE_MODEL_REGISTRY_CENSUS needs NATIVE_MODEL_REGISTRY=1 or 2)
 endif
+endif
+ifneq ($(NATIVE_MODEL_REGISTRY_CENSUS_PERIOD),600)
+ifneq ($(NATIVE_MODEL_REGISTRY_CENSUS),1)
+$(error NATIVE_MODEL_REGISTRY_CENSUS_PERIOD needs NATIVE_MODEL_REGISTRY_CENSUS=1)
+endif
+ifeq ($(shell echo '$(NATIVE_MODEL_REGISTRY_CENSUS_PERIOD)' | grep -E '^[1-9][0-9]{1,4}$$'),)
+$(error NATIVE_MODEL_REGISTRY_CENSUS_PERIOD must be 10..99999 UI frames)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_CENSUS_PERIOD=$(NATIVE_MODEL_REGISTRY_CENSUS_PERIOD)
 endif
 ifneq ($(NATIVE_MODEL_REGISTRY),0)
 ifeq ($(filter $(NATIVE_MODEL_REGISTRY),1 2),)
@@ -308,10 +320,12 @@ ifneq ($(PS2_CAST_MERCHANT),1)
 $(error PS2_CAST_MERCHANT_LIT=1 needs PS2_CAST_MERCHANT=1)
 endif
 endif
-ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW)$(PS2_CAST_MERCHANT_LIT),000000)
+ifneq ($(PS2_GIGANTE)$(PS2_DELLAGO)$(PS2_GANADO_F)$(PS2_WOLF)$(PS2_CROW)$(PS2_CAST_MERCHANT_LIT)$(filter 1,$(NATIVE_MODEL_REGISTRY_POOL)),000000)
+# bit 6 (NATIVE_MODEL_REGISTRY_POOL): every pool plan (the zealots, soldiers) takes the source lighting record (unlit, the
+# zealot face under the hood drew pale where the source and the PS2 shade it).
 # bit 2 (PS2_GANADO_F): the female Ganado's registry plan (em17 / em16) is lit like her source path today; bit 3
 # (PS2_CROW): em23 likewise; bit 4 (PS2_WOLF): em22 likewise.
-$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) + $(if $(filter 1,$(PS2_CAST_MERCHANT_LIT)),32,0) )))
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_SOURCE_LIGHT=$(shell echo $$(( $(if $(filter 1,$(PS2_GIGANTE)),1,0) + $(if $(filter 1,$(PS2_DELLAGO)),2,0) + $(if $(filter 1,$(PS2_GANADO_F)),4,0) + $(if $(filter 1,$(PS2_CROW)),8,0) + $(if $(filter 1,$(PS2_WOLF)),16,0) + $(if $(filter 1,$(PS2_CAST_MERCHANT_LIT)),32,0) + $(if $(filter 1,$(NATIVE_MODEL_REGISTRY_POOL)),64,0) )))
 endif
 NATIVE_MODEL_REGISTRY_BONES ?= 48
 NATIVE_MODEL_REGISTRY_SHIFT ?= 0
@@ -377,6 +391,71 @@ ifneq ($(NATIVE_MODEL_REGISTRY_PACK)$(PS2_DELLAGO),11)
 $(error PS2_CAST_BOAT=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
 endif
 $(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_BOAT=1
+endif
+# PS2_CAST_CH1=1 (lane ps2cast 2026-10-15; default 0; render only): the chapter 1 small cast through the registry owner path with
+#              PS2 meshes: traps (em2a), snakes (em24), fish (em27), bats (em29), crawlers (em2e) in r100 r105 r106 r107 r108
+#              r10a r10b r11a r11b. Their GC materials and the PS2 sections match (same mesh and texels); the snake's and the
+#              fish's material needs bump, which reaches only GX stubs on the DC source path, so the certificate accepts its
+#              absence for registry models 0x24 / 0x27 (RE4DC_NMR_CH1CAST, the twin of model_registry.py source_drops "bump",
+#              Del Lago's rule). The bats are ot_type 1 (OT 0x11, the same ModelRender callback): the registry model check
+#              admits that for model 0x29 (RE4DC_REGISTRY_OT_OK). Traps and crawlers need no code: their room package and texture-prepared archive
+#              (prepare_enemy_motions.py SMALL, textures only) are disc data. Without the knob a snake / fish descriptor is
+#              declined by the certificate (GC model, as before). Needs PS2_DELLAGO=1 (the bump drop rule block).
+PS2_CAST_CH1 ?= 0
+ifeq ($(filter $(PS2_CAST_CH1),0 1),)
+$(error PS2_CAST_CH1 must be 0 or 1)
+endif
+ifeq ($(PS2_CAST_CH1),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK)$(PS2_DELLAGO),11)
+$(error PS2_CAST_CH1=1 needs NATIVE_MODEL_REGISTRY_PACK=1 and PS2_DELLAGO=1)
+endif
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_CH1CAST=1
+endif
+# ACTOR_PALETTE_BANK=<KiB> (lane ps2cast 2026-10-15; default 64 = the image before; render only): the native actor palette
+#              bank funded once per frame from the primitive buffer's tail (coarse_actor_transaction.inc kActorPaletteCap).
+#              Palette leases are released after each actor's synchronous submit, so the bank holds one or two actors at a
+#              time: measured peak use (ACTOR_TRANSACTION_DIAG "APAL", Flycast) 18,976 B on benchmark-r101 (6 Ganados +
+#              Leon), 16,288 B in r107. The unused rest of the 64 KiB bank is tail the per-actor records cannot use: with
+#              the chapter 1 traps (PS2_CAST_CH1) r107's tail reached its limit and Ganados / traps declined to the GC model
+#              in 60 of 900 frames (PRIM_WATER). 40 frees 24 KiB of primitive tail per frame in every room.
+ACTOR_PALETTE_BANK ?= 64
+ifeq ($(filter $(ACTOR_PALETTE_BANK),16 24 32 40 48 56 64),)
+$(error ACTOR_PALETTE_BANK must be one of 16 24 32 40 48 56 64 (KiB))
+endif
+ifneq ($(ACTOR_PALETTE_BANK),64)
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_ACTOR_PALETTE_BANK=$(ACTOR_PALETTE_BANK)
+endif
+# NATIVE_MODEL_REGISTRY_POOL=1 (lane ps2cast 2026-10-15; default 0; render only): pool descriptors. A Ganado-class actor
+#              whose source infos vary per spawn (em10SetAccesory hoods / caps / accessories by cEm::flag, em10HandSet
+#              grip poses, the stage-3 soldiers' heads) has one package descriptor whose sections are a POOL of source BIN +
+#              TPL identities (package descriptor word 44 bit 24; one role row and one chunk per pool section, up to 48):
+#              the body, every head, every hand pose, every accessory the source can attach. The actor is admitted when
+#              each of its 1..8 source infos proves exactly one current pool row of that appearance
+#              (actor_lifetime.inc re4dc_actor_pool_bindings: the per-info proof of re4dc_actor_role_bindings), no two
+#              infos the same row and the first info, and only it, the body (section 0); its plan keeps source info order
+#              and names each role's pool section (Re4dcActorPlan::pool / section, in every object), and the certificate,
+#              the palette build and the run checks read the chunk and role row of that section
+#              (coarse_actor_owner_registry.inc registry_plan_shape, coarse_actor_material.inc RE4DC_PLAN_ROLE). Nothing
+#              lists combinations: an accessory or hand the pool lacks declines the actor to the whole source path, as
+#              before. Capacities with the pool: 128 role bits (66 room rows; needs the wide identity), 64 chunks / geometries,
+#              48 source BIN models, 64 texture facts, 160 part facts per package. A package with a pool descriptor is
+#              refused (whole package, every actor keeps its source path) by an image without the knob: stage pool
+#              packages only with it. Needs NATIVE_MODEL_REGISTRY_PACK=1.
+NATIVE_MODEL_REGISTRY_POOL ?= 0
+ifeq ($(filter $(NATIVE_MODEL_REGISTRY_POOL),0 1),)
+$(error NATIVE_MODEL_REGISTRY_POOL must be 0 or 1)
+endif
+ifeq ($(NATIVE_MODEL_REGISTRY_POOL),1)
+ifneq ($(NATIVE_MODEL_REGISTRY_PACK),1)
+$(error NATIVE_MODEL_REGISTRY_POOL=1 needs NATIVE_MODEL_REGISTRY_PACK=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_NMR_POOL=1
+PLATFORM_CPPFLAGS += -DRE4DC_NMR_POOL=1
+# Pool sections with a source bump stage (bump-only texture rows keyed 0-0, the drop rule) and up to three mask pairs
+# beside the atlas.
+$(OBJDIR)/coarse_actor.o: GAME_CPPFLAGS += -DRE4DC_NMR_DROP_BUMP=1
+GAME_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
+PLATFORM_CPPFLAGS += -DRE4DC_ACTOR_MATERIALS=4
 endif
 # PS2_ASHLEY=1|2 (lane ps2cast 2026-10-14; default 0; render only): Ashley (pl11, the partner pSUB, model id 3; r117
 #              first) through the registry owner path with her PS2 mesh (tools/ps2_ashley.py: PS2 geometry / UVs / weights,

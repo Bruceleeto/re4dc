@@ -171,8 +171,14 @@ extern "C" int re4dc_dt_window(void)
 #if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
 extern "C" void re4dc_lqm_note(unsigned kind, unsigned a, unsigned b);   // GAME_LQ_MEMO (atari.cpp): its recorder
 #endif
+#if defined(RE4DC_LOGIC_WASTE) && RE4DC_LOGIC_WASTE >= 2
+extern "C" void re4dc_lw_note(unsigned kind, unsigned a, unsigned b);   // LOGIC_WASTE (atari.cpp): its recorder
+#endif
 extern "C" unsigned re4dc_dt_note(unsigned kind, unsigned a, unsigned b)
 {
+#if defined(RE4DC_LOGIC_WASTE) && RE4DC_LOGIC_WASTE >= 2
+    re4dc_lw_note(kind, a, b);
+#endif
 #if defined(RE4DC_LQ_MEMO) && RE4DC_LQ_MEMO
     re4dc_lqm_note(kind, a, b);
 #endif
@@ -463,6 +469,12 @@ extern "C" __attribute__((section(".text.re4dc_logic_trace"))) void re4dc_logic_
     if (pPL && (own & RE4DC_OWN_PL)) {
 #else
     if (pPL) {
+#endif
+#if RE4DC_TRACE_SS_MASK && !RE4DC_LOGIC_TRACE_OWNERSHIP
+        // The subscreen owns this backing: pParts is no longer a game pointer.
+        // Its digest is printed as "~" below, just like the skipped enemy and
+        // object walks. Keep the scalar fixture-position reads unchanged.
+        if (!ssm)
 #endif
         model_state(ps, pf, pm, pPL);
         p[0] = bits(trace_value(&pPL->pos.x)); p[1] = bits(trace_value(&pPL->pos.y)); p[2] = bits(trace_value(&pPL->pos.z));

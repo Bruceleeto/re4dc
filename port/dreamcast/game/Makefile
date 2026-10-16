@@ -131,6 +131,29 @@ $(error LAKE_ZBIAS must be 0 or a decimal between 0.9 and 1.1 (e.g. 1.001))
 endif
 $(OBJDIR)/platform/native_lake.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_ZBIAS=$(LAKE_ZBIAS)f
 endif
+# WATER_PS2=1 (lane water16 2026-10-16; render only, default 0; needs WATER45_NATIVE=1): the room water of r107, r108,
+# r10a, r10b, r11a and r11b as the PS2 draws it. The PS2 has no generator water (Espgen42_Trans is `jr ra`, Espgen45_Trans
+# only clears a flag): its rooms stack Esp08 world planes (a flat dark base, two scrolling 0xf2 water layers, an
+# animated noise layer). espgen45.cpp re4dc_water_ps2_draw draws those planes once per drawn image from the generated
+# table src/game/water_ps2_table.inc (tools/d367/water/water_ps2_table.py) as native layers (platform/include/
+# native_water_ps2.inc: eye-centred grids of textured translucent strips, UV repeat, table fog). In r10b it replaces the
+# WATER45_NATIVE multiply and the LAKE_RIPPLES layers. No PS2 record is spawned: effect slots, generators, areas and
+# Rnd() are untouched (logic STRICT). WATER_PS2_FLIP=n: animated layers show every n-th picture (default 8: 8 of the
+# 60 0xfe frames, 17.8 KB of VRAM; 4 doubles it). WATER_PS2_ROOMS: hex mask of the rooms drawn (bit 0 r107, 1 r108,
+# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x17 = r107 r108 r10a r11a (user option A, 10-16): r10b and r11b have no
+# VRAM room for the water pictures after lane resident16 (their preloads are at the byte limit).
+WATER_PS2 ?= 0
+WATER_PS2_FLIP ?= 8
+WATER_PS2_ROOMS ?= 0x17
+ifneq ($(WATER_PS2),0)
+ifneq ($(WATER_PS2)$(WATER45_NATIVE),11)
+$(error WATER_PS2 must be 0 or 1 and needs WATER45_NATIVE=1)
+endif
+$(OBJDIR)/src/game/espgen45.o: GAME_CPPFLAGS += -DRE4DC_WATER_PS2=1 -DRE4DC_WATER_PS2_FLIP=$(WATER_PS2_FLIP) \
+  -DRE4DC_WATER_PS2_ROOMS=$(WATER_PS2_ROOMS)
+$(OBJDIR)/src/game/Espgen42.o $(OBJDIR)/src/game/espgen.o: GAME_CPPFLAGS += -DRE4DC_WATER_PS2=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_WATER_PS2=1
+endif
 # PS2_CH1_ENEMY=1 (lane alivecap 2026-10-15, user 10-15 "the PS2 logic holistically for enemy spawns in chapter 1, with
 #   our game cutting out more when it hits our threshold"; CHANGES GAMEPLAY by design; default 0 = off): one umbrella
 #   for every PS2 enemy-spawn rule of the stage 1 route (1-1 .. 2-1: r100-r10e, r117-r119, r11a, r11b; table in
@@ -283,7 +306,12 @@ $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 # movies (src/st1/r117.cpp); the chapter end (SceSetChapterEnd(CHAPTER_2_1, -1)) and its save run unchanged.
 MODULES += pl11:ovl em11
 # The CH21 stream file has 17 entries (r118's 0:23): the reader's table takes 32 (it refused the file at 16).
-$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=32
+# AICA_STR_ENT_MAX (lane audio16, 10-16; default 32 = image unchanged): the reader's stream table size. The chapter 1
+# stream file (aica_banks.py --streams ch1, data set snd16: 45 entries with the merchant's 15 voice streams) needs 48;
+# a file with more entries than the table is refused whole ("header invalid", every disc stream silent), so snd16 and
+# AICA_STR_ENT_MAX=48 ship together. 32 bytes of .bss per entry (48: +512 B). The 2 KB header holds up to 63.
+AICA_STR_ENT_MAX ?= 32
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=$(AICA_STR_ENT_MAX)
 export RE4DC_LINK_OVERLAY += .ovl_pl11
 $(OBJDIR)/mod/st1_3/src/st1/r117.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 ROUTE_MOVIE_GAME_CH21 = $(OBJDIR)/mod/st1_2/src/st1/r11b.o $(OBJDIR)/mod/st1_2/src/st1/r119.o $(OBJDIR)/mod/st1_3/src/st1/r117.o
@@ -326,6 +354,29 @@ ifneq ($(TRUCK_DIAG)$(ROUTE_CH23)$(DBG_WARP),111)
 $(error TRUCK_DIAG=1 needs ROUTE_CH23=1 DBG_WARP=1)
 endif
 $(OBJDIR)/mod/em3b/src/em3b/em3b.o: GAME_CPPFLAGS += -DRE4DC_TRUCK_DIAG=1
+endif
+# SUB_EM_FUNC=1: SetSubDamage stores Ashley's routine-4 handler explicitly (the decomp's PowerPC r4 pin in
+# cSubChar::setEmFunc is dropped off PowerPC, so the handler was an uninitialised local: the guest rebooted when the
+# r200 truck ran Ashley over, and any other SetSubDamage on Ashley - em3c, boats - calls garbage). Default 0 keeps
+# the image identical.
+SUB_EM_FUNC ?= 0
+ifeq ($(filter $(SUB_EM_FUNC),0 1),)
+$(error SUB_EM_FUNC must be 0 or 1)
+endif
+ifeq ($(SUB_EM_FUNC),1)
+$(OBJDIR)/src/game/pl_sub.o: GAME_CPPFLAGS += -DRE4DC_SUB_EM_FUNC=1
+endif
+# MOVIE_POLL_SETTLE=1: a route movie's first audio polls tolerate KOS snd_stream_poll's -1 for a stale channel
+# position (the AICA has not restarted the stream's channel yet, so it still reports the previous voice's offset,
+# beyond the stream buffer) for up to 200 ms after snd_stream_start, instead of ending the movie (terminal 3, no
+# picture). r11f s02/s10 failed this way whenever a game voice had just played on that channel ("chan0(0).pos =
+# 21589"); r11f's movie guard then blocks progression. Default 0 keeps the image identical.
+MOVIE_POLL_SETTLE ?= 0
+ifeq ($(filter $(MOVIE_POLL_SETTLE),0 1),)
+$(error MOVIE_POLL_SETTLE must be 0 or 1)
+endif
+ifeq ($(MOVIE_POLL_SETTLE),1)
+$(OBJDIR)/platform/native_movie.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_POLL_SETTLE=1
 endif
 ifneq ($(ROUTE_CH23),0)
 ifneq ($(ROUTE_CH23)$(ROUTE_CH21)$(ROUTE_OVL),111)
@@ -1033,6 +1084,26 @@ endif
 ifeq ($(DISC_COMPAT),1)
 $(OBJDIR)/platform/gdrom_mount.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_COMPAT=1
 endif
+# KOS_SBRK_LAST_PAGE=1 (lane ramreclaim 2026-10-15, default 0 = image unchanged; exact): KOS mm_sbrk refuses a break that
+# reaches the kernel stack's base (`new_base >= limit`), so the last 4 KiB page below the 64 KiB kernel stack can never be
+# used: every console/Flycast "Out of memory. Requested sbrk_base 0x8cff0000" is that page. The game links a copy of
+# kernel/mm/mm.c with `>` (patches/kos-804b319-mm-sbrk-last-page.patch); a break ending exactly at the base does not
+# overlap the stack. Behaviour differs only where the stock check would have run out of KOS: +4,096 B usable KOS.
+KOS_SBRK_LAST_PAGE ?= 0
+ifneq ($(filter-out 0 1,$(KOS_SBRK_LAST_PAGE)),)
+$(error KOS_SBRK_LAST_PAGE must be 0 or 1)
+endif
+ifeq ($(KOS_SBRK_LAST_PAGE),1)
+KOSMM := $(OBJDIR)/kosmm
+PLATFORM_OBJS += $(KOSMM)/mm.o
+$(KOSMM)/mm.c: $(KOS_BASE)/kernel/mm/mm.c $(CURDIR)/../patches/kos-804b319-mm-sbrk-last-page.patch
+	@rm -rf $(KOSMM)/p && mkdir -p $(KOSMM)/p/kernel/mm
+	cp $< $(KOSMM)/p/kernel/mm/
+	patch --fuzz=0 -s -p1 -d $(KOSMM)/p < $(CURDIR)/../patches/kos-804b319-mm-sbrk-last-page.patch
+	cp $(KOSMM)/p/kernel/mm/mm.c $@
+$(KOSMM)/mm.o: $(KOSMM)/mm.c
+	kos-cc $(KOS_CFLAGS) -O2 -fmacro-prefix-map=$(KOSMM)/=kosmm/ -MMD -MP -c $< -o $@
+endif
 # DISC_READ_FALLBACK=2 (issue #28 v2, 2026-10-15; v1 gave a black screen under the ISO loader): no cdrom streams at all
 # (fs_iso9660 reads by sector reads), every sector read is a bounded GD command polled from the calling thread (DMA, then
 # DMA after a bounded drive re-init, then PIO; the one that works is reported and kept), cdrom_reinit is wrapped with a
@@ -1089,6 +1160,49 @@ $(OBJDIR)/ui_bridge.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
+endif
+# SND_PAD_SKIP=1 (lane doorpause16, 2026-10-16; default 0 = image unchanged; does something only with AICA_AUDIO=1): the
+# source queue leaves out the disc reads of a sound block's ARAM part past a build-time converted bank's image. The
+# part keeps the GameCube size on the disc (the game's ARAM layout is sized from it) and is zero after the image:
+# 0.85 to 2.7 MB of every chapter 1 door's 4 to 11 MB (DOOR-PAUSE-CH1-20261016.md). The skipped pieces still pass
+# through the queue's transfer step and re4dc_audio_arq (which copies only the image), so the AICA RAM, the ARAM
+# addresses, UseAramSize and the queue's steps are the same; only the reads (and their wait) are gone.
+# platform/include/snd_pad_skip.h is forced into dvd.o (the source keeps its line numbers).
+SND_PAD_SKIP ?= 0
+ifneq ($(filter $(SND_PAD_SKIP),0 1),$(SND_PAD_SKIP))
+$(error SND_PAD_SKIP must be 0 or 1)
+endif
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -include $(CURDIR)/platform/include/snd_pad_skip.h
+ifeq ($(SND_PAD_SKIP),1)
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+endif
+# DOOR_PROBE=1 (lane doorpause16, 2026-10-16; diagnostic, log only, default 0 = image unchanged; needs DISC_READ_METER=1):
+# where the door pause goes. platform/door_probe.cpp logs a "DOORPH:" line at each phase mark of a room change (door
+# press, door demo, StageSet, the gameRoomInit steps, the first gameMainLoop frame): wall ms, game-thread GD-ROM
+# blocked ms / drive calls / KB (DISC_READ_METER's counters) and CPU ms per thread class from KOS's per-thread
+# accounting (main, re4-task, other, idle); at the end the files read in the window (fs_open / fs_read wraps:
+# "DOORFILE:") and CPU per thread label ("DOORTHD:"). The marks are RE4DC_DOORPH(...) appended to existing source
+# lines (main.cpp: the vblank spin waits, "spin=" ms; game.cpp, stage.cpp, sce_at.cpp, ui_bridge.cpp) from the forced header platform/include/door_probe.h, which
+# makes them empty statements with the knob off.
+DOOR_PROBE ?= 0
+ifneq ($(filter $(DOOR_PROBE),0 1),$(DOOR_PROBE))
+$(error DOOR_PROBE must be 0 or 1)
+endif
+DOOR_PROBE_GAME = $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/stage.o $(OBJDIR)/src/game/sce_at.o $(OBJDIR)/ui_bridge.o
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -include $(CURDIR)/platform/include/door_probe.h
+ifeq ($(DOOR_PROBE),1)
+ifneq ($(DISC_READ_METER),1)
+$(error DOOR_PROBE=1 needs DISC_READ_METER=1)
+endif
+ifeq ($(IO_PROBE),1)
+$(error DOOR_PROBE=1 and IO_PROBE=1 wrap the same fs entry points)
+endif
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+$(OBJDIR)/platform/door_probe.o $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+GAME_LDFLAGS += -Wl,--wrap=fs_open -Wl,--wrap=fs_read
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/door_probe.o,$(PLATFORM_OBJS))
 endif
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
@@ -1250,10 +1364,13 @@ $(CABIN_SOURCE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/cabin-source.h -includ
 # D38: exact full blocking r11f10/11f11 movies borrow the retained world cell.
 # No resolution/audio changes, source-heap expansion or allocator fallback.
 MOVIE_WORLD_ARENA ?= 0
+# Bounded Chapter 1 extension: full r100s30 borrows the same retained owner.
+MOVIE_WORLD_ARENA_S30 ?= 0
 .PHONY: movie-world-arena-force
 $(OBJDIR)/movie-world-arena.h: movie-world-arena-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_MOVIE_WORLD_ARENA %s\n' '$(MOVIE_WORLD_ARENA)' > $@.tmp
+	@printf '#define RE4DC_MOVIE_WORLD_ARENA_S30 %s\n' '$(MOVIE_WORLD_ARENA_S30)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 MOVIE_WORLD_ARENA_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o
@@ -1467,6 +1584,20 @@ MOVIE_FENCE_RETRY ?= 0
 endif
 ifeq ($(MOVIE_FENCE_RETRY),1)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_MOVIE_FENCE_RETRY=1
+endif
+# OVL_ID_GUARD=1 (test 15, robustness): each route overlay names the main image it was linked against. gen_overlay.py
+# writes header words 14/15 = FNV-1a of the main image's .text and the .text byte count (RE4DC_OVL_ID=1 in link.sh's
+# environment); routeOverlayLoad (platform/modules.cpp) hashes its own .text once and stops with re4dc_missing("route
+# overlay built for another program") on a mismatch, instead of relocating another build's overlay into this image (the
+# r118 fixture fault, 10-15). swap-program.py copies the overlays with the program, so release discs always match.
+# Default 0: the image and the overlays are byte-identical.
+OVL_ID_GUARD ?= 0
+ifeq ($(filter $(OVL_ID_GUARD),0 1),)
+$(error OVL_ID_GUARD must be 0 or 1)
+endif
+ifeq ($(OVL_ID_GUARD),1)
+LINK_ENV += RE4DC_OVL_ID=1
+$(OBJDIR)/platform/modules.o: PLATFORM_CPPFLAGS += -DRE4DC_OVL_ID_GUARD=1
 endif
 
 $(TARGET): $(KOS_BASE)/lib/$(KOS_ARCH)/libkallisti.a $(OBJS) $(GAME30_LINK_INPUTS) tools/link.sh tools/gen_aliases.py tools/gen_missing.py platform/aliases-manual.ld
@@ -2198,10 +2329,17 @@ include charbake.mk
 # D367 ps2leon (PS2_LEON test arms; default off: no effect).
 include ps2leon.mk
 include vmu_context.mk
+# Lane t2exact (GC_CENSUS_TRIM ...; default off: no effect).
+include t2exact.mk
 # Resolved knobs for tools/d367/build-r21.sh (re4dc-knobs; builds nothing).
 include knobs.mk
 
 # Validate after all knob defaults and included recipes are available.
+ifneq ($(MOVIE_WORLD_ARENA_S30),0)
+ifneq ($(MOVIE_WORLD_ARENA),1)
+$(error MOVIE_WORLD_ARENA_S30 needs MOVIE_WORLD_ARENA=1)
+endif
+endif
 ifeq ($(MOVIE_WORLD_ARENA),1)
 ifneq ($(ROUTE_MOVIES)$(ROUTE_MOVIE_YUV)$(PS2_WORLD_DRAW)$(PS2_WORLD_MESH)$(IO_ALIGNED)$(MOVIE_HEAP_EVICT)$(D349_RENDERER_STACK)$(PVR_STREAM),11111111)
 $(error MOVIE_WORLD_ARENA=1 needs ROUTE_MOVIES/ROUTE_MOVIE_YUV/PS2_WORLD_DRAW/PS2_WORLD_MESH/IO_ALIGNED/MOVIE_HEAP_EVICT/D349_RENDERER_STACK/PVR_STREAM=1)

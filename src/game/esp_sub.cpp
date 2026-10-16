@@ -103,6 +103,15 @@ u8 re4dc_ps2fx = 0;
 #else
 u8 re4dc_ps2fx = PS2FX_BUILT;
 #endif
+#if defined(RE4DC_MIST_CUT)
+// MIST_CUT (hwfog.mk, lane mist16 2026-10-16; render only, test arms): the build default of a runtime mask.
+// 1: no camera haze sprite (Esp15) and no mist sheet (Esp48) is drawn (the fog-table veil stays); 2: the world's
+// translucent mist / backdrop parts (native_static.cpp kMistParts) are not drawn; 4: no other room-table ambient
+// sprite (owner 0xd0: window glows / streaks / shafts, smoke, dust); 8: no other effect sprite of any owner (fire,
+// torches, sparks, blood, muzzle flash, splashes); 16 (native_static.cpp): diagnostic, no translucent world part at all.
+// Generators, Rnd() draws, the pool and every motion run as before.
+unsigned re4dc_mist_cut = RE4DC_MIST_CUT;
+#endif
 // VMU label: GC (as the base), GF (GC + the fade clamp), PH (PS2 haze), PS (PS2 haze + streak), ST (streak only).
 const char* re4dc_ps2fx_label(void)
 {
@@ -916,8 +925,20 @@ static int Ps2fxPuzzleSuppress(cEsp* esp);
 #if RE4DC_PS2_FX_COMMON_HAZE
 static int Ps2fxCommonHazeSuppress(cEsp* esp);
 #endif
+#if defined(RE4DC_LOGIC_WASTE) && RE4DC_LOGIC_WASTE && !RE4DC_PS2_FX_COMMON_HAZE
+extern "C" u32 re4dc_logic_waste_mask;
+static int lwFxInner;
+static int lwFxClass(cEsp* esp);   // LOGIC_WASTE bit 0x02 (after Ps2fxClass)
+#endif
+#line 919   // LOGIC_WASTE blocks keep the knob-off line numbers (EspCommonTrans's __LINE__)
 static int Ps2fxClass(cEsp* esp)
 {
+#if defined(RE4DC_LOGIC_WASTE) && RE4DC_LOGIC_WASTE && !RE4DC_PS2_FX_COMMON_HAZE
+    if ((re4dc_logic_waste_mask & 2) && !lwFxInner) {
+        return lwFxClass(esp);
+    }
+#endif
+#line 921
 #if defined(RE4DC_FX_LEVEL)
     if (FxLevelThin(esp)) {
         return 1;
@@ -1061,6 +1082,74 @@ static int Ps2fxClass(cEsp* esp)
 #endif
     return 0;
 }
+#if defined(RE4DC_LOGIC_WASTE) && RE4DC_LOGIC_WASTE && !RE4DC_PS2_FX_COMMON_HAZE
+// LOGIC_WASTE bit 0x02 (game30.mk; logic waste census item 2; render only, exact): after the FX level thinning (per pool
+// slot, first in the cascade and evaluated here as before) Ps2fxClass's verdict is a function of the sprite's recipe
+// fields (id, texture, owner, blend, near / far delete, start colour, life) and the room, re4dc_ps2fx and FX level,
+// for every sprite except: the camera haze (id 0x15: population, slot subset, fade key and camera box per frame), r117
+// (the puzzle trails, per frame) and the static id-0 copies the r100 streak anchors test by position. Many sprites
+// share a recipe, so the verdicts are kept per recipe (64 entries, direct-mapped). The verdict's only other effects are
+// the ps2fx ext / gen "not drawn" log lines, printed on the first sighting (a miss) as before. Check mode (0x100):
+// every reuse is also computed and compared ("LWF ... mis=" must stay 0).
+struct LwFxEntry {
+    u32 k[4];
+    u32 v;   // verdict + 1 (0: empty)
+};
+static LwFxEntry lwFx[64];
+static u32 lwFxStat[4];
+static int lwFxClass(cEsp* esp)
+{
+    const u16 room = G_ROOM_ID;
+    if (esp->m_Id == 0x15 || room == 0x117 || (esp->m_Id == 0 && esp->m_Life_max == 0 && esp->m_Blend_type == 1)) {
+        lwFxInner = 1;
+        const int r = Ps2fxClass(esp);
+        lwFxInner = 0;
+        return r;
+    }
+#if defined(RE4DC_FX_LEVEL)
+    if (FxLevelThin(esp)) {
+        return 1;
+    }
+#endif
+    u32 k[4];
+    k[0] = (u32) esp->m_Id | ((u32) esp->m_Tex_id << 8) | ((u32) esp->info.owner << 16) | ((u32) esp->m_Blend_type << 24);
+    k[1] = (u32) esp->m_Del_near | ((u32) esp->m_Del_far << 16);
+    k[2] = (u32) esp->m_Col_start_r | ((u32) esp->m_Col_start_g << 8) | ((u32) esp->m_Col_start_b << 16) |
+           ((u32) re4dc_ps2fx << 24);
+#if defined(RE4DC_FX_LEVEL)
+    k[3] = (u32) esp->m_Life_max | ((u32) room << 16) ^ ((u32) re4dc_fx_level << 30);
+#else
+    k[3] = (u32) esp->m_Life_max | ((u32) room << 16);
+#endif
+    LwFxEntry& e = lwFx[((k[0] ^ (k[1] * 3) ^ (k[2] * 5) ^ (k[3] * 7)) * 0x9E3779B1u) >> 26];
+    lwFxStat[0]++;
+    if (e.v && e.k[0] == k[0] && e.k[1] == k[1] && e.k[2] == k[2] && e.k[3] == k[3]) {
+        lwFxStat[1]++;
+        if (re4dc_logic_waste_mask & 0x100) {
+            lwFxInner = 1;
+            const int r = Ps2fxClass(esp);
+            lwFxInner = 0;
+            if ((u32) r + 1 != e.v) {
+                lwFxStat[2]++;
+            }
+        }
+        if ((lwFxStat[0] & 0x3FFF) == 0) {
+            re4dc_log("LWF calls=%u hits=%u mis=%u\n", lwFxStat[0], lwFxStat[1], lwFxStat[2]);
+        }
+        return (int) e.v - 1;
+    }
+    lwFxInner = 1;
+    const int r = Ps2fxClass(esp);
+    lwFxInner = 0;
+    e.k[0] = k[0];
+    e.k[1] = k[1];
+    e.k[2] = k[2];
+    e.k[3] = k[3];
+    e.v = (u32) r + 1;
+    return r;
+}
+#endif
+#line 1064
 #endif
 #if RE4DC_PS2_FX_STAGE1
 // Three stationary r104 source records differ only in size and RGBA. Source
@@ -1118,6 +1207,38 @@ static GXColor Ps2fxStaticColor(const cEsp* esp, const Ps2fxStatic* row)
     return col;
 }
 #endif
+#if defined(RE4DC_MIST_CUT)
+// MIST_CUT effect classes (mask bits; 2 and 16 are world parts, native_static.cpp): 1 haze / mist (Esp15 camera haze,
+// Esp48 mist sheets), 4 window glows / streaks / shafts (room table 0xd0 Esp0a / Esp0e), 32 room dust / smoke /
+// particles (the other room table 0xd0 effects), 8 fire / torches / lamps (room EST owner 0x01, torch and lamp owners),
+// 64 every other owner (shots, blood, sparks, splashes), 128 water (Esp42 / Esp45, any owner).
+static unsigned MistCutClass(cEsp* esp)
+{
+    const u32 o = esp->info.owner;
+    if (esp->m_Id == 0x42 || esp->m_Id == 0x45) return 128;
+    if (esp->m_Id == 0x15 || esp->m_Id == 0x48) return 1;
+    if (o == 0xD0) return (esp->m_Id == 0x0a || esp->m_Id == 0x0e) ? 4 : 32;
+    if (o == 0x01 || o == 0x5E || o == 0x5F || o == 0x60 || o == 0x64 || o == 0x68 || o == 0x6D || o == 0x70 || o == 0x8C) return 8;
+    return 64;
+}
+// Counts of the sprites the mask declined per class, one log line per room / 600 frames.
+static u32 s_mist_cut_n[8], s_mist_cut_frame;
+static u16 s_mist_cut_room;
+static void MistCutNote(unsigned cls)
+{
+    const unsigned k = cls == 1 ? 0 : cls == 4 ? 1 : cls == 32 ? 2 : cls == 8 ? 3 : cls == 64 ? 4 : 5;
+    ++s_mist_cut_n[k];
+    if (s_mist_cut_room != G_ROOM_ID || (u32) (pG->Frame_cnt - s_mist_cut_frame) >= 600) {
+        re4dc_log("mist cut: mask=%u room=%03x frame=%u haze=%u glow=%u dust=%u fire=%u other=%u water=%u\n",
+                  re4dc_mist_cut, (unsigned) G_ROOM_ID, (unsigned) pG->Frame_cnt, (unsigned) s_mist_cut_n[0],
+                  (unsigned) s_mist_cut_n[1], (unsigned) s_mist_cut_n[2], (unsigned) s_mist_cut_n[3],
+                  (unsigned) s_mist_cut_n[4], (unsigned) s_mist_cut_n[5]);
+        s_mist_cut_room = G_ROOM_ID;
+        s_mist_cut_frame = pG->Frame_cnt;
+        for (int i = 0; i < 8; ++i) s_mist_cut_n[i] = 0;
+    }
+}
+#endif
 static void EspSpriteEmit(cEsp* esp)
 {
     // GX blend factors 0..7 (ZERO ONE DSTCLR/SRCCLR INVxCLR SRCA INVSRCA DSTA INVDSTA) have the
@@ -1136,6 +1257,15 @@ static void EspSpriteEmit(cEsp* esp)
     if (tw->Owner == 0xD2 || !tw->pTpl || esp->m_Ptn_no >= tw->pTpl->numDescriptors) {
         return;
     }
+#if defined(RE4DC_MIST_CUT)
+    {   // a recipe haze sprite (Esp15 with a PS2 row) is declined further down, after the fog rows' notes
+        const unsigned cls = MistCutClass(esp);
+        if ((re4dc_mist_cut & cls) && (cls != 1 || esp->m_Id == 0x48 || !Ps2fxHazeFor(esp))) {
+            MistCutNote(cls);
+            return;
+        }
+    }
+#endif
     const TEXDescriptor* td = TEXGet(tw->pTpl, RE4DC_FX_FLIP_PTN(esp->m_Ptn_no, tw->pTpl->numDescriptors));   // effects30.mk
     const TEXHeader* th = td->textureHeader;
     Re4dcEffectSprite s;
@@ -1152,8 +1282,8 @@ static void EspSpriteEmit(cEsp* esp)
         s.image.palette_bytes = td->CLUTHeader->numEntries * 2;
     }
     f32 P[7], V[6];
-    GXGetProjectionv(P);
-    GXGetViewportv(V);
+    RE4DC_GXF_GET_PROJECTION(P);
+    RE4DC_GXF_GET_VIEWPORT(V);
     if (V[2] <= 0.0f || V[3] <= 0.0f) {
         return;
     }
@@ -1283,6 +1413,12 @@ static void EspSpriteEmit(cEsp* esp)
             if (re4dc_hwfog_haze(hz->room, d, indoor)) {
                 return;
             }
+        }
+#endif
+#if defined(RE4DC_MIST_CUT)
+        if (re4dc_mist_cut & 1) {   // MIST_CUT bit 1: not even the near haze (after the fog rows' notes)
+            MistCutNote(1);
+            return;
         }
 #endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)

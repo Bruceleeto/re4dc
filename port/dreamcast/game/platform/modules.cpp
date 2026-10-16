@@ -332,6 +332,11 @@ u32 ovlHash(const void* p, u32 bytes)
 }
 }
 
+#if defined(RE4DC_OVL_ID_GUARD) && RE4DC_OVL_ID_GUARD
+// OVL_ID_GUARD: this image's identity (FNV-1a of its linked .text, .text bytes), written after the link by
+// tools/ovl_id_patch.py over the "RID1" mark. Initialised data, so it lands in .data and the patch leaves .text alone.
+extern "C" { volatile u32 re4dc_image_id[2] = {0x31444952U, 0x31444952U}; }
+#endif
 // src/game/main_mem.cpp (C++ linkage, include/main_mem.h).
 void* mem_alloc(u32 size, const char* file, int line, int flag, int heap);
 void Mem_free_h(void* p, int heap);
@@ -368,6 +373,17 @@ static void routeOverlayLoad(unsigned index)
         sizeof(RouteOverlayHeader) + h.image_bytes + h.relocs * 4 != total ||
         ovlHash(image, h.image_bytes) != h.image_hash || ovlHash(reloc, h.relocs * 4) != h.reloc_hash)
         re4dc_missing("route overlay corrupt (size / hash)");
+#if defined(RE4DC_OVL_ID_GUARD) && RE4DC_OVL_ID_GUARD
+    // OVL_ID_GUARD: header words 14/15 name the main image the overlay was linked against (FNV-1a of its .text, .text
+    // bytes; gen_overlay.py). Another build's overlay would relocate against this image's addresses and corrupt memory
+    // silently (the r118 fixture fault, 10-15): stop here instead. The image's own id is patched in after the link
+    // (re4dc_image_id; the running .text differs from the linked one, so it is not hashed at run time).
+    if (!h.pad[1] || h.pad[0] != re4dc_image_id[0] || h.pad[1] != re4dc_image_id[1]) {
+        re4dc_log("route overlay: %s built for another program (id %08lx/%lu, this program %08lx/%lu)\n", m.name,
+                  h.pad[0], h.pad[1], u32(re4dc_image_id[0]), u32(re4dc_image_id[1]));
+        re4dc_missing("route overlay built for another program");
+    }
+#endif
     const u32 delta = u32(image) - h.base;
     for (u32 i = 0; i < h.relocs; ++i) {
         const u32 at = reloc[i];

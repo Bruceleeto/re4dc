@@ -443,8 +443,24 @@ unsigned vram_claims,claim_released;
 // an entry holding one.
 constexpr unsigned kCoreKeys=16;
 Key core_keys[kCoreKeys];unsigned core_nkeys;
+#if RE4DC_CORE_PIN==2
+bool core_room_on; // CORE_PIN=2: pinned only in a room with its own resident list (r101, r103), see preload_resident
+inline bool core_pinned(const Entry& e){if(!core_room_on)return false;for(unsigned k=0;k<core_nkeys;++k)if(core_keys[k]==e.key)return true;return false;}
+#else
 inline bool core_pinned(const Entry& e){for(unsigned k=0;k<core_nkeys;++k)if(core_keys[k]==e.key)return true;return false;}
+#endif
+#if RE4DC_CORE_PIN==2
+// CORE_PIN=2 (t15/int, the test 14 open item): the core keys yield to the fragmented-upload retry of a large picture
+// (>= kCoreYieldBytes: the r105 chapter 1-2 results screen, 631x169 / 495x150). With =1 they stayed pinned there, and the
+// 512 KiB picture found no contiguous block (texchk FAIL, 63-102 effect sprites refused). Everywhere else (the radio
+// call's menu pictures, room loads) they stay pinned as with =1. A yielded HUD key reloads on first sight, as without
+// CORE_PIN.
+constexpr unsigned kCoreYieldBytes=128U*1024U;
+bool core_yield;unsigned core_yields;
+#define RE4DC_CORE_PINNED(e) (!core_yield && core_pinned(e))
+#else
 #define RE4DC_CORE_PINNED(e) core_pinned(e)
+#endif
 #else
 #define RE4DC_CORE_PINNED(e) false
 #endif
@@ -3241,6 +3257,14 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
             re4dc_log("native UI: overlay slab %s: %ux%u need=%u uses=%u\n",overlay_owner==slot?"taken":"too small",image.width,image.height,need,overlay_uses);
         }
 #endif
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN==2 && RE4DC_TEX_RESIDENT
+        // CORE_PIN=2: a large fragmented picture outside every VRAM claim (no sub screen / route movie open) may take the
+        // core keys' blocks, in the frag window and in the LRU retry below. Inside a claim (the radio call's 640x360
+        // pictures) they stay pinned.
+        core_yield=!ok && need>=kCoreYieldBytes && !vram_claims && slot->package.error() &&
+                   !std::strcmp(slot->package.error(),"PVR texture allocation failed");
+        if(core_yield){++core_yields;re4dc_log("native UI: core keys yield to %ux%u need=%u (yields=%u)\n",image.width,image.height,need,core_yields);}
+#endif
 #if RE4DC_UI_FRAG_WINDOW
         // UI_FRAG_WINDOW (Makefile): one hole of the size, not LRU evictions until one appears. =3: only for uploads of
         // at least kFragDropBytes (the r105 results pictures); smaller ones keep the LRU retry (r100 s20 fight: =1
@@ -3267,6 +3291,9 @@ Entry* load(const Re4dcUiImage& image,bool pin=true,const Key* prepared_key=null
 #endif
             ok=RE4DC_OPEN_PACKAGE() && slot->package.upload();
         }
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN==2 && RE4DC_TEX_RESIDENT
+        core_yield=false;
+#endif
 #if RE4DC_UI_FRAG_WINDOW==2
         // The LRU retry found no hole either: it is blocked by uploads this frame already took (its draws, or the
         // room preload's picks at the frame start). Release the cheapest window including them and close this
@@ -3618,6 +3645,9 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
     static_assert(sizeof(Rec)==16,"dc/resident.bin record");
     Rec buf[32];
     unsigned pieces=0;
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN==2
+    unsigned own=0;
+#endif
     for(;re4dc::texture::read_file_range("/cd/dc/resident.bin",pieces*sizeof(buf),buf,sizeof(buf),nullptr)==
           re4dc::texture::RangeRead::ok;++pieces){
         for(unsigned i=0;i<32 && n+resident<limit;++i){
@@ -3628,6 +3658,9 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
                 for(unsigned k=0;k<core_nkeys && !have;++k)have=core_keys[k]==ck;
                 if(!have && core_nkeys<kCoreKeys)core_keys[core_nkeys++]=ck;
             }
+#if RE4DC_CORE_PIN==2
+            if(r.room && r.room==src.room)++own;
+#endif
             if((r.room!=src.room && r.room) || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
 #else
             if(r.room!=src.room || !r.width || !r.height || r.width>1024 || r.height>1024)continue;
@@ -3646,7 +3679,15 @@ void preload_resident(unsigned& n,unsigned& resident,unsigned& bytes,unsigned li
     if(pieces)re4dc_log("native texture preload: resident list room=%03x pieces=%u listed=%u picked=%u\n",src.room,pieces,
                         resident_listed,resident_picked);
 #if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN
+#if RE4DC_CORE_PIN==2
+    // CORE_PIN=2: the core keys are pinned only where the room has its own list (r101: the post-bell radio call's frag
+    // window evicted them; test 14 open VRAM item). Elsewhere they are plain LRU entries as with CORE_PIN=0: pinned in
+    // r105 they left the chapter 1-2 results picture (495x150) without a contiguous block even with the yield.
+    core_room_on=own!=0;
+    if(pieces)re4dc_log("native texture preload: core keys=%u (%s)\n",core_nkeys,core_room_on?"pinned":"not pinned: no room list");
+#else
     if(pieces)re4dc_log("native texture preload: core keys=%u (pinned)\n",core_nkeys);
+#endif
 #endif
 }
 #endif
@@ -4127,6 +4168,9 @@ unsigned movie_window_release(unsigned bytes,bool pinned_ok,unsigned& released_b
     for(unsigned ei=0;ei<kTextureCount;++ei){
         const Entry& e=entries[ei];
         if(!e.valid || !e.package.vram_bytes() || (!pinned_ok && RE4DC_ENTRY_PINNED(e)))continue;
+#if defined(RE4DC_CORE_PIN) && RE4DC_CORE_PIN==2
+        if(!pinned_ok && RE4DC_CORE_PINNED(e))continue; // CORE_PIN=2: core keys only in a yield (or a pinned_ok pass)
+#endif
 #if RE4DC_UI_FRAG_WINDOW
         if(!pinned_ok && frag_min_age && frame-e.frame<frag_min_age)continue; // UI_FRAG_WINDOW: recently drawn
 #endif
@@ -4261,6 +4305,19 @@ extern "C" void re4dc_ui_vram_unclaim(){
 #endif
     if(!--vram_claims && claim_released){preload_pending=true;claim_released=0;}
     re4dc_log("native texture unclaim: claims=%u preload=%d free=%u\n",vram_claims,preload_pending?1:0,(unsigned)pvr_mem_available());
+}
+#endif
+#if defined(RE4DC_SS11_PRELOAD) && RE4DC_SS11_PRELOAD
+// SS11_PRELOAD (subscreen.mk; VRAM graphics memory rule): MemDestroyHeap(11) (main_mem.cpp) calls this when the chapter
+// title card or the chapter-end results / save screens close (they live in SS heap 11; the game is paused there). Their
+// pictures (~1 MB with the results screen) evicted the room's set, which then came back from disc one first sight at a
+// time in play (r105 after the chapter 1-2 save screen: 81 uploads). A room preload pass at the close loads the room's
+// set back in one pass, before play resumes, as at room entry.
+extern "C" void re4dc_ui_room_preload_again(){
+#if RE4DC_TEX_RESIDENT
+    preload_pending=true;
+#endif
+    re4dc_log("native texture preload again: SS heap 11 closed free=%u\n",(unsigned)pvr_mem_available());
 }
 #endif
 extern "C" int re4dc_ui_bind_core(void* archive,unsigned bytes){
@@ -7177,6 +7234,9 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_WATER_PS2) && RE4DC_WATER_PS2
+#include "include/native_water_ps2.inc"   // WATER_PS2 (lane water16): PS2 water layers
+#endif
 #if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
 // LAKE_RIPPLES (native_lake.cpp): a prebuilt TR packet (headers and vertices) queued like the water quad above.
 extern "C" int re4dc_ui_tr_packet(const void* packet,unsigned bytes){
@@ -7962,6 +8022,12 @@ extern "C" void re4dc_model_finish_source_draws(){
             const unsigned bytes=deferred_first->changed[0];
             deferred_first=deferred_first->next;stream_send(packet,bytes);continue;
         }
+#if defined(RE4DC_WATER_PS2) && RE4DC_WATER_PS2
+        if(deferred_first->lighting==kWaterTag){   // WATER_PS2: the layer's vertices are generated here
+            const auto* w=reinterpret_cast<const WaterNode*>(reinterpret_cast<const unsigned char*>(deferred_first)+kWaterNode);
+            deferred_first=deferred_first->next;water_emit(*w);continue;
+        }
+#endif
 #endif
 #if RE4DC_EFFECT_SPRITES
         if(deferred_first->lighting==kSpriteTag){

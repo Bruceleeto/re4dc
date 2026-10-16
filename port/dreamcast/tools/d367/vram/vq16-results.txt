@@ -1,0 +1,7 @@
+# vq16-results.txt (lane resident16, 2026-10-16): the chapter-end results screen's three large pictures (shared by the
+# chapter 1-1 / 1-2 / 1-3 results in r106, r105, r10b; ARGB4444 twiddled, 1,048,576 B) as full-codebook VQ (vq_pak.py),
+# so the screen never needs a 256-512 KiB contiguous block next to a resident room set (r105 "no contiguous block" for
+# 495x150 with the chapter 1 VQ set; the known issue "texture refused for about 2 seconds"). LOOK CHANGE (UI text).
+36d6ca5f-cd8938ce	R	631x169 results picture (1024x256)
+54cf021f-852078ba	R	600x100 results picture (1024x128)
+eaf5d457-52028df9	R	495x150 results picture (512x256)

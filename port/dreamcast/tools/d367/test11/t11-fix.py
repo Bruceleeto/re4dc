@@ -267,6 +267,81 @@ DATA['res14r3'] = {'dc/resident.bin': T14R3D + '/resident.bin'}
 # Test 14 (t14/rc, 2026-10-15; TEST14-SCOPE.md, test14/t14-build.sh T14REC): test 13's data + res14r3 (replaces T13's
 # dc/resident.bin; order: last).
 T14_DATA = T13_DATA + ',res14r3'
+# Test 15 row 7 (t15/int, 10-15; lane ps2cast14 b00f9a43, PS2CAST-20261014.md "released rooms ch1-1..2-1"): cast15 = the PS2
+# small cast room packages (recipe PS2_CAST_CH1=1 PS2_CAST_BOAT=1 ACTOR_PALETTE_BANK=40 NATIVE_MODEL_REGISTRY_POOL=1) and the
+# texture-prepared archives em2a em24 em27 em29 em2e pl0f; their pictures are loose here (the candidate merges them into
+# tex.pak). r117: the zealot pool package is the room's registry.re4nmr and Ashley's r117 package moves to partner.re4nmr
+# (the lane's r117-zp-p gate fixture; PS2_ASHLEY_ROOMS=1 reads it). r118: reg-118pc (em17 pool; its cart rows are unused,
+# em3b is not linked). Order: after T14_DATA (replaces ashley13's r117 registry and the earlier r100 / r104 / r118 packages).
+C15D = os.environ.get('C15D', '/root/probe/lanes-20261015/ps2cast')
+_C15R = {'100': '100', '104': '104', '105': '105', '106': '106', '107': '107', '108': '108', '10a': '10a', '10b': '10b',
+         '11a': '11a', '11b': '11b', '117': '117p', '118': '118pc'}
+DATA['cast15'] = {'dc/native/r%s/registry.re4nmr' % r: '%s/conv-t14/reg-%s/package/r%s/registry.re4nmr' % (C15D, g, r)
+                  for r, g in _C15R.items()}
+DATA['cast15']['dc/native/r117/partner.re4nmr'] = ASHLEY + '/r117/ashley-pl11/dc/native/r117/registry.re4nmr'
+for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f'):
+    DATA['cast15']['em/%s.drs' % _n] = '%s/prep14/%s/%s.drs' % (C15D, _n, _n)
+# reg-118pc/tex holds 0e80c998-3aeeebb9 with other bytes than reg-108 / reg-118 (same size, a re-encode); one key, one
+# picture in tex.pak: the reg-108 bytes (ae7e472f) ship, so r118 uses C15T118 = reg-118pc/tex without that file.
+C15T118 = os.environ.get('C15T118', '/root/probe/lanes-20261015/t15k/data/reg-118pc-tex')
+DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' else C15T118 for g in _C15R.values()] + \
+    ['%s/prep14/%s' % (C15D, _n) for _n in ('em2a', 'em24', 'em27', 'em29', 'em2e', 'pl0f')]
+# Test 15 GANADO_LOD=1 GANADO_LOD_LEVEL=2 (lane leonlod): the Ganado LOD package (glod_pack.py; sha256 46566154). Without it
+# on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
+GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
+DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
+T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs,water16h,wv32r101'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures; wv32r101 (world32, ChatGPT) replaces bake13 r101 world files and adds variant 5
+# Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
+# released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
+# 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
+T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
+DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
+# Chapter 1 sound completion (lane audio16, 10-16; data only, no knob, no AICA layout change):
+#   st1/r103.dar = objs13d's r103.dar with its ROOM (ambience) and FOOT (footsteps) banks prebuilt into the frozen AICA layout
+#     (aica_banks.py fit --room r103: 16000 / 11025 Hz, the preferred caps; arena 1,004,192 = r103's enemies 668,192 + these
+#     263,616 + 72,384 left). objs13 had rebuilt r103.dar from an unconverted .dar, so both went to runtime conversion and
+#     were silent ("blk 6 / blk 5 does not fit"). Only those two ARAM parts differ from objs13d's file. sha256 see SND16/README.
+#   bgm/aica_str.dat = aica_banks.py streams --streams ch1: the ch21r file (entries 0..17 and their bytes unchanged) plus the
+#     27 chapter 1 streams that were "not in aica_str.dat, silent" (death screen 0:0, r102 0:25, r104/r107 0:10, r104 0:21,
+#     r106 0:7, r108 0:51, r100 0:18 / 1:34, r101 1:62 / 1:59, r104 1:134, r10b 1:29, the merchant's 15 voice lines
+#     1:180..1:194). 45 entries, disc +16.6 MB, no AICA or KOS change.
+# NEEDS the game knob AICA_STR_ENT_MAX=48 (+512 B .bss): with the default 32 the reader refuses the whole 45-entry file and
+# every disc stream (music, radio voices) goes silent. Order: after objs13d (it replaces objs13d's st1/r103.dar).
+SND16 = os.environ.get('SND16', PRIV + '/audio16-20261016')
+DATA['snd16'] = {'st1/r103.dar': SND16 + '/st1/r103.dar', 'bgm/aica_str.dat': SND16 + '/bgm/aica_str.dat'}
+# Lane resident16 (2026-10-16, VRAM rule: a room's textures load once at its entry; user approved the VQ look 10-16:
+# "vq looks fine go for it"). Data only, no knob: ROOM_RESIDENT=1 reads dc/resident.bin.
+#   res16h = dc/resident.bin with resident lists for every chapter 1 room and r119 (vram/resident/r000 r100 r101 r102 r103
+#     r104 r105 r106 r107 r108 r109 r10a r10b r119.tsv; regenerate with: resident_keys.py pack <out> r000.tsv r100.tsv
+#     r101.tsv r102.tsv r103.tsv r104.tsv r105.tsv r106.tsv r107.tsv r108.tsv r109.tsv r10a.tsv r10b.tsv r119.tsv),
+#     1064 records, sha256 1e3af15308350b8e. Includes the r100 woods / shed walk (+31 keys) and the Ganado kill / blood
+#     effect set (16 keys) in r103 r104 r106..r10a r119 (not r105: thrash-guard refusals in the chapter 1-2 segment).
+#   vq16cs = dc/tex.pak: tex-t13v.pak (9bbe65e6) with 39 16-bit pictures as full-codebook VQ, made by vram/vq16c-texpak.sh
+#     in three passes (vq16-ch1.txt: Leon pl08, PS2 world r102 r105 r108 r10b, em17 cast; vq16-results.txt: the chapter
+#     results screen; vq16-r104.txt: em13 / em18 cast), 3,817,472 -> 557,056 B, PSNR 26.8..57.5 dB; sha256 15611245a3ae1a82.
+#   Both files live (not in git) in RS16D = /root/probe/lanes-20261015/t15k/data/{res16h,vq16cs}. Order: after res16 and
+#   t13tex (they replace dc/resident.bin and dc/tex.pak). The lane's intermediate sets (res16c..g, vq16c, vq16cr) stay in
+#   RS16L = /root/probe/lanes-20261016/resident-k/data (evidence C:\Flycast-Evidence\re4-dreamcast\resident-20261016).
+RS16D = os.environ.get('RS16D', '/root/probe/lanes-20261015/t15k/data')
+RS16L = os.environ.get('RS16L', '/root/probe/lanes-20261016/resident-k/data')
+DATA['res16h'] = {'dc/resident.bin': RS16D + '/res16h/resident.bin'}
+DATA['vq16cs'] = {'dc/tex.pak': RS16D + '/vq16cs/tex-vq16c.pak'}
+# World32 r101: approved L2 look, 32 m opaque static batches; four base files and
+# two variant files must travel together because the R4PW tables are shared.
+WV32D = os.environ.get('WV32D', PRIV + '/world32-r101-20261016')
+DATA['wv32r101'] = {'dc/native/r101/' + _n: WV32D + '/' + _n for _n in (
+    'ps2-world.re4mesh', 'ps2-world.r4pw', 'ps2-world.ids', 'ps2-world.r4sg',
+    'ps2-wv5.re4mesh', 'ps2-wv5.r4sg')}
+for _n in ('res16c', 'res16d', 'res16e', 'res16f', 'res16g'):
+    DATA[_n] = {'dc/resident.bin': RS16L + '/' + _n + '/resident.bin'}
+for _n in ('vq16c', 'vq16cr'):
+    DATA[_n] = {'dc/tex.pak': RS16L + '/' + _n + '/tex-vq16c.pak'}
+# Lane water16 (WATER_PS2=1, test 15, user option A 10-16): water16h = res16h + the WATER_PS2 pictures of the rooms
+# drawn (tools/d367/water/resident/r107 r108 r10a r11a .tsv; regenerate with: water_resident.py pack
+# $RS16D/res16h/resident.bin <out> r107.tsv r108.tsv r10a.tsv r11a.tsv). Replaces dc/resident.bin: order after res16h.
+# 1092 records (1064 + 28), sha256 f043586efa564000. r10b / r11b lists wait in resident/after-room-lists/ (no VRAM
+# room). Lives in RS16D/water16h (not in git).
+DATA['water16h'] = {'dc/resident.bin': RS16D + '/water16h/resident.bin'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
@@ -319,6 +394,7 @@ def main():
         r.pop(k, None); rm.add(k); rec.append('rm ' + k)
     for t in opt.get('--texdir', []):
         texdir(t, r, rec)
+    rm -= set(r)  # a staged loose picture (data 'tex' dirs, --texdir) wins over the base's removal of the same file
     for k, f in (('--warp', 'dc/warp.txt'), ('--pad', 'dc/padscript.txt'), ('--qtxt', 'dc/quality.txt')):
         if k in opt:
             r[f] = opt[k][0]

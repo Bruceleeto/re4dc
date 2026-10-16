@@ -11,6 +11,12 @@
 #include "ctrl.h"
 #include "global.h"
 #include "model.h"
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+#define RE4DC_OTHER_UNIT "trans"
+#include "other_profile.h"
+#else
+#define OTHER_PHASE(p) ((void)0)
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 #include "coarse_actor_transaction.h"
 #endif
@@ -711,6 +717,10 @@ extern "C" void re4dc_pace_check(int phase);
 #endif
 #include "coarse_source_frame.h"
 extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
+#if defined(RE4DC_GC_CENSUS_TRIM) && RE4DC_GC_CENSUS_TRIM
+extern "C" const bool* const re4dc_room4_live_ptr;
+extern "C" const unsigned* const re4dc_room4_generation_ptr;
+#endif
 extern "C" void* re4dc_prim_tail(unsigned,unsigned);
 extern "C" void re4dc_log(const char*,...);
 namespace {
@@ -769,8 +779,14 @@ bool sourceActorIdentity(FrameIdentity& now) {
     // even when frame/room numbers or the manager lists have not changed.
     if(sourceActorActive && (unsigned(pG->prim_cnt)!=sourceActorPrimBase ||
        unsigned(pG->nPrim)!=sourceActorPrimBytes || unsigned(pG->vtx_buf_no)!=sourceActorPrimBuffer))return false;
+#if defined(RE4DC_GC_CENSUS_TRIM) && RE4DC_GC_CENSUS_TRIM
+    // GC_CENSUS_TRIM (lane t2exact): re4dc_room4_state's live flag and generation, read in place.
+    (void)cells;(void)bytes;(void)stale;(void)refused;
+    if(sourceActorEpoch==UINT32_MAX || !*re4dc_room4_live_ptr || !(generation=*re4dc_room4_generation_ptr))return false;
+#else
     if(sourceActorEpoch==UINT32_MAX ||
        !re4dc_room4_state(&generation,&cells,&bytes,&stale,&refused) || !generation)return false;
+#endif
     now={unsigned(pG->Frame_cnt),(unsigned(pG->stage_no)<<8)|pG->room_no,
         generation,sourceActorEpoch,unsigned(re4dc_alive_gen[1]),unsigned(re4dc_alive_gen[2])};
     return true;
@@ -1085,6 +1101,9 @@ static int invisSkip(cModel* m, int ot, int ret)
 }
 #endif
 
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+#include "other_profile_trans.inc"
+#endif
 void Trans()
 {
     u8* primStart = (u8*) pG->prim_base;
@@ -1096,6 +1115,11 @@ void Trans()
 #else
     const int roomSwapped = 0;
 #endif
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+    OTHER_INSTR_BEGIN();
+    otherAliveSnapshot(roomSwapped);
+    OTHER_INSTR_END();
+#endif
 #if defined(RE4DC_CROWD_INVIS_SKIP) && RE4DC_CROWD_INVIS_SKIP
     invisTransBegin();
 #endif
@@ -1105,6 +1129,7 @@ void Trans()
     if (roomSwapped) {coarseTick = 0;re4dc_coarse_image = 0;}
 #if RE4DC_COARSE_SOURCE_ACTORS
 
+    OTHER_PHASE(1);
 #if RE4DC_ACTOR_TRANSACTION
     re4dc_actor_transaction_retire();
 #endif
@@ -1113,8 +1138,9 @@ void Trans()
         // Full/check source path wins before any PTS presentation stage is skipped.
         const int plan=RE4DC_PACE_CHECK?0:sourceActorPlan();
         if(plan<=0) {coarseTick=0;re4dc_coarse_image=0;}
-        if(plan<0)return; // explicit malformed-list failure; never rewalk a cycle
+        if(plan<0){OTHER_PHASE(4);return;} // explicit malformed-list failure; never rewalk a cycle
     }
+    OTHER_PHASE(4);
 #endif
 #endif
 #if RE4DC_FRONT_LEAN && defined(__sh__)
@@ -1211,6 +1237,7 @@ void Trans()
         }
     }
 #endif
+    OTHER_PHASE(1);
 #if RE4DC_PACE_CATCHUP >= 2
     // v2: a dropped image needs no model OT (iteration k+1 draws nothing); every other Trans
     // stage above (effects, shadows, cloth, filters, render textures) ran as usual.
@@ -1289,6 +1316,7 @@ void Trans()
     }
 #endif
 #endif
+    OTHER_PHASE(4);
     ProcessTickGet(5, "objTrans");
     DCStoreRangeNoSync(primStart, (u8*) pG->prim_base - primStart);
 }
@@ -2560,7 +2588,9 @@ void Render()
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN_FAR);
     SetDrawTmpBufType(0);
+    OTHER_PHASE(3);
     ExecOt(OT_TYPE_SCROLL);
+    OTHER_PHASE(4);
     SetDrawTmpBufType(0);
     ExecOt(OT_TYPE_SUBSCRN);
     SetDrawTmpBufType(0);
@@ -2666,6 +2696,9 @@ static void ModelRenderBody(cModel* m)
 void ModelRender(cModel* m)
 #endif
 {
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+    OtherActorDraw otherActorDraw(m);
+#endif
 #if !(defined(RE4DC_ENCV) && RE4DC_ENCV)
 #if RE4DC_PS2_WORLD_R11F_OWNER || RE4DC_PS2_WORLD_TRANSITION_OWNER
     SourceWorldModelScope sourceWorldModelScope;

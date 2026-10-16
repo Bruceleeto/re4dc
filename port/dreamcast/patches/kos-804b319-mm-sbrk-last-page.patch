@@ -1,0 +1,14 @@
+--- a/kernel/mm/mm.c	2026-10-15 17:41:58.784256465 -0400
++++ b/kernel/mm/mm.c	2026-10-15 17:41:58.800256737 -0400
+@@ -47,7 +47,10 @@
+     do {
+         new_base = base + increment;
+ 
+-        if(new_base >= (_arch_mem_top - THD_KERNEL_STACK_SIZE)) {
++        /* re4dc KOS_SBRK_LAST_PAGE: a break that ends exactly at the kernel stack's base does not overlap it
++           (the last heap byte is base - 1), so only a break past it is refused; with '>=' the last page
++           below the stack (dlmalloc grows the heap in 4 KiB steps) could never be used. */
++        if(new_base > (_arch_mem_top - THD_KERNEL_STACK_SIZE)) {
+             char buf[128];
+ 
+             strcpy(buf, "Out of memory. Requested sbrk_base 0x");

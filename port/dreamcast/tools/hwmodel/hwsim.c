@@ -42,6 +42,19 @@ static double FILL_HIT = 14, FILL_MISS = 24, FILL_OVH = 4;     /* CPU cycles; bu
 static double WB_HIT = 8, WB_MISS = 18;                          /* dirty victim write, bus occupancy */
 static double SQ_COST = 14;                                      /* 32 B store-queue burst to TA */
 static double ICFILL_EXTRA = 0;                                  /* extra cycles on I-miss */
+/* Console-fitted miss penalties (2026-10-15 hwmiss lane): CPU-side latency added to every D fill (first beat and
+   line end; the bus is not held longer) and to every I fill, plus extra bus occupancy per dirty write-back.
+   0 = the nominal model. Fitted values: see docs/lanes/hwmodel-miss.md (--console-fit). */
+static double DMISS_LAT = 0, IMISS_LAT = 0, WB_EXTRA = 0, WMISS_LAT = 0;
+/* --console-fit (refit 2026-10-15, lane storemiss, constrained by console Bench A ACTOR_MOVCA ~0 and Bench B MEM_MOVCA
+   +0.5 house): D fill +6, I fill +5, store miss 0. --console-fit-w70: the first fit (D 0, I 4, store miss 70), which
+   those two console pairs contradict; kept for comparison only. */
+#define CF_D 6
+#define CF_I 5
+#define CF_W 0
+#define CF70_D 0
+#define CF70_I 4
+#define CF70_W 70   /* write-miss extra (WMISS_LAT); WB_EXTRA stays 0 */
 static int STREAMPF = 0;                                         /* oracle software prefetch */
 static int NO_ICACHE_MISS = 0, NO_DCACHE_MISS = 0;
 static int WA_STREAM = 0, WA_NOFILL = 0, NO_DEP = 0;  /* NO_DEP: ideal scheduling bound */   /* write-allocate what-ifs: movca.l / store-queue style full-line writes */
@@ -297,6 +310,41 @@ static int rl_has(const RList *l, u32 pc)
     while (lo <= hi) { int mid = (lo + hi) / 2; if (pc < l->r[mid].lo) hi = mid - 1; else if (pc >= l->r[mid].hi) lo = mid + 1; else return 1; }
     return 0;
 }
+/* D remap (--dmap FILE, layout what-if): lines "lo hi delta" (hex, hex, signed decimal bytes); a traced data
+   access or DMA source in system RAM with lo <= phys < hi is moved by delta (e.g. IMAGE_PAD_BYTES: everything from
+   the pad's position up to the kernel stack). Code fetches are not moved. */
+typedef struct { u32 lo, hi; s32 d; } DRange;
+static DRange dmap[64]; static int ndmap;
+static u32 dmap_addr(u32 a)
+{
+    u32 p = a & 0x1FFFFFFF;
+    if (p < 0x0C000000 || p >= 0x10000000) return a;
+    u32 q = p & 0x0CFFFFFF;                   /* RAM mirrors */
+    for (int i = 0; i < ndmap; i++)
+        if (q >= dmap[i].lo && q < dmap[i].hi) return (u32)(a + dmap[i].d);
+    return a;
+}
+/* C remap (--cmap FILE, same format): instruction fetches in a range are moved by delta bytes (any multiple of 2: a
+   sub-line shift changes which 32 B lines a function's code occupies). Literal-pool loads are data: give the same
+   ranges to --dmap. */
+static DRange cmap[64]; static int ncmap;
+static u32 cmap_pc(u32 pc)
+{
+    u32 q = pc & 0x0CFFFFFF;
+    for (int i = 0; i < ncmap; i++)
+        if (q >= cmap[i].lo && q < cmap[i].hi) return (u32)(pc + cmap[i].d);
+    return pc;
+}
+static void load_ranges(const char *path, DRange *r, int *n, const char *what)
+{
+    FILE *f = fopen(path, "r"); u32 lo, hi; int d;
+    if (!f) { perror(path); exit(1); }
+    while (*n < 64 && fscanf(f, "%x %x %d", &lo, &hi, &d) == 3) {
+        r[*n].lo = lo & 0x0CFFFFFF; r[*n].hi = hi & 0x0CFFFFFF; r[*n].d = d; (*n)++;
+    }
+    fclose(f);
+    fprintf(stderr, "%s %d ranges\n", what, *n);
+}
 /* IC remap: map old code line (32 B) to new line address */
 static u32 *icmap;     /* indexed by (pc & 0xFFFFFF) >> 5 : new physical line address or 0 */
 static u8 *pinned;     /* OC-RAM what-if: per 32 B line of RAM, 1 = lives in OC RAM (always hits) */
@@ -372,7 +420,7 @@ static double wb_cost(u32 phys)
     u32 bank = (phys >> 11) & 3, row = phys >> 13;
     double c = (open_row[bank] == row) ? WB_HIT : WB_MISS;
     open_row[bank] = row;
-    return c;
+    return c + WB_EXTRA;
 }
 /* uncached access costs in CPU cycles (Sega SH4_access990312: bus clocks x2) */
 static double uncached_read(u32 a, int size)
@@ -435,9 +483,16 @@ static int bitidx(u64 m) { return __builtin_ctzll(m); }
    collected in acc[] and become the freeze floor of the next issue; the delay the next instruction
    actually sees is then split over these categories and charged to the missing instruction. */
 static int acc_mode; static double acc[16];
+/* ---- bench part attribution (--phase) ---- */
+#define NPH 6
+static int PH_ON = 0, PH_START = 0, cur_ph = 0, ph_sp = 0, ph_stk[64];
+static u32 ph_e_phase, ph_e_push, ph_e_iter; static signed char *ph_site;
+static double ph_t0, fph_cyc[NPH], fph_cat[NPH][C_NCAT]; static u64 ph_if0, ph_df0, fph_if[NPH], fph_df[NPH];
+static u64 ph_unknown, ph_marks;
 static void charge(PcStat *s, int cat, double c)
 {
     if (c <= 0) return;
+    if (PH_ON && !acc_mode) fph_cat[cur_ph][cat] += c;
     if (acc_mode) { acc[cat] += c; return; }
     s->cyc[cat] += (u64)llround(c * 16.0);   /* 1/16 cycle fixed point */
 }
@@ -487,7 +542,7 @@ static void stream_track(double t, u32 a, u32 pc, int type)
             double st4 = bus_start(t);
             double fw;
             nl->valid = 1; nl->tag = na >> 10; nl->dirty = 0; nl->words = 0; nl->owner_pc = pc; nl->pf = 1; nl->crit = 0;
-            nl->ready = st4 + fill_cost2(na, &fw); nl->first = st4 + fw; bus_free = nl->ready;
+            nl->ready = st4 + fill_cost2(na, &fw) + DMISS_LAT; nl->first = st4 + fw + DMISS_LAT; bus_free = nl->ready - DMISS_LAT;
             PS(pc)->pf++;
         }
     }
@@ -548,13 +603,13 @@ static double oc_access(double t, u32 a, int type, u32 pc, PcStat *s, int size)
     bus_free = arrive; n_fill++;
     if (had_dirty) { bus_free = arrive + wb_cost(vphys); n_wb++; (void)wb_start; }
     if (induced) { PS(evictor)->induced++; }
-    l->ready = arrive; l->first = start + fw; l->crit = (phys >> 3) & 3; l->pf = (type == 4);
+    l->ready = arrive + DMISS_LAT; l->first = start + fw + DMISS_LAT; l->crit = (phys >> 3) & 3; l->pf = (type == 4);
     if (type == 4) { s->pf++; return 0; }   /* prefetch: non-blocking */
     if (type == 3) {
         /* copy-back write miss: the store goes into the line at once and the fill runs in the
            background (4.3.3 3c/3e); the CPU only waits for the bus to accept the fill */
         l->dirty = 1; s->dwmiss++;
-        stall = start - t;
+        stall = start - t + WMISS_LAT;   /* WMISS_LAT: console-fitted extra for a store that misses */
     } else {
         s->drmiss++;
         stall = l->first - t;
@@ -621,11 +676,12 @@ static void step(u32 pc, const Ev *ev, int nev, int taken_next, u32 next_pc)
     }
 
     /* ---- instruction fetch ---- */
-    u32 iline = (pc & 0x1FFFFFFF) >> 5;
+    u32 fpc = ncmap ? cmap_pc(pc) : pc;
+    u32 iline = (fpc & 0x1FFFFFFF) >> 5;
     double tf = 0; int icat = C_IMISS;
     if (iline != cur_iline) {
         cur_iline = iline;
-        u32 a = pc;
+        u32 a = fpc;
         if (icmap && ram_valid(pc) && icmap[(pc & 0xFFFFFF) >> 5]) a = icmap[(pc & 0xFFFFFF) >> 5] | 0x80000000u;
         if ((pc >> 29) == 5) {        /* P2: uncached fetch */
             double start = bus_start(t_prev);
@@ -641,7 +697,7 @@ static void step(u32 pc, const Ev *ev, int nev, int taken_next, u32 next_pc)
                     double fw;
                     double full = start + fill_cost2(a & 0x1FFFFFFF, &fw) + ICFILL_EXTRA;
                     bus_free = full; n_ifill++;
-                    ic_first = start + fw + ICFILL_EXTRA; ic_full = full; ic_crit = (pc >> 3) & 3; ic_line = iline;
+                    ic_first = start + fw + ICFILL_EXTRA + IMISS_LAT; ic_full = full + IMISS_LAT; ic_crit = (fpc >> 3) & 3; ic_line = iline;
                     fetch_ready = ic_first;
                     s->imiss++;
                 }
@@ -650,7 +706,7 @@ static void step(u32 pc, const Ev *ev, int nev, int taken_next, u32 next_pc)
     }
     tf = fetch_ready;
     if (iline == ic_line && ic_full > t_prev) {           /* later beats of a line still being filled */
-        double w = ic_first + 2.0 * ((((pc >> 3) & 3) - ic_crit) & 3);
+        double w = ic_first + 2.0 * ((((fpc >> 3) & 3) - ic_crit) & 3);
         if (w > ic_full) w = ic_full;
         if (w > tf) tf = w;
     }
@@ -760,12 +816,35 @@ static void step(u32 pc, const Ev *ev, int nev, int taken_next, u32 next_pc)
 }
 
 /* ---------------- trace driver ---------------- */
+static void ph_switch(int np)
+{
+    fph_cyc[cur_ph] += t_prev - ph_t0; ph_t0 = t_prev;
+    fph_if[cur_ph] += n_ifill - ph_if0; ph_if0 = n_ifill;
+    fph_df[cur_ph] += n_fill - ph_df0; ph_df0 = n_fill;
+    if (np >= 0 && np < NPH) cur_ph = np;
+}
+static void ph_enter(u32 a, u32 prun_pc, u32 prun_n)
+{
+    if (a == ph_e_push) { if (ph_sp < 64) ph_stk[ph_sp++] = cur_ph; ph_switch(2); ph_marks++; return; }
+    if (a == ph_e_iter) { ph_switch(4); ph_marks++; return; }
+    if (a != ph_e_phase) return;
+    int v = 127;
+    if (prun_n >= 2) { u32 c = prun_pc + 2 * (prun_n - 2); if (ram_valid(c)) v = ph_site[(c & 0xFFFFFF) >> 1]; }
+    if (v == 127 && prun_n >= 1) { u32 c = prun_pc + 2 * (prun_n - 1); if (ram_valid(c)) v = ph_site[(c & 0xFFFFFF) >> 1]; }
+    if (v == 126) return;                       /* internal call (push / iter): already handled */
+    if (v == -1) { ph_switch(ph_sp > 0 ? ph_stk[--ph_sp] : 4); ph_marks++; return; }
+    if (v >= 0 && v < NPH) { ph_switch(v); ph_marks++; return; }
+    ph_unknown++;
+}
 static void run_trace(const char *path)
 {
     FILE *f = fopen(path, "rb"); if (!f) { perror(path); exit(1); }
     size_t cap = 1 << 22; u32 *w = malloc(cap * 8);
     Ev *pend = malloc(sizeof(Ev) * (1 << 20)); u32 *pendpc = malloc(4 * (1 << 20)); int npend = 0;
     double t0 = t_prev;
+    if (PH_ON) { cur_ph = PH_START; ph_sp = 0; ph_t0 = t_prev; ph_if0 = n_ifill; ph_df0 = n_fill;
+                 memset(fph_cyc, 0, sizeof(fph_cyc)); memset(fph_cat, 0, sizeof(fph_cat));
+                 memset(fph_if, 0, sizeof(fph_if)); memset(fph_df, 0, sizeof(fph_df)); }
     /* delayed-run processing: we need the next run start to know branch targets */
     u32 prun_pc = 0, prun_n = 0; int have_prev = 0;
     Ev *prun_ev = malloc(sizeof(Ev) * (1 << 20)); u32 *prun_evpc = malloc(4 * (1 << 20)); int prun_nev = 0;
@@ -786,12 +865,13 @@ static void run_trace(const char *path)
             u32 type = b >> 28;
             if (type == 1) {
                 FLUSH_RUN(a);
+                if (PH_ON && have_prev) ph_enter(a, prun_pc, prun_n);
                 prun_pc = a; prun_n = b & 0x0FFFFFFF; have_prev = 1;
                 memcpy(prun_ev, pend, sizeof(Ev) * npend); memcpy(prun_evpc, pendpc, 4 * npend); prun_nev = npend;
                 npend = 0;
             } else {
                 if (npend < (1 << 20)) {
-                    pend[npend].addr = a; pend[npend].type = type; pend[npend].size = 1 << ((b >> 24) & 3);
+                    pend[npend].addr = ndmap ? dmap_addr(a) : a; pend[npend].type = type; pend[npend].size = 1 << ((b >> 24) & 3);
                     pend[npend].size_code = (b >> 24) & 15;
                     if (type >= 4 && type <= 7) pend[npend].size = 32;
                     pendpc[npend] = b & 0xFFFFFF; npend++;
@@ -800,6 +880,7 @@ static void run_trace(const char *path)
         }
     }
     FLUSH_RUN(0xFFFFFFFF);
+    if (PH_ON) ph_switch(-1);
     fclose(f);
     frame_cycles = t_prev - t0;
     tot_cycles += frame_cycles;
@@ -809,14 +890,14 @@ static void run_trace(const char *path)
 static void usage(void)
 {
     fprintf(stderr, "hwsim --elf ELF [--out P] [--oc-kb 16|8] [--oix] [--fill-hit C --fill-miss C --fill-ovh C] "
-            "[--wb-hit C --wb-miss C] [--sq-cost C] [--streampf] [--pin FILE] [--icmap FILE] [--skip FILE] "
+            "[--wb-hit C --wb-miss C] [--dmiss-lat C --imiss-lat C --wb-extra C | --console-fit | --console-fit-w70] [--sq-cost C] [--streampf] [--pin FILE] [--icmap FILE] [--dmap FILE] [--cmap FILE] [--skip FILE] "
             "[--fdiv FILE --fdiv-lat N --fdiv-lock N] [--perfect-ic] [--perfect-dc] [--no-dma] [--dma-burst C] [--burst-tail C] [--wa-stream] [--wa-nofill] [--no-dep] trace...\n");
     exit(2);
 }
 
 int main(int argc, char **argv)
 {
-    const char *elf = NULL; const char *pinf = NULL, *icf = NULL;
+    const char *elf = NULL; const char *pinf = NULL, *icf = NULL, *phf = NULL;
     int ntr = 0; const char *tr[4096];
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -832,9 +913,17 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--wb-hit")) WB_HIT = atof(ARG);
         else if (!strcmp(a, "--wb-miss")) WB_MISS = atof(ARG);
         else if (!strcmp(a, "--sq-cost")) SQ_COST = atof(ARG);
+        else if (!strcmp(a, "--dmiss-lat")) DMISS_LAT = atof(ARG);
+        else if (!strcmp(a, "--imiss-lat")) IMISS_LAT = atof(ARG);
+        else if (!strcmp(a, "--wb-extra")) WB_EXTRA = atof(ARG);
+        else if (!strcmp(a, "--wmiss-lat")) WMISS_LAT = atof(ARG);
+        else if (!strcmp(a, "--console-fit")) { DMISS_LAT = CF_D; IMISS_LAT = CF_I; WMISS_LAT = CF_W; }
+        else if (!strcmp(a, "--console-fit-w70")) { DMISS_LAT = CF70_D; IMISS_LAT = CF70_I; WMISS_LAT = CF70_W; }
         else if (!strcmp(a, "--streampf")) STREAMPF = 1;
         else if (!strcmp(a, "--pin")) pinf = ARG;
         else if (!strcmp(a, "--icmap")) icf = ARG;
+        else if (!strcmp(a, "--dmap")) load_ranges(ARG, dmap, &ndmap, "dmap");
+        else if (!strcmp(a, "--cmap")) load_ranges(ARG, cmap, &ncmap, "cmap");
         else if (!strcmp(a, "--skip")) rl_load(&skip_ranges, ARG);
         else if (!strcmp(a, "--fdiv")) rl_load(&fdiv_ranges, ARG);
         else if (!strcmp(a, "--fdiv-lat")) FDIV_LAT_OVR = atof(ARG);
@@ -846,6 +935,8 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--wa-stream")) WA_STREAM = 1;
         else if (!strcmp(a, "--no-dep")) NO_DEP = 1;
         else if (!strcmp(a, "--wa-nofill")) WA_NOFILL = 1;
+        else if (!strcmp(a, "--phase")) phf = ARG;
+        else if (!strcmp(a, "--phase-start")) PH_START = atoi(ARG);
         else if (a[0] == '-') usage();
         else tr[ntr++] = a;
     }
@@ -870,7 +961,33 @@ int main(int argc, char **argv)
         if (f) fclose(f);
         fprintf(stderr, "icmap %d lines\n", n);
     }
+    FILE *pf = NULL;
+    if (phf) {
+        ph_site = malloc(NPC); memset(ph_site, 127, NPC);
+        FILE *f = fopen(phf, "r"); char kw[16], val[16], fn[512]; u32 a; int n = 0;
+        char line[1024];
+        while (f && fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "%15s %x %15s %511s", kw, &a, val, fn) < 3) continue;
+            if (!strcmp(kw, "entry")) {
+                if (!strcmp(val, "phase")) ph_e_phase = a; else if (!strcmp(val, "push")) ph_e_push = a; else if (!strcmp(val, "iter")) ph_e_iter = a;
+            } else if (!strcmp(kw, "site") && ram_valid(a)) {
+                ph_site[(a & 0xFFFFFF) >> 1] = !strcmp(val, "pop") ? -1 : (signed char)atoi(val); n++;
+            }
+        }
+        if (f) fclose(f);
+        /* calls from inside push / iter themselves: mark every halfword of those functions as internal */
+        for (u32 x = ph_e_push; x < ph_e_push + 0x24; x += 2) ph_site[(x & 0xFFFFFF) >> 1] = 126;
+        for (u32 x = ph_e_iter; x < ph_e_iter + 0x640; x += 2) ph_site[(x & 0xFFFFFF) >> 1] = 126;
+        PH_ON = 1;
+        fprintf(stderr, "phase table: %d sites, entries %08x %08x %08x\n", n, ph_e_phase, ph_e_push, ph_e_iter);
+    }
     char path[1024];
+    if (PH_ON) {
+        snprintf(path, sizeof(path), "%s.phases.tsv", OUT); pf = fopen(path, "w");
+        fprintf(pf, "trace\tcycles");
+        for (int p = 0; p < NPH; p++) fprintf(pf, "\tcyc%d\timiss%d\tdmiss%d\tpfwait%d\tsq%d\tunc%d\tifill%d\tdfill%d", p, p, p, p, p, p, p, p);
+        fprintf(pf, "\tunknown\tmarks\n");
+    }
     snprintf(path, sizeof(path), "%s.frames.tsv", OUT);
     FILE *ff = fopen(path, "w");
     fprintf(ff, "trace\tcycles\tms\n");
@@ -878,6 +995,14 @@ int main(int argc, char **argv)
         /* caches stay warm across traced frames only if contiguous; we reset timing per frame */
         run_trace(tr[i]);
         fprintf(ff, "%s\t%.0f\t%.3f\n", tr[i], frame_cycles, frame_cycles / 200000.0);
+        if (pf) {
+            fprintf(pf, "%s\t%.0f", tr[i], frame_cycles);
+            for (int p = 0; p < NPH; p++) fprintf(pf, "\t%.0f\t%.0f\t%.0f\t%.0f\t%.0f\t%.0f\t%llu\t%llu", fph_cyc[p], fph_cat[p][C_IMISS],
+                fph_cat[p][C_DMISS], fph_cat[p][C_PFWAIT], fph_cat[p][C_SQ], fph_cat[p][C_UNCACHED],
+                (unsigned long long)fph_if[p], (unsigned long long)fph_df[p]);
+            fprintf(pf, "\t%llu\t%llu\n", (unsigned long long)ph_unknown, (unsigned long long)ph_marks); fflush(pf);
+            ph_unknown = 0; ph_marks = 0;
+        }
         fflush(ff);
     }
     fclose(ff);

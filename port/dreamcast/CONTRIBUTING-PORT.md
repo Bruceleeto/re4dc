@@ -26,8 +26,12 @@ newest test release and its Build-Assets zip from GitHub and checks them against
   (`RE4DC_KOS_BASE`) is used as is.
 * `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
 
-The Build-Assets zip holds the generated character data the release program was built with, so your
-program draws the same characters as the release: built from the release's source commit with its
+The Build-Assets zip holds the generated character data the release program was built with
+(`ps2leon/`, `ps2ganado/`, and from test 15 `glod/ganado_lod.re4gl`, the lighter villager meshes named by
+`GANADO_LOD_PACK`), so your program draws the same characters as the release. From test 15 it also carries, under
+`re4dc-assets/disc/<disc path>`, the disc data files that changed in test 15 (the chapter 1 sound files
+`st1/r103.dar` and `bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
+they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
 every release). Downloads are kept, so a second run only rebuilds.
 
@@ -47,7 +51,18 @@ The steps below are what `contrib.sh` does, for when you want to run them by han
 ## 1. Toolchain
 
 You need the exact toolchain the maintainers use: KallistiOS commit 804b3195 with the three patches in
-`patches/`, and the KOS "stable" SH4 compiler (GCC 15.2.0, binutils 2.45.1, newlib 4.6.0.20260123).
+`patches/`, the KOS "stable" SH4 compiler (GCC 15.2.0, binutils 2.45.1, newlib 4.6.0.20260123), and
+kos-ports with its sh4zam port installed (SH4ZAM, the SH4 maths library by Falco Girgis and contributors, MIT).
+
+**SH4ZAM.** The game uses SH4ZAM from kos-ports, not a copy in this repository, so upstream fixes and
+new features reach us. `toolchain.lock` pins the kos-ports commit (`KOS_PORTS_SHA`) and the SH4ZAM
+upstream commit (`SH4ZAM_SHA`); `tools/install-sh4zam.sh` checks kos-ports out at its pin and runs
+`make install GIT_CHANGESET=$SH4ZAM_SHA` in `kos-ports/sh4zam`, which installs the headers into
+`kos-ports/include/sh4zam` and `libsh4zam.a` into `kos-ports/lib` (the build reads them through
+`KOS_PORTS`, i.e. `RE4DC_KOS_PORTS`). The setup script and `contrib.sh` run it for you. To update
+SH4ZAM, bump `SH4ZAM_SHA` (and `KOS_PORTS_SHA` if the port itself changed) in `toolchain.lock`, rerun
+`tools/install-sh4zam.sh`, rebuild, and gate the change like any other (render-only users: stills and
+logic STRICT; logic users: decisions-identical).
 
 **Script.**
 
@@ -72,7 +87,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test14/release-knobs.txt` (test 14; its header names the source commit). The maintainers write that file from
+`tools/d367/test15/release-knobs.txt` (test 15; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -84,6 +99,9 @@ different from the release:
   every hand pose).
 * `PS2_GANADO=0 PS2_GANADO_LIT=0`: the male villagers are the GameCube models (the release draws the
   PS2 models with the PS2 lighting).
+* `GANADO_LOD=0`: no lighter villager meshes (they need the PS2 villagers and the zip's `glod/`).
+* `ACTOR_PROBE_LIGHT=1 GANADO_LIT=0`: only Leon is lit by the room-light probe (the release lights the PS2 villagers
+  with it too).
 * El Gigante, Del Lago, the female villagers, the animals, Ashley, the PS2 room objects and the PS2 room
   worlds (with the village's baked doors, windows and racks) come from the disc, so they draw as in the
   release.
@@ -120,6 +138,21 @@ The release program starts with the speed display off. Hold R and press START to
 frames per second and game speed (the VMU shows the Leon, Ashley, Hunnigan and Luis pages instead of speed
 numbers). Frame pacing is set in Options (Fast is the default). Hold X and press START to switch the look
 preset. A build with `SPEED_VMU_OFF=0` puts the speed numbers back on the VMU.
+
+The player options are the rows in Options (START): Frame pacing (stored on the VMU), Rendering (Standard or FSAA,
+knob `RENDER_FSAA`) and View distance (Full, Near or Short, knob `VIEW_DIST_OPTION`: the world is drawn to 25, 18.75
+or 12.5 m and the fog reaches full strength there; drawing only, the game logic is unchanged). Two rules refine it
+(game/option_rows.cpp): a per-room minimum far table, `kViewRoomMin`, keeps rooms that need their horizon at Full (the
+lakes r10b, r11a and r11b); and while the player stands in one of the room's indoor effect areas (the game's
+weather-off areas, `Status_flg[1]` 0x02000000) the fog ramp starts behind that area, so a house interior is not
+fogged while the scenery seen through its doors and windows still fades out before the cut. Rendering and View
+distance are not saved: every boot starts in Standard and Full. Foliage (Full, Near or Off, knobs `FOLIAGE_TRIM`
+(the level word and the boot level, hwfog.mk) and `FOLIAGE_OPTION` (the row)): the translucent PS2 world parts whose
+texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table platform/include/foliage_keys.inc, built
+from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and the whole
+translucent world pass is left out at Off; soft decals, shadow strips and ground blends stay translucent. It is not
+saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
+`viewdist 0|1|2` starts the run at Full, Near or Short.
 
 ## 6. Send a patch
 
@@ -182,9 +215,10 @@ On every test release, in the same landing as the release recipe, before the rel
 1. Refresh the knob file from the release's play build:
    `python3 port/dreamcast/tools/d367/release-knobs.py write <out-<label>>/candidate.txt
    port/dreamcast/tools/d367/<test>/release-knobs.txt --test N --tag <tag> --source <sha> --recipe <t-build.sh>
-   --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name>`.
+   --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name> [--disc-sets <t11-fix.py sets>]`.
 2. Point `RELEASE_KNOBS` in `build-public.sh` at it (one line), and update the release names in this page.
-3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip>`), not by hand.
+3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip> --disc-sets <the knob
+   file's disc-sets line>`, or the test's package script), not by hand.
 4. Run `tools/d367/kit-check.sh <knob file> <out-<label>> <package dir>` (knob file = recipe, zip = recipe,
    these docs name no older release, a clean checkout of the release commit rebuilds the release program
    byte for byte, builds without assets, swaps onto the release disc), then `tools/d367/kit-boot.sh <WORK>`

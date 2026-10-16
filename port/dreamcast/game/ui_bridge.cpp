@@ -107,7 +107,7 @@ extern "C" void re4dc_draw_id_quad(const IdUnit* u) {
     Mtx model;
     RE4DC_RENDER_MTXConcat(IDSystem::m_scrn_mat, u->mat, model);
     float projection[7], viewport[6];
-    GXGetProjectionv(projection); GXGetViewportv(viewport);
+    RE4DC_GXF_GET_PROJECTION(projection); RE4DC_GXF_GET_VIEWPORT(viewport);
     for (unsigned i=0; i<4; ++i) {
 #if RE4DC_UI_QUAD_LEAN
         float x,y;
@@ -242,6 +242,10 @@ extern "C" void re4dc_room4_open();
 extern "C" void re4dc_room4_close();
 #if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS
 extern "C" void re4dc_kos_census_log(const char* phase,unsigned room);  // platform/kos_census.cpp
+#if RE4DC_KOS_CENSUS>=2
+extern "C" void re4dc_kos_census_window(unsigned room,unsigned frame);
+extern "C" void re4dc_kos_threads_report(void);
+#endif
 #endif
 extern "C" int re4dc_room4_state(unsigned* generation,unsigned* cells,unsigned* bytes,unsigned* stale,unsigned* refused);
 namespace {
@@ -366,6 +370,9 @@ extern "C" void re4dc_pl08_pack_room_leave();
 #if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
 extern "C" void re4dc_leon_hands_room_enter();              // coarse_actor_leon_hands.inc
 #endif
+#if defined(RE4DC_LEON_LOD) && RE4DC_LEON_LOD
+extern "C" void re4dc_leon_lod_room_enter();                // coarse_actor_leon_lod.inc
+#endif
 #if defined(RE4DC_STATIC_OBJ_BATCH) && RE4DC_STATIC_OBJ_BATCH
 extern "C" void re4dc_sob_room_leave();                     // model_bridge.cpp STATIC_OBJ_BATCH
 #endif
@@ -452,6 +459,9 @@ extern "C" void re4dc_room_enter(){
 #if defined(RE4DC_LEON_HAND_PACK) && RE4DC_LEON_HAND_PACK
     re4dc_leon_hands_room_enter();                       // Leon's home hand poses into the AICA hand cache
 #endif
+#if defined(RE4DC_LEON_LOD) && RE4DC_LEON_LOD
+    re4dc_leon_lod_room_enter();                         // a LEON_LOD level change requested since the last enter
+#endif
     room_frames=0;steady_logged=false;
     audit(0);
 }
@@ -496,7 +506,13 @@ extern "C" int re4dc_room_cycle_poll(){
 #endif
     ++room_frames;
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
-    if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+    if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id)); if(room_frames==1)RE4DC_DOORPH_END(unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+#endif
+#if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS>=2
+    if(room_frames==1 || room_frames%150==0){  // KOS_CENSUS=2 (diagnostic): peak census per window, thread stacks
+        re4dc_kos_census_window(unsigned(pG?pG->room_id:0),room_frames);
+        re4dc_kos_threads_report();
+    }
 #endif
 #if defined(RE4DC_KOS_TRACE) && RE4DC_KOS_TRACE
     if(room_frames%RE4DC_KOS_TRACE==0){  // KOS_TRACE (crowd.mk, diagnostic): KOS malloc headroom through the room
@@ -584,6 +600,14 @@ struct Room4 {
     unsigned live_cells,live_bytes,stale_frees,refused;
 };
 Room4 room4{};
+#if defined(RE4DC_GC_CENSUS_TRIM) && RE4DC_GC_CENSUS_TRIM
+}
+// GC_CENSUS_TRIM (lane t2exact): sourceActorIdentity (trans.cpp, ~110-170 calls a frame) reads the two words it uses
+// from re4dc_room4_state() directly.
+extern "C" const bool* const re4dc_room4_live_ptr=&room4.live;
+extern "C" const unsigned* const re4dc_room4_generation_ptr=&room4.generation;
+namespace {
+#endif
 
 void* room_alloc4(unsigned bytes,const char* tag,bool clear){
     if(!room4.live || !memCheckHeapActive(4)){
