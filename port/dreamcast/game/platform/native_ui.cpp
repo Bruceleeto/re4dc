@@ -4307,6 +4307,19 @@ extern "C" void re4dc_ui_vram_unclaim(){
     re4dc_log("native texture unclaim: claims=%u preload=%d free=%u\n",vram_claims,preload_pending?1:0,(unsigned)pvr_mem_available());
 }
 #endif
+#if defined(RE4DC_SS11_PRELOAD) && RE4DC_SS11_PRELOAD
+// SS11_PRELOAD (subscreen.mk; VRAM graphics memory rule): MemDestroyHeap(11) (main_mem.cpp) calls this when the chapter
+// title card or the chapter-end results / save screens close (they live in SS heap 11; the game is paused there). Their
+// pictures (~1 MB with the results screen) evicted the room's set, which then came back from disc one first sight at a
+// time in play (r105 after the chapter 1-2 save screen: 81 uploads). A room preload pass at the close loads the room's
+// set back in one pass, before play resumes, as at room entry.
+extern "C" void re4dc_ui_room_preload_again(){
+#if RE4DC_TEX_RESIDENT
+    preload_pending=true;
+#endif
+    re4dc_log("native texture preload again: SS heap 11 closed free=%u\n",(unsigned)pvr_mem_available());
+}
+#endif
 extern "C" int re4dc_ui_bind_core(void* archive,unsigned bytes){
     sources_reset();
     const bool ok=core_identities.adopt(archive,bytes);
