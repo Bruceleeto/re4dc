@@ -4307,6 +4307,19 @@ extern "C" void re4dc_ui_vram_unclaim(){
     re4dc_log("native texture unclaim: claims=%u preload=%d free=%u\n",vram_claims,preload_pending?1:0,(unsigned)pvr_mem_available());
 }
 #endif
+#if defined(RE4DC_SS11_PRELOAD) && RE4DC_SS11_PRELOAD
+// SS11_PRELOAD (subscreen.mk; VRAM graphics memory rule): MemDestroyHeap(11) (main_mem.cpp) calls this when the chapter
+// title card or the chapter-end results / save screens close (they live in SS heap 11; the game is paused there). Their
+// pictures (~1 MB with the results screen) evicted the room's set, which then came back from disc one first sight at a
+// time in play (r105 after the chapter 1-2 save screen: 81 uploads). A room preload pass at the close loads the room's
+// set back in one pass, before play resumes, as at room entry.
+extern "C" void re4dc_ui_room_preload_again(){
+#if RE4DC_TEX_RESIDENT
+    preload_pending=true;
+#endif
+    re4dc_log("native texture preload again: SS heap 11 closed free=%u\n",(unsigned)pvr_mem_available());
+}
+#endif
 extern "C" int re4dc_ui_bind_core(void* archive,unsigned bytes){
     sources_reset();
     const bool ok=core_identities.adopt(archive,bytes);
@@ -7221,6 +7234,9 @@ extern "C" int re4dc_water45_quad(const float positions[4][3],const float rgb[4]
     frame_queue_peak=std::max(frame_queue_peak,unsigned(sizeof(frame_storage))-deferred_top+deferred_spill_capacity-deferred_spill_top);
     return 1;
 }
+#if defined(RE4DC_WATER_PS2) && RE4DC_WATER_PS2
+#include "include/native_water_ps2.inc"   // WATER_PS2 (lane water16): PS2 water layers
+#endif
 #if defined(RE4DC_LAKE_RIPPLES) && RE4DC_LAKE_RIPPLES
 // LAKE_RIPPLES (native_lake.cpp): a prebuilt TR packet (headers and vertices) queued like the water quad above.
 extern "C" int re4dc_ui_tr_packet(const void* packet,unsigned bytes){
@@ -8006,6 +8022,12 @@ extern "C" void re4dc_model_finish_source_draws(){
             const unsigned bytes=deferred_first->changed[0];
             deferred_first=deferred_first->next;stream_send(packet,bytes);continue;
         }
+#if defined(RE4DC_WATER_PS2) && RE4DC_WATER_PS2
+        if(deferred_first->lighting==kWaterTag){   // WATER_PS2: the layer's vertices are generated here
+            const auto* w=reinterpret_cast<const WaterNode*>(reinterpret_cast<const unsigned char*>(deferred_first)+kWaterNode);
+            deferred_first=deferred_first->next;water_emit(*w);continue;
+        }
+#endif
 #endif
 #if RE4DC_EFFECT_SPRITES
         if(deferred_first->lighting==kSpriteTag){

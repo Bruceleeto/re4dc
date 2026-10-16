@@ -315,10 +315,10 @@ GAME_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 endif
 # FAR_SHELL=1 (lane farshell16, proof of concept 2026-10-16; default 0 = no code; render only; needs VIEW_DIST_OPTION=1 and
-#   PS2_WORLD_MESH): at View distance Near / Short the PS2 world's opaque pass stops at the cut, but the fog, the PT / TR
+#   PS2_WORLD_MESH): at View distance Short the PS2 world's opaque pass stops at the cut, but the fog, the PT / TR
 #   world passes, actors and objects keep Full's far, and the room's far shell (dc/native/rXXX/far-shell.fsh, built by
 #   tools/d367/farshell from the room's PS2 world package; the world's own textures, no new VRAM) is drawn beyond the cut
-#   (platform/far_shell.inc). No file for a room = Short without shell there. DBG_WARP builds: warp line `farshell 0|1|2`
+#   (platform/far_shell.inc). Near, and Short in a room without a file, keep the plain cut. DBG_WARP builds: warp line `farshell 0|1|2`
 #   (0 the View distance cut as before, 1 shell, 2 opaque cut only, for pricing).
 FAR_SHELL ?= 0
 ifneq ($(filter-out 0 1,$(FAR_SHELL)),)
@@ -330,6 +330,25 @@ $(error FAR_SHELL needs VIEW_DIST_OPTION=1)
 endif
 GAME_CPPFLAGS += -DRE4DC_FAR_SHELL=1
 PLATFORM_CPPFLAGS += -DRE4DC_FAR_SHELL=1
+endif
+# FOLIAGE_OPTION=1 (test 15, user 10-16 "ship with full near and off"; default 0 = no code; render only): a fourth Options
+#   row below View distance, "Foliage  Full / Near / Off" (option_rows.cpp), setting the FOLIAGE_TRIM level (hwfog.mk:
+#   0 full = every translucent world part as the PS2 draws it, 1 near = cut-out brush / leaf cards in the punch-through
+#   list to 12 m, 2 off = no translucent world pass). This boot only: every boot starts at the recipe's FOLIAGE_TRIM level.
+#   Needs VIEW_DIST_OPTION=1 (the row code) and FOLIAGE_TRIM (the level word). DBG_WARP builds: warp line `foliage 0|1|2`.
+FOLIAGE_OPTION ?= 0
+ifneq ($(filter-out 0 1,$(FOLIAGE_OPTION)),)
+$(error FOLIAGE_OPTION must be 0 or 1)
+endif
+ifeq ($(FOLIAGE_OPTION),1)
+ifneq ($(VIEW_DIST_OPTION),1)
+$(error FOLIAGE_OPTION=1 needs VIEW_DIST_OPTION=1 (the Options row code))
+endif
+ifeq ($(FOLIAGE_TRIM),)
+$(error FOLIAGE_OPTION=1 needs FOLIAGE_TRIM (the level the row sets; 1 = boots at Near))
+endif
+GAME_CPPFLAGS += -DRE4DC_FOLIAGE_OPTION=1
+PLATFORM_CPPFLAGS += -DRE4DC_FOLIAGE_OPTION=1
 endif
 # RENDER_DOUBLE=1 (debug fallback): Standard / Fast show each line twice instead of alternating lines.
 ifneq ($(RENDER_DOUBLE),1)
@@ -2842,6 +2861,20 @@ $(error PS2_ROOM_PIN must be 0 or 1)
 endif
 $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_PS2_ROOM_PIN=1
 endif
+# WORLD_VERT=1 (native_static.cpp, render only, default 0; lane worldvert 2026-10-15): wholesale world vertex levels.
+# tools/ps2_world_vert_ladder.py writes level N of a room's PS2 world as ps2-wvN.re4mesh (+ ps2-wvN.r4sg) beside the
+# level-0 package (same R4PW sidecar / ids). WORLD_VERT_LEVEL (default 0 = the source package) picks the level at open;
+# The level is selected only at open. Memory neutral: heap-4 blocks are sized by
+# level 0. A missing or larger level file falls back to level 0. Collision is untouched (separate file).
+WORLD_VERT ?= 0
+WORLD_VERT_LEVEL ?= 0
+ifneq ($(WORLD_VERT),0)
+ifneq ($(WORLD_VERT),1)
+$(error WORLD_VERT must be 0 or 1)
+endif
+$(OBJDIR)/platform/native_static.o: PLATFORM_CPPFLAGS += -DRE4DC_WORLD_VERT=1 -DRE4DC_WORLD_VERT_LEVEL=$(WORLD_VERT_LEVEL)
+endif
+
 # PS2_STRIP_GROUPS=1 (native_static.cpp, render only, default 0; lane objs 2026-10-15): reads dc/native/rNNN/
 # ps2-world.r4sg (tools/ps2_strip_groups.py: up to 4 spatial strip groups per meshlet, corners renumbered per group, in
 # a re-ordered ps2-world.re4mesh of the same size) into heap 4 (r101: 110,496 B). A meshlet that straddles the frustum

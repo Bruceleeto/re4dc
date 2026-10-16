@@ -43,6 +43,9 @@ char* strcpy(char* dst, const char* src);
 char* strrchr(const char* s, int c);
 int sprintf(char* buf, const char* fmt, ...);
 void* memset(void* dst, int c, unsigned int n);
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_SS11_PRELOAD) && RE4DC_SS11_PRELOAD
+void re4dc_ui_room_preload_again(void);  // native_ui.cpp (SS11_PRELOAD)
+#endif
 }
 
 extern char* pRK;
@@ -412,6 +415,10 @@ int MemDestroyHeap(int no)
         OSDestroyHeap(Heap[no].handle);
         Heap[no].handle = -1;
         OSReport("succeed!!\n");
+#if defined(RE4DC_GAME) && !defined(__PPC__) && defined(RE4DC_SS11_PRELOAD) && RE4DC_SS11_PRELOAD
+        // SS11_PRELOAD: the chapter title / results / save screens (SS heap 11) closed: the room preload runs again.
+        if (no == 11) re4dc_ui_room_preload_again();
+#endif
         return 1;
     }
     OSReport("failed!!\n");

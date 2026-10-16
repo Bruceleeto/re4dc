@@ -127,10 +127,31 @@ extern "C" float re4dc_view_indoor_depth(void)
 }
 #endif
 
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+extern "C" unsigned re4dc_foliage;  // platform/native_static.cpp (FOLIAGE_TRIM): 0 full, 1 near, 2 off
+#endif
 namespace {
 constexpr int kRowPacing = 5, kRowRender = 6, kBack = 4;
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 constexpr int kRowView = 7;
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+// FOLIAGE_OPTION=1 (game30.mk, lane mist16): a fourth row below View distance, "FOLIAGE  FULL / NEAR / OFF"
+// (platform/native_static.cpp re4dc_foliage: 0 full, 1 near, 2 off; render only). This boot only: every boot starts at
+// the recipe's FOLIAGE_TRIM level (test 15: Near), nothing is stored.
+constexpr int kRowFoliage = 8;
+const char* const kFoliageName[3] = {"FULL", "NEAR", "OFF"};
+int foliage_value() { return re4dc_foliage > 2U ? 0 : int(re4dc_foliage); }
+#if RE4DC_RENDER_QUALITY_ONLY
+constexpr int kRows = 3;  // Frame pacing, View distance, Foliage
+const s8 kRowId[3] = {kRowPacing, kRowView, kRowFoliage};
+#else
+constexpr int kRows = 4;  // Frame pacing, Rendering, View distance, Foliage
+const s8 kRowId[4] = {kRowPacing, kRowRender, kRowView, kRowFoliage};
+#endif
+constexpr int kSlotView = 12;  // the View distance row's message slot (13 / 14 are the first two rows')
+constexpr int kSlotFoliage = 11;  // the Foliage row's message slot
+bool new_row(int row) { return row == kRowPacing || row == kRowRender || row == kRowView || row == kRowFoliage; }
+#else
 #if RE4DC_RENDER_QUALITY_ONLY
 constexpr int kRows = 2;  // Frame pacing, View distance
 const s8 kRowId[2] = {kRowPacing, kRowView};
@@ -140,6 +161,7 @@ const s8 kRowId[3] = {kRowPacing, kRowRender, kRowView};
 #endif
 constexpr int kSlotView = 12;  // the View distance row's message slot (13 / 14 are the first two rows')
 bool new_row(int row) { return row == kRowPacing || row == kRowRender || row == kRowView; }
+#endif
 #define ROW_ID(k) kRowId[k]
 #else
 #if RE4DC_RENDER_QUALITY_ONLY
@@ -159,7 +181,10 @@ enum : u16 { PAGE = 0x00, END = 0x01 };
 struct Table {
     u32 hdr;
     u32 lang[8];
-#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+    u32 x0, count, ofs[8];
+    u16 text[400];
+#elif defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
     u32 x0, count, ofs[6];
     u16 text[300];
 #else
@@ -198,7 +223,9 @@ void build()
     table.hdr = 8;
     for (u32& l : table.lang) l = block;
     table.x0 = 0;
-#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+    table.count = 8;
+#elif defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
     table.count = 6;
 #else
     table.count = 4;
@@ -222,12 +249,25 @@ void build()
     table.ofs[5] = text0 + 2 * text_n;
     put(PAGE); put("Less distant scenery for more speed  this boot only"); put(END);
 #endif
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+    // Messages 6 foliage row, 7 foliage help.
+    table.ofs[6] = text0 + 2 * text_n;
+    put(PAGE); put("FOLIAGE   "); put(kFoliageName[foliage_value()]); put(END);
+    table.ofs[7] = text0 + 2 * text_n;
+    put(PAGE); put("Less see through brush for more speed  this boot only"); put(END);
+#endif
 }
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 // Message numbers of a new row's text and help (build() above).
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+int row_mes(int row) { return row == kRowPacing ? 0 : row == kRowRender ? 1 : row == kRowView ? 4 : 6; }
+int help_mes(int row) { return row == kRowPacing ? 2 : row == kRowRender ? 3 : row == kRowView ? 5 : 7; }
+int row_slot(int k) { return ROW_ID(k) == kRowView ? kSlotView : ROW_ID(k) == kRowFoliage ? kSlotFoliage : kSlot0 + k; }
+#else
 int row_mes(int row) { return row == kRowPacing ? 0 : row == kRowRender ? 1 : 4; }
 int help_mes(int row) { return row == kRowPacing ? 2 : row == kRowRender ? 3 : 5; }
 int row_slot(int k) { return ROW_ID(k) == kRowView ? kSlotView : kSlot0 + k; }
+#endif
 #endif
 void mes(int no, int x, int y, u32 attr, int slot)
 {
@@ -257,7 +297,10 @@ void mes(int no, int x, int y, u32 attr, int slot)
 u32 rgba(const IdUnit* u) { return (u32(u8(u->col[0])) << 24) | (u32(u8(u->col[1])) << 16) | (u32(u8(u->col[2])) << 8) | u8(u->col[3]); }
 // Cursor order 0, 1, 2, 3, 5, 6, 4 (rows 0..3, the two new rows, EXIT).
 constexpr int kOrderN = 5 + kRows;
-#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+// Cursor order 0, 1, 2, 3, the new rows (5, 6, 7, 8 or 5, 7, 8), 4.
+const s8 kOrder[9] = {0, 1, 2, 3, kRowId[0], kRowId[1], kRowId[2], kRows == 4 ? kRowId[3] : kBack, kBack};
+#elif defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 // Cursor order 0, 1, 2, 3, the new rows (5, 6, 7 or 5, 7), 4.
 const s8 kOrder[8] = {0, 1, 2, 3, kRowId[0], kRowId[1], kRows == 3 ? kRowId[2] : kBack, kBack};
 #else
@@ -271,6 +314,14 @@ void change(int row, int dir)
         re4dc_view_dist_set((view_level + 3 + dir) % 3, "options");
         SndCall(0, 0x3A, 0, 0, 0, 0);
         re4dc_log("options: view distance %s\n", kViewName[view_level]);
+        return;
+    }
+#endif
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+    if (row == kRowFoliage) {   // Full -> Near -> Off (right / A), this boot only: nothing is stored
+        re4dc_foliage = unsigned((foliage_value() + 3 + dir) % 3);
+        SndCall(0, 0x3A, 0, 0, 0, 0);
+        re4dc_log("options: foliage %s\n", kFoliageName[foliage_value()]);
         return;
     }
 #endif
