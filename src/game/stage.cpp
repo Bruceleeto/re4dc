@@ -218,7 +218,7 @@ void StageSet()
     // Native room owners live in heap 4, which the stage reload / REL relink
     // below overlays with heaps 2 and 3 before gameRoomMemInit replaces it:
     // retire them while it is intact (ui_bridge.cpp room lifecycle).
-    re4dc_room_leave();
+    re4dc_room_leave(); RE4DC_DOORPH("set.leave");
 #endif
     if (flags & 0x2000) {
         reload = 1;
@@ -233,7 +233,7 @@ void StageSet()
         RoomData.stopRelData();
         MemReplaceHeap(1, 2); RE4DC_TRACE_OWNER_RELEASE(1);
         MemSetCurrentHeap(2);
-        cMes.stageInit();
+        cMes.stageInit(); RE4DC_DOORPH("set.reload");
         if (pG->stage_no == 1) {
             pG->Item_find_flg |= 0x4;
         }
@@ -247,9 +247,9 @@ void StageSet()
         RoomData.m_RelNo = 0;
         MemReplaceHeap(2, 3); RE4DC_TRACE_OWNER_RELEASE(2);
         MemSetCurrentHeap(3);
-        RoomData.linkRelData(G_ROOM_ID);
+        RoomData.linkRelData(G_ROOM_ID); RE4DC_DOORPH("set.rel");
     }
-    readEmList(1);
+    readEmList(1); RE4DC_DOORPH("set.em");
 }
 
 // Reads the enemy list file for the current room into pG->Em_list when it differs from the loaded

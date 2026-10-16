@@ -295,6 +295,9 @@ struct Conv {
     u8 stage[1024 + 32] __attribute__((aligned(32)));
     u32 stage_len;
 } g_conv;
+#if defined(RE4DC_SND_PAD_SKIP) && RE4DC_SND_PAD_SKIP
+u32 g_padSkipped, g_padPieces;   // SND_PAD_SKIP: zero padding of the current prebuilt part not read (re4dc_audio_pad_skip)
+#endif
 
 // Sound-block ARAM policy: preferred rate cap per block kind (Hz), lowered
 // until the block fits. 0 CORE, 1 PL, 2 WEP, 3/4 BGM, 5 FOOT, 6 ROOM, 7 DOOR, 8.. EM.
@@ -1976,6 +1979,11 @@ void re4dc_audio_arq(u32 src, u32 dst, u32 len)
     if (c.next_dst >= b.gc_base + b.gc_size) {
         if (c.prebuilt) re4dc_log("aica: blk %d copied, %u bytes\n", c.blk, (unsigned) c.img_total);
         else re4dc_log("aica: blk %d converted, %u/%u samples\n", c.blk, (unsigned) c.cur, (unsigned) c.n);
+#if defined(RE4DC_SND_PAD_SKIP) && RE4DC_SND_PAD_SKIP
+        if (g_padPieces) re4dc_log("aica: blk %d pad skip %u bytes in %u pieces (not read)\n", c.blk,
+                                   (unsigned) g_padSkipped, (unsigned) g_padPieces);
+        g_padSkipped = g_padPieces = 0;
+#endif
 #if RE4DC_AICA_VERIFY
         {   // debug: hash of what AICA RAM now holds (compare with tools/aica_banks.py "fnv")
             static u8 rb[1024] __attribute__((aligned(32)));
@@ -1993,6 +2001,24 @@ void re4dc_audio_arq(u32 src, u32 dst, u32 len)
     }
     S.conv_us += (u32) (timer_us_gettime64() - t0);
 }
+
+#if defined(RE4DC_SND_PAD_SKIP) && RE4DC_SND_PAD_SKIP
+// SND_PAD_SKIP (Makefile; src/game/dvd.cpp through platform/include/snd_pad_skip.h): 1 when the ARAM part piece at
+// `dst` follows a prebuilt bank whose image (part bytes [96, 96 + total)) has fully arrived, so the piece is the
+// GameCube-size zero padding: re4dc_audio_arq copies nothing of it. The queue then skips the disc read and still
+// posts the piece (same steps, addresses and callbacks). Counted per block, logged after the block's "copied" line.
+extern "C" int re4dc_audio_pad_skip(unsigned dst, unsigned len)
+{
+    if (!g_init) return 0;
+    const Conv& c = g_conv;
+    if (c.blk < 0 || !c.prebuilt || dst != c.next_dst) return 0;
+    const Blk& b = g_blk[c.blk];
+    if (c.next_dst - b.gc_base < (u32) sizeof(AicaBankHeader) + c.img_total) return 0;
+    g_padSkipped += len;
+    ++g_padPieces;
+    return 1;
+}
+#endif
 
 void AIInit(u8* stack) { (void) stack; }
 void AIReset(void) {}

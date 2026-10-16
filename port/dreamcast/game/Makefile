@@ -1133,6 +1133,49 @@ $(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 endif
+# SND_PAD_SKIP=1 (lane doorpause16, 2026-10-16; default 0 = image unchanged; does something only with AICA_AUDIO=1): the
+# source queue leaves out the disc reads of a sound block's ARAM part past a build-time converted bank's image. The
+# part keeps the GameCube size on the disc (the game's ARAM layout is sized from it) and is zero after the image:
+# 0.85 to 2.7 MB of every chapter 1 door's 4 to 11 MB (DOOR-PAUSE-CH1-20261016.md). The skipped pieces still pass
+# through the queue's transfer step and re4dc_audio_arq (which copies only the image), so the AICA RAM, the ARAM
+# addresses, UseAramSize and the queue's steps are the same; only the reads (and their wait) are gone.
+# platform/include/snd_pad_skip.h is forced into dvd.o (the source keeps its line numbers).
+SND_PAD_SKIP ?= 0
+ifneq ($(filter $(SND_PAD_SKIP),0 1),$(SND_PAD_SKIP))
+$(error SND_PAD_SKIP must be 0 or 1)
+endif
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -include $(CURDIR)/platform/include/snd_pad_skip.h
+ifeq ($(SND_PAD_SKIP),1)
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+endif
+# DOOR_PROBE=1 (lane doorpause16, 2026-10-16; diagnostic, log only, default 0 = image unchanged; needs DISC_READ_METER=1):
+# where the door pause goes. platform/door_probe.cpp logs a "DOORPH:" line at each phase mark of a room change (door
+# press, door demo, StageSet, the gameRoomInit steps, the first gameMainLoop frame): wall ms, game-thread GD-ROM
+# blocked ms / drive calls / KB (DISC_READ_METER's counters) and CPU ms per thread class from KOS's per-thread
+# accounting (main, re4-task, other, idle); at the end the files read in the window (fs_open / fs_read wraps:
+# "DOORFILE:") and CPU per thread label ("DOORTHD:"). The marks are RE4DC_DOORPH(...) appended to existing source
+# lines (main.cpp: the vblank spin waits, "spin=" ms; game.cpp, stage.cpp, sce_at.cpp, ui_bridge.cpp) from the forced header platform/include/door_probe.h, which
+# makes them empty statements with the knob off.
+DOOR_PROBE ?= 0
+ifneq ($(filter $(DOOR_PROBE),0 1),$(DOOR_PROBE))
+$(error DOOR_PROBE must be 0 or 1)
+endif
+DOOR_PROBE_GAME = $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/stage.o $(OBJDIR)/src/game/sce_at.o $(OBJDIR)/ui_bridge.o
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -include $(CURDIR)/platform/include/door_probe.h
+ifeq ($(DOOR_PROBE),1)
+ifneq ($(DISC_READ_METER),1)
+$(error DOOR_PROBE=1 needs DISC_READ_METER=1)
+endif
+ifeq ($(IO_PROBE),1)
+$(error DOOR_PROBE=1 and IO_PROBE=1 wrap the same fs entry points)
+endif
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+$(OBJDIR)/platform/door_probe.o $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+GAME_LDFLAGS += -Wl,--wrap=fs_open -Wl,--wrap=fs_read
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/door_probe.o,$(PLATFORM_OBJS))
+endif
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
 ifeq ($(DISC_READ_METER),1)
