@@ -117,7 +117,9 @@ T15_O="OVL_ID_GUARD=1"
 T15_L="PS2_CAST_MERCHANT_LIT=1"
 # lane audio16 (eaf9c6d0, 10-16): ch1 sounds; MUST ship with data snd16 (45-entry aica_str.dat; with 32 every stream goes silent)
 T15_S="AICA_STR_ENT_MAX=48"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S"
+# lane s30movie16 (50a4b793, ChatGPT design bce6fd98 + a9533269): r100 s30 cliff movie plays (retained-world loan, 13-slot ledger)
+T15_M="MOVIE_WORLD_ARENA=1 MOVIE_WORLD_ARENA_S30=1"
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
