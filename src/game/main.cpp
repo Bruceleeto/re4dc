@@ -351,14 +351,14 @@ RESTART:
 #if RE4DC_PACE_CATCHUP
             if (!re4dc_pace_skipping)
 #endif
-            while (vsync_cnt < GetSystemVcnt() - 1) {}
+            { RE4DC_DOORSPIN(0); while (vsync_cnt < GetSystemVcnt() - 1) {} RE4DC_DOORSPIN(1); }
             Render_swap();
             PPCSync();
 #if RE4DC_PACE_CATCHUP
             // The anchor clock (29.97 ticks/s) replaces the per-iteration wait while pacing.
             if (!re4dc_pace_end())
 #endif
-            while (vsync_cnt < GetSystemVcnt()) {}
+            { RE4DC_DOORSPIN(0); while (vsync_cnt < GetSystemVcnt()) {} RE4DC_DOORSPIN(1); }
             vsync_cnt = 0;
             systemVSyncPost();
             BitOff(pG->System_flg, 0x10000000);
