@@ -7,7 +7,8 @@
 #   2. downloads the test release's GDEMU zip and Build-Assets zip from GitHub (no login), checks both
 #      against the release's SHA256SUMS.txt;
 #   3. builds the program with those assets (build-public.sh);
-#   4. puts it on the release disc (tools/swap-program.py) and prints the disc path.
+#   4. puts it on the release disc (tools/swap-program.py), checks the new disc (tools/d367/disc_lint.py) and prints
+#      its path.
 # Default release: the newest one that has a Build-Assets zip. Downloads are kept in <out>/download.
 set -euo pipefail
 PORT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -21,7 +22,7 @@ while [ $# -gt 0 ]; do
     --release) TAG=${2:?--release needs a tag}; shift 2 ;;
     --out) OUT=${2:?--out needs a directory}; shift 2 ;;
     --toolchain) TC=${2:?--toolchain needs a directory}; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *=*) KNOBS+=("$1"); shift ;;
     *) echo "contrib.sh: unknown argument $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -121,6 +122,11 @@ ASSETS=$ASSETS OUT=$OUT/build bash "$PORT/build-public.sh" "${KNOBS[@]}"
 echo "== disc"
 rm -rf "$OUT/disc"
 python3 "$PORT/tools/swap-program.py" "$DL/$GDEMU" "$OUT/build" "$OUT/disc"
+# the disc check every release disc passes (CONTRIBUTING-PORT.md section 8): the loader rules must hold; the standard
+# GD-ROM layout rules hold on every release from test 15 on (an older release disc is in the legacy layout)
+python3 "$PORT/tools/d367/disc_lint.py" --profile loader "$OUT/disc/disc.gdi" > "$OUT/disc_lint.txt" ||
+  { grep -vE '^(ok|WARN) ' "$OUT/disc_lint.txt"; die "the new disc fails disc_lint (loader profile): $OUT/disc_lint.txt"; }
+python3 "$PORT/tools/d367/disc_lint.py" --profile standard "$OUT/disc/disc.gdi" | tail -1 || true
 echo
 echo "DISC $OUT/disc/disc.gdi"
 echo "Open it in Flycast, or copy the four files of $OUT/disc to a new GDEMU SD card folder."

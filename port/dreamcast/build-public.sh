@@ -9,6 +9,7 @@
 # Output (OUT, default port/dreamcast/out-public): re4dc-game.elf, the room overlays (*.ovl) linked
 # against it, resolved-knobs.txt (every knob as make resolved it) and build.log. Put it on a disc with
 #   python3 port/dreamcast/tools/swap-program.py <release zip> <OUT> <new disc dir>
+# and check it with python3 port/dreamcast/tools/d367/disc_lint.py <new disc dir>/disc.gdi (CONTRIBUTING-PORT.md section 8).
 #
 # Env: RE4DC_KOS_BASE / RE4DC_KOS_CC_BASE (from setup-toolchain.sh's env.sh or the Docker image),
 #      OUT, OBJDIR (default OUT/obj; always rebuilt from scratch), JOBS (default 4),

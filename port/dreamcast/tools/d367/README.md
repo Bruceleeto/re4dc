@@ -651,11 +651,20 @@ bash port/dreamcast/tools/d367/assets.sh discover r100 --repo <tree> --obj <OBJD
 `GDI=1 GDI_OUT=/mnt/d/... stage.sh ...` also writes a GDI from the same tree through
 `mkgdi.sh`, which also runs on its own with the `mkdisc-hardlink.sh` arguments:
 
+Default `LAYOUT=standard` (2026-10-16, the release disc from test 15 on; CONTRIBUTING-PORT.md section 8): the
+standard GD-ROM layout written by mkdcdisc v0.0.4 (`setup-mkdcdisc.sh` builds the pinned commit; `MKDCDISC=` points
+at another binary), checked with `disc_lint.py` (standard profile) before `mkgdi.sh` returns:
+
 | Track | LBA | Content |
 |---|---|---|
-| 01 | 0 | MODE1 placeholder ISO, 606 sectors (low-density area) |
-| 02 | 756 | Audio, 302 sectors of silence |
-| 03 | 45000 | IP.BIN plus the game ISO9660, with absolute extents (`genisoimage -C 0,45000`) |
+| 01 | 0 | MODE1, low-density area, 450 sectors: ISO9660 with COPYRIGH/ABSTRACT/BIBLIOGR.TXT, IP0000.BIN headers |
+| 02 | 600 | Audio, 526 sectors of silence |
+| 03 | 45000 | IP.BIN (with TOC1) plus the game ISO9660 (Rock Ridge, absolute extents), padded to LBA 549150, files at the outer end, 1ST_READ.BIN last |
+
+`LAYOUT=legacy` (explicit; internal benchmark / harness discs only, never a release) keeps the old layout: track 01
+606 sectors with a README.TXT, track 02 at LBA 756 (302 sectors), track 03 = IP.BIN plus `genisoimage -C 0,45000`
+(Joliet + Rock Ridge, 1ST_READ.BIN first, the track ending with its last file, no TOC1). Contributors put a new
+program on either with `tools/swap-program.py` (it keeps a standard disc standard).
 
 - 1ST_READ.BIN is unscrambled, as a GD-ROM boot requires.
 - IP.BIN fields: device `GD-ROM1/1`, area `JUE`, peripherals `0799810` (VGA, VMU,
