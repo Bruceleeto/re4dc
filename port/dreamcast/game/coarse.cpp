@@ -858,6 +858,12 @@ extern "C" int re4dc_coarse_tick(int dropped)
     return ctx;
 }
 
+#define RE4DC_OTHER_UNIT "coarse"
+#include "other_profile.h"
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+namespace { struct OtherPhaseOther { ~OtherPhaseOther() { OTHER_PHASE(4); } }; }
+#endif
+
 // Render() of a coarse image: the whole opaque view, before the effect / HUD OTs.
 extern "C" void re4dc_coarse_draw(void)
 {
@@ -868,6 +874,10 @@ extern "C" void re4dc_coarse_draw(void)
     if (!pG || !SatMgr.pArray) {
         return;
     }
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
+    OtherPhaseOther otherPhaseOther;
+#endif
+    OTHER_PHASE(3);
     const std::uint64_t t0 = timer_us_gettime64();
 #if RE4DC_PS2_WORLD_DRAW
     // Texture/file work must precede coarse_begin acquiring the TA store queues.
@@ -966,7 +976,9 @@ extern "C" void re4dc_coarse_draw(void)
         o.sq = re4dc_coarse_begin(1);
     }
 #endif
+    OTHER_PHASE(2);
     draw_actors(o);
+    OTHER_PHASE(4);
     draw_effects(o);
     if (o.sq) {
         re4dc_coarse_end(o.n);
