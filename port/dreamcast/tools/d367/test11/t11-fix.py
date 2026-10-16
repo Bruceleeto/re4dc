@@ -296,6 +296,19 @@ T15_DATA = T14_DATA + ',cast15,glod,res16'  # res16 after res14r3: the HUD fix c
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
 T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
 DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
+# Chapter 1 sound completion (lane audio16, 10-16; data only, no knob, no AICA layout change):
+#   st1/r103.dar = objs13d's r103.dar with its ROOM (ambience) and FOOT (footsteps) banks prebuilt into the frozen AICA layout
+#     (aica_banks.py fit --room r103: 16000 / 11025 Hz, the preferred caps; arena 1,004,192 = r103's enemies 668,192 + these
+#     263,616 + 72,384 left). objs13 had rebuilt r103.dar from an unconverted .dar, so both went to runtime conversion and
+#     were silent ("blk 6 / blk 5 does not fit"). Only those two ARAM parts differ from objs13d's file. sha256 see SND16/README.
+#   bgm/aica_str.dat = aica_banks.py streams --streams ch1: the ch21r file (entries 0..17 and their bytes unchanged) plus the
+#     27 chapter 1 streams that were "not in aica_str.dat, silent" (death screen 0:0, r102 0:25, r104/r107 0:10, r104 0:21,
+#     r106 0:7, r108 0:51, r100 0:18 / 1:34, r101 1:62 / 1:59, r104 1:134, r10b 1:29, the merchant's 15 voice lines
+#     1:180..1:194). 45 entries, disc +16.6 MB, no AICA or KOS change.
+# NEEDS the game knob AICA_STR_ENT_MAX=48 (+512 B .bss): with the default 32 the reader refuses the whole 45-entry file and
+# every disc stream (music, radio voices) goes silent. Order: after objs13d (it replaces objs13d's st1/r103.dar).
+SND16 = os.environ.get('SND16', PRIV + '/audio16-20261016')
+DATA['snd16'] = {'st1/r103.dar': SND16 + '/st1/r103.dar', 'bgm/aica_str.dat': SND16 + '/bgm/aica_str.dat'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
