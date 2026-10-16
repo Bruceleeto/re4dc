@@ -134,7 +134,11 @@ instead: Off, VMU, Screen, Both. Hold X and press START to switch the look prese
 
 The player options are the rows in Options (START): Frame pacing (stored on the VMU), Rendering (Standard or FSAA,
 knob `RENDER_FSAA`) and View distance (Full, Near or Short, knob `VIEW_DIST_OPTION`: the world is drawn to 25, 18.75
-or 12.5 m and the fog reaches full strength there; drawing only, the game logic is unchanged). Rendering and View
+or 12.5 m and the fog reaches full strength there; drawing only, the game logic is unchanged). Two rules refine it
+(game/option_rows.cpp): a per-room minimum far table, `kViewRoomMin`, keeps rooms that need their horizon at Full (the
+lakes r10b, r11a and r11b); and while the player stands in one of the room's indoor effect areas (the game's
+weather-off areas, `Status_flg[1]` 0x02000000) the fog ramp starts behind that area, so a house interior is not
+fogged while the scenery seen through its doors and windows still fades out before the cut. Rendering and View
 distance are not saved: every boot starts in Standard and Full. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 

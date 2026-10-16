@@ -32,10 +32,35 @@ extern "C" int re4dc_res_vga(void);                                // res_mode.c
 // and noted for the fog table (native_static.cpp re4dc_fog_note_far: the fog reaches 100 % at this depth, and the
 // render-side culls that follow the fogged far - world passes, fogged model parts, the actor fog gate, effect sprites -
 // stop there too). The game's own View._zfar, camera frustum and every logic test are untouched.
+// Two refinements (user 2026-10-16), both render only and read only on game state:
+//  - kViewRoomMin: rooms that never cut below a distance (the lake keeps its full horizon for navigation).
+//  - re4dc_view_indoor_depth: while the player stands in an indoor effect area (the game's weather-off areas, Status_flg[1]
+//    0x02000000, set by esp_app.cpp EffAreaUpdate from the room's SST areas with flag bit 0: the house interiors), the
+//    farthest point of that area from the eye. native_static.cpp starts the fog ramp behind it, so the room around the
+//    player is not fogged while scenery seen through doors and windows still fades out before the cut.
+#include "espgen.h"
+#include "area.h"
+#include "player.h"
 namespace {
 int view_level;   // 0 full, 1 near, 2 short; this boot only (never stored: every boot starts at Full)
 const float kViewFar[3] = {0.0f, 18750.0f, 12500.0f};
 const char* const kViewName[3] = {"FULL", "NEAR", "SHORT"};
+// Per-room minimum far (mm) at Near / Short; kNoCut = the room is never cut (Full in every level).
+constexpr float kNoCut = 1.0e9f;
+struct ViewRoomMin { unsigned room; float min_far; };
+const ViewRoomMin kViewRoomMin[] = {
+    {0x10b, kNoCut},   // Del Lago lake: the horizon and the shore landmarks steer the boat (console ~30 fps at Full)
+    {0x11a, kNoCut},   // lake shore (r11a): the far shore and the path to r119 across the water
+    {0x11b, kNoCut},   // night lake (r11b): the islands and the shore lights steer the boat
+};
+float view_room_min()
+{
+    if (!pG) return 0.0f;
+    const unsigned room = (unsigned(pG->stage_no) << 8) | pG->room_no;
+    for (const ViewRoomMin& r : kViewRoomMin)
+        if (r.room == room) return r.min_far;
+    return 0.0f;
+}
 }  // namespace
 extern "C" int re4dc_view_dist_get(void) { return view_level; }
 extern "C" void re4dc_view_dist_set(int level, const char* why)
@@ -43,11 +68,62 @@ extern "C" void re4dc_view_dist_set(int level, const char* why)
     view_level = level < 0 || level > 2 ? 0 : level;
     re4dc_log("view distance: %s (%s)\n", kViewName[view_level], why);
 }
-// The far plane to draw with: the given far, or this level's distance when that is nearer.
+// The far plane to draw with: the given far, or this level's distance (at least the room's minimum) when that is nearer.
 extern "C" float re4dc_view_far(float far)
 {
-    const float v = kViewFar[view_level];
-    return view_level && v < far ? v : far;
+    if (!view_level) return far;
+    float v = kViewFar[view_level];
+    const float m = view_room_min();
+    if (m > v) v = m;
+    return v < far ? v : far;
+}
+// Indoors (see above): the farthest corner of the indoor area the player stands in, distance from the camera eye (mm);
+// 0 outdoors, at Full, or when the flag was set without an area (Status_flg[1] 0x800 mirror).
+extern "C" float re4dc_view_indoor_depth(void)
+{
+    if (!view_level || !pG || !pPL || !(pG->Status_flg[1] & 0x02000000)) return 0.0f;
+    const cEspSystem* sys = g_pEspSys;
+    if (!sys || !sys->pSstArea) return 0.0f;
+    Vec pos;   // EffAreaUpdate's test point
+    if (pG->Status_flg[2] & 0x10000) pos = pG->Cam.param.pos;
+    else { pos = pPL->pos; pos.y += 100.0f; }
+    const Vec eye = pG->Cam.param.pos;
+    float best = 0.0f;
+    const SstAreaEnt* ent = sys->pSstArea->ent;
+    for (u32 i = 0; i < sys->pSstArea->num; ++i, ++ent) {
+        if (!(ent->flag & 1)) continue;
+        AreaData* a = (AreaData*) const_cast<u8*>(ent->area);
+        float lo[3], hi[3];
+        if (a->type == AREA_TYPE_XZ4) {
+            const AreaXZ4& q = a->u.xz4;
+            lo[0] = hi[0] = q.p[0].x; lo[2] = hi[2] = q.p[0].z;
+            for (int k = 1; k < 4; ++k) {
+                if (q.p[k].x < lo[0]) lo[0] = q.p[k].x;
+                if (q.p[k].x > hi[0]) hi[0] = q.p[k].x;
+                if (q.p[k].z < lo[2]) lo[2] = q.p[k].z;
+                if (q.p[k].z > hi[2]) hi[2] = q.p[k].z;
+            }
+            lo[1] = q.floor - 100.0f; hi[1] = q.floor + q.height;
+        } else if (a->type == AREA_TYPE_CYLINDER) {
+            const AreaCylinder& c = a->u.cyl;
+            lo[0] = c.x - c.radius; hi[0] = c.x + c.radius; lo[2] = c.z - c.radius; hi[2] = c.z + c.radius;
+            lo[1] = c.floor - 100.0f; hi[1] = c.floor + c.height;
+        } else {
+            continue;
+        }
+        if (AreaHitCheck(a, &pos) != 1) continue;
+        const float dx0 = lo[0] - eye.x, dx1 = hi[0] - eye.x, dy0 = lo[1] - eye.y, dy1 = hi[1] - eye.y;
+        const float dz0 = lo[2] - eye.z, dz1 = hi[2] - eye.z;
+        const float mx = dx0 * dx0 > dx1 * dx1 ? dx0 * dx0 : dx1 * dx1, my = dy0 * dy0 > dy1 * dy1 ? dy0 * dy0 : dy1 * dy1;
+        const float mz = dz0 * dz0 > dz1 * dz1 ? dz0 * dz0 : dz1 * dz1;
+        const float d2 = mx + my + mz;
+        if (d2 > best) best = d2;
+    }
+    if (!(best > 0.0f)) return 0.0f;
+    float d = best, s = best;   // square root without libm: Newton from a power-of-two guess
+    while (s * s > 4.0f * d) s *= 0.5f;
+    for (int k = 0; k < 8; ++k) s = 0.5f * (s + d / s);
+    return s;
 }
 #endif
 
