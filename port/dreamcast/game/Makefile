@@ -283,7 +283,12 @@ $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 # movies (src/st1/r117.cpp); the chapter end (SceSetChapterEnd(CHAPTER_2_1, -1)) and its save run unchanged.
 MODULES += pl11:ovl em11
 # The CH21 stream file has 17 entries (r118's 0:23): the reader's table takes 32 (it refused the file at 16).
-$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=32
+# AICA_STR_ENT_MAX (lane audio16, 10-16; default 32 = image unchanged): the reader's stream table size. The chapter 1
+# stream file (aica_banks.py --streams ch1, data set snd16: 45 entries with the merchant's 15 voice streams) needs 48;
+# a file with more entries than the table is refused whole ("header invalid", every disc stream silent), so snd16 and
+# AICA_STR_ENT_MAX=48 ship together. 32 bytes of .bss per entry (48: +512 B). The 2 KB header holds up to 63.
+AICA_STR_ENT_MAX ?= 32
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=$(AICA_STR_ENT_MAX)
 export RE4DC_LINK_OVERLAY += .ovl_pl11
 $(OBJDIR)/mod/st1_3/src/st1/r117.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 ROUTE_MOVIE_GAME_CH21 = $(OBJDIR)/mod/st1_2/src/st1/r11b.o $(OBJDIR)/mod/st1_2/src/st1/r119.o $(OBJDIR)/mod/st1_3/src/st1/r117.o

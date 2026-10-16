@@ -31,6 +31,8 @@ usage:
       tools/d367/stage.sh runs for every disc; banks rewritten, the rest hardlinked)
   aica_banks.py reconvert --root DISCTREE --mirror DIR[,DIR...] --out OVERLAY [--cache DIR] [--json OUT]
       (refilter the prebuilt banks of an existing disc tree with decimate_aa, headers and sizes kept)
+  aica_banks.py fit --mirror DISCTREE --file FILE --room rNNN --out FILE2 [--cache DIR] [--json OUT] [--check]
+      (prebuild a file's GC room-arena banks into DISCTREE's frozen layout, next to the room's prebuilt banks there)
 
 Prebuilt banks are decimated with an anti-alias filter (decimate_aa, FILTER_VERSION 2); the runtime
 converter for banks that are not prebuilt keeps its box average (decimate mirrors it).
@@ -798,7 +800,23 @@ CH21R_STREAMS = (ROUTE_STREAMS[:4] + [(1, 0x33)] + CALL_VOICE_STREAMS + [(0, 4),
 # r11c (0:0xA), and the event streams of r118 after the rescue (1:5 room stream, 1:0xE0 the altar view) and r113 (1:0x27,
 # the shoulder ride), appended so every earlier entry keeps its data bytes. `--streams ch22`.
 CH22_STREAMS = CH21R_STREAMS + [(0, 0x19), (0, 9), (0, 0xA), (1, 5), (1, 0xE0), (1, 0x27)]
-STREAM_PRESETS = {'ch21': CH21_STREAMS, 'ch21r': CH21R_STREAMS, 'ch22': CH22_STREAMS}
+# Chapter 1 completion (lane audio16, 2026-10-16): every stream the chapter 1 rooms (r100..r10b) request that ch21r lacks,
+# appended so entries 0..17 and their data bytes stay identical to the ch21r file (only the 2 KB header grows). From the
+# rooms' bgm/bgmtbl.dat entries and their scripts' SndStrReq / SndRoomStrStart / EvtSndStrPlay calls; the full-play logs
+# showed 0:0, 0:10, 0:25 and 0:21 as "not in aica_str.dat, silent". r10a's 0:16 shares 0:23's stream header (already in).
+#   0:0    death / continue screen (game.cpp, 8.6 s loop)      0:25 (0x19) r102 room stream (the merchant, 41 s loop)
+#   0:10   r104 / r107 room stream (52 s loop)                 0:21 (0x15) r104 show view (r104_execShowView, 9 s)
+#   0:7    r106 battle stream (area 4, r106_ctrlBgm, 117 s)    0:51 (0x33) r108 show view (r108_execShowView, 5.5 s)
+#   0:18   r100 skull message (r100_mes_gaikotu_bgm, 5.7 s)    1:34 (0x22) r100 house event stream
+#   1:62 / 1:59 (0x3E / 0x3B) r101 fight start (by side)       1:134 (0x86) r104 event, 1:29 (0x1D) r10b event
+#   1:180..1:194 (0xB4..0xC2) the merchant's voice lines (ss_shop.cpp shop_msg[].str, shopStrPlay; 1:185 "over here"
+#   was "not in aica_str.dat" in the r102 run)
+# The backend plays one stream at a time (audio_aica.cpp str_scan), so a request made while another plays stays silent
+# as before; the file only removes the "not on the disc" case. 45 entries: the reader needs AICA_STR_ENT_MAX=48 (game
+# Makefile; at the default 32 it refuses the whole file and every disc stream is silent). `--streams ch1`.
+CH1_STREAMS = CH21R_STREAMS + [(0, 0), (0, 0x19), (0, 10), (0, 0x15), (0, 7), (0, 0x33), (0, 0x12), (1, 0x22), (1, 0x3E),
+                               (1, 0x3B), (1, 0x86), (1, 0x1D)] + [(1, n) for n in range(0xB4, 0xC3)]
+STREAM_PRESETS = {'ch21': CH21_STREAMS, 'ch21r': CH21R_STREAMS, 'ch22': CH22_STREAMS, 'ch1': CH1_STREAMS}
 
 
 def nibble_to_sample(n):
@@ -1010,6 +1028,100 @@ def disc(mirror, out, cache_dir, rooms, keys, json_out, weapons=()):
                                               free - MOVIE_RESERVE, sum(n for _, n in rep['overlay']), len(keys)))
 
 
+def tree_layout(tree):
+    """The frozen route layout (slot bytes 0..8) from the prebuilt resident banks of a disc tree."""
+    for spec in RESIDENT:
+        path, bases = archive_bases(tree, spec)
+        if not os.path.exists(path):
+            continue
+        d = open(path, 'rb').read()
+        for base in bases:
+            for (t, mo, ms, ao, asz) in sound_blocks(d, base) or []:
+                if struct.unpack_from('<I', d, ao)[0] == MAGIC:
+                    return list(HDR.unpack_from(d, ao)[9:18])
+    raise SystemExit('fit: no prebuilt resident bank in %s (no frozen layout)' % tree)
+
+
+def fit(path_in, path_out, tree, room, cache_dir, check=False, json_out=None):
+    """Prebuild the room-arena banks (ROOM, FOOT, enemies) that a disc file still carries as GC data, into the frozen
+    layout of an existing disc tree (lane audio16, 2026-10-16: test 13's objs13 st1/r103.dar was rebuilt from an
+    unconverted .dar, so r103's ROOM / FOOT banks went to runtime conversion, which only has the ~30 KB outside the
+    layout: "blk 6 / blk 5 does not fit", footsteps and ambience silent). The room's other arena banks are read from
+    `tree` as prebuilt there (ROOMS[room]); the free arena is layout[8] minus their bytes. Each block starts at
+    pref_cap and the planner's LOWER_ORDER steps one cap down on the largest block of the first kind that can still go
+    down until all fit. Same image, header and filter as `build` (decimate_aa, AicaBankHeader with the tree's layout);
+    every other byte of the file is kept."""
+    layout = tree_layout(tree)
+    d = bytearray(open(path_in, 'rb').read())
+    me = [s for s in ROOMS[room] if not s.partition('#')[0].endswith(os.path.basename(path_in))]
+    others, runtime_others = 0, []
+    for spec in me:
+        p, bases = archive_bases(tree, spec)
+        if not os.path.exists(p):
+            raise SystemExit('fit: %s not in %s' % (spec, tree))
+        od = open(p, 'rb').read()
+        for base in bases:
+            for (t, mo, ms, ao, asz) in sound_blocks(od, base) or []:
+                if slot_of(t) != 8:
+                    continue
+                if struct.unpack_from('<I', od, ao)[0] == MAGIC:
+                    h = HDR.unpack_from(od, ao)
+                    if list(h[9:18]) != layout:
+                        raise SystemExit('fit: %s was built for another layout' % spec)
+                    others += (h[3] + 31) & ~31
+                else:
+                    runtime_others.append(spec)
+    todo = []
+    for (t, mo, ms, ao, asz) in sound_blocks(bytes(d), 0) or []:
+        if slot_of(t) != 8 or struct.unpack_from('<I', d, ao)[0] == MAGIC:
+            continue
+        table, samples, coefs = wavetable(bytes(d), t, mo, ms)
+        if samples:
+            todo.append(dict(t=t, mo=mo, ms=ms, ao=ao, asz=asz, samples=samples, coefs=coefs, fnv=fnv1a(table),
+                             cap=pref_cap(t)))
+    free = layout[8] - others
+
+    def need():
+        return sum((bank_bytes(b['samples'], b['cap']) + 31) & ~31 for b in todo)
+    while need() > free:
+        for kind in LOWER_ORDER:
+            c = [b for b in todo if (b['t'] if b['t'] < 8 else 8) == kind and b['cap'] > CAPS[-1]]
+            if c:
+                b = max(c, key=lambda x: bank_bytes(x['samples'], x['cap']))
+                b['cap'] = CAPS[CAPS.index(b['cap']) + 1]
+                break
+        else:
+            raise SystemExit('fit: %s needs %d arena bytes even at %d Hz, %d free' % (path_in, need(), CAPS[-1], free))
+    rows = []
+    for b in todo:
+        loops = sample_loops(bytes(d), b['t'], b['mo'], b['ms'], len(b['samples']))
+        img, worst = cached_convert(cache_dir, bytes(d[b['ao']:b['ao'] + b['asz']]), b['samples'], b['coefs'], b['cap'],
+                                    check, loops)
+        assert len(img) == bank_bytes(b['samples'], b['cap'])
+        blob = HDR.pack(MAGIC, VERSION, b['cap'], len(img), len(b['samples']), b['fnv'], b['asz'], slot_of(b['t']), 0,
+                        *layout, *([0] * 7)) + img
+        assert len(blob) <= b['asz'], (b['t'], len(blob), b['asz'])
+        d[b['ao']:b['ao'] + b['asz']] = blob + bytes(b['asz'] - len(blob))
+        rows.append({'block': BLOCK_NAMES.get(b['t'], 'EM%d' % (b['t'] - 8)), 'gc_bytes': b['asz'],
+                     'samples': len(b['samples']), 'cap_hz': b['cap'], 'aica_bytes': len(img),
+                     'aica_at_pref_cap': bank_bytes(b['samples'], pref_cap(b['t'])), 'fnv': '%08x' % fnv1a(img),
+                     'adpcm_snr_db': None if worst > 900 else round(worst, 1)})
+        print('  %s %-4s %7d GC -> %7d AICA at %5d Hz%s' % (os.path.basename(path_in), rows[-1]['block'], b['asz'],
+              len(img), b['cap'], '' if worst > 900 else '  ADPCM SNR %.1f dB' % worst))
+    os.makedirs(os.path.dirname(os.path.abspath(path_out)), exist_ok=True)
+    with open(path_out, 'wb') as f:
+        f.write(d)
+    rep = {'room': room, 'file': path_in, 'out': path_out, 'sha256': hashlib.sha256(bytes(d)).hexdigest(),
+           'layout': layout, 'arena': layout[8], 'other_arena_bytes': others, 'runtime_other_banks': runtime_others,
+           'free_before': free, 'used_by_fit': need(), 'arena_left': free - need(), 'blocks': rows}
+    if json_out:
+        with open(json_out, 'w') as f:
+            json.dump(rep, f, indent=1)
+    print('fit %s: arena %d = others %d + these %d + left %d%s' % (room, layout[8], others, need(), free - need(),
+          ('; runtime (outside the arena): ' + ', '.join(runtime_others)) if runtime_others else ''))
+    return rep
+
+
 BANK_EXTS = ('.dar', '.drs', '.das', '.snd', '.dat')
 
 
@@ -1143,7 +1255,9 @@ def merge(mirror, overlay, out):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    ap.add_argument('cmd', choices=('plan', 'build', 'merge', 'streams', 'disc', 'reconvert'))
+    ap.add_argument('cmd', choices=('plan', 'build', 'merge', 'streams', 'disc', 'reconvert', 'fit'))
+    ap.add_argument('--file', help='fit: the disc file whose GC room-arena banks are prebuilt (e.g. a rebuilt st1/r103.dar)')
+    ap.add_argument('--room', help='fit: the ROOMS entry whose other arena banks share the arena')
     ap.add_argument('--root', help='reconvert: a disc data tree whose prebuilt banks are refiltered '
                     '(--mirror may list several unconverted mirrors, comma separated, tried in order)')
     ap.add_argument('--streams', default=','.join('%d:%d' % k for k in ROUTE_STREAMS), help='blk:no list, or a preset name: ' + ', '.join(sorted(STREAM_PRESETS)))
@@ -1167,6 +1281,11 @@ def main():
         a.streams = ','.join([k for k in a.streams.split(',') if k] + ['%d:%d' % k for k in CALL_VOICE_STREAMS])
     if a.cmd == 'merge':
         return merge(a.mirror, a.overlay, a.out)
+    if a.cmd == 'fit':   # --mirror = the disc tree whose layout and other room banks are used
+        if not (a.file and a.out and a.room):
+            raise SystemExit('fit needs --file, --room and --out')
+        fit(a.file, a.out, a.mirror, a.room, a.cache, a.check, a.json)
+        return 0
     if a.cmd == 'reconvert':
         if not (a.root and a.out):
             raise SystemExit('reconvert needs --root and --out')
