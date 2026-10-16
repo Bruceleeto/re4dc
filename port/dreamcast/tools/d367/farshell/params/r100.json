@@ -1,0 +1,14 @@
+{
+ "cut": 12500,
+ "full": 25000,
+ "cell": 12000,
+ "rays": 20000,
+ "dilate": 0,
+ "min_part": 1500,
+ "tris": 2900,
+ "weld": 150,
+ "max_dev": 1500,
+ "protect": 1,
+ "protect_by": "border",
+ "protect_w": 0.3
+}

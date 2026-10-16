@@ -30,6 +30,9 @@ The release page also has the test build checksums (`SHA256SUMS.txt`) and the te
 
 Already have Flycast? Open `gdemu/disc.gdi` from the console test ZIP, keeping all track files beside it.
 For GDEMU, keep filenames unchanged and save any card-manager changes before ejecting the card.
+Disc format: from test 16 the disc is a standard GD-ROM image (the layout of pressed GD-ROMs, as the mkdcdisc tool
+writes it; `track03.bin` is about 1.2 GB), which fixes the GDEMU-only freezes of earlier tests; leave "Shrink GDI" off.
+See [section 8 of CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md#8-disc-image-and-compatibility).
 No BIOS or personal VMU saves are included; keep your existing saves separately.
 
 | Action | Dreamcast pad |
@@ -48,7 +51,8 @@ Standard (the default, the full 640x480 picture) or FSAA, which smooths edges by
 slower in busy scenes. View distance is how far the scenery is drawn: Full (the default, as on the PS2), Near or
 Short. Near and Short fade the distant scenery into the fog sooner, which makes busy outdoor scenes faster; the
 game plays the same. Inside a house the room around you stays clear, and only what you see through the doors and
-windows fades. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
+windows fades. In the first area and the village, Short draws a simplified copy of the distant scenery
+instead, so houses, trees and the hills stay in view. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
 are drawn: Near (the default) draws the leaf and brush cards with sharp edges and only up to about 12 m, where the
 fog hides them anyway, which makes the woods faster; Full draws all of them blended, as on the PS2; Off leaves them
 out (fastest, but it also removes the walls and floor of the cabin in r109, see Known Issues). FSAA, View distance
