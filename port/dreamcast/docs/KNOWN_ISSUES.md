@@ -14,10 +14,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 10 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 19 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 12 / 12.1 / 13 / 15 / 15.1 | Fixed and checked in our tests; the problem was not console-only | 20 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 2 |
-| ⏸️ Open | Known, not yet worked on | 18 |
+| ⏸️ Open | Known, not yet worked on | 17 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -65,7 +65,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | The night lake (start of chapter 2-1): the torches have no flames and the rain is missing | test 10 and later | ⏸️ Open: they use drawing paths not yet converted; planned with the PS2 amounts (about 100 rain streaks) | [#30](https://github.com/lamb2k/re4dc/issues/30) |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
-| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | ⏸️ Open: Near (the default) and Full draw the cabin normally | |
+| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 15.1: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
 | Village (r101): the burning stake is missing its crossbar and a pyre plank, and the rails of the fence by the house are missing (scenery simplification) | test 15 | ⏸️ Open: fix in test 16 | |
 | The item menu's confirm popup does not look as it did in test 13 | test 14, 15 | ⏸️ Open: fix in test 16 | |
 | In r102, right after loading a save, a few effect pictures are not drawn while video memory is full (test 15: 4 refused; test 14: 76) | test 14, 15 | ⏸️ Open: fix planned for test 16 (the room's pictures are loaded again in one pass after a save is loaded) | [#33](https://github.com/lamb2k/re4dc/issues/33) |
