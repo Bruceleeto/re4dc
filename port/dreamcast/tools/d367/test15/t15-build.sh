@@ -149,7 +149,12 @@ T15_WV=${T15_WV-WORLD_VERT=1 WORLD_VERT_LEVEL=5}
 #      default), Options row "Foliage" Full / Near / Off, this boot only. Off removes r109's walls and floor (KNOWN_ISSUES).
 #      Gates in C:\Flycast-Evidence\re4-dreamcast\mist-20261016. T15_T="" builds the control without it.
 T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T"
+#   RS RADIO_SUB_RT=1 (lane radiosub16; console report test 14: "the radio call subtitles are very slow"): the codec call's
+#      subtitle pages follow elapsed vblanks from the voice's start (GameCube 30 Hz ticks) instead of drawn call frames, so
+#      they stay with the real-time AICA voice. UI only (the game is stopped under the sub screen). T15_RS="" builds the
+#      control. Gates in C:/Flycast-Evidence/re4-dreamcast/radiosub-20261016.
+T15_RS=${T15_RS-RADIO_SUB_RT=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T $T15_RS"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
