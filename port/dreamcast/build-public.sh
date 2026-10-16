@@ -41,12 +41,14 @@ RECIPE=$(python3 "$PORT/tools/d367/release-knobs.py" args "$RELEASE_KNOBS" "$ASS
 #   PS2_GANADO=0 PS2_GANADO_LIT=0    the male villagers are the GameCube models (the release: PS2 models, PS2-lit).
 #   GANADO_LOD=0                     (test 15 on) no lighter villager meshes: they need the PS2 villager models and
 #                                    the Build-Assets zip's glod/ganado_lod.re4gl (GANADO_LOD_PACK).
+#   ACTOR_PROBE_LIGHT=1 GANADO_LIT=0 (test 15 on) only Leon takes the room-light probe (the release: the PS2 villagers
+#                                    too, which needs PS2_GANADO_LIT).
 # The release knobs PS2_LEON_DIR / PS2_GANADO_DIR / GANADO_LOD_PACK are dropped then. The other PS2 models (El Gigante,
 # Del Lago, the female villagers, animals) and the PS2 world are disc data, so they stay on and draw as in the release.
 PRIVATE_OFF=
 if [ ! -f "$ASSETS/ps2leon/ps2leon_runtime.h" ] || [ ! -f "$ASSETS/ps2ganado/ganado_cast_runtime.h" ]; then
   RECIPE=$(tr ' ' '\n' <<<"$RECIPE" | grep -vE '^(PS2_(LEON|GANADO)_DIR|GANADO_LOD_PACK)=' | tr '\n' ' ')
-  PRIVATE_OFF="PS2_LEON=0 LEON_HAND_PACK=0 PS2_GANADO=0 PS2_GANADO_LIT=0 GANADO_LOD=0"
+  PRIVATE_OFF="PS2_LEON=0 LEON_HAND_PACK=0 PS2_GANADO=0 PS2_GANADO_LIT=0 GANADO_LOD=0 ACTOR_PROBE_LIGHT=1 GANADO_LIT=0"
   echo "build-public: no PS2 character data in $ASSETS: $PRIVATE_OFF (GameCube character models; see CONTRIBUTING-PORT.md)"
 fi
 
