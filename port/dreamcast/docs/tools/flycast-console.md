@@ -95,3 +95,16 @@ e4-dreamcast\disc-20261016 (gate-*.log, gate\).
 
 The model makes every read report COMPLETED early (worst-case GDEMU). Interpreter + cache model (dynarec off) runs
 of D3/CTL/FIX seed 3 reached no disc-check reads within 240 s: too slow for this gate; keep them for cache suspects.
+
+## Results (2026-10-16, lane discstd16 76f4af8c: the release-format gate; crash repro, not rates)
+
+The test 14 standard image (mkdcdisc, console-tested in GDEMU slot 167) with the kit warp twin (built from a clean
+checkout by kit-check.sh, 3,363,892 B, longer than the release program) swapped in by the rewritten swap-program.py
+plus the door103 fixture (kit-check RACE_FIXTURE disc-race; disc_lint standard + loader PASS, 1ST_READ.BIN still last).
+
+| Disc | Profile | Seeds failed | Bad reads | r101 placed (game time) |
+|---|---|---|---|---|
+| disc-race (standard, swapped) | gdemu | 0/10 | 0 | ~7.0 s |
+| disc-race (standard, swapped) | weak (SECS=150) | 0/10 | 0 | ~42.2 s |
+
+Evidence: `C:/Flycast-Evidence/re4-dreamcast/discstd-20261016` (gate-gdemu.log, gate-weak.log, gate/, kit-boot.log).
