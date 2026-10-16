@@ -72,7 +72,12 @@ T14_15="G1_DIAG_INLINE=1 G1_FP_UNSIGNED=1 G1_PRESORT_LAZY=1"
 T14_NC=${T14_NC-ACTOR_NO_CLEAR=1}
 # T14_DISC="" (env): the variant without the disc items (KOS_DISC_FIX=0), ready in case the console verdict on
 # KOS_DISC_FIX goes against it (LinkOrder2 console halt 10-15, "invalid prepared enemy motion archive", under analysis).
-T14_DISC=${T14_DISC-DISC_COMPAT=1 DISC_READ_FALLBACK=0}
+# Test 15 (user 10-16, "Why behind a switch, that's how most disks are read?"): the full DISC_COMPAT=1 set, i.e. plain
+# sector reads (DISC_READ_FALLBACK=2: no cdrom_stream start / cancel per read) are the default. The game logic is not
+# STRICT against test 14 across loads (plain reads move load completion by ticks); gated by decisions equivalence, load
+# time, the GDEMU + weak race gates and KOS squeeze (lane plainread16). T14_DISC="DISC_COMPAT=1 DISC_READ_FALLBACK=0" =
+# test 14's timing-neutral subset (stream reads kept).
+T14_DISC=${T14_DISC-DISC_COMPAT=1}
 T14REC="$T14_1 $T14_17 $T14_15 $T14_NC $T14_DISC $T14_18 $T14_RE MEMSET_LEAN=0"
 T14=${T14-$T14REC}
 # Test 15 knobs (TEST15-SCOPE.md rows and merge log). Merged with default 0; in T15REC only once their lane reports gates passed.
