@@ -29,7 +29,7 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 The Build-Assets zip holds the generated character data the release program was built with
 (`ps2leon/`, `ps2ganado/`, and from test 15 `glod/ganado_lod.re4gl`, the lighter villager meshes named by
 `GANADO_LOD_PACK`), so your program draws the same characters as the release. From test 15 it also carries, under
-`re4dc-assets/disc/<disc path>`, the disc data files that are new since test 14 (the chapter 1 sound files
+`re4dc-assets/disc/<disc path>`, the disc data files that changed in test 15 (the chapter 1 sound files
 `st1/r103.dar` and `bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
 they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
