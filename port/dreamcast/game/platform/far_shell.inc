@@ -116,7 +116,11 @@ namespace {
 int far_shell_mode = RE4DC_FAR_SHELL_MODE;
 float far_shell_noted = 0.0f;
 constexpr float kBias = 0.97f;   // the shell's 1/w scale: 3 % deeper than its surface (the near world wins overlaps)
-bool far_shell_cut_on() { return far_shell_mode && re4dc_view_dist_get() > 0; }
+// Only in a room whose shell is loaded: elsewhere (no file, e.g. r103) the View distance cut stays as it was (fog and
+// every pass at the cut), so no room shows an unfogged hole beyond the cut.
+bool far_shell_cut_on() {
+    return far_shell_mode && re4dc_view_dist_get() > 0 && farshell::st.h && farshell::st.room == ps2w.room;
+}
 }  // namespace
 // Warp line `farshell <mode>` (dbgwarp_bridge.cpp) and benchmark rows.
 extern "C" void re4dc_far_shell_set(int mode, const char* why) {

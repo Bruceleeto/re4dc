@@ -132,7 +132,12 @@ T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"
 #      effect areas), r10b / r11a / r11b never cut (kViewRoomMin). Gates in C:/Flycast-Evidence/re4-dreamcast/viewdist-20261016.
 #      T15_V="" builds the control without it.
 T15_V=${T15_V-VIEW_DIST_OPTION=1}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V"
+#   FS FAR_SHELL=1 (lane farshell16; render only, needs T15_V; user 10-16 "short + far shell looks good"): at Near / Short the
+#      PS2 world's opaque pass stops at the cut and the room's far shell (dc/native/rXXX/far-shell.fsh, data fsh in T15_DATA:
+#      r100 r101) is drawn beyond it with Full's fog, PT / TR world passes and actors (docs/lanes/farshell16.md). A room
+#      without a shell file keeps the plain cut. T15_FS="" builds the control without it.
+T15_FS=${T15_FS-FAR_SHELL=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_FS"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
