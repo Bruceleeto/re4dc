@@ -307,6 +307,14 @@ DATA['res16c'] = {'dc/resident.bin': RS16D + '/res16c/resident.bin'}
 # em17 cast; 2,572,288 -> 391,168 B, PSNR 26.8..57.5 dB) so each room's set fits the budget. LOOK CHANGE: needs the
 # user's still-pair decision (look/vq16c-*). sha256 206293ae45bec7cb.
 DATA['vq16c'] = {'dc/tex.pak': RS16D + '/vq16c/tex-vq16c.pak'}
+# Round 2 (held-out runs, 10-16): res16d = res16c + the first-sight keys of the lane's after / held-out runs (r100 72,
+# r103 57, r104 56, r105 75, r106 16, r107 97, r108 79, r10a 18, r10b 68, r119 86; r101 unchanged: its budget is full),
+# 922 records, sha256 8eb28776146a0e72. vq16cr = vq16c + the chapter-end results screen's three large pictures
+# (vram/vq16-results.txt, 1,048,576 -> 137,216 B, PSNR 37.5..42.0 dB; LOOK CHANGE, UI): with vq16c the r105 chapter 1-2
+# results found no contiguous 256 KiB block for 495x150 (texchk FAIL). sha256 b79408dbb6e96abf. Order: after res16 / in
+# place of vq16c.
+DATA['res16d'] = {'dc/resident.bin': RS16D + '/res16d/resident.bin'}
+DATA['vq16cr'] = {'dc/tex.pak': RS16D + '/vq16cr/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
