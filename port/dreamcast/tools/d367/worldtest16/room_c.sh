@@ -10,7 +10,7 @@ exec > $O/job.log 2>&1
 cp "$SD/ps2-world.re4mesh" src.re4mesh; cp "$SD/ps2-world.r4pw" src.r4pw; cp "$SD/ps2-world.ids" src.ids
 SZ=$(stat -c %s src.re4mesh)
 echo "room $R tag $TAG src=$SD bytes=$SZ walk=$WALK sg=$SG gate=$GATE ladder: $*"
-python3 $T/ps2_world_vert_ladder.py src.re4mesh L2.re4mesh --sidecar src.r4pw --walk "$WALK" "$@" --report L2.json >/dev/null \
+python3 ${LADDER:-$T/ps2_world_vert_ladder.py} src.re4mesh L2.re4mesh --sidecar src.r4pw --walk "$WALK" "$@" --report L2.json >L2.out \
   || { echo "FAIL ladder"; exit 3; }
 python3 $T/ps2_world_batch.py L2.re4mesh flat.re4mesh --sidecar src.r4pw --cell-mm 4000 --max-vertices 256 \
   --contiguous --max-bytes $SZ --report flat.json || { echo "contiguous over ceiling: indexed batch only"; python3 $T/ps2_world_batch.py L2.re4mesh flat.re4mesh --sidecar src.r4pw --cell-mm 4000 --max-vertices 256 --max-bytes $SZ --report flat.json || { echo "FAIL batch"; exit 4; }; echo "STORAGE=indexed"; }

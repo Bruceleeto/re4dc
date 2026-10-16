@@ -1,0 +1,8 @@
+name wt-r106-c3
+viewdist 0
+room 0x106
+pos 113010 -8260 -33390
+ang 1.178
+inv default
+god
+freeze 400
