@@ -142,8 +142,9 @@ fogged while the scenery seen through its doors and windows still fades out befo
 distance are not saved: every boot starts in Standard and Full. Foliage (Full, Near or Off, knobs `FOLIAGE_TRIM`
 (the level word and the boot level, hwfog.mk) and `FOLIAGE_OPTION` (the row)): the translucent PS2 world parts whose
 texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table platform/include/foliage_keys.inc, built
-from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and the whole
-translucent world pass is left out at Off; soft decals, shadow strips and ground blends stay translucent. It is not
+from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and every listed
+card key (classes 1-4, soft shadow / mist / grass cards included) is left out at Off; surfaces without cut-out holes
+(walls, floors, water), unlisted keys and the vertex-alpha overlays always draw. It is not
 saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 

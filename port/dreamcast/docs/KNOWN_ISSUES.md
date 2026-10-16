@@ -14,10 +14,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 20 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 21 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 5 |
-| ⏸️ Open | Known, not yet worked on | 12 |
+| ⏸️ Open | Known, not yet worked on | 11 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -64,7 +64,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
-| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | ⏸️ Open: Near (the default) and Full draw the cabin normally | |
+| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 15: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
 
 ## Sound
 
