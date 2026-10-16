@@ -14,7 +14,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
-| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 | Fixed and checked in our tests; the problem was not console-only | 10 |
+| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 10 |
 | 🛠️ In progress | Being fixed now | 2 |
 | 🔍 Investigating | Being reproduced or traced | 5 |
 | ⏸️ Open | Known, not yet worked on | 14 |
@@ -60,7 +60,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | A few effect pictures are the GameCube ones: two shared room effects seen in most chapter 1 rooms, one in r101 / r103 / r106 and one animated effect in r117; every other effect uses the PS2 pictures | test 12, 13 | ⏸️ Open: the PS2 version has no matching picture for these four; the full-play checks of test 12.2 and test 13 found no others. The 31 shared fire, smoke and spark pictures that test 12 took from the GameCube now use the PS2 pictures | |
-| The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
+| The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | 🟢 Fixed in test 15: lit by the room lights | |
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
