@@ -149,7 +149,12 @@ T15_WV=${T15_WV-WORLD_VERT=1 WORLD_VERT_LEVEL=5}
 #      default), Options row "Foliage" Full / Near / Off, this boot only. Off leaves out the listed card keys only (85128754).
 #      Gates in C:\Flycast-Evidence\re4-dreamcast\mist-20261016. T15_T="" builds the control without it.
 T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T"
+#   HZ HAZE_SPRITE_CUT=1 (lane nohaze16, test 15.1; user 10-16 "i don't think we need those sprites at all", "let's make off
+#      really mean off"; render only): no haze / mist sprite is drawn in any room at any Foliage setting (the camera haze
+#      around Leon, the Esp48 mist sheets, the r118 / r11c PS2 haze additions); the distant haze stays as the fog table.
+#      Ships with the Foliage Off fix (85128754). T15_HZ="" builds the control without it. Docs: docs/MIST_CUT.md.
+T15_HZ=${T15_HZ-HAZE_SPRITE_CUT=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T $T15_HZ"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
