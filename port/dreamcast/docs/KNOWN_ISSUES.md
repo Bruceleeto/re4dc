@@ -14,10 +14,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
-| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 10 |
+| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 11 |
 | 🛠️ In progress | Being fixed now | 2 |
 | 🔍 Investigating | Being reproduced or traced | 5 |
-| ⏸️ Open | Known, not yet worked on | 14 |
+| ⏸️ Open | Known, not yet worked on | 13 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
