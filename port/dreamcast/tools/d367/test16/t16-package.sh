@@ -14,14 +14,19 @@
 # Output: $P (default C:\Game Dev\Emulators\RE4DC-Test16-Candidate): gdemu\, the GDEMU zip, the Build-Assets zip,
 # README.txt, SHA256SUMS.txt. Not published: the gates run on this package first. $R/logs/manifest-$L.json lists every
 # file of the disc (fp_iso.py manifest) for identity checks against other builds.
+# PKG_SRC: the package base tree (t8-pkgtree.py); default the test 14 candidate disc tree minus 1ST_READ.BIN
+#   (/root/probe/lanes-20261015/t15k/pkgsrc-t14cand, in keep.txt). Without it packages are incomplete (1,736 of 2,612 files).
+# The Build-Assets zip also carries the disc data sets named in the knob file's '# disc-sets:' line (as test 15).
 # Env: L (play label, default t16rcrP), R (work dir), P (output, /mnt/c path), SRC_SHA (default the build's stack.txt),
-#      NOZIP=1 (gdemu folder only; dry runs), MKDCDISC (mkgdi.sh).
+#      NOZIP=1 (gdemu folder only; dry runs), MKDCDISC (mkgdi.sh), PKG_SRC.
 set -e
 DATA_SET=${DATA_SET:-T16_DATA}   # the data set name in test11/t11-fix.py (T16_DATA once the test 16 recipe defines it)
 R=${R:-/root/probe/lanes-20261016/t16rc}
 L=${L:-t16rcrP}
 O=/root/probe/lanes/route/out-$L
 T=$R/tree/port/dreamcast/tools/d367
+export PKG_SRC=${PKG_SRC:-/root/probe/lanes-20261015/t15k/pkgsrc-t14cand}
+KF=$T/test16/release-knobs.txt
 SHA=${SRC_SHA:-$(head -1 $O/stack.txt | cut -c1-8)}
 DATE=$(date +%Y%m%d)
 P=${P:-"/mnt/c/Game Dev/Emulators/RE4DC-Test16-Candidate"}
@@ -29,8 +34,10 @@ Z=RE4DC-Console-Test-$SHA-$DATE-GDEMU.zip
 A=RE4DC-Test16-$SHA-Build-Assets.zip
 [ "${LAYOUT:-standard}" = standard ] || { echo "t16-package: the release disc is the standard layout (LAYOUT=$LAYOUT refused)"; exit 1; }
 [ $(wc -l < $O/stack.txt) -le 1 ] || { echo "out-$L was built from a dirty tree"; cat $O/stack.txt; exit 1; }
-python3 $T/release-knobs.py check $O/candidate.txt $T/test16/release-knobs.txt || { echo "test16/release-knobs.txt does not match out-$L (rewrite it: release-knobs.py write)"; exit 1; }
+[ -d "$PKG_SRC" ] || { echo "PKG_SRC $PKG_SRC is missing"; exit 1; }
+python3 $T/release-knobs.py check $O/candidate.txt $KF || { echo "test16/release-knobs.txt does not match out-$L (rewrite it: release-knobs.py write)"; exit 1; }
 grep -q RELEASE_NOTES_PLACEHOLDER $T/test16/README-package.txt && { echo "test16/README-package.txt still has its release-notes placeholder"; exit 1; }
+DS=$(sed -n 's/^# disc-sets: //p' $KF)
 mkdir -p "$P" $R/logs $R/fix
 if [ ! -s $R/fix/pkg-$L.json ]; then
   D=$(python3 -c "import importlib.util as u;s=u.spec_from_file_location('t','$T/test11/t11-fix.py');m=u.module_from_spec(s);s.loader.exec_module(m);print(getattr(m, '$DATA_SET'))")
@@ -70,8 +77,8 @@ with zipfile.ZipFile(os.path.join(p, z), 'w', zipfile.ZIP_DEFLATED, compressleve
     zf.write(sums, 'SHA256SUMS.txt')
 print('zip ok')
 E
-  python3 $T/release-knobs.py zip $O/candidate.txt $R/$A
-  python3 $T/release-knobs.py zipcheck $O/candidate.txt $R/$A --objdir $O/obj
+  python3 $T/release-knobs.py zip $O/candidate.txt $R/$A ${DS:+--disc-sets "$DS"}
+  python3 $T/release-knobs.py zipcheck $O/candidate.txt $R/$A --objdir $O/obj ${DS:+--disc-sets "$DS"}
   cp $R/$A "$P/$A" && rm -f $R/$A
   sha256sum $Z $A > SHA256SUMS.txt
   cat SHA256SUMS.txt
@@ -79,5 +86,6 @@ E
 fi
 cp $O/syms.txt $R/syms-$L.txt
 grep -n -- '–\|—' "$P/README.txt" || echo "no long dashes"
-rm -rf $R/gdemu/track0*.bin $R/gdemu/track02.raw $R/pkgtree
+# keep $R/pkgtree for the package audit (deleted by the release lane after the gates)
+rm -rf $R/gdemu/track0*.bin $R/gdemu/track02.raw
 echo "PACKAGE $P"

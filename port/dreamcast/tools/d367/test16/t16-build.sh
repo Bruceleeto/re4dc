@@ -1,0 +1,26 @@
+#!/bin/bash
+# t16-build.sh <arm>...: test 16 build arms (t16/rc, 2026-10-16; scope C:\Game Dev\Emulators\TEST16-SCOPE.md).
+# Test 16 (user 10-16, "slice test 16 into two"): t15/int e22bf562 + lane/nohaze16 0a4ef1b4 (the test 15.1 haze-sprite
+# removal). Its recipe T16REC is test15/t15-build.sh's T15REC at this commit, which already holds every test 16 group:
+#   test 15 (6b5bc9b0) groups T15_2 .. T15_T, the 15.1 group T15_HZ (HAZE_SPRITE_CUT=1), and the test 16 groups
+#   T15_FS (FAR_SHELL=1, far shell at View distance Short) and T15_RS (RADIO_SUB_RT=1, radio subtitles follow the voice);
+#   the option A disc reads (T14_DISC = DISC_COMPAT=1 DISC_READ_FALLBACK=3 DISC_LAND_SPIN_MS=20) and the PS2 water in
+#   r10b / r11b (WATER_PS2_ROOMS default 0x3f) are defaults of this tree; the Foliage Off fix is code under FOLIAGE_OPTION.
+# Data: T16_DATA in test11/t11-fix.py (= T15_DATA of e22bf562: water16i + vq16w, the r101 world version C wt16r101, the
+#   far shells fsh). Package: test16/t16-package.sh (standard GD-ROM layout).
+# Arms (as t15-build.sh): rP release play, rW warp, mW warp + TEX_CHECK=2 + MCHECK_LEONGC=1, rT trace, kP / kW / kT
+#   knob-off (no test 15 / 16 knobs). Test 16 adds:
+#   qP / qT  the test 15.1 program on this tree: T16REC with the test 16 changes off (T15_FS="" T15_RS="", test 15's
+#            T14_DISC, WATER_PS2_ROOMS=0x17). qP's objcopy -R .stack image must equal test 15.1's (d0d6364a) with all six
+#            overlays (knob-off identity: the test 16 delta is behind its knobs); qT is the STRICT reference for rT.
+# Env: T (tree, default /root/probe/lanes-20261016/t16rc/tree), K (logs, default /root/probe/lanes-20261016/t16rc),
+#      LP (label prefix, default t16rc), XON (extra knobs, test only), PAD_T / PAD_K.
+set -u
+D=$(cd "$(dirname "$0")" && pwd)
+export T=${T:-/root/probe/lanes-20261016/t16rc/tree} K=${K:-/root/probe/lanes-20261016/t16rc} LP=${LP:-t16rc}
+Q15=(env T15_FS= T15_RS= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WATER_PS2=1 WATER_PS2_ROOMS=0x17" LP=${LP}q)
+for x in "$@"; do case $x in
+  qP) "${Q15[@]}" bash $D/../test15/t15-build.sh rP ;;
+  qT) "${Q15[@]}" bash $D/../test15/t15-build.sh rT ;;
+  *)  bash $D/../test15/t15-build.sh $x ;;
+esac; done
