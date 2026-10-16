@@ -26,8 +26,12 @@ newest test release and its Build-Assets zip from GitHub and checks them against
   (`RE4DC_KOS_BASE`) is used as is.
 * `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
 
-The Build-Assets zip holds the generated character data the release program was built with, so your
-program draws the same characters as the release: built from the release's source commit with its
+The Build-Assets zip holds the generated character data the release program was built with
+(`ps2leon/`, `ps2ganado/`, and from test 15 `glod/ganado_lod.re4gl`, the lighter villager meshes named by
+`GANADO_LOD_PACK`), so your program draws the same characters as the release. From test 15 it also carries, under
+`re4dc-assets/disc/<disc path>`, the disc data files that are new since test 14 (the chapter 1 sound files
+`st1/r103.dar` and `bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
+they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
 every release). Downloads are kept, so a second run only rebuilds.
 
@@ -83,7 +87,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test14/release-knobs.txt` (test 14; its header names the source commit). The maintainers write that file from
+`tools/d367/test15/release-knobs.txt` (test 15; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -95,6 +99,7 @@ different from the release:
   every hand pose).
 * `PS2_GANADO=0 PS2_GANADO_LIT=0`: the male villagers are the GameCube models (the release draws the
   PS2 models with the PS2 lighting).
+* `GANADO_LOD=0`: no lighter villager meshes (they need the PS2 villagers and the zip's `glod/`).
 * El Gigante, Del Lago, the female villagers, the animals, Ashley, the PS2 room objects and the PS2 room
   worlds (with the village's baked doors, windows and racks) come from the disc, so they draw as in the
   release.
@@ -208,9 +213,10 @@ On every test release, in the same landing as the release recipe, before the rel
 1. Refresh the knob file from the release's play build:
    `python3 port/dreamcast/tools/d367/release-knobs.py write <out-<label>>/candidate.txt
    port/dreamcast/tools/d367/<test>/release-knobs.txt --test N --tag <tag> --source <sha> --recipe <t-build.sh>
-   --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name>`.
+   --image-sha256 <sha256 of sh-elf-objcopy -R .stack -O binary> --assets-zip <name> [--disc-sets <t11-fix.py sets>]`.
 2. Point `RELEASE_KNOBS` in `build-public.sh` at it (one line), and update the release names in this page.
-3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip>`), not by hand.
+3. Make the Build-Assets zip from the recipe (`release-knobs.py zip <candidate.txt> <zip> --disc-sets <the knob
+   file's disc-sets line>`, or the test's package script), not by hand.
 4. Run `tools/d367/kit-check.sh <knob file> <out-<label>> <package dir>` (knob file = recipe, zip = recipe,
    these docs name no older release, a clean checkout of the release commit rebuilds the release program
    byte for byte, builds without assets, swaps onto the release disc), then `tools/d367/kit-boot.sh <WORK>`
