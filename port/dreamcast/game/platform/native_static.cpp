@@ -4513,7 +4513,9 @@ static bool world_part(unsigned pass,std::uint32_t crc,std::uint32_t fnv){
 // blend, no per-tile sort) and only to FOLIAGE_NEAR_MM (the cards beyond it are hidden by the fog ramp's far half);
 // soft decals, shadow strips, ground blends and the vertex-alpha overlays (reserved bit 0) stay translucent;
 // 2 OFF = no translucent world pass at all (re4dc_ps2_mesh_draw; the tester's 10-16 binary patch, patch255 "wtr").
+} // namespace (re4dc_foliage at file scope: option_rows.cpp and dbgwarp_bridge.cpp link to it by its C name)
 extern "C" { unsigned re4dc_foliage=RE4DC_FOLIAGE_TRIM; }
+namespace {
 namespace foliage{
 struct Key { std::uint32_t crc,fnv; unsigned level; };
 constexpr Key kKeys[]={

@@ -127,6 +127,9 @@ extern "C" float re4dc_view_indoor_depth(void)
 }
 #endif
 
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+extern "C" unsigned re4dc_foliage;  // platform/native_static.cpp (FOLIAGE_TRIM): 0 full, 1 near, 2 off
+#endif
 namespace {
 constexpr int kRowPacing = 5, kRowRender = 6, kBack = 4;
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
@@ -135,7 +138,6 @@ constexpr int kRowView = 7;
 // FOLIAGE_OPTION=1 (game30.mk, lane mist16): a fourth row below View distance, "FOLIAGE  FULL / NEAR / OFF"
 // (platform/native_static.cpp re4dc_foliage: 0 full, 1 near, 2 off; render only). This boot only: every boot starts at
 // the recipe's FOLIAGE_TRIM level (test 15: Near), nothing is stored.
-extern "C" unsigned re4dc_foliage;
 constexpr int kRowFoliage = 8;
 const char* const kFoliageName[3] = {"FULL", "NEAR", "OFF"};
 int foliage_value() { return re4dc_foliage > 2U ? 0 : int(re4dc_foliage); }
