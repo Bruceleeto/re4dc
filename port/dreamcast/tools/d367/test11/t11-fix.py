@@ -290,7 +290,7 @@ DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' el
 # on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
 GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
 DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
-T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak
+T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs,water16h'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
@@ -330,11 +330,12 @@ for _n in ('res16c', 'res16d', 'res16e', 'res16f', 'res16g'):
     DATA[_n] = {'dc/resident.bin': RS16L + '/' + _n + '/resident.bin'}
 for _n in ('vq16c', 'vq16cr'):
     DATA[_n] = {'dc/tex.pak': RS16L + '/' + _n + '/tex-vq16c.pak'}
-# Lane water16 (WATER_PS2=1, 10-16): water16 = res16 + the water rooms' WATER_PS2 pictures (tools/d367/water/resident/
-# r107 r108 r10a r10b r11a r11b .tsv, water_resident.py pack over res16; 93 records, sha256 a7460744). Order: after res16.
-# When the rooms' full lists land (lane resident), pack those lists with these rows instead.
-W16RD = os.environ.get('W16RD', '/root/probe/lanes-20261016/water-k/data/water16')
-DATA['water16'] = {'dc/resident.bin': W16RD + '/resident.bin'}
+# Lane water16 (WATER_PS2=1, test 15, user option A 10-16): water16h = res16h + the WATER_PS2 pictures of the rooms
+# drawn (tools/d367/water/resident/r107 r108 r10a r11a .tsv; regenerate with: water_resident.py pack
+# $RS16D/res16h/resident.bin <out> r107.tsv r108.tsv r10a.tsv r11a.tsv). Replaces dc/resident.bin: order after res16h.
+# 1092 records (1064 + 28), sha256 f043586efa564000. r10b / r11b lists wait in resident/after-room-lists/ (no VRAM
+# room). Lives in RS16D/water16h (not in git).
+DATA['water16h'] = {'dc/resident.bin': RS16D + '/water16h/resident.bin'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
