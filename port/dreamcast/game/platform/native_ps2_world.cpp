@@ -50,6 +50,11 @@ extern "C" void re4dc_memprof_log(unsigned frame,unsigned frames); // platform/m
 extern "C" int re4dc_room4_state(unsigned*,unsigned*,unsigned*,unsigned*,unsigned*);
 extern "C" void re4dc_profile_source(re4dc::profile::Source*);
 extern "C" int re4dc_ps2_world_packet(unsigned,unsigned,unsigned,unsigned,unsigned,Re4dcModelPacket*);
+#if RE4DC_FAR_SHELL
+extern "C" float re4dc_far_shell_full(float cut);          // native_static.cpp far_shell.inc
+extern "C" int re4dc_far_shell_draw(float cut,float full);
+extern "C" void re4dc_far_shell_log(unsigned frame);
+#endif
 #if RE4DC_PS2_WORLD_KERNEL==4
 extern "C" int re4dc_ps2_world_packet_cull(unsigned,unsigned,unsigned,unsigned,unsigned,unsigned,Re4dcModelPacket*);
 #endif
@@ -679,6 +684,15 @@ extern "C" int re4dc_ps2_world_draw(unsigned room,const float screen[3][4],float
     if(!finite_word(far) || far<=40)return fallback(3);
     state.frame=re4dc_ui_frame();state.flushed=~0u;state.far=far<RE4DC_PS2_FAR?far:RE4DC_PS2_FAR;
     const bool drawn=re4dc_ps2_mesh_draw(0,state.far)!=0;state.pending=true;
+#if RE4DC_FAR_SHELL
+    {
+        // FAR_SHELL (far_shell.inc): the opaque pass stopped at the View distance cut; the shell covers cut..Full, and
+        // the PT / TR passes (flush) keep Full's far.
+        float full=re4dc_far_shell_full(state.far);
+        if(full>RE4DC_PS2_FAR)full=RE4DC_PS2_FAR;
+        if(full>state.far){re4dc_far_shell_draw(state.far,full);state.far=full;}
+    }
+#endif
     return drawn?1:fallback(4);
 #endif
     state.pending=false;auto& owner=storage();Owner now{};
@@ -772,6 +786,9 @@ extern "C" void re4dc_ps2_world_flush(){
 #endif
 #endif
         if(!(state.frame%120) || !pt || !tr)re4dc_ps2_mesh_log(state.frame);
+#if RE4DC_FAR_SHELL
+        re4dc_far_shell_log(state.frame);
+#endif
         return;
     }
 #endif
