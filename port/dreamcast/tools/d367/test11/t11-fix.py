@@ -301,6 +301,7 @@ DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res
 # runs; every key byte-identical, index unchanged but offsets). Must come after every set that replaces dc/tex.pak.
 TEXORD = os.environ.get('TEXORD', '/root/probe/lanes-20261016/prk/data/texord16')
 DATA['texord16'] = {'dc/tex.pak': TEXORD + '/tex.pak'}
+T15_DATA += ',texord16'  # last: no later set may replace dc/tex.pak (TEX_PACK_WINDOW=128 in the test 15 recipe)
 # Chapter 1 sound completion (lane audio16, 10-16; data only, no knob, no AICA layout change):
 #   st1/r103.dar = objs13d's r103.dar with its ROOM (ambience) and FOOT (footsteps) banks prebuilt into the frozen AICA layout
 #     (aica_banks.py fit --room r103: 16000 / 11025 Hz, the preferred caps; arena 1,004,192 = r103's enemies 668,192 + these

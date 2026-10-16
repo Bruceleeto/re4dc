@@ -264,14 +264,23 @@ struct PackWindow {
     const char* path=nullptr;
     std::uint8_t* buf=nullptr;
     std::uint32_t cap=0,off=0,len=0,total=0;
+    std::uint32_t want_end=0;   // end of the package being read (set at its open)
+    std::uint32_t next=0;       // where the next package starts if the pass reads the pack in order
     PackWindowStats st{};
 } g_win;
 // [o, o+n) of the pack into the window, one read from the sector holding o (whole sectors into an aligned buffer: one
-// GD command under DISC_READ_FALLBACK=2).
-bool win_load(std::uint32_t o) {
-    o&=~2047U;
+// GD command under DISC_READ_FALLBACK=2). A full window only when the pass is reading the pack in order (this read starts
+// where the previous package ended, or a prefetch); otherwise just the rest of the current package, so a picture that
+// sits elsewhere in the pack (loaded first by an earlier room) does not pull in a window of unneeded neighbours.
+bool win_load(std::uint32_t o_req, bool full=false) {
+    const std::uint32_t o=o_req&~2047U;
     if(o>=g_win.total) return false;
-    const std::uint32_t n=g_win.total-o<g_win.cap?g_win.total-o:g_win.cap;
+    std::uint32_t n=g_win.total-o<g_win.cap?g_win.total-o:g_win.cap;
+    if(!full && o_req!=g_win.next) {
+        std::uint32_t need=(g_win.want_end>o_req?g_win.want_end:o_req+1)-o;
+        need=(need+2047U)&~2047U;
+        if(need<n) n=need;
+    }
     RE4DC_IO_SERIAL_WAIT();
     g_win.len=0;
     if(fs_seek(g_win.f,static_cast<off_t>(o),SEEK_SET)!=static_cast<off_t>(o)) return false;
@@ -310,13 +319,13 @@ bool pack_window_open(const char* path, void* buffer, std::uint32_t bytes) {
     const ssize_t total=fs_total(f);
     if(total<=0) { fs_close(f); return false; }
     g_win.f=f;g_win.path=path;g_win.buf=static_cast<std::uint8_t*>(buffer);g_win.cap=bytes&~2047U;
-    g_win.off=g_win.len=0;g_win.total=static_cast<std::uint32_t>(total);
+    g_win.off=g_win.len=0;g_win.want_end=g_win.next=0;g_win.total=static_cast<std::uint32_t>(total);
     return true;
 }
 bool pack_window_fill(std::uint32_t offset) {
     if(g_win.f==FILEHND_INVALID) return false;
     if(offset>=g_win.off && offset<g_win.off+g_win.len) return true;
-    return win_load(offset);
+    return win_load(offset,true);
 }
 void pack_window_close() {
     if(g_win.f!=FILEHND_INVALID) fs_close(g_win.f);
@@ -335,7 +344,7 @@ bool Package::open_streamed_impl(const char* path, std::uint32_t base, std::uint
     // A pack entry while the window is open: no handle of its own, every read goes through the window.
     if(size && g_win.f!=FILEHND_INVALID && !std::strcmp(path,g_win.path)) {
         if(std::uint64_t(base)+size>g_win.total) { error_="pack entry outside the pack"; return false; }
-        base_=base;win_path_=g_win.path;
+        base_=base;win_path_=g_win.path;g_win.want_end=base+size;
     } else
 #endif
     {
@@ -805,6 +814,7 @@ bool Package::upload() {
                     target+=k;o+=k;n-=k;
                 }
                 vram_bytes_ += texture.data_size;
+                g_win.next=static_cast<std::uint32_t>((base_+size_+2047U)&~std::size_t(2047));   // packages start on sectors
                 continue;
             }
         }

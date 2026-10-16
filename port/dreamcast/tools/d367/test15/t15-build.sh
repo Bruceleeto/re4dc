@@ -76,8 +76,10 @@ T14_NC=${T14_NC-ACTOR_NO_CLEAR=1}
 # sector reads (DISC_READ_FALLBACK=2: no cdrom_stream start / cancel per read) are the default. The game logic is not
 # STRICT against test 14 across loads (plain reads move load completion by ticks); gated by decisions equivalence, load
 # time, the GDEMU + weak race gates and KOS squeeze (lane plainread16). T14_DISC="DISC_COMPAT=1 DISC_READ_FALLBACK=0" =
-# test 14's timing-neutral subset (stream reads kept).
-T14_DISC=${T14_DISC-DISC_COMPAT=1}
+# test 14's timing-neutral subset (stream reads kept). With plain reads: DISC_LAND_SPIN_MS=20 (yield, not sleep, while a
+# read's DMA lands; size-scaled bound), STORAGE_BOUNCE_ALIGNED=1 (one command per 16 KiB chunk), TEX_PACK_WINDOW=128 (room
+# preload reads tex.pak through a 128 KiB window; data texord16 = tex.pak in route load order, in T15_DATA).
+T14_DISC=${T14_DISC-DISC_COMPAT=1 DISC_LAND_SPIN_MS=20 STORAGE_BOUNCE_ALIGNED=1 TEX_PACK_WINDOW=128}
 T14REC="$T14_1 $T14_17 $T14_15 $T14_NC $T14_DISC $T14_18 $T14_RE MEMSET_LEAN=0"
 T14=${T14-$T14REC}
 # Test 15 knobs (TEST15-SCOPE.md rows and merge log). Merged with default 0; in T15REC only once their lane reports gates passed.
