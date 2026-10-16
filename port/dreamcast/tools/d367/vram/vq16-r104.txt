@@ -1,4 +1,4 @@
-# vq16-r104.txt (lane resident16, 2026-10-16): two r104 PS2 cast pictures (em13 / em18 Ganados, also r102; 16-bit
+# vq16-r104.txt (lane resident16, 2026-10-16): two r104 PS2 cast pictures (r102 / r104 registry, em13 / em18; 16-bit
 # twiddled, 196,608 B) as full-codebook VQ (vq_pak.py), so r104's room-entry set has room for the Ganado kill / blood
 # effects its fight shows (16 keys, 144,544 B: they loaded from disc after the preload in the fight, fG-r104f).
 # LOOK CHANGE: class E (PS2 cast, as the r108 em17 set of vq16-ch1.txt); still pair look/vq16cs-*.

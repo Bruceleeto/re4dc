@@ -330,6 +330,10 @@ DATA['res16f'] = {'dc/resident.bin': RS16D + '/res16f/resident.bin'}
 # res16f / vq16cr.
 DATA['res16g'] = {'dc/resident.bin': RS16D + '/res16g/resident.bin'}
 DATA['vq16cs'] = {'dc/tex.pak': RS16D + '/vq16cs/tex-vq16c.pak'}
+# res16h = res16g with r105 back to its res16d list: the effect set pinned in r105 left too little dynamic room in the
+# chapter 1-2 segment (2 thrash-guard refusals, fJ-gch12). 1064 records, sha256 1e3af15308350b8e. Order: in place of
+# res16g (final chapter 1 set of lane resident16, with vq16cs).
+DATA['res16h'] = {'dc/resident.bin': RS16D + '/res16h/resident.bin'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

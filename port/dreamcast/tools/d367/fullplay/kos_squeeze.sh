@@ -15,6 +15,8 @@
 here=$(cd "$(dirname "$0")" && pwd)
 BASE=${1:?base}; TW=${2:?twin label}; EV=${3:?evidence}; LEVELS=${4:-"49152:0 49152:1"}; SCENES=${5:-"fight call door leave100 leave103"}
 export FP_NOLIMIT=1
+# KOS_SQ_SECONDS (lane resident16 10-16): run length per scene, default 60 s wall; the door scene reaches its r103 entry
+# marker at ~59 s on a quiet host, so a run that ends a few hundred ms later (longer room-entry preload, host load) misses it.
 S=$(cat //wsl.localhost/Ubuntu-24.04/root/probe/lanes/route/out-$TW/syms.txt)
 EVU=$(cygpath -u "$EV"); mkdir -p "$EVU/fixtures"
 declare -A WARP=( [fight]=$here/segments/kos-fight-warp.txt [call]=$here/segments/kos-call-warp.txt
@@ -27,7 +29,7 @@ for sc in $SCENES; do
   for lv in $LEVELS; do
     n=${lv%:*}; f=${lv#*:}; L=kos-$sc-$n-$f
     { echo "squeeze $n $f"; tr -d '\r' < "${WARP[$sc]}"; } > "$EVU/fixtures/$L-warp.txt"
-    [ "${EVAL_ONLY:-0}" = 1 ] || python "$here/fp_run.py" --base "$BASE" --warp "$EVU/fixtures/$L-warp.txt" --cap "$EV\\$L" --syms "$S" --seconds 60 \
+    [ "${EVAL_ONLY:-0}" = 1 ] || python "$here/fp_run.py" --base "$BASE" --warp "$EVU/fixtures/$L-warp.txt" --cap "$EV\\$L" --syms "$S" --seconds ${KOS_SQ_SECONDS:-60} \
       --name $L > "$EVU/fixtures/$L.out" 2>&1 &
   done
   wait
