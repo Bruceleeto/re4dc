@@ -5,7 +5,10 @@
  "rays": 20000,
  "dilate": 0,
  "min_part": 1500,
- "tris": 6000,
- "weld": 20,
- "max_dev": 1500
+ "tris": 3200,
+ "weld": 150,
+ "max_dev": 1500,
+ "protect": 1,
+ "protect_by": "border",
+ "protect_w": 0.3
 }

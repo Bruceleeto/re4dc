@@ -116,10 +116,11 @@ namespace {
 int far_shell_mode = RE4DC_FAR_SHELL_MODE;
 float far_shell_noted = 0.0f;
 constexpr float kBias = 0.97f;   // the shell's 1/w scale: 3 % deeper than its surface (the near world wins overlaps)
-// Only in a room whose shell is loaded: elsewhere (no file, e.g. r103) the View distance cut stays as it was (fog and
-// every pass at the cut), so no room shows an unfogged hole beyond the cut.
+// Only at Short (user 10-16: "short shell + half vertices"; Near keeps its plain cut: fog and every pass at 18.75 m) and
+// only in a room whose shell is loaded: elsewhere (no file, e.g. r103) the cut stays as it was, so no room shows an
+// unfogged hole beyond the cut.
 bool far_shell_cut_on() {
-    return far_shell_mode && re4dc_view_dist_get() > 0 && farshell::st.h && farshell::st.room == ps2w.room;
+    return far_shell_mode && re4dc_view_dist_get() == 2 && farshell::st.h && farshell::st.room == ps2w.room;
 }
 }  // namespace
 // Warp line `farshell <mode>` (dbgwarp_bridge.cpp) and benchmark rows.

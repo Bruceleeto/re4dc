@@ -25,6 +25,8 @@ if "--lod1" in args:
 CELL = 12000.0
 if "--cell" in args:
     i = args.index("--cell"); CELL = float(args[i + 1]); args = args[:i] + args[i + 2:]
+NO_SHIFT = "--no-uvshift" in args
+args = [a for a in args if a != "--no-uvshift"]
 work, room, out = Path(args[0]), int(args[1], 16), Path(args[2])
 UV_TOL = float(args[3]) if len(args) > 3 else 0.03
 tex = json.loads((work / "extract.json").read_text())["textures"]
@@ -89,6 +91,47 @@ def stripify(tris):
     return strips
 
 
+# integer UV shifts (vertex cut, 10-16): world textures repeat (PVR_UVCLAMP_NONE), so moving one triangle's UVs by whole
+# tiles draws the same pixels; each triangle takes the shift that lets most of its corners join corners already placed
+# at the same position in its group (greedy over shared positions). Look-identical; off with --no-uvshift.
+shifted = 0
+if not NO_SHIFT:
+    uv = uv - np.floor(uv.mean(1, keepdims=True))   # every triangle starts with its centre in tile 0 (same pixels)
+    for m, L, pc in sorted(set(zip(fmat.tolist(), lev.tolist(), piece.tolist()))):
+        faces = list(np.where((fmat == m) & (lev == L) & (piece == pc))[0])
+        bypid = {}
+        for f in faces:
+            for k in range(3):
+                bypid.setdefault(int(tri[f, k]), []).append(f)
+        placed, done = {}, set()
+        for f0 in faces:
+            if f0 in done:
+                continue
+            queue = [f0]
+            done.add(f0)
+            while queue:
+                f = queue.pop(0)
+                best, bestn = np.zeros(2), 0
+                cands = {(0.0, 0.0)}
+                for k in range(3):
+                    for c in placed.get(int(tri[f, k]), []):
+                        cands.add(tuple(np.round(c - uv[f, k])))
+                for cs in cands:
+                    sh = np.array(cs)
+                    n = sum(any(np.all(np.abs(c - (uv[f, k] + sh)) < UV_TOL) for c in placed.get(int(tri[f, k]), []))
+                            for k in range(3))
+                    if n > bestn or (n == bestn and not sh.any()):
+                        best, bestn = sh, n
+                if best.any():
+                    uv[f] = uv[f] + best
+                    shifted += 1
+                for k in range(3):
+                    placed.setdefault(int(tri[f, k]), []).append(uv[f, k].copy())
+                    for g in bypid[int(tri[f, k])]:
+                        if g not in done:
+                            done.add(g)
+                            queue.append(g)
+clipped = 0
 groups, verts, strip_bytes = [], [], bytearray()
 order = sorted(set(zip(fmat.tolist(), lev.tolist(), piece.tolist())))
 for m, L, pc in order:
@@ -135,6 +178,8 @@ for m, L, pc in order:
         assert q.max() <= 32767
         base = np.floor(U.mean(0))
         uq = np.rint((U - base) * 2048).astype(int)
+        if uq.min() < -32768 or uq.max() > 32767:
+            clipped += int(((uq < -32768) | (uq > 32767)).any(1).sum())
         uq = np.clip(uq, -32768, 32767)
         first = len(verts)
         for i, c in enumerate(clist):
@@ -157,6 +202,7 @@ for g in groups:
 rep = dict(room="r%03x" % room, bytes=len(head) + len(body), groups=len(groups), materials=len(mkeys),
            vertices=len(verts), fine_vertices=nv[0], coarse_vertices=nv[1], strip_bytes=len(strip_bytes),
            triangles=int((lev == 0).sum()), coarse_triangles=int((lev == 1).sum()), cells=len(cells),
-           cells_with_coarse=len(has_coarse))
+           cells_with_coarse=len(has_coarse), uv_shifted_triangles=shifted,
+           uv_clipped_corners=clipped)
 (work / "pack.json").write_text(json.dumps(rep, indent=1))
 print(json.dumps(rep))
