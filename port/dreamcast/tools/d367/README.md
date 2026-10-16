@@ -531,6 +531,8 @@ the arms share the binary and the prelude, and switch at a fixed tick.
   | 0x10 | Leon keeps the per-part source path (no native plan): the old-path arm of the WP2 Leon pair | coarse_actor_owner_leon.inc |
 
 - DBG_WARP=1 builds only; with DBG_WARP=0 every hook is an `#if` block and the image is byte-identical.
+- warp.txt line `foliage 0|1|2` (FOLIAGE_OPTION builds): the Options Foliage level at load, Full / Near / Off (render
+  only). Used for the foliage stills.
 - warp.txt line `viewdist 0|1|2` (VIEW_DIST_OPTION builds): the Options View distance at load, Full / Near / Short
   (25 / 18.75 / 12.5 m, render only). Used for the forced-Short STRICT arm and the view distance stills
   (lane viewdist16, evidence C:\Flycast-Evidence\re4-dreamcast\viewdist-20261016).

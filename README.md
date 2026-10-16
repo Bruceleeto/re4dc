@@ -46,13 +46,17 @@ No BIOS or personal VMU saves are included; keep your existing saves separately.
 | Pause / options | START |
 | Speed display: Off → On screen | Hold R, press START |
 
-Options has the Frame pacing row (Fast is the default), the Rendering row and the View distance row. Rendering is
+Options has the Frame pacing row (Fast is the default), the Rendering row, the View distance row and the Foliage row. Rendering is
 Standard (the default, the full 640x480 picture) or FSAA, which smooths edges by drawing twice the pixels and is
 slower in busy scenes. View distance is how far the scenery is drawn: Full (the default, as on the PS2), Near or
 Short. Near and Short fade the distant scenery into the fog sooner, which makes busy outdoor scenes faster; the
 game plays the same. Inside a house the room around you stays clear, and only what you see through the doors and
-windows fades. The lake always shows its full horizon. FSAA and View distance last until the console is switched
-off; every boot starts in Standard and Full.
+windows fades. In the first area and the village, Short draws a simplified copy of the distant scenery
+instead, so houses, trees and the hills stay in view. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
+are drawn: Near (the default) draws the leaf and brush cards with sharp edges and only up to about 12 m, where the
+fog hides them anyway, which makes the woods faster; Full draws all of them blended, as on the PS2; Off leaves them
+out (fastest, but it also removes the walls and floor of the cabin in r109, see Known Issues). FSAA, View distance
+and Foliage last until the console is switched off; every boot starts in Standard, Full and Near.
 The speed display shows the frame rate and game speed on screen; it is off unless you switch it on.
 The VMU in controller slot 1 shows Leon, Ashley, Hunnigan and Luis pages.
 

@@ -149,9 +149,16 @@ extern "C" void re4dc_option_rows_art(const Re4dcUiQuad* audio)
     const char* values[kRows];
     for (int row = 0; row != kRows; ++row) {
         const int id = ROW_ID(row);
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+        labels[row] = id == kRowPacing ? "FRAME PACING" : id == kRowRender ? "RENDERING" : id == kRowView ? "VIEW DISTANCE"
+                                                                                                          : "FOLIAGE";
+        values[row] = id == kRowPacing ? kPace[pace_value()] : id == kRowRender ? kRender[render_value()]
+                    : id == kRowView ? kViewName[view_level] : kFoliageName[foliage_value()];
+#else
         labels[row] = id == kRowPacing ? "FRAME PACING" : id == kRowRender ? "RENDERING" : "VIEW DISTANCE";
         values[row] = id == kRowPacing ? kPace[pace_value()] : id == kRowRender ? kRender[render_value()]
                                                                                  : kViewName[view_level];
+#endif
     }
 #else
     const char* labels[2] = {"FRAME PACING", "RENDERING"};

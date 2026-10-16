@@ -17,7 +17,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 21 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 4 |
-| ⏸️ Open | Known, not yet worked on | 11 |
+| ⏸️ Open | Known, not yet worked on | 12 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -64,6 +64,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
+| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | ⏸️ Open: Near (the default) and Full draw the cabin normally | |
 
 ## Sound
 
@@ -83,7 +84,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Pauses when entering rooms | all | ⏸️ Open | |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. The on-screen display still reloads its pictures after the village radio call (4 small pictures); that part waits for a later test | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
-| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon) | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
+| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon). At Short, in the first area and the village, a simplified far view keeps the landmarks, but thin things in the distance (fence slats, wires, bare branches, small props) are missing there | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
 ## Console checklist for test 13

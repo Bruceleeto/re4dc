@@ -144,7 +144,18 @@ T15_W=${T15_W-WATER_PS2=1}
 #      as the approved L2 geometry in 32 m static batches (data wv32r101). Render only. T15_WV="" builds the control.
 #      Gates in C:/Flycast-Evidence/re4-dreamcast/world32-land-20261016.
 T15_WV=${T15_WV-WORLD_VERT=1 WORLD_VERT_LEVEL=5}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV"
+#   T  FOLIAGE_TRIM=1 FOLIAGE_OPTION=1 (lane mist16; user 10-16 "I approve near", "ship with full near and off then log the
+#      issue"; render only): the chapter 1 outdoor brush / leaf cards in the punch-through list to 12 m (Near, the boot
+#      default), Options row "Foliage" Full / Near / Off, this boot only. Off removes r109's walls and floor (KNOWN_ISSUES).
+#      Gates in C:\Flycast-Evidence\re4-dreamcast\mist-20261016. T15_T="" builds the control without it.
+T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
+#   FS FAR_SHELL=1 (lane farshell16; render only, needs T15_V; user 10-16 "short + far shell looks good", "short shell + half
+#      vertices"): at Short (12.5 m) the PS2 world's opaque pass stops at the cut and the room's far shell
+#      (dc/native/rXXX/far-shell.fsh, data fsh in T15_DATA: r100 r101, ~3,000 triangles each) is drawn beyond it with
+#      Full's fog, PT / TR world passes and actors (docs/lanes/farshell16.md). Near and rooms without a shell file keep
+#      the plain cut. T15_FS="" builds the control without it.
+T15_FS=${T15_FS-FAR_SHELL=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T $T15_FS"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
