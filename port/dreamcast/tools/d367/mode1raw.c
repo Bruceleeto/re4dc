@@ -51,7 +51,9 @@ static void ecc_block(const uint8_t* src, uint32_t major_count, uint32_t minor_c
     }
 }
 
-static uint8_t bcd(uint32_t v) { return (uint8_t) (v < 100 ? ((v / 10) << 4) | (v % 10) : 0xA0 + (v - 100)); }
+/* Minutes past 99 (the GD-ROM high-density area runs to minute 122) keep the tens<<4 | units form: 110 -> 0xB0, as
+ * mkdcdisc and swap-program.py write them (the older 0xA0 + (v - 100) agreed only up to minute 109, LBA 494849). */
+static uint8_t bcd(uint32_t v) { return (uint8_t) (((v / 10) << 4) | (v % 10)); }
 
 static void encode(uint8_t* s, uint32_t fad)
 {

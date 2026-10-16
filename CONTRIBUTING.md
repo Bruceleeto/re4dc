@@ -1,7 +1,9 @@
 # Contributing
 
 This page covers the GameCube decompilation. To build and test the Dreamcast port, see
-[port/dreamcast/CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md).
+[port/dreamcast/CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md). From test 16 on, the Dreamcast test
+releases ship a standard GD-ROM image (the layout mkdcdisc writes); its section 8 describes the format, and
+`port/dreamcast/tools/swap-program.py` puts your own program on it.
 
 The tree is complete: every unit compiles to the original bytes. Work now is on readability (names,
 comments, notes) and on tooling. The one rule that covers everything: the bytes do not change.
