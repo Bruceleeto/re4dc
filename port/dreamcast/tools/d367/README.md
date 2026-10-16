@@ -531,6 +531,9 @@ the arms share the binary and the prelude, and switch at a fixed tick.
   | 0x10 | Leon keeps the per-part source path (no native plan): the old-path arm of the WP2 Leon pair | coarse_actor_owner_leon.inc |
 
 - DBG_WARP=1 builds only; with DBG_WARP=0 every hook is an `#if` block and the image is byte-identical.
+- warp.txt line `viewdist 0|1|2` (VIEW_DIST_OPTION builds): the Options View distance at load, Full / Near / Short
+  (25 / 18.75 / 12.5 m, render only). Used for the forced-Short STRICT arm and the view distance stills
+  (lane viewdist16, evidence C:\Flycast-Evidence\re4-dreamcast\viewdist-20261016).
 - **H2** (architect review 2026-10-03): the r100 house after the s20 ambush, guarded PS2 worlds, the r21s texture
   pack (fixture `tour/pak-calls-r100-s30-pw.json` with the -uvg worlds and title-c14-pak.pak; provenance in
   architect-review-20261003/scratch-01a1025a/spikes). Cost window 1450:1569, all 120 frames traced:
