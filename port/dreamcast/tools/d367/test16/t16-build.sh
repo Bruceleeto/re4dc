@@ -10,7 +10,7 @@
 #   far shells fsh). Package: test16/t16-package.sh (standard GD-ROM layout).
 # Arms (as t15-build.sh): rP release play, rW warp, mW warp + TEX_CHECK=2 + MCHECK_LEONGC=1, rT trace, kP / kW / kT
 #   knob-off (no test 15 / 16 knobs). Test 16 adds:
-#   qP / qT  the test 15.1 program on this tree: T16REC with the test 16 changes off (T15_FS="" T15_RS="", test 15's
+#   qP / qT / qW  the test 15.1 program on this tree: T16REC with the test 16 changes off (T15_FS="" T15_RS="", test 15's
 #            T14_DISC, WATER_PS2_ROOMS=0x17). qP's objcopy -R .stack image must equal test 15.1's (d0d6364a) with all six
 #            overlays (knob-off identity: the test 16 delta is behind its knobs); qT is the STRICT reference for rT.
 # Env: T (tree, default /root/probe/lanes-20261016/t16rc/tree), K (logs, default /root/probe/lanes-20261016/t16rc),
@@ -22,5 +22,6 @@ Q15=(env T15_FS= T15_RS= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WA
 for x in "$@"; do case $x in
   qP) "${Q15[@]}" bash $D/../test15/t15-build.sh rP ;;
   qT) "${Q15[@]}" bash $D/../test15/t15-build.sh rT ;;
+  qW) "${Q15[@]}" bash $D/../test15/t15-build.sh rW ;;
   *)  bash $D/../test15/t15-build.sh $x ;;
 esac; done
