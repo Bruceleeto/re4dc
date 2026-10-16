@@ -4570,11 +4570,15 @@ static bool world_part(unsigned pass,std::uint32_t crc,std::uint32_t fnv){
 // mist (port/dreamcast/docs/MIST_CUT.md). include/foliage_keys.inc classes their texture keys offline by texel alpha:
 // 1 near-invisible (max alpha < 0.1), 2 near-binary cut-out (>= 95 % of texels at 0 or >= 0.9, or max at the opaque level
 // with <= 25 % mid texels: leaf / brush / branch cards, fence gaps), 3 soft but reaching the opaque level (listed, drawn as
-// today). re4dc_foliage (one .data word; a later Options row sets it): 0 FULL = today; 1 NEAR = a class 1 part is not
+// today), 4 soft card below the opaque level (shadow strips, mist, grass fades; drawn as today at NEAR). Surfaces without
+// cut-out holes (< 10 % fully transparent texels: r109's cabin walls and floor at alpha 238, water) are not listed.
+// re4dc_foliage (one .data word; a later Options row sets it): 0 FULL = today; 1 NEAR = a class 1 part is not
 // drawn, a class 2 part is drawn in the punch-through list (alpha test at PT_ALPHA_REF 128, PT_BLEND_FIX header: no
 // blend, no per-tile sort) and only to FOLIAGE_NEAR_MM (the cards beyond it are hidden by the fog ramp's far half);
 // soft decals, shadow strips, ground blends and the vertex-alpha overlays (reserved bit 0) stay translucent;
-// 2 OFF = no translucent world pass at all (re4dc_ps2_mesh_draw; the tester's 10-16 binary patch, patch255 "wtr").
+// 2 OFF = classes 1-4 are not drawn; unlisted translucent parts (surfaces, water, keys outside the chapter 1 census) and
+// the vertex-alpha overlays still are. (The first OFF dropped the whole translucent world pass, the tester's 10-16 patch:
+// it removed r109's walls and floor.)
 } // namespace (re4dc_foliage at file scope: option_rows.cpp and dbgwarp_bridge.cpp link to it by its C name)
 extern "C" { unsigned re4dc_foliage=RE4DC_FOLIAGE_TRIM; }
 namespace {
@@ -4585,15 +4589,16 @@ constexpr Key kKeys[]={
 };
 constexpr float kNear=float(RE4DC_FOLIAGE_NEAR_MM);
 static unsigned moved,dropped,last_room;static std::uint32_t last_frame;
-// The pass a pass-2 part draws in at NEAR: 1 punch-through, 2 translucent (as today), 3 not drawn.
+// The pass a pass-2 part draws in at NEAR / OFF: 1 punch-through, 2 translucent (as today), 3 not drawn.
 static unsigned pass_of(const Ps2Part& m){
-    if(m.pass!=2 || re4dc_foliage!=1U || (m.reserved&1U))return m.pass;
+    if(m.pass!=2 || re4dc_foliage-1U>1U || (m.reserved&1U))return m.pass;
     unsigned level=0,lo=0,hi=sizeof(kKeys)/sizeof(kKeys[0]); // kKeys is sorted by crc, fnv
     while(lo<hi){
         const unsigned mid=(lo+hi)/2;const Key& k=kKeys[mid];
         if(k.crc<m.crc || (k.crc==m.crc && k.fnv<m.fnv))lo=mid+1;
         else{if(k.crc==m.crc && k.fnv==m.fnv)level=k.level;hi=mid;}
     }
+    if(re4dc_foliage==2U)return level?3U:2U;
     return level==1?3U:level==2?1U:2U;
 }
 static void note(unsigned pass,unsigned drawn_pass){
@@ -5183,7 +5188,6 @@ extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
     if(!pass)pc_scan(re4dc_ui_frame());
 #endif
 #if defined(RE4DC_FOLIAGE_TRIM)
-    if(pass==2 && re4dc_foliage==2U)return 1; // FOLIAGE OFF: no translucent world pass (drawn, nothing to submit)
 #endif
     if(pass>2 || !ps2w.camera || !ps2_open())return 0;
 #if RE4DC_MOVIE_WORLD_ARENA
