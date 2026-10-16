@@ -630,10 +630,10 @@ int re4dc_water42_live(void);   // Espgen42.cpp (WATER_PS2)
 static unsigned s_wps2_frame = ~0U;
 static u8 s_wps2_dummy;
 
-// WATER_PS2_ROOMS: the rooms drawn, bit 0 r107, 1 r108, 2 r10a, 3 r10b, 4 r11a, 5 r11b (default all). A room left out
+// WATER_PS2_ROOMS: the rooms drawn, bit 0 r107, 1 r108, 2 r10a, 3 r10b, 4 r11a, 5 r11b (default 0x15). A room left out
 // keeps today's water (r10b: WATER45_NATIVE + LAKE_RIPPLES).
 #ifndef RE4DC_WATER_PS2_ROOMS
-#define RE4DC_WATER_PS2_ROOMS 0x3f
+#define RE4DC_WATER_PS2_ROOMS 0x15
 #endif
 static int WaterPs2RoomOn(u32 room)
 {
@@ -781,6 +781,12 @@ extern "C" void re4dc_water_ps2_draw(void*)
 // generators' layer). Render only.
 extern "C" void re4dc_water_ps2_queue(void)
 {
+    // No entry while the frame's prim buffer is absent (room entry): AddOtDirect would fail and log a PrimBuffer
+    // OVERFLOW pair per image, and those log writes shift the room-entry wall time (r10b STRICT, water16).
+    const u32 prim = (u32) pG->prim_cnt;
+    if (prim < RE4_MEM_LO || prim > RE4_MEM_HI) {
+        return;
+    }
     if (re4dc_water_ps2_rows()) {
         AddOtDirect(0x10, &s_wps2_dummy, (void (*)()) re4dc_water_ps2_draw, 1, 0x80, NULL, 0.0f);
     }
