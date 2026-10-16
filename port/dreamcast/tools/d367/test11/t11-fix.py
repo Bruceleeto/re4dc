@@ -295,8 +295,10 @@ T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16w,water16i,wt16r101,f
 # test 15 (6b5bc9b0): vq16w + water16i replace vq16cs + water16h (PS2 water in r10b / r11b), wt16r101 replaces wv32r101
 # (r101 world version C: stake crossbar and pyre planks kept). The far shells (fsh) are left out: test 16 ships without
 # FAR_SHELL (coordinator decision (a) 10-16: heap 4 at the r100 s30 movie), and only FAR_SHELL builds read them.
-T16_DATA = T15_DATA.replace(',fsh', '')
-assert 'fsh' not in T16_DATA.split(',')
+# r101 world: the pre-world32 world as test 14 / 15-before-world32 shipped it (bake13's r101 files; wt16r101 left out; user
+# 10-16 "use the previously optimized r101", with WORLD_VERT off in T16REC).
+T16_DATA = T15_DATA.replace(',fsh', '').replace(',wt16r101', '')
+assert not {'fsh', 'wt16r101', 'wv32r101'} & set(T16_DATA.split(','))
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).

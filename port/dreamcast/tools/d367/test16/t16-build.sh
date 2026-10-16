@@ -19,12 +19,17 @@
 #      LP (label prefix, default t16rc), XON (extra knobs, test only), PAD_T / PAD_K.
 set -u
 export T15_FS=${T15_FS-}   # test 16: no far shell (decision (a)); T15_FS=FAR_SHELL=1 builds it for test 17 work
+# test 16: r101 without the world32 vertex reduction (user 10-16 "use the previously optimized r101": the reduced world
+# loses ~1,500 structure pieces, lostpart checker): no WORLD_VERT, and T16_DATA keeps the pre-world32 r101 world (bake13).
+export T15_WV=${T15_WV-}
 D=$(cd "$(dirname "$0")" && pwd)
 export T=${T:-/root/probe/lanes-20261016/t16rc/tree} K=${K:-/root/probe/lanes-20261016/t16rc} LP=${LP:-t16rc}
 Q15=(env T15_FS= T15_RS= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WATER_PS2=1 WATER_PS2_ROOMS=0x17" LP=${LP}q)
+# qP is test 15.1 exactly (WORLD_VERT on, as 15.1 shipped); qT / qW run on the test 16 data (pre-world32 r101), so they
+# keep WORLD_VERT off like rT (WORLD_VERT is render only: STRICT on vs off in its landing, world32-land-20261016).
 for x in "$@"; do case $x in
-  qP) "${Q15[@]}" bash $D/../test15/t15-build.sh rP ;;
-  qT) "${Q15[@]}" bash $D/../test15/t15-build.sh rT ;;
-  qW) "${Q15[@]}" bash $D/../test15/t15-build.sh rW ;;
+  qP) "${Q15[@]}" "T15_WV=WORLD_VERT=1 WORLD_VERT_LEVEL=5" bash $D/../test15/t15-build.sh rP ;;
+  qT) "${Q15[@]}" T15_WV= bash $D/../test15/t15-build.sh rT ;;
+  qW) "${Q15[@]}" T15_WV= bash $D/../test15/t15-build.sh rW ;;
   *)  bash $D/../test15/t15-build.sh $x ;;
 esac; done

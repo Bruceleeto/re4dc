@@ -34,7 +34,7 @@ The Build-Assets zip holds the generated character data the release program was 
 (`ps2leon/`, `ps2ganado/`, and `glod/ganado_lod.re4gl`, the lighter villager meshes named by
 `GANADO_LOD_PACK`), so your program draws the same characters as the release. It also carries, under
 `re4dc-assets/disc/<disc path>`, the newer disc data files (the chapter 1 sound files `st1/r103.dar` and
-`bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
+`bgm/aica_str.dat`, `dc/resident.bin` and `dc/tex.pak`);
 they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
 every release). Downloads are kept, so a second run only rebuilds.

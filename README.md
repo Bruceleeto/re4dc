@@ -20,7 +20,7 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test 16 (test 15.1 on a standard GD-ROM disc image for the GDEMU freezes, radio call subtitles that keep up with the voice, PS2 water out on the lake, the village stake and pyre in full detail, and an automatic switch to plain disc reads when a fast read fails). Desktop packages will return with a later test build;
+The latest build is console test 16 (test 15.1 on a standard GD-ROM disc image for the GDEMU freezes, radio call subtitles that keep up with the voice, PS2 water out on the lake, the village (r101) back to its full-detail world, and an automatic switch to plain disc reads when a fast read fails). Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
@@ -81,7 +81,7 @@ up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
-* Test 16: the disc is a standard GD-ROM image, laid out like a pressed GD-ROM, for the GDEMU-only freezes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); when a fast disc read fails, the game switches to plain sector reads for the rest of the session ([#28](https://github.com/lamb2k/re4dc/issues/28)); radio call subtitles follow the voice; the lake (the Del Lago boat fight and the night shore) draws its water the PS2 way; the burning stake and the pyre in the village keep their full detail.
+* Test 16: the disc is a standard GD-ROM image, laid out like a pressed GD-ROM, for the GDEMU-only freezes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); when a fast disc read fails, the game switches to plain sector reads for the rest of the session ([#28](https://github.com/lamb2k/re4dc/issues/28)); radio call subtitles follow the voice; the lake (the Del Lago boat fight and the night shore) draws its water the PS2 way; the village (r101) uses its full-detail world again (the burning stake, the pyre and the fence by the house are complete).
 * Test 15.1 (hotfix): no haze or mist sprites around Leon in any room (the distant haze stays as fog); Foliage Off leaves out every see-through brush, leaf, shadow and mist card, and the r109 cabin keeps its walls and floor.
 * Test 15: the r100 cliff cutscene plays again; footsteps and ambience in the farm, the missing room music, the merchant's voice and other chapter 1 sounds; the villagers and the merchant are lit by the room's lights; PS2 models for the traps, bats, snake, fish, the boat and the r104 / r117 / r118 enemies; the pool, river and lake from the shore draw their water the PS2 way; every chapter 1 room keeps its textures in graphics memory; Options rows View distance and Foliage (both reset at each boot).
 * Test 14: a disc read fix for the GDEMU freezes and crashes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); the village keeps all its textures in graphics memory; the farm (r103) reads the disc far less; less work per frame.
@@ -104,8 +104,8 @@ Known issues (full list: [KNOWN_ISSUES.md](port/dreamcast/docs/KNOWN_ISSUES.md))
   Dreamcast system library could take an old "disc read finished" signal and use half-read data; needs a console
   check, [#27](https://github.com/lamb2k/re4dc/issues/27)), and from test 16 the disc is a standard GD-ROM image (needs a console check). The memory corruption crashes of tests 7
   and 8 were fixed in test 9 (needs a console check). A few menu actions can stop the game.
-* **Picture:** some textures are missing; the night lake has no torch flames or rain; in the village (r101) the
-  fence by the house misses its rails; the item menu's confirm popup differs from test 13.
+* **Picture:** some textures are missing; the night lake has no torch flames or rain; the item menu's confirm popup differs
+  from test 13.
 * **Sound:** the rifle sound is lower quality.
 * **Loading:** pauses when entering rooms.
 

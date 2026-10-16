@@ -24,8 +24,8 @@ New in test 16:
 * Radio call subtitles follow the voice instead of falling behind it.
 * The lake draws its water the PS2 way out on the water too: the Del
   Lago boat fight and the lake shore at night.
-* In the village (r101) the burning stake and the pyre keep their full
-  detail again. The fence by the house still misses its rails.
+* The village (r101) is back to its full-detail world: the burning
+  stake, the pyre and the fence by the house are complete again.
 
 From test 15.1 (hotfix):
 * The see-through haze and mist sprites around Leon are no longer drawn,
