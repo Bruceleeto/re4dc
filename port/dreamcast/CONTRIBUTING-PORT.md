@@ -141,6 +141,13 @@ weather-off areas, `Status_flg[1]` 0x02000000) the fog ramp starts behind that a
 fogged while the scenery seen through its doors and windows still fades out before the cut. Rendering and View
 distance are not saved: every boot starts in Standard and Full. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
+Far shell (knob `FAR_SHELL`, needs `VIEW_DIST_OPTION`; game/platform/far_shell.inc): in a room that has a
+`dc/native/rXXX/far-shell.fsh` (r100 and r101 in test 15), Near and Short cut only the world's opaque pass; the fog,
+the cut-out and see-through world surfaces, characters and objects keep Full's distance, and the room's far shell (a
+simplified copy of the far world, about 6,000 triangles textured with the world's own textures, so no extra graphics
+memory) is drawn beyond the cut, so landmarks stay visible. Build a shell with tools/d367/farshell (README there;
+Windows Python and Blender 5.2) from the room's PS2 world package. Rooms without a file keep the plain cut. Warp line
+`farshell 0|1|2` (0 = plain cut, 1 = shell, 2 = opaque cut without the shell, for pricing).
 
 ## 6. Send a patch
 

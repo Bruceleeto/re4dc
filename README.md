@@ -48,7 +48,8 @@ Standard (the default, the full 640x480 picture) or FSAA, which smooths edges by
 slower in busy scenes. View distance is how far the scenery is drawn: Full (the default, as on the PS2), Near or
 Short. Near and Short fade the distant scenery into the fog sooner, which makes busy outdoor scenes faster; the
 game plays the same. Inside a house the room around you stays clear, and only what you see through the doors and
-windows fades. The lake always shows its full horizon. FSAA and View distance last until the console is switched
+windows fades. In the first area and the village, Near and Short draw a simplified copy of the distant scenery
+instead, so houses, trees and the hills stay in view. The lake always shows its full horizon. FSAA and View distance last until the console is switched
 off; every boot starts in Standard and Full.
 The speed display shows the frame rate and game speed on screen; it is off unless you switch it on.
 The VMU in controller slot 1 shows Leon, Ashley, Hunnigan and Luis pages.
