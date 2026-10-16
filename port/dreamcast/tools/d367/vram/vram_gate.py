@@ -13,7 +13,8 @@ Reads a game log (benchmark or full-play segment) and
     gameplay upload in a room with a resident list (D5: vram/resident/r<room>.tsv, ROOM_RESIDENT=1 preloads it, so
     any upload after the room-entry preload is a disc re-read the list does not cover; full-play checks report them),
     uploads made while the sub screen is open ("subscreen backing: open" .. "close": radio calls, the attache case, the
-    map; the game is paused) are menu loads (test 14 #1, coordinator 10-15): reported in the room's row ("N (+M menu)"),
+    map; the game is paused) and while the SS heap 11 exists (the chapter title card and the chapter-end results / save
+    screens; lane resident16 10-16) are menu loads (test 14 #1, coordinator 10-15): reported in the room's row ("N (+M menu)"),
     not failed, and not counted as gameplay uploads; a KOS heap failure (D5: "Out of memory" from sbrk, the native model slab or a motion file read refused: the texture
     cache holds the KOS heap's descriptors, TEX_META_EVICT keeps a reserve and the slab is allocated before the
     preload), or GameCube effect picture ("vram gc-fx:" key) that ps2lib/INDEX.tsv does not list with ps2_source=NONE
@@ -117,6 +118,7 @@ def analyse(lines, index=None, nocontig=True, resident=None):
     kos_lines = []
     new_format = False
     subscreen = False
+    ss_heap = False
     for i, ln in enumerate(lines, 1):
         if ln.startswith('subscreen backing: open '):
             subscreen = True
@@ -124,7 +126,16 @@ def analyse(lines, index=None, nocontig=True, resident=None):
         if ln.startswith('subscreen backing: close '):
             subscreen = False
             continue
-        if subscreen and ln.startswith('native UI: load ') and order:
+        # The chapter screens (lane resident16, 2026-10-16): the chapter title card (SS/eng/chapNN.dat) and the chapter-end
+        # results / save screens (ss/cmn/save_e.dat) run while the SS heap 11 exists ("-- MemCreateHeap 11" ..
+        # "-- MemDestroyHeap 11"); the game is paused there as in the sub screen, so their pictures are menu loads too.
+        if ln.startswith('-- MemCreateHeap 11 '):
+            ss_heap = True
+            continue
+        if ln.startswith('-- MemDestroyHeap 11 '):
+            ss_heap = False
+            continue
+        if (subscreen or ss_heap) and ln.startswith('native UI: load ') and order:
             visits[order[-1]]['menu_loads'] += 1   # the sub screen's own pictures, loaded while the game is paused
             continue
         if ln.startswith('vram room: '):

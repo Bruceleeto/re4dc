@@ -290,7 +290,7 @@ DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' el
 # on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
 GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
 DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
-T15_DATA = T14_DATA + ',cast15,glod,res16,snd16'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48
+T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
@@ -309,6 +309,27 @@ DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res
 # every disc stream (music, radio voices) goes silent. Order: after objs13d (it replaces objs13d's st1/r103.dar).
 SND16 = os.environ.get('SND16', PRIV + '/audio16-20261016')
 DATA['snd16'] = {'st1/r103.dar': SND16 + '/st1/r103.dar', 'bgm/aica_str.dat': SND16 + '/bgm/aica_str.dat'}
+# Lane resident16 (2026-10-16, VRAM rule: a room's textures load once at its entry; user approved the VQ look 10-16:
+# "vq looks fine go for it"). Data only, no knob: ROOM_RESIDENT=1 reads dc/resident.bin.
+#   res16h = dc/resident.bin with resident lists for every chapter 1 room and r119 (vram/resident/r000 r100 r101 r102 r103
+#     r104 r105 r106 r107 r108 r109 r10a r10b r119.tsv; regenerate with: resident_keys.py pack <out> r000.tsv r100.tsv
+#     r101.tsv r102.tsv r103.tsv r104.tsv r105.tsv r106.tsv r107.tsv r108.tsv r109.tsv r10a.tsv r10b.tsv r119.tsv),
+#     1064 records, sha256 1e3af15308350b8e. Includes the r100 woods / shed walk (+31 keys) and the Ganado kill / blood
+#     effect set (16 keys) in r103 r104 r106..r10a r119 (not r105: thrash-guard refusals in the chapter 1-2 segment).
+#   vq16cs = dc/tex.pak: tex-t13v.pak (9bbe65e6) with 39 16-bit pictures as full-codebook VQ, made by vram/vq16c-texpak.sh
+#     in three passes (vq16-ch1.txt: Leon pl08, PS2 world r102 r105 r108 r10b, em17 cast; vq16-results.txt: the chapter
+#     results screen; vq16-r104.txt: em13 / em18 cast), 3,817,472 -> 557,056 B, PSNR 26.8..57.5 dB; sha256 15611245a3ae1a82.
+#   Both files live (not in git) in RS16D = /root/probe/lanes-20261015/t15k/data/{res16h,vq16cs}. Order: after res16 and
+#   t13tex (they replace dc/resident.bin and dc/tex.pak). The lane's intermediate sets (res16c..g, vq16c, vq16cr) stay in
+#   RS16L = /root/probe/lanes-20261016/resident-k/data (evidence C:\Flycast-Evidence\re4-dreamcast\resident-20261016).
+RS16D = os.environ.get('RS16D', '/root/probe/lanes-20261015/t15k/data')
+RS16L = os.environ.get('RS16L', '/root/probe/lanes-20261016/resident-k/data')
+DATA['res16h'] = {'dc/resident.bin': RS16D + '/res16h/resident.bin'}
+DATA['vq16cs'] = {'dc/tex.pak': RS16D + '/vq16cs/tex-vq16c.pak'}
+for _n in ('res16c', 'res16d', 'res16e', 'res16f', 'res16g'):
+    DATA[_n] = {'dc/resident.bin': RS16L + '/' + _n + '/resident.bin'}
+for _n in ('vq16c', 'vq16cr'):
+    DATA[_n] = {'dc/tex.pak': RS16L + '/' + _n + '/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
