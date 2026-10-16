@@ -13,11 +13,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
-| 🟢 Fixed in test 9 / 9.1 / 10 / 12 / 12.1 / 13 | Fixed and checked in our tests; the problem was not console-only | 10 |
-| 🛠️ In progress | Being fixed now | 2 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 18 |
+| 🛠️ In progress | Being fixed now | 1 |
 | 🔍 Investigating | Being reproduced or traced | 5 |
-| ⏸️ Open | Known, not yet worked on | 14 |
+| ⏸️ Open | Known, not yet worked on | 12 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -37,7 +37,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10, 11 | 🛠️ In progress: fixed in test 13 for the r105 key event (the chapter 1-2 results screen: a large picture now gets one free block of its size); r10b and r119 are still open | |
 | On the r10b boat, and in r105 after the chapter 1-2 results screen, a few effect pictures can be skipped while video memory is full | test 12.2, 13 | ⏸️ Open (found by the full-play check; fewer in r105 since test 13) | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
-| The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12, 12.1, 12.2, 13 | ⏸️ Open: at that point there is not enough free memory in one piece for the movie | |
+| The cutscene at the r100 cliff (after the first house) is skipped; the game goes on normally after it | test 12, 12.1, 12.2, 13, 14 | 🟢 Fixed in test 15: while the movie plays it borrows the memory of the room's scenery, which is read back from the disc and checked when the movie ends | |
 | Possible out-of-memory crash on a real console when leaving the village (r101) after a long fight, at the next room's start | test 12, 12.1 | 🟢 Fixed in test 12.2, needs console check: found by our memory checks, not reported by anyone yet; the village's leftover texture records are freed when the room changes, and our console-memory test (Flycast with 48 KiB of the console's system memory held back) now leaves the village to r100 and r103 without running out | |
 | A crash screen (`MISSING sub screen pool freeze allocation`) when a radio call opens on a real console | test 11 (not released), test 12 preview | ✅ Confirmed fixed on a real Dreamcast (test 12 preview): the call screen now keeps its copies in memory set aside for it | |
 
@@ -53,14 +53,14 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Lake ripples are not visible | test 8 | 🔍 Investigating: they draw in emulators; faint by design in fog | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Curtains in the first house have no texture | test 8 | 🟢 Fixed, needs console check (likely the same memory corruption) | |
 | Some textures are missing or corrupted (same memory corruption as the crashes) | test 7, test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Leon and most villagers are not lit by the scene's lights | test 8 | 🛠️ In progress: from test 12, Leon is lit by the scene's lights, with a soft fill light that brings him close to the GameCube brightness. The villagers are not done yet | [#26](https://github.com/lamb2k/re4dc/issues/26) |
+| Leon and most villagers are not lit by the scene's lights | test 8 | 🟢 Fixed in test 15: Leon is lit by the scene's lights from test 12, with a soft fill light that brings him close to the GameCube brightness. From test 15 the villagers take their colour from the lights around each of them (the same light probe as Leon), drawn flat: one colour per body part, no shading across the body | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Some rooms look almost pitch black: the r11b lake shore (dark dock and ground, near-black sky), r117, r108 | test 12 | 🟢 Fixed in test 12.1: the rooms use the PS2 room lighting, and the r11b / r119 mist is drawn as in test 10 | |
 | Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | The chapter 2-1 results screen is missing one texture | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
 | A few effect pictures are the GameCube ones: two shared room effects seen in most chapter 1 rooms, one in r101 / r103 / r106 and one animated effect in r117; every other effect uses the PS2 pictures | test 12, 13 | ⏸️ Open: the PS2 version has no matching picture for these four; the full-play checks of test 12.2 and test 13 found no others. The 31 shared fire, smoke and spark pictures that test 12 took from the GameCube now use the PS2 pictures | |
-| The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | ⏸️ Open: a lit version is waiting for a look check | |
+| The merchant is not lit by the scene's lights: his robe reads brown-black instead of the PS2's blue-black | test 12 | 🟢 Fixed in test 15: lit by the room lights | |
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
@@ -70,8 +70,9 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | The rifle sound is lower quality | all | ⏸️ Open (memory limit) | |
-| The chapter results music is silent on the third results screen | all | ⏸️ Open |
-| Footsteps and room ambience are silent in r103 (the farm), and in later rooms not yet in the build | all | ⏸️ Open: their sound banks are not prebuilt yet | |
+| The chapter results music is silent on the third results screen | test 7 and earlier | 🟢 Fixed in test 8: the music that plays after each chapter's results (chapters 1-1, 1-2 and 1-3, on the save screen) is on the disc. The results table itself has no music, as in the original game: the chapter end stops the room music and starts none | |
+| Footsteps and room ambience are silent in r103 (the farm) | test 13, 14 | 🟢 Fixed in test 15: r103's footstep and ambience sounds are converted for the Dreamcast again (ambience 16 kHz, footsteps 11 kHz, the same rates as the other rooms). The later chapter 1 rooms already had theirs | |
+| Some music and voices are silent: the r104 and r107 room music, the r106 battle music, the r102 room music and the merchant's voice, the "you died" screen music, and a few short event jingles (r100, r101, r104, r108, r10b) | all | 🟢 Fixed in test 15: these music and voice tracks are now on the disc. Only one of them plays at a time, so a voice that starts while another track plays can still be silent, as before | |
 
 ## Performance and loading
 
@@ -82,6 +83,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Pauses when entering rooms | all | ⏸️ Open | |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. The on-screen display still reloads its pictures after the village radio call (4 small pictures); that part waits for a later test | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
+| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon) | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
 ## Console checklist for test 13

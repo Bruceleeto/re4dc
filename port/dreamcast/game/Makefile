@@ -283,7 +283,12 @@ $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 # movies (src/st1/r117.cpp); the chapter end (SceSetChapterEnd(CHAPTER_2_1, -1)) and its save run unchanged.
 MODULES += pl11:ovl em11
 # The CH21 stream file has 17 entries (r118's 0:23): the reader's table takes 32 (it refused the file at 16).
-$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=32
+# AICA_STR_ENT_MAX (lane audio16, 10-16; default 32 = image unchanged): the reader's stream table size. The chapter 1
+# stream file (aica_banks.py --streams ch1, data set snd16: 45 entries with the merchant's 15 voice streams) needs 48;
+# a file with more entries than the table is refused whole ("header invalid", every disc stream silent), so snd16 and
+# AICA_STR_ENT_MAX=48 ship together. 32 bytes of .bss per entry (48: +512 B). The 2 KB header holds up to 63.
+AICA_STR_ENT_MAX ?= 32
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_STR_ENT_MAX=$(AICA_STR_ENT_MAX)
 export RE4DC_LINK_OVERLAY += .ovl_pl11
 $(OBJDIR)/mod/st1_3/src/st1/r117.o: GAME_CPPFLAGS += -DRE4DC_ROUTE_CH21=1
 ROUTE_MOVIE_GAME_CH21 = $(OBJDIR)/mod/st1_2/src/st1/r11b.o $(OBJDIR)/mod/st1_2/src/st1/r119.o $(OBJDIR)/mod/st1_3/src/st1/r117.o
@@ -1133,6 +1138,49 @@ $(OBJDIR)/pace.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 $(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_METER=1
 endif
+# SND_PAD_SKIP=1 (lane doorpause16, 2026-10-16; default 0 = image unchanged; does something only with AICA_AUDIO=1): the
+# source queue leaves out the disc reads of a sound block's ARAM part past a build-time converted bank's image. The
+# part keeps the GameCube size on the disc (the game's ARAM layout is sized from it) and is zero after the image:
+# 0.85 to 2.7 MB of every chapter 1 door's 4 to 11 MB (DOOR-PAUSE-CH1-20261016.md). The skipped pieces still pass
+# through the queue's transfer step and re4dc_audio_arq (which copies only the image), so the AICA RAM, the ARAM
+# addresses, UseAramSize and the queue's steps are the same; only the reads (and their wait) are gone.
+# platform/include/snd_pad_skip.h is forced into dvd.o (the source keeps its line numbers).
+SND_PAD_SKIP ?= 0
+ifneq ($(filter $(SND_PAD_SKIP),0 1),$(SND_PAD_SKIP))
+$(error SND_PAD_SKIP must be 0 or 1)
+endif
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -include $(CURDIR)/platform/include/snd_pad_skip.h
+ifeq ($(SND_PAD_SKIP),1)
+$(OBJDIR)/src/game/dvd.o: GAME_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_SND_PAD_SKIP=1
+endif
+# DOOR_PROBE=1 (lane doorpause16, 2026-10-16; diagnostic, log only, default 0 = image unchanged; needs DISC_READ_METER=1):
+# where the door pause goes. platform/door_probe.cpp logs a "DOORPH:" line at each phase mark of a room change (door
+# press, door demo, StageSet, the gameRoomInit steps, the first gameMainLoop frame): wall ms, game-thread GD-ROM
+# blocked ms / drive calls / KB (DISC_READ_METER's counters) and CPU ms per thread class from KOS's per-thread
+# accounting (main, re4-task, other, idle); at the end the files read in the window (fs_open / fs_read wraps:
+# "DOORFILE:") and CPU per thread label ("DOORTHD:"). The marks are RE4DC_DOORPH(...) appended to existing source
+# lines (main.cpp: the vblank spin waits, "spin=" ms; game.cpp, stage.cpp, sce_at.cpp, ui_bridge.cpp) from the forced header platform/include/door_probe.h, which
+# makes them empty statements with the knob off.
+DOOR_PROBE ?= 0
+ifneq ($(filter $(DOOR_PROBE),0 1),$(DOOR_PROBE))
+$(error DOOR_PROBE must be 0 or 1)
+endif
+DOOR_PROBE_GAME = $(OBJDIR)/src/game/main.o $(OBJDIR)/src/game/game.o $(OBJDIR)/src/game/stage.o $(OBJDIR)/src/game/sce_at.o $(OBJDIR)/ui_bridge.o
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -include $(CURDIR)/platform/include/door_probe.h
+ifeq ($(DOOR_PROBE),1)
+ifneq ($(DISC_READ_METER),1)
+$(error DOOR_PROBE=1 needs DISC_READ_METER=1)
+endif
+ifeq ($(IO_PROBE),1)
+$(error DOOR_PROBE=1 and IO_PROBE=1 wrap the same fs entry points)
+endif
+$(DOOR_PROBE_GAME): GAME_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+$(OBJDIR)/platform/door_probe.o $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DOOR_PROBE=1
+GAME_LDFLAGS += -Wl,--wrap=fs_open -Wl,--wrap=fs_read
+else
+PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/door_probe.o,$(PLATFORM_OBJS))
+endif
 else
 PLATFORM_OBJS := $(filter-out $(OBJDIR)/platform/dvd_read_safe.o,$(PLATFORM_OBJS))
 ifeq ($(DISC_READ_METER),1)
@@ -1293,10 +1341,13 @@ $(CABIN_SOURCE_GAME): GAME_CPPFLAGS += -include $(OBJDIR)/cabin-source.h -includ
 # D38: exact full blocking r11f10/11f11 movies borrow the retained world cell.
 # No resolution/audio changes, source-heap expansion or allocator fallback.
 MOVIE_WORLD_ARENA ?= 0
+# Bounded Chapter 1 extension: full r100s30 borrows the same retained owner.
+MOVIE_WORLD_ARENA_S30 ?= 0
 .PHONY: movie-world-arena-force
 $(OBJDIR)/movie-world-arena.h: movie-world-arena-force
 	@mkdir -p $(dir $@)
 	@printf '#define RE4DC_MOVIE_WORLD_ARENA %s\n' '$(MOVIE_WORLD_ARENA)' > $@.tmp
+	@printf '#define RE4DC_MOVIE_WORLD_ARENA_S30 %s\n' '$(MOVIE_WORLD_ARENA_S30)' >> $@.tmp
 	@cmp -s $@.tmp $@ || mv $@.tmp $@
 	@rm -f $@.tmp
 MOVIE_WORLD_ARENA_PLATFORM = $(OBJDIR)/platform/native_movie.o $(OBJDIR)/platform/native_ui.o $(OBJDIR)/platform/native_static.o $(OBJDIR)/platform/native_ps2_world.o
@@ -2261,6 +2312,11 @@ include t2exact.mk
 include knobs.mk
 
 # Validate after all knob defaults and included recipes are available.
+ifneq ($(MOVIE_WORLD_ARENA_S30),0)
+ifneq ($(MOVIE_WORLD_ARENA),1)
+$(error MOVIE_WORLD_ARENA_S30 needs MOVIE_WORLD_ARENA=1)
+endif
+endif
 ifeq ($(MOVIE_WORLD_ARENA),1)
 ifneq ($(ROUTE_MOVIES)$(ROUTE_MOVIE_YUV)$(PS2_WORLD_DRAW)$(PS2_WORLD_MESH)$(IO_ALIGNED)$(MOVIE_HEAP_EVICT)$(D349_RENDERER_STACK)$(PVR_STREAM),11111111)
 $(error MOVIE_WORLD_ARENA=1 needs ROUTE_MOVIES/ROUTE_MOVIE_YUV/PS2_WORLD_DRAW/PS2_WORLD_MESH/IO_ALIGNED/MOVIE_HEAP_EVICT/D349_RENDERER_STACK/PVR_STREAM=1)

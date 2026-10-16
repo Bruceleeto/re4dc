@@ -1,0 +1,38 @@
+# vq16-ch1.txt (lane resident16, 2026-10-16): chapter 1 16-bit pictures re-encoded as full-codebook VQ (vq16c-texpak.sh)
+# so each room's working set fits the texture budget and its resident list loads whole at room entry (vq_plan.py
+# target 2,100,000 B). Class: L = Leon pl08 (no-jacket atlas and pl08.drs parts; user decision 10-14 Leon ships VQ),
+# W = PS2 world package pictures (as the approved r101 world set vq16-r101.txt), E = PS2 cast em17 (r108 Ganados; new class).
+0b5e0b0d-b5099c85	W	 dc/native/r105/ps2-world.r4pw
+2ab4985a-bae3e772	W	 dc/native/r108/ps2-world.r4pw
+2b171b6b-0e10fae4	W	 dc/native/r102/ps2-world.r4pw
+2b9f9ccb-c990e3da	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw
+33e233f8-76a8e385	W	 dc/native/r102/ps2-world.r4pw
+474fa64a-db84aaba	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+4951f92c-a1058d75	W	 dc/native/r102/ps2-world.r4pw
+511673a2-22acdaca	L	 em/pl08.drs
+51ea8120-59959937	E	 dc/native/r108/registry.re4nmr; dc/native/r118/registry.re4nmr; em/em17.drs
+5224f21f-ccd7adcd	L	 em/pl08.drs
+532be924-487759b7	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+70524d21-d0545e79	L	 em/pl08.drs
+7506e95f-68cf2211	L	 Leon pl08 atlas (no jacket)
+77c1171c-d8759f5e	L	 em/pl08.drs
+77f6837f-162f2195	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+7bf3f2d4-ba87bf05	W	 dc/native/r102/ps2-world.r4pw
+832307b7-ac3abe05	L	 em/pl08.drs
+83ab4090-37c75518	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+84d8989b-b2b26525	E	 dc/native/r108/registry.re4nmr; dc/native/r118/registry.re4nmr; em/em17.drs
+99133ef8-6dedb9c5	W	 dc/native/r105/ps2-world.r4pw
+ab7b887e-12841d5d	E	 dc/native/r108/registry.re4nmr; dc/native/r118/registry.re4nmr; em/em17.drs
+abdfd7e5-6a3dc665	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+b81bc892-6b2d0125	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+b894c4b5-e4a30dc0	L	 em/pl08.drs
+bc87033e-d42752fe	W	 dc/native/r102/ps2-world.r4pw
+c5e1e7e7-9c87b5de	W	 dc/native/r108/ps2-world.r4pw; loose /root/probe/lanes-20261010/r118/rooms/r118-ps2-uvg/t
+cd9bc922-a8b63ad5	W	 dc/native/r10b/ps2-world.r4pw; loose /mnt/c/Game Dev/Emulators/re4-assets-private/ps2room
+d7c8da4e-24da6c53	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+e0242f7e-29de0b33	W	 dc/native/r10b/ps2-world.r4pw; dc/native/r11a/ps2-world.r4pw; loose /mnt/c/Game Dev/Emula
+e03dab8c-9ec4d246	W	 dc/native/r10b/ps2-world.r4pw
+f36dda87-b2d17585	W	 dc/native/r10b/ps2-world.r4pw; loose /mnt/c/Game Dev/Emulators/re4-assets-private/ps2room
+f4973649-6fcfb85f	W	 dc/native/r108/ps2-world.r4pw
+faee0b89-bd614d3d	W	 dc/native/r108/ps2-world.r4pw; dc/native/r118/ps2-world.r4pw; loose /root/probe/lanes-202
+ff5a4785-17bcc58e	W	 dc/native/r108/ps2-world.r4pw

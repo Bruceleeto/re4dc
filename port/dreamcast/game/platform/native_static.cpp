@@ -2788,6 +2788,7 @@ extern "C" int re4dc_static_gate(const void* object,const float mv[12],const flo
 #if RE4DC_NATIVE_FOG
 #if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
 extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane
+extern "C" float re4dc_view_indoor_depth(void);   // option_rows.cpp: the indoor area's farthest point from the eye, or 0
 #endif
 #if RE4DC_FAR_SHELL
 extern "C" int re4dc_far_shell_keeps_fog(void);       // far_shell.inc
@@ -2806,10 +2807,19 @@ constexpr float kFogRamp=0.8f; // ramp to 100% over the last 20% before the far 
 // to Near / Short (18.75 / 12.5 m). Then the ramp to 100 % keeps Full's width, 20 % of 25 m = 5 m before the cut
 // (never more than half the far), so distant scenery fades out over the same depth instead of popping.
 bool fog_view_cut;
-float fog_ramp_start(float far){
-    if(!fog_view_cut)return kFogRamp*far;
+// Indoors (option_rows.cpp re4dc_view_indoor_depth: the player in one of the room's indoor effect areas) the ramp
+// starts behind that area instead (its farthest point from the eye + 0.5 m, at most 2 m before the cut), so the room
+// around the player keeps Full's look while scenery seen through doors and windows still fades out before the cut.
+// The start moves 0.5 m per frame toward its target (no jump in the fog when stepping through a door); 0 = not indoors.
+float fog_indoor_start,fog_indoor_loaded=-1.0f;
+float fog_ramp_base(float far){
     const float s=far-(1.0f-kFogRamp)*25000.0f;
     return s>0.5f*far?s:0.5f*far;
+}
+float fog_ramp_start(float far){
+    if(!fog_view_cut)return kFogRamp*far;
+    const float s=fog_ramp_base(far);
+    return fog_indoor_start>s?fog_indoor_start:s;
 }
 float fog_ramp(float z,float far){const float s=fog_ramp_start(far);return (z-s)/(far-s);}
 #endif
@@ -2898,6 +2908,21 @@ extern "C" void re4dc_fog_note_far(float far){
 #endif
     fog_now.far=far;
 }
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// The indoor ramp start for this frame (see fog_indoor_start): one 0.5 m step toward the target, 0 once back at the
+// level's own ramp start.
+static float fog_indoor_next(){
+    const float far=fog_now.far,base=fog_ramp_base(far);
+    float t=base;
+    if(fog_view_cut && fog_now.type){
+        const float d=re4dc_view_indoor_depth();
+        if(d>0.0f){t=d+500.0f;const float lim=far-2000.0f;if(t>lim)t=lim;if(t<base)t=base;}
+    }
+    float c=fog_indoor_start>base?fog_indoor_start:base;
+    if(t>c){c+=500.0f;if(c>t)c=t;}else if(t<c){c-=500.0f;if(c<t)c=t;}
+    return c>base?c:0.0f;
+}
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
 // EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): the fog table carries about 55 % of the PS2 haze's mean veil, which ramps in
 // from 1 to 5 m (Monte Carlo of the PS2 haze), so the sparse haze subset only adds the drifting blotches.
@@ -2940,6 +2965,9 @@ extern "C" int re4dc_fog_frame_pending(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     if(fog_now.type && re4dc_hwfog_key()!=hwfog_loaded)return 1;
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_now.type && fog_indoor_next()!=fog_indoor_loaded)return 1;
+#endif
     return fog_now.type && !(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
         fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba);
 }
@@ -2981,6 +3009,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -2990,6 +3021,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
        fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -2997,6 +3031,12 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_indoor_start!=fog_indoor_loaded && (fog_indoor_start==0.0f || fog_indoor_loaded<=0.0f))
+        re4dc_log("view distance: indoor fog %s (ramp start %u mm, far %u)\n",fog_indoor_start>0.0f?"on":"off",
+                  unsigned(fog_indoor_start),unsigned(fog_now.far));
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     look_loaded=look_key;
     fog_loaded=fog_now;
@@ -3038,6 +3078,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -3047,6 +3090,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -3054,6 +3100,9 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
@@ -3653,6 +3702,15 @@ void r11fPackageAdvance() {
 #include "include/movie_world_arena_lifecycle.inc"
 movie_world::Ledger ps2_movie;
 struct MovieWorldFiles { unsigned mesh=0,side=0,mesh_crc=0,mesh_fnv=0,side_crc=0,side_fnv=0; } ps2_movie_files;
+bool ps2_movie_layout(unsigned room){
+    const auto& f=ps2_movie_files;
+    if(room==0x11f)return f.mesh==797056 && f.side==9076 && ps2_movie.capacity==811264;
+#if RE4DC_MOVIE_WORLD_ARENA_S30
+    // The current r100 SMX/TR4 package, with its LUT and gather storage.
+    if(room==0x100)return f.mesh==1537920 && f.side==19612 && ps2_movie.capacity==1562656;
+#endif
+    return false;
+}
 struct MovieWorldRead { MovieWorldRead(){++ps2_movie.readers;} ~MovieWorldRead(){--ps2_movie.readers;} };
 bool ps2_movie_blocked(){if(!ps2_movie.unavailable())return false;++ps2_movie.blocked;return true;}
 bool ps2_movie_current(){
@@ -4215,7 +4273,11 @@ bool ps2_open(){
     if(pc::st.ok)pc::load();
 #endif
 #if RE4DC_MOVIE_WORLD_ARENA
-    if(ps2w.room==0x11f){
+    if(ps2w.room==0x11f
+#if RE4DC_MOVIE_WORLD_ARENA_S30
+       || ps2w.room==0x100
+#endif
+    ){
         unsigned gen=0;
         if(!re4dc_room4_live_generation(&gen) || !re4dc_room4_cell_valid(s,total,gen) || !ps2_movie.capture(s,total,gen)){
             re4dc_missing("movie world arena initial owner invalid");return false;
@@ -4273,10 +4335,13 @@ bool ps2_movie_reload(){
     MovieWorldRead read; // retirement must refuse any I/O-yielded reader
     const auto& files=ps2_movie_files;
     const unsigned mb=(files.mesh+31u)&~31u,pb=(files.side+31u)&~31u;
-    if(files.mesh!=797056 || files.side!=9076 || mb+pb+kLutBytes+kGatherBytes!=ps2_movie.capacity)return false;
+    if(!ps2_movie_layout(ps2w.room) || ps2w.room!=ps2w.want || mb+pb+kLutBytes+kGatherBytes!=ps2_movie.capacity)return false;
     Re4dcIoScope io;
-    const file_t fm=fs_open("/cd/dc/native/r11f/ps2-world.re4mesh",O_RDONLY);
-    const file_t fp=fs_open("/cd/dc/native/r11f/ps2-world.r4pw",O_RDONLY);
+    char mesh_path[64],side_path[64];
+    snprintf(mesh_path,sizeof(mesh_path),"/cd/dc/native/r%03x/ps2-world.re4mesh",ps2w.room);
+    snprintf(side_path,sizeof(side_path),"/cd/dc/native/r%03x/ps2-world.r4pw",ps2w.room);
+    const file_t fm=fs_open(mesh_path,O_RDONLY);
+    const file_t fp=fs_open(side_path,O_RDONLY);
     bool ok=fm!=FILEHND_INVALID && fp!=FILEHND_INVALID && fs_total(fm)==ssize_t(files.mesh) && fs_total(fp)==ssize_t(files.side);
     auto* data=static_cast<unsigned char*>(ps2_movie.base);
     // Keep source timeslicing outside the native file calls, including fallback reads.
@@ -4304,7 +4369,8 @@ bool ps2_movie_reload(){
         for(float f:q.affine)if(!re4dc::render::is_finite(f)){ps2w.package.close();return false;}}
     ps2w.parts=parts;ps2w.placements=placements;ps2w.nplacements=h.placements;
 #if RE4DC_PS2_PVS
-    pvs::close(); // the movie arena's package: no set
+    if(ps2w.room==0x11f)pvs::close(); // the original arena package has no set
+    else {pvs::cur=nullptr;pvs::cur_frame=~0u;pvs::cur_cell=-1;}
 #endif
 #if RE4DC_PS2_PASS_MASK
     ps2w.masked=h.placements<=Ps2World::kMaskPlacements;
@@ -4330,6 +4396,12 @@ bool ps2_movie_reload(){
     return true;
 }
 bool ps2_movie_dyn_valid(){
+#if RE4DC_PS2_PVS
+    if(pvs::block && !re4dc_room4_cell_valid(pvs::block,pvs::bytes,ps2_movie.generation))return false;
+#endif
+#if RE4DC_PS2_STRIP_GROUPS
+    if(ps2w.sg_block && !re4dc_room4_cell_valid(ps2w.sg_block,0,ps2_movie.generation))return false;
+#endif
 #if RE4DC_PS2_WORLD_DYNAMIC
     if(dyn::block && !re4dc_room4_cell_valid(dyn::block,0,ps2_movie.generation))return false;
     if(dyn::slots && !re4dc_room4_cell_valid(dyn::slots,dyn::nslots*sizeof(dyn::Slot),ps2_movie.generation))return false;
@@ -4895,9 +4967,13 @@ extern "C" int re4dc_movie_world_before_heap_change(const void* start,unsigned b
 #if RE4DC_MOVIE_WORLD_ARENA
 extern "C" int re4dc_ps2_mesh_movie_blocked(){return ps2_movie_blocked();}
 extern "C" unsigned re4dc_ps2_mesh_movie_borrow(unsigned id){
-    if((id!=0x11f10 && id!=0x11f11) || ps2w.room!=0x11f || ps2w.want!=0x11f ||
+    const bool supported=(ps2w.room==0x11f && (id==0x11f10 || id==0x11f11))
+#if RE4DC_MOVIE_WORLD_ARENA_S30
+        || (ps2w.room==0x100 && id==0x10030)
+#endif
+        ;
+    if(!supported || ps2w.room!=ps2w.want || !ps2_movie_layout(ps2w.room) ||
        ps2_movie.phase!=movie_world::Phase::ready || ps2_movie.readers || !ps2_movie_current() ||
-       ps2_movie.capacity!=811264 || ps2_movie_files.mesh!=797056 || ps2_movie_files.side!=9076 ||
        !ps2w.parts || !ps2w.placements || !ps2_movie_dyn_valid())return 0;
     if(!re4dc_ui_movie_handoff_ready())return 0;
     // Fence may yield: revalidate the owner before touching retained memory.
@@ -4971,11 +5047,11 @@ void pc_scan(unsigned frame){
 #undef RE4DC_FAR_SHELL_PART
 #endif
 extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
-#if RE4DC_PS2_WORLD_R11F_OWNER
-    if(r11fNativeClaimed())return r11fNativePass(pass,zfar);
-#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return 1;
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(r11fNativeClaimed())return r11fNativePass(pass,zfar);
 #endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     if(!re4dc_source_world_binding_valid()){re4dc_source_world_binding_failed();return -1;}
@@ -5272,11 +5348,11 @@ extern "C" void re4dc_source_world_diag_report(unsigned,const char*);
 #endif
 // re4dc_static_submit on a non-coarse image of a no-std room: once per image, the loaded package only (no I/O).
 extern "C" void re4dc_ps2_mesh_source(unsigned room,const Re4dcModelPart& p){
-#if RE4DC_PS2_WORLD_R11F_OWNER
-    if(room==0x11f && re4dc_r11f_legacy_blocked(re4dc_ui_frame()))return;
-#endif
 #if RE4DC_MOVIE_WORLD_ARENA
     if(ps2_movie_blocked())return;
+#endif
+#if RE4DC_PS2_WORLD_R11F_OWNER
+    if(room==0x11f && re4dc_r11f_legacy_blocked(re4dc_ui_frame()))return;
 #endif
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
     // A planned or provisional transaction owns launch arbitration even after

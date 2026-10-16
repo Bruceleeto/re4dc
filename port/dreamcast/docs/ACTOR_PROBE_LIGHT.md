@@ -437,3 +437,58 @@ Lane light-p3 (branch `lane/light-p3`, for test 12). Both changes are render onl
 
 The ms figures are modelled on the SH-4 hardware model, not measured on a console. A console run is needed before the
 fps claim is final.
+
+## Villagers (GANADO_LIT, lane ganlit, 2026-10-16)
+
+KNOWN_ISSUES "Leon and most villagers are not lit": since test 10 the cast villagers take the room's GX light set
+(PS2_GANADO_LIT), but CROWD_FLAT draws every part in one colour, so they read flat next to the probe-lit Leon.
+Branch `lane/ganlit16` (from t15/int ae3d2c8b), all knobs default 0, user picks from the still sheet
+`C:\Game Dev\Emulators\ganlit-20261016\GANLIT-SHEET.png`. Evidence `C:\Flycast-Evidence\re4-dreamcast\ganlit-20261016`.
+
+Knobs (crowd.mk; render only):
+
+- `GANADO_LIT=1` (needs `ACTOR_PROBE_LIGHT=2`): `GANADO_LIT_NEAREST=N` limits the per-vertex probe light to the N
+  nearest Ganado models (crowd ranking, 10% hysteresis so two equally near villagers do not flicker); the rest take
+  one colour per part from their probe. N=0: every villager flat from its probe; N=-1 (default): every near-tier
+  villager, i.e. `ACTOR_PROBE_LIGHT=2` alone.
+- `GANADO_LIT_FILL=F`: Leon's camera fill (`LEON_LIGHT_FILL`) for the probe-lit villagers, F% of the probe total in
+  the kernel's spare second direction (no new pass). It brings the shaded villagers back near today's brightness under
+  the PVR's 1.0x vertex-colour cap.
+- `GANADO_LIT_TOGGLE=1` (debug, DBG_WARP): warp `ganlit <m>` (0 = test 15 flat, 1..8 = the m-1 nearest, 9 = every
+  near one) and `ganfill <F>`, so every option is priced and shot from one binary.
+
+Cost: SH-4 hardware model, console-fit what-if, MODELLED (not console). Per drawn tick, delta vs today in the same
+binary (layout noise excluded). benchmark-r101-t12 (cross, 500:1399, 6 alive, g70 Ganados) and benchmark-r100house
+(1300:2199), T15 data (t14rcrP + cast15, glod, res16).
+
+| Option | Knobs on top of T15REC | Cross | House | Look |
+|---|---|---|---|---|
+| Today | - | 70.81 ms | 72.33 ms | one flat colour per part |
+| (a) probe, flat | `ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0` | -0.08 | -0.02 | as today (slightly brighter); no shading |
+| (b1) nearest 1 shaded | `... GANADO_LIT_NEAREST=1` | +0.41 | +0.06 | one villager shaded, the rest flat |
+| (b) nearest 2 shaded | `... GANADO_LIT_NEAREST=2` | +0.49 | +0.06 | two shaded, rank changes swap flat/shaded |
+| (c) all near shaded | `ACTOR_PROBE_LIGHT=2` (or `GANADO_LIT=1`) | +0.55 | +0.07 | shaded like PS2, darker than today |
+| (b) + fill 45 | `... NEAREST=2 GANADO_LIT_FILL=45` | +0.58 | - | |
+| (c) + fill 45 | `ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_FILL=45` | +0.70 | +0.31 | shaded, near today's brightness (recommended) |
+
+Fill rows come from a second toggle binary (glDrW: cross today 70.87, house 72.32). The per-vertex cost is
+`re4dc_avk_light_skin_n16` (1.06 -> 1.65 ms at the cross); the probe itself replaces build_lights for the villagers,
+which is why (a) is slightly cheaper than today. The old +1.8..3.4 ms (10-14) was a whole-frame delta across binaries
+with 12 full-mesh Ganados; at cap 6 with g70 the villager share is about +0.55 ms.
+
+Not built (option, costed): villager headroom like `LEON_LIGHT_HEADROOM` (Ganado atlases at 2x offline, villager
+colours x0.5): 0 ms and 0 VRAM, but every other draw of a villager texture (source-path fallbacks, cutscene full
+models) must halve too; data + about 10 lines, medium risk. The probe's directional colour reaches 1.1-1.3x in r101
+(TEV x1) and more in r100 (x2), so lit sides clip without it; fill 45 is the cheaper brightness fix.
+
+Gates (lane, 10-16): knob-off identity (glrP image 72d5a307 = t15/int rP, 6 overlays) PASS; rP `_end` 8c41f138 with
+(c)+fill (+0 B, no KOS squeeze needed); STRICT + decisions MUST-IDENTICAL vs T15REC trace (padded `_end`) on h2, bell,
+door103 for NEAREST=2 and on h2, bell for NEAREST=-1 FILL=45 (door103 has no villager in its 2000 ticks); TEXCHK
+PASS 3/3 + LEON-GC PASS 3/3 + wrap=0 (h2 120 s, bell, door103); host test `tests/test_actor_probe_light.py`
+(ranking, hysteresis, toggle, fill). No r104 / r106 row on the sheet: no villager reached a warp view there (DC or PS2).
+
+**Decision (user, 2026-10-16: "Option a for lighting"):** option (a) ships in test 15. T15REC gets
+`T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"` (t15-build.sh): the villagers take their colour per part
+from their own probe, flat, no per-vertex light. ACTOR_PROBE_LIGHT moves from 1 to 2 for the whole recipe; Leon is drawn
+as before (`probe_eligible` only adds Ganado models 0x10..0x20 at =2; the frozen r106 Leon-only view is pixel-identical
+between the two recipes). Landing gates are in TEST15-SCOPE.md.

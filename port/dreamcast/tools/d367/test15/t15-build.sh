@@ -112,12 +112,27 @@ T15_10="LOGIC_WASTE=1 LOGIC_WASTE_MASK=0x02"
 #   O  OVL_ID_GUARD=1 (daac0cf2; robustness: a route overlay from another build stops cleanly at its load). STRICT h2/bell/door103
 #      vs kT stop 2000 (t15orT); deliberate mismatch stops cleanly (og3-r118-mm).
 T15_O="OVL_ID_GUARD=1"
-#   V  VIEW_DIST_OPTION=1 (lane viewdist16; render only, user-approved player option): Options row "View distance"
-#      Full / Near / Short (25 / 18.75 / 12.5 m, the benchmark sweep rows; console -3.9 / -7.9 ms CPU at the cross),
-#      fog to 100 % at the cut, this boot only. Knob-off image identical (72d5a307 + 6 overlays); gates in
-#      C:\Flycast-Evidence\re4-dreamcast\viewdist-20261016. T15_V="" builds the control without it.
+#   L  PS2_CAST_MERCHANT_LIT=1 (ps2cast ca6257d2; user 10-16 "Lit for merchant"; render only; bit 32 of RE4DC_NMR_SOURCE_LIGHT;
+#      needs PS2_CAST_MERCHANT=1, in T12REC). No extra data files.
+T15_L="PS2_CAST_MERCHANT_LIT=1"
+# lane audio16 (eaf9c6d0, 10-16): ch1 sounds; MUST ship with data snd16 (45-entry aica_str.dat; with 32 every stream goes silent)
+T15_S="AICA_STR_ENT_MAX=48"
+# lane s30movie16 (50a4b793, ChatGPT design bce6fd98 + a9533269): r100 s30 cliff movie plays (retained-world loan, 13-slot ledger)
+T15_M="MOVIE_WORLD_ARENA=1 MOVIE_WORLD_ARENA_S30=1"
+# lane doorpause16 (cfa76c2e, 10-16): skip reading the zero padding after converted sound banks (-0.8 s per door at 2 MB/s, exact)
+T15_D="SND_PAD_SKIP=1"
+# lane ganlit16 (de25aabe, user 10-16 "Option a for lighting"): villagers take their colour from the room's lights through
+#   the per-actor probe, still flat (one colour per part). ACTOR_PROBE_LIGHT 1 -> 2 for the whole recipe (overrides T11REC's =1:
+#   the last assignment on the make line wins); Leon is drawn exactly as with =1 (probe_eligible only adds Ganados).
+#   NEAREST=0 = no per-vertex Ganado light (option (a), -0.08 ms cross MODELLED). Render only. No data.
+T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"
+#   V  VIEW_DIST_OPTION=1 (lane viewdist16; render only, user-approved player option, user 10-16 "the distance reduction can
+#      go in on its own"): Options row "View distance" Full / Near / Short (25 / 18.75 / 12.5 m, the benchmark sweep rows;
+#      console -3.9 / -7.9 ms CPU at the cross), fog to 100 % at the cut, this boot only; no fog inside houses (indoor
+#      effect areas), r10b / r11a / r11b never cut (kViewRoomMin). Gates in C:/Flycast-Evidence/re4-dreamcast/viewdist-20261016.
+#      T15_V="" builds the control without it.
 T15_V=${T15_V-VIEW_DIST_OPTION=1}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_V"
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

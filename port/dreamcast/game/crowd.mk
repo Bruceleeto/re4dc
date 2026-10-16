@@ -493,6 +493,49 @@ $(error LEON_LIGHT_FILL needs ACTOR_PROBE_LIGHT=1 or 2)
 endif
 $(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_LEON_LIGHT_FILL=$(LEON_LIGHT_FILL)
 endif
+# GANADO_LIT=1 (lane ganlit 2026-10-16; villagers lit by the room's lights; render only; default 0: nothing changes):
+#              with ACTOR_PROBE_LIGHT=2 (each Ganado's probe from its own GX light set), only the GANADO_LIT_NEAREST
+#              nearest Ganado models light per vertex; every other Ganado (and every one when NEAREST=0) takes one colour
+#              per part from its probe. NEAREST=-1 (default) = every near-tier Ganado, as ACTOR_PROBE_LIGHT=2 alone.
+# GANADO_LIT_TOGGLE=1 (debug only, never in a release recipe): warp `ganlit <m>` sets the mode at load (0 = test 15:
+#              Ganados off the probe, build_lights + CROWD_FLAT; 1..8 = the m-1 nearest; 9 = every near-tier one), for
+#              look sheets and same-binary cost pairs. Needs GANADO_LIT=1 DBG_WARP=1.
+# GANADO_LIT_FILL=F (0..100, default 0; needs GANADO_LIT=1): Leon's camera fill (LEON_LIGHT_FILL) for the probe-lit
+#              Ganados, F% of each Ganado's probe total in the kernel's spare second direction (no new pass): brings
+#              the shaded Ganados back toward the flat test 15 brightness under the PVR's 1.0x vertex-colour cap.
+GANADO_LIT ?= 0
+GANADO_LIT_NEAREST ?= -1
+GANADO_LIT_FILL ?= 0
+GANADO_LIT_TOGGLE ?= 0
+ifneq ($(filter-out 0 1,$(GANADO_LIT))$(filter-out 0 1,$(GANADO_LIT_TOGGLE)),)
+$(error GANADO_LIT / GANADO_LIT_TOGGLE are 0 or 1)
+endif
+ifeq ($(GANADO_LIT),1)
+ifneq ($(ACTOR_PROBE_LIGHT),2)
+$(error GANADO_LIT=1 needs ACTOR_PROBE_LIGHT=2 (PS2_GANADO_LIT=1 CROWD_LOD=1))
+endif
+ifeq ($(filter $(GANADO_LIT_NEAREST),-1 0 1 2 3 4 5 6 7),)
+$(error GANADO_LIT_NEAREST must be -1..7)
+endif
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIT=1 -DRE4DC_GANADO_LIT_NEAREST=$(GANADO_LIT_NEAREST)
+ifneq ($(shell [ "$(GANADO_LIT_FILL)" -ge 0 ] 2>/dev/null && [ "$(GANADO_LIT_FILL)" -le 100 ] 2>/dev/null && echo ok),ok)
+$(error GANADO_LIT_FILL must be an integer 0..100)
+endif
+ifneq ($(GANADO_LIT_FILL),0)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIT_FILL=$(GANADO_LIT_FILL)
+else ifeq ($(GANADO_LIT_TOGGLE),1)
+$(OBJDIR)/platform/native_actor_fast.o: PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIT_FILL=-1
+endif
+else ifneq ($(GANADO_LIT_FILL),0)
+$(error GANADO_LIT_FILL needs GANADO_LIT=1)
+endif
+ifeq ($(GANADO_LIT_TOGGLE),1)
+ifneq ($(GANADO_LIT)$(DBG_WARP),11)
+$(error GANADO_LIT_TOGGLE=1 needs GANADO_LIT=1 DBG_WARP=1 (debug builds only))
+endif
+GAME_CPPFLAGS += -DRE4DC_GANADO_LIT_TOGGLE=1
+PLATFORM_CPPFLAGS += -DRE4DC_GANADO_LIT_TOGGLE=1
+endif
 
 # Isolate transaction skin entries from the ordinary 64-entry lazy/eager table.
 # Default off keeps the original registry and adds no compiler flags. The pool

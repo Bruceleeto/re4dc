@@ -104,6 +104,10 @@ extern "C" void re4dc_sg_select_lean_set(unsigned on);  // native_static.cpp (t2
 #if defined(RE4DC_LEON_LIGHT_TOGGLE) && RE4DC_LEON_LIGHT_TOGGLE
 extern "C" void re4dc_leon_light_set(unsigned mode);  // native_actor_fast.cpp (crowd.mk LEON_LIGHT_TOGGLE)
 #endif
+#if defined(RE4DC_GANADO_LIT_TOGGLE) && RE4DC_GANADO_LIT_TOGGLE
+extern "C" void re4dc_ganlit_set(unsigned mode);  // native_actor_fast.cpp (crowd.mk GANADO_LIT_TOGGLE)
+extern "C" void re4dc_ganlit_fill_set(unsigned percent);  // (the toggle build always compiles the fill)
+#endif
 #if defined(RE4DC_LOOK_TOGGLE)
 extern "C" void re4dc_look_set(unsigned mode);  // native_static.cpp (post30.mk LOOK_TOGGLE)
 extern "C" void re4dc_look_osd_toggle(void);  // native_static.cpp (post30.mk LOOK_TOGGLE)
@@ -395,6 +399,12 @@ void load()
             for (int i = 0; i < 3; ++i) j.pos[i] = (f32) strtod(tok[4 + i], nullptr);
             j.ang = (f32) strtod(tok[7], nullptr);
             j.done = false;
+#endif
+#if defined(RE4DC_GANADO_LIT_TOGGLE) && RE4DC_GANADO_LIT_TOGGLE
+        } else if (!strcmp(k, "ganlit") && n >= 2) {
+            re4dc_ganlit_set(num(tok[1]));   // GANADO_LIT_TOGGLE: the Ganado lighting mode at load (0..9)
+        } else if (!strcmp(k, "ganfill") && n >= 2) {
+            re4dc_ganlit_fill_set(num(tok[1]));   // GANADO_LIT_TOGGLE: the Ganado camera fill, percent (0..100)
 #endif
         } else if (!strcmp(k, "dump")) {
             wp.dump = true;

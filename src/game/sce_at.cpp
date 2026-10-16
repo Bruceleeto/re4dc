@@ -1059,7 +1059,7 @@ static int sceAtFunc_door(SceAtWork* w, cModel* m)
     pG->next_room_no = w->dstRoom;
     pG->next_point = w->dstPart;
     pG->door_no = w->doorNo;
-    pG->Rno0 = 4;
+    RE4DC_DOORPH("press"); pG->Rno0 = 4;
     pG->Rno1 = 0;
     pG->Rno2 = 0;
     pG->Rno3 = 0;

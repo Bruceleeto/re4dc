@@ -336,7 +336,7 @@ void gameInit()
 // (StageSet); Rno0 = 2.
 void gameStageInit()
 {
-    pLog->warn(1, 0, "-- R%03x ----------", pG->room_id);
+    pLog->warn(1, 0, "-- R%03x ----------", pG->room_id); RE4DC_DOORPH("stage");
     if (Flag54(0x80000) || Flag54(0x100)) {
         BitOn(pG->System_flg, 0x80);
     } else {
@@ -386,12 +386,12 @@ void gameStageInit()
             break;
         }
     }
-    SetGameTime();
+    RE4DC_DOORPH("stage.pre"); SetGameTime();
     if ((s32) pG->Status_flg[3] >= 0 && !(pG->System_flg & 0x100)) {
         GameSaveSave(&GameSave, pSaveData, -1);
     }
     StageSet();
-    pG->Rno0 = 2;
+    RE4DC_DOORPH("stage.set"); pG->Rno0 = 2;
 }
 
 #if !defined(__PPC__)
@@ -484,8 +484,8 @@ void gameRoomInit()
     re4dc_loadind_begin();  // LOAD_INDICATOR: the PS2's loading id (load_indicator.cpp)
 #endif
     DC.m_nblock_read_stop = 1;
-    SndReadAddrInit();
-    gameRoomMemInit();
+    RE4DC_DOORPH("room"); SndReadAddrInit();
+    gameRoomMemInit(); RE4DC_DOORPH("room.mem");
     if (pG->shooting_mode != 0) {
         pG->debug_mode = 0;
         BitOn(pG->Debug_flg[3], 0x4000000);
@@ -496,8 +496,8 @@ void gameRoomInit()
         BitOff(pG->Debug_flg[3], 0x2000);
     }
     BitOn(pG->Debug_flg[0], 0x200);
-    ReadPlayerData(pG->pl_type, pG->pl_costume);
-    ReadAreaData();
+    ReadPlayerData(pG->pl_type, pG->pl_costume); RE4DC_DOORPH("room.pl");
+    ReadAreaData(); RE4DC_DOORPH("room.area");
     DC.initDataUnit();
     ActBtn.init();
     ConsInitRoom((ConsRoom*) GetDataExt(pG->pRoom, "CNS", 0));
@@ -545,7 +545,7 @@ void gameRoomInit()
     re4dc_ss_light_array_high();  // sscrn_bridge.cpp: the light works above the sub screen window
 #endif
 #line 469 "D:/Bio4/Prog/game.cpp"
-    LightMgr.initPath((LightPathHeader*) (pG->pArc->ofs_3C + (u32) pG->pArc));
+    LightMgr.initPath((LightPathHeader*) (pG->pArc->ofs_3C + (u32) pG->pArc)); RE4DC_DOORPH("room.mgrs");
     ShadowRoomInit();
     DmgMgr.roomInit();
     DmgMgr.arrayAlloc(20);
@@ -573,7 +573,7 @@ void gameRoomInit()
         pG->nPrim = RE4DC_PRIM_CAP_R10B;
     }
 #endif
-    primInit();
+    primInit(); RE4DC_DOORPH("room.prim");
     {
         Vec pos;
         Vec rot;
@@ -605,12 +605,12 @@ void gameRoomInit()
     EvtMgr.roomInit();
     EvtMgr.arrayAlloc(2);
     EvtMgr.myRoomInit();
-    EvtDebug.myRoomInit();
+    EvtDebug.myRoomInit(); RE4DC_DOORPH("room.evt");
     if (!(pG->System_flg & 0x200000)) {
         EmMgr.create(0, 0);
         PlRegistRoomEff((PlRoomEff*) effRoom);
     }
-    SmdSetup(-1);
+    SmdSetup(-1); RE4DC_DOORPH("room.emsmd");
     ShdInit((ShdHeader*) GetDataExt(pG->pRoom, "SHD", 0));
     if ((p = GetDataExt(pG->pRoom, "EFF", 0)) != 0) {
         EspDataLoad((u32) p, 1, 0);
@@ -630,7 +630,7 @@ void gameRoomInit()
     if ((p = GetDataExt(pG->pRoom, "ETM", 0)) != 0) {
         EtcModelDataLoad(p);
     }
-    ClothRoomInit();
+    RE4DC_DOORPH("room.data"); ClothRoomInit();
     if ((p = GetDataExt(pG->pRoom, "ETS", 0)) != 0) {
         EtcModelListSet(p);
     }
@@ -645,7 +645,7 @@ void gameRoomInit()
         pG->pCamRoom = p;
     }
     CamCtrl.CoreDataRead((CameraDataHeader*) (pG->pArc->ofs_30 + (u32) pG->pArc));
-    CamCtrl.roomInit();
+    CamCtrl.roomInit(); RE4DC_DOORPH("room.cam");
     View.roomInit();
     p = GetDataExt(pG->pRoom, "BLK", 0);
     Block.roomInit(p);
@@ -653,15 +653,15 @@ void gameRoomInit()
         EvtMgr.SetEvs(p);
     }
     EmSetRoomInit();
-    RoomData.initRoomSet();
-    SndRoomStartInit();
+    RoomData.initRoomSet(); RE4DC_DOORPH("room.emset");
+    SndRoomStartInit(); RE4DC_DOORPH("room.snd");
     ItemMgr.roomInit();
-    SubScreenRoomInit();
+    SubScreenRoomInit(); RE4DC_DOORPH("room.sub");
 #if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
     re4dc_loadind_hold();
 #endif
     IdSys.roomInit();
-    Cckpt.roomInit();
+    Cckpt.roomInit(); RE4DC_DOORPH("room.id");
 #if defined(RE4DC_LOAD_INDICATOR) && RE4DC_LOAD_INDICATOR
     re4dc_loadind_resume();
 #endif
@@ -671,7 +671,7 @@ void gameRoomInit()
     DbMenuRoomInit();
     SstSet(1, 0xFFFF, 1, 0, 0x2F, 1);
     cMes.roomInit();
-    SndRoomBgmLoad();
+    SndRoomBgmLoad(); RE4DC_DOORPH("room.bgm");
     DbWork = new cDbWork;
     U32Set(pG->Disp_flg, 0);
     if (pG->System_flg & 0x200000) {
@@ -686,9 +686,9 @@ void gameRoomInit()
     }
     MerchantRoomInit();
     fadeSetG(0x80000001, 0, 0, 0);
-    ScenarioRoomInit();
+    ScenarioRoomInit(); RE4DC_DOORPH("room.scen");
     SndRoomBgmStartCheck(0);
-    SndRoomStrStartCheck();
+    SndRoomStrStartCheck(); RE4DC_DOORPH("room.str");
     RoomData.setPassed(pG->room_id, pG->Part);
     if (!Flag54(0x2000) && !Flag54(0x100) && !Flag54(0x80000)) {
         DoorSeCall(1);
@@ -704,12 +704,12 @@ void gameRoomInit()
     Block.check(0);
     Filter09SetbUse(0, 1);
     fadeSetG(0x80000002, 0, 0, 0);
-    fadeSetG(0x80000000, 20, 0, 0);
-    SubScreenWait(15);
+    fadeSetG(0x80000000, 20, 0, 0); RE4DC_DOORPH("room.fade");
+    SubScreenWait(15); RE4DC_DOORPH("room.wait15");
     BitOff(pG->System_flg, 0x100000);
     DC.m_nblock_read_stop = 0;
     pG->Rno0 = 3;
-    pG->SaveKind = 0;
+    pG->SaveKind = 0; RE4DC_DOORPH("room.end");
 }
 
 // Rno0 == 3: one frame of play. Order: stop-mode keys, difficulty update, died-demo check,
@@ -1366,7 +1366,7 @@ void gameDiedemo(DiedemoWork* w)
 // goes back to Rno0 = 1.
 void gameDoordemo()
 {
-    OSReport("--DOORDEMO START!!\n");
+    OSReport("--DOORDEMO START!!\n"); RE4DC_DOORPH("demo");
     BitOn(pG->System_flg, 0x1000000);
     BitSet(pG->Stop_flg, 0xFFFFFFFF);
     KeyStop(0xEFCF0000);
@@ -1417,7 +1417,7 @@ void gameDoordemo()
     Dvd.ReadCancelAll();
     Aram.DmaCancelAll();
     EmReadInit();
-    ClearOt();
+    ClearOt(); RE4DC_DOORPH("demo.cancel");
     {
         int req = SndDoorSeLoad();
         SndNextRoomInit();
@@ -1439,7 +1439,7 @@ void gameDoordemo()
     pG->Rno1 = 0;
     pG->Rno2 = 0;
     pG->Rno3 = 0;
-    OSReport("--DOORDEMO END!!\n");
+    OSReport("--DOORDEMO END!!\n"); RE4DC_DOORPH("demo.end");
 }
 
 // Frees the room heap: in the shooting-range mode swaps a 0x188000 block with ARAM and creates
