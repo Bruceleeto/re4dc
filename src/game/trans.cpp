@@ -11,8 +11,12 @@
 #include "ctrl.h"
 #include "global.h"
 #include "model.h"
+#if defined(RE4DC_OTHER_PROFILE) && RE4DC_OTHER_PROFILE
 #define RE4DC_OTHER_UNIT "trans"
 #include "other_profile.h"
+#else
+#define OTHER_PHASE(p) ((void)0)
+#endif
 #if RE4DC_ACTOR_TRANSACTION
 #include "coarse_actor_transaction.h"
 #endif
