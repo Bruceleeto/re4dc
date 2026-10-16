@@ -140,11 +140,11 @@ endif
 # WATER45_NATIVE multiply and the LAKE_RIPPLES layers. No PS2 record is spawned: effect slots, generators, areas and
 # Rnd() are untouched (logic STRICT). WATER_PS2_FLIP=n: animated layers show every n-th picture (default 8: 8 of the
 # 60 0xfe frames, 17.8 KB of VRAM; 4 doubles it). WATER_PS2_ROOMS: hex mask of the rooms drawn (bit 0 r107, 1 r108,
-# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x17 = r107 r108 r10a r11a (user option A, 10-16): r10b and r11b have no
-# VRAM room for the water pictures after lane resident16 (their preloads are at the byte limit).
+# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x3f = all six (10-16, lane water16b): r10b / r11b fit after the vq16w VQ set
+# (data sets vq16w + water16i); 0x17 = r107 r108 r10a r11a was test 15's first landing (user option A).
 WATER_PS2 ?= 0
 WATER_PS2_FLIP ?= 8
-WATER_PS2_ROOMS ?= 0x17
+WATER_PS2_ROOMS ?= 0x3f
 ifneq ($(WATER_PS2),0)
 ifneq ($(WATER_PS2)$(WATER45_NATIVE),11)
 $(error WATER_PS2 must be 0 or 1 and needs WATER45_NATIVE=1)
