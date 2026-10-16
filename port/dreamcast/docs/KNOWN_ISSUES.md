@@ -17,7 +17,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 | Fixed and checked in our tests; the problem was not console-only | 20 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 5 |
-| ⏸️ Open | Known, not yet worked on | 10 |
+| ⏸️ Open | Known, not yet worked on | 11 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -83,6 +83,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Pauses when entering rooms | all | ⏸️ Open | |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. The on-screen display still reloads its pictures after the village radio call (4 small pictures); that part waits for a later test | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
+| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon) | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
 ## Console checklist for test 13

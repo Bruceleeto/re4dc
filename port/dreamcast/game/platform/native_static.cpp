@@ -2786,6 +2786,10 @@ extern "C" int re4dc_static_gate(const void* object,const float mv[12],const flo
 }
 #endif
 #if RE4DC_NATIVE_FOG
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane
+extern "C" float re4dc_view_indoor_depth(void);   // option_rows.cpp: the indoor area's farthest point from the eye, or 0
+#endif
 namespace {
 // Last GXSetFog state (gx_stub.cpp) and the source View far plane seen by the
 // model bridge. Temporary type-0 calls (effects, filters, thermal/black) reach
@@ -2794,6 +2798,27 @@ namespace {
 struct FogState { int type; float start,end,far; unsigned rgba; };
 FogState fog_now{0,0,0,0,0},fog_loaded{-1,0,0,0,0};
 constexpr float kFogRamp=0.8f; // ramp to 100% over the last 20% before the far plane
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// VIEW_DIST_OPTION (option_rows.cpp, Options View distance; render only): re4dc_fog_note_far moves the fogged far in
+// to Near / Short (18.75 / 12.5 m). Then the ramp to 100 % keeps Full's width, 20 % of 25 m = 5 m before the cut
+// (never more than half the far), so distant scenery fades out over the same depth instead of popping.
+bool fog_view_cut;
+// Indoors (option_rows.cpp re4dc_view_indoor_depth: the player in one of the room's indoor effect areas) the ramp
+// starts behind that area instead (its farthest point from the eye + 0.5 m, at most 2 m before the cut), so the room
+// around the player keeps Full's look while scenery seen through doors and windows still fades out before the cut.
+// The start moves 0.5 m per frame toward its target (no jump in the fog when stepping through a door); 0 = not indoors.
+float fog_indoor_start,fog_indoor_loaded=-1.0f;
+float fog_ramp_base(float far){
+    const float s=far-(1.0f-kFogRamp)*25000.0f;
+    return s>0.5f*far?s:0.5f*far;
+}
+float fog_ramp_start(float far){
+    if(!fog_view_cut)return kFogRamp*far;
+    const float s=fog_ramp_base(far);
+    return fog_indoor_start>s?fog_indoor_start:s;
+}
+float fog_ramp(float z,float far){const float s=fog_ramp_start(far);return (z-s)/(far-s);}
+#endif
 // 2^x for x in [-8, 0] without libm (powf alone is ~2 KB of image): halve
 // per whole step, then e^y on y=frac*ln2 in (-0.7, 0] (Taylor, error < 2e-4,
 // far below the table's 8-bit alpha).
@@ -2829,7 +2854,11 @@ extern "C" float re4dc_fog_amount(float z){
     if(fog_loaded.type<=0)return 0.0f;
     const float far=fog_loaded.far>1.0f?fog_loaded.far:(fog_loaded.end>1.0f?fog_loaded.end:1.0f);
     float f=gx_fog(fog_loaded.type,fog_loaded.start,fog_loaded.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    const float ramp=fog_ramp(z,far);
+#else
     const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
 #if RE4DC_LOOK_ANY
     if(ramp>0){
         const unsigned curve=re4dc_look_curve();const float cap=float(re4dc_look_cap())/100.0f;
@@ -2853,6 +2882,9 @@ extern "C" float re4dc_fog_far_for_gate(float far){ // re4dc_fog_note_far's clam
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    far=re4dc_view_far(far);
+#endif
     return far;
 }
 #endif
@@ -2860,8 +2892,26 @@ extern "C" void re4dc_fog_note_far(float far){
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    {const float v=re4dc_view_far(far);fog_view_cut=v<far;far=v;}   // Options View distance (render only)
+#endif
     fog_now.far=far;
 }
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// The indoor ramp start for this frame (see fog_indoor_start): one 0.5 m step toward the target, 0 once back at the
+// level's own ramp start.
+static float fog_indoor_next(){
+    const float far=fog_now.far,base=fog_ramp_base(far);
+    float t=base;
+    if(fog_view_cut && fog_now.type){
+        const float d=re4dc_view_indoor_depth();
+        if(d>0.0f){t=d+500.0f;const float lim=far-2000.0f;if(t>lim)t=lim;if(t<base)t=base;}
+    }
+    float c=fog_indoor_start>base?fog_indoor_start:base;
+    if(t>c){c+=500.0f;if(c>t)c=t;}else if(t<c){c-=500.0f;if(c<t)c=t;}
+    return c>base?c:0.0f;
+}
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
 // EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): the fog table carries about 55 % of the PS2 haze's mean veil, which ramps in
 // from 1 to 5 m (Monte Carlo of the PS2 haze), so the sparse haze subset only adds the drifting blotches.
@@ -2904,6 +2954,9 @@ extern "C" int re4dc_fog_frame_pending(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     if(fog_now.type && re4dc_hwfog_key()!=hwfog_loaded)return 1;
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_now.type && fog_indoor_next()!=fog_indoor_loaded)return 1;
+#endif
     return fog_now.type && !(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
         fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba);
 }
@@ -2945,6 +2998,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -2954,6 +3010,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
        fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -2961,6 +3020,12 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_indoor_start!=fog_indoor_loaded && (fog_indoor_start==0.0f || fog_indoor_loaded<=0.0f))
+        re4dc_log("view distance: indoor fog %s (ramp start %u mm, far %u)\n",fog_indoor_start>0.0f?"on":"off",
+                  unsigned(fog_indoor_start),unsigned(fog_now.far));
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     look_loaded=look_key;
     fog_loaded=fog_now;
@@ -2976,7 +3041,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=tfar/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){
             const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);
             if(!curve)f+=(1.0f-f)*s;
@@ -2998,6 +3067,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -3007,6 +3079,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -3014,6 +3089,9 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
@@ -3024,7 +3102,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=far/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);f+=(1.0f-f)*s;}
         table[j]=f;
     }

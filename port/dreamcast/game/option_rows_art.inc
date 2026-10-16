@@ -14,6 +14,9 @@ const OptionSheet kOptionSheets[] = {
     {0xAC, 122, 26}, // MONAURAL
     {0xAF,  49, 26}, // OFF
     {0xB4, 148, 31}, // QUICK KNIFE (Q, normalized to the other caps)
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    {0xA9, 162, 26}, // INVERTED AIM (V for VIEW DISTANCE; W is two V crops: the archive has no W)
+#endif
 };
 // Only the capitals used by the two labels and their existing values.
 // Each right edge stops before the next letter's light pixels.
@@ -23,8 +26,15 @@ const OptionLetter kOptionLetters[26] = {
     {0x87,30,11,26}, {}, {}, {0xAC,101,21,26}, {0xAC,0,16,26},
     {0xAC,30,14,26}, {0x86,14,13,26}, {0x86,196,20,26}, {0xB4,0,15,31},
     {0x86,123,19,26}, {0x87,121,17,26}, {0x86,42,12,26}, {0xAC,59,13,26},
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    {0xA9,26,14,26}, {}, {}, {0x85,56,20,26}, {}
+#else
     {}, {}, {}, {0x85,56,20,26}, {}
+#endif
 };
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+constexpr int kOptionWOffset = 9;  // W = the V crop drawn twice, the second 9 px to the right (a serif W)
+#endif
 const TEXHeader* option_sheet(u8 id)
 {
     TexWk* wk = IdGetTexWk(id, 1);
@@ -61,6 +71,10 @@ int option_advance(char c)
     case 'S': return 13;
     case 'Y': return 15;
     case 'Q': return 14;
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    case 'V': return 14;
+    case 'W': return 14 + kOptionWOffset;
+#endif
     default: return kOptionLetters[c - 'A'].width;
     }
 }
@@ -74,6 +88,14 @@ void option_text(const char* text, float x, float y, float sx, float sy, unsigne
 {
     for (; *text; ++text) {
         const char c = *text;
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        if (c == 'W') {
+            option_text("V", x, y, sx, sy, argb);
+            option_text("V", x + kOptionWOffset * sx, y, sx, sy, argb);
+            x += option_advance(c) * sx;
+            continue;
+        }
+#endif
         if (c != ' ') {
             const OptionLetter& l = kOptionLetters[c - 'A'];
             const TEXHeader* t = option_sheet(l.texture);
@@ -122,13 +144,24 @@ extern "C" void re4dc_option_rows_art(const Re4dcUiQuad* audio)
     const int label_width = option_text_width("FRAME PACING");
     const int value_width = option_text_width("STANDARD");
     const float value_x = center + (label_width + 16 - value_width) * 0.5f * sx;
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    const char* labels[kRows];
+    const char* values[kRows];
+    for (int row = 0; row != kRows; ++row) {
+        const int id = ROW_ID(row);
+        labels[row] = id == kRowPacing ? "FRAME PACING" : id == kRowRender ? "RENDERING" : "VIEW DISTANCE";
+        values[row] = id == kRowPacing ? kPace[pace_value()] : id == kRowRender ? kRender[render_value()]
+                                                                                 : kViewName[view_level];
+    }
+#else
     const char* labels[2] = {"FRAME PACING", "RENDERING"};
     const char* values[2] = {kPace[pace_value()], kRender[render_value()]};
+#endif
     for (int row = 0; row != kRows; ++row) {
         const float x = value_x - (16 + option_text_width(labels[row])) * sx;
         const float y = audio->xy[1] + (row + 1) * gap * sy;
         unsigned col = (audio->color & 0xFF000000U) | 0xFFFFFFU;
-        if (OptScrn._rno1 == kRowPacing + row) {
+        if (OptScrn._rno1 == ROW_ID(row)) {
             const u32 c = rgba(cursor);
             col = (col & 0xFF000000U) | (c >> 8);
         }
