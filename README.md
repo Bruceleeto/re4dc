@@ -19,7 +19,7 @@ See [CONTRIBUTING-PORT.md](port/dreamcast/CONTRIBUTING-PORT.md); contributors an
 
 ## Playing
 
-The latest build is console test 15 (test 14 plus the r100 cliff cutscene, the missing chapter 1 sounds and music, villagers lit by the room, PS2 models for the last GameCube enemies and the boat, PS2 water, every chapter 1 room's textures kept in graphics memory, and two new Options rows: View distance and Foliage). Desktop packages will return with a later test build;
+The latest build is console test 15.1, a hotfix of test 15: the see-through haze and mist sprites around Leon are gone (the distant haze stays as fog) and Foliage Off now leaves out every see-through card while the r109 cabin keeps its walls. Test 15 is test 14 plus the r100 cliff cutscene, the missing chapter 1 sounds and music, villagers lit by the room, PS2 models for the last GameCube enemies and the boat, PS2 water, every chapter 1 room's textures kept in graphics memory, and two new Options rows: View distance and Foliage. Desktop packages will return with a later test build;
 until then, play the console test in Flycast. Extract the complete package:
 
 | System | Download | Launch |
@@ -77,6 +77,7 @@ up to a **Coming Soon** screen. This is a prerelease, not the complete game.
 
 Recent progress:
 
+* Test 15.1 (hotfix): no haze or mist sprites around Leon in any room (the distant haze stays as fog); Foliage Off leaves out every see-through brush, leaf, shadow and mist card, and the r109 cabin keeps its walls and floor.
 * Test 15: the r100 cliff cutscene plays again; footsteps and ambience in the farm, the missing room music, the merchant's voice and other chapter 1 sounds; the villagers and the merchant are lit by the room's lights; PS2 models for the traps, bats, snake, fish, the boat and the r104 / r117 / r118 enemies; the pool, river and lake from the shore draw their water the PS2 way; every chapter 1 room keeps its textures in graphics memory; Options rows View distance and Foliage (both reset at each boot).
 * Test 14: a disc read fix for the GDEMU freezes and crashes ([#27](https://github.com/lamb2k/re4dc/issues/27); please confirm on a console); the village keeps all its textures in graphics memory; the farm (r103) reads the disc far less; less work per frame.
 * Test 13: the PS2 enemy rules in every chapter 1 room, with at most 6 villagers active at once; PS2 room
@@ -100,7 +101,7 @@ Known issues (full list: [KNOWN_ISSUES.md](port/dreamcast/docs/KNOWN_ISSUES.md))
   and 8 were fixed in test 9 (needs a console check). A few menu actions can stop the game.
 * **Picture:** some textures are missing; the ripples out on the lake are incomplete; the night lake has no torch
   flames or rain; in the village (r101) the burning stake misses its crossbar and a pyre plank, and the fence by the
-  house misses its rails; the item menu's confirm popup differs from test 13; Foliage Off removes the r109 cabin walls.
+  house misses its rails; the item menu's confirm popup differs from test 13.
 * **Sound:** the rifle sound is lower quality; radio call subtitles fall behind the voice.
 * **Loading:** pauses when entering rooms.
 
