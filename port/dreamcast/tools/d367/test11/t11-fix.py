@@ -315,6 +315,21 @@ DATA['vq16c'] = {'dc/tex.pak': RS16D + '/vq16c/tex-vq16c.pak'}
 # place of vq16c.
 DATA['res16d'] = {'dc/resident.bin': RS16D + '/res16d/resident.bin'}
 DATA['vq16cr'] = {'dc/tex.pak': RS16D + '/vq16cr/tex-vq16c.pak'}
+# Round 3 (final runs, 10-16): res16e = res16d + the last gameplay first-sight loads of the final runs: r104 +7 small
+# HUD pictures (fmt 8, after the chapter 1-1 results), r103 +1 (5889803d 96x96 fx); 930 records, sha256
+# 5b670969dfc7b430. Order: in place of res16d.
+DATA['res16e'] = {'dc/resident.bin': RS16D + '/res16e/resident.bin'}
+# Round 4 (coordinator 10-16, console frame drops in the r100 start area): res16f = res16e + r100 +31 keys, the loads
+# after the room-entry preload of the r100 woods / shed walk (warps r100w1 / r100w2; 307,488 B, mostly r100.dar VQ
+# pictures; r100 72 keys -> 103). 961 records, sha256 18438645aedbd08a. Order: in place of res16e.
+DATA['res16f'] = {'dc/resident.bin': RS16D + '/res16f/resident.bin'}
+# Round 5 (10-16, the r104 fight past 60 s): res16g = res16f + the Ganado kill / blood effect set (16 keys, 144,544 B,
+# core.das + em11/12/13 fx) in r104 r103 r105 r106 r107 r108 r109 r10a r119; 1080 records, sha256 2837bfb248cbd5f4.
+# vq16cs = vq16cr + two r104 / r102 PS2 cast pictures (vram/vq16-r104.txt, em13 / em18; 196,608 -> 28,672 B, PSNR
+# 32.8 / 33.0 dB; LOOK CHANGE, class E) so r104's set holds the effect set; sha256 15611245a3ae1a82. Order: in place of
+# res16f / vq16cr.
+DATA['res16g'] = {'dc/resident.bin': RS16D + '/res16g/resident.bin'}
+DATA['vq16cs'] = {'dc/tex.pak': RS16D + '/vq16cs/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 
