@@ -87,7 +87,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test15/release-knobs.txt` (test 15; its header names the source commit). The maintainers write that file from
+`tools/d367/test15/release-knobs.txt` (test 15.1, the hotfix of test 15; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
