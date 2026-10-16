@@ -1908,6 +1908,20 @@ void re4dc_cabin_audio_publish_end(unsigned token)
 unsigned re4dc_aica_used_bytes(void) { return g_aicaUsed; }
 // Sound bank blocks left silent so far (does not fit / rejected / layout refused): native_ui.cpp VRAM_ROOM_LOG.
 unsigned re4dc_aica_skipped_blocks(void) { return S.blocks_skipped; }
+#if RE4DC_RADIO_SUB_RT
+// RADIO_SUB_RT (subscreen.mk): disc stream starts so far and when the last one began to sound (KOS timer us,
+// Stream::t0), for the codec call's subtitle clock (src/Sscrn/ss_term.cpp). Written by the audio thread under
+// g_lock; read twice so a start in between is not torn.
+unsigned re4dc_aica_stream_started(unsigned long long* t0_us)
+{
+    unsigned n;
+    do {
+        n = *(volatile u32*) &S.str_starts;
+        *t0_us = *(volatile u64*) &g_str.t0;
+    } while (n != *(volatile u32*) &S.str_starts);
+    return n;
+}
+#endif
 
 #ifndef RE4DC_AICA_STR_TEST
 #define RE4DC_AICA_STR_TEST 0   // evidence only: stream number of block 0 to request in every room

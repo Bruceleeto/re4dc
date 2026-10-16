@@ -166,6 +166,12 @@ simplified copy of the far world, about 3,000 triangles textured with the world'
 memory) is drawn beyond the cut, so landmarks stay visible. Build a shell with tools/d367/farshell (README there;
 Windows Python and Blender 5.2) from the room's PS2 world package. Near, and rooms without a file, keep the plain cut. Warp line
 `farshell 0|1|2` (0 = plain cut, 1 = shell, 2 = opaque cut without the shell, for pricing).
+Radio call subtitles (knob `RADIO_SUB_RT`, game/subscreen.mk; src/Sscrn/ss_term.cpp): the GameCube steps a call's
+subtitle sequence once per 30 Hz sub screen frame, while the voice plays from the AICA in real time. With the knob
+each call frame runs the steps owed since the voice began to sound (KOS timer, platform/audio_aica.cpp
+`re4dc_aica_stream_started`), so the pages stay with the voice when a call frame takes longer than 1/30 s. The game
+is stopped under the sub screen, so logic is unchanged. Test builds can add `RADIO_SUB_LOG=1` for one log line per
+subtitle page (time since the voice started).
 
 ## 6. Send a patch
 

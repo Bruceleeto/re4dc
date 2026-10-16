@@ -13,7 +13,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
 | 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 16 | Fixed and checked in our tests; the problem was not console-only | 22 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 4 |
@@ -71,6 +71,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | The rifle sound is lower quality | all | ⏸️ Open (memory limit) | |
+| Radio call subtitles lag behind the voice: they fall further behind as the call goes on and end well after it (real console) | test 14 and earlier | 🟢 Fixed in test 16, needs console check: the subtitles counted one GameCube 30 Hz step per drawn frame of the call, while the voice plays in real time, so every call frame slower than 1/30 s put them further behind. They now follow the voice's own clock from the moment it starts sounding. With the call slowed to 15 frames a second on an emulator (a model, not a console measurement): 27 s behind at the end of the first call before, within 0.06 s of the voice through the whole call after (Flycast at full speed: 0.32 s before, 0.03 s after) | |
 | The chapter results music is silent on the third results screen | test 7 and earlier | 🟢 Fixed in test 8: the music that plays after each chapter's results (chapters 1-1, 1-2 and 1-3, on the save screen) is on the disc. The results table itself has no music, as in the original game: the chapter end stops the room music and starts none | |
 | Footsteps and room ambience are silent in r103 (the farm) | test 13, 14 | 🟢 Fixed in test 15: r103's footstep and ambience sounds are converted for the Dreamcast again (ambience 16 kHz, footsteps 11 kHz, the same rates as the other rooms). The later chapter 1 rooms already had theirs | |
 | Some music and voices are silent: the r104 and r107 room music, the r106 battle music, the r102 room music and the merchant's voice, the "you died" screen music, and a few short event jingles (r100, r101, r104, r108, r10b) | all | 🟢 Fixed in test 15: these music and voice tracks are now on the disc. Only one of them plays at a time, so a voice that starts while another track plays can still be silent, as before | |
