@@ -136,8 +136,8 @@ T15_V=${T15_V-VIEW_DIST_OPTION=1}
 #   r105 after the chapter 1-2 save screen loads its set back in one pass instead of 81 disc reads in play. Render only.
 T15_P="SS11_PRELOAD=1"
 #   W  WATER_PS2=1 (lane water16; render only, user 10-16 "ok option a for water"): chapter 1 room water drawn as the PS2
-#      does (stacked scrolling / animated planes, KI #26 / #19) in r107 r108 r10a r11a (WATER_PS2_ROOMS default 0x17);
-#      r10b / r11b keep today's water (no VRAM room). Data: water16h in T15_DATA (the rooms' water pictures preloaded).
+#      does (stacked scrolling / animated planes, KI #26 / #19) in r107 r108 r10a r11a r10b r11b (WATER_PS2_ROOMS default 0x3f; r10b / r11b
+#      added 10-16 by lane water16b after the vq16w VQ set). Data: vq16w + water16i in T15_DATA (water pictures preloaded).
 #      Gates in C:/Flycast-Evidence/re4-dreamcast/water-20261016. T15_W="" builds the control without it.
 T15_W=${T15_W-WATER_PS2=1}
 #   WV WORLD_VERT=1 WORLD_VERT_LEVEL=5 (ChatGPT world32, user GO 10-16, -4.16 ms MODELLED at the r101 cross): r101 world
