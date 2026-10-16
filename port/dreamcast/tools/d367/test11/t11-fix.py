@@ -331,11 +331,12 @@ for _n in ('res16c', 'res16d', 'res16e', 'res16f', 'res16g'):
 for _n in ('vq16c', 'vq16cr'):
     DATA[_n] = {'dc/tex.pak': RS16L + '/' + _n + '/tex-vq16c.pak'}
 # FAR_SHELL (lane farshell16, 2026-10-16; T15REC T15_FS): far-shell.fsh per room (tools/d367/farshell, built from the test 14
-# candidate's r101 / r100 PS2 world packages; the world's own texture keys, 0 B of VRAM). fsh5 = v3 fine level (densified eyes,
-# 6000 triangles, max_dev 1.5 m) + a ~2000-triangle coarse level beyond 18.75 m (FSH1 version 2). r10b is never cut by the View
-# distance option (kViewRoomMin), so it has no shell. Disc data only; read by FAR_SHELL=1 builds. Private store:
+# candidate's r101 / r100 PS2 world packages; the world's own texture keys, 0 B of VRAM). fsh3 = v3, the look the user approved
+# 10-16 (densified eyes, 6000 triangles, max_dev 1.5 m; FSH1 version 1). fsh5 (v3 + a coarse level beyond 18.75 m, version 2)
+# priced the same at the r101 cross (3,397 vs 3,537 vertices per frame) for +79 KB, so it is not used. r10b is never cut by
+# the View distance option (kViewRoomMin), so it has no shell. Disc data only; read by FAR_SHELL=1 builds. Private store:
 # re4-assets-private/farshell-20261016/<set>/<room>/far-shell.fsh (release kit: Build-Assets).
-FSH = os.environ.get('FSH', PRIV + '/farshell-20261016/fsh5')
+FSH = os.environ.get('FSH', PRIV + '/farshell-20261016/fsh3')
 DATA['fsh'] = {'dc/native/%s/far-shell.fsh' % r: FSH + '/%s/far-shell.fsh' % r for r in ('r100', 'r101')}
 DATA['fsh1'] = DATA['fsh']   # the lane's fixture name
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
