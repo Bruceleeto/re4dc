@@ -55,6 +55,12 @@
 //    belongs to the first room, as before. A fixture with entries also logs Leon's placement in those rooms.
 #if RE4DC_DBG_WARP
 #include "types.h"
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" void re4dc_view_dist_set(int level, const char* why);   // option_rows.cpp (Options View distance)
+#endif
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+extern "C" unsigned re4dc_foliage;   // platform/native_static.cpp (FOLIAGE_TRIM level; the Options Foliage row)
+#endif
 #include "global.h"
 #include "player.h"
 #include "room_data.h"
@@ -476,6 +482,18 @@ void load()
             // SG_SELECT_LEAN (t2exact.mk): `sglean 0|1` original / lean strip-group tests at run time (same image)
             re4dc_sg_select_lean_set(num(tok[1]));
             re4dc_log("warp: sglean %u\n", (unsigned) num(tok[1]));
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        } else if (!strcmp(k, "viewdist") && n >= 2) {
+            // VIEW_DIST_OPTION (option_rows.cpp): the Options View distance at load, 0 full / 1 near / 2 short (render
+            // only; stills and the forced-Short STRICT arm without a menu walk)
+            re4dc_view_dist_set((int) num(tok[1]), "warp");
+#endif
+#if defined(RE4DC_FOLIAGE_OPTION) && RE4DC_FOLIAGE_OPTION
+        } else if (!strcmp(k, "foliage") && n >= 2) {
+            // FOLIAGE_OPTION: the Options Foliage level at load, 0 full / 1 near / 2 off (render only; stills)
+            re4dc_foliage = (unsigned) num(tok[1]) > 2U ? 0U : (unsigned) num(tok[1]);
+            re4dc_log("warp: foliage %u\n", re4dc_foliage);
 #endif
 #if defined(RE4DC_BENCHMARK) && RE4DC_BENCHMARK
         } else if (!strcmp(k, "bench") && n >= 5) {

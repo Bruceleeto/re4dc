@@ -77,6 +77,16 @@ $(error SS_HOLD_RESTORE needs SS_PACK=1)
 endif
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SS_HOLD_RESTORE=1
 endif
+# SS11_PRELOAD=1 (lane resident16 10-16; render only, default 0 = image unchanged; in T15REC): VRAM graphics memory rule.
+# The chapter title card and the chapter-end results / save screens live in SS heap 11; their pictures evict the room's
+# set, which then came back from disc one first sight at a time in play (r105 after the chapter 1-2 save screen: 81
+# uploads). With it MemDestroyHeap(11) asks native_ui for a room preload pass, so the set comes back in one pass before
+# play resumes, as at room entry.
+SS11_PRELOAD ?= 0
+ifneq ($(SS11_PRELOAD),0)
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_SS11_PRELOAD=1
+$(OBJDIR)/src/game/main_mem.o: GAME_CPPFLAGS += -DRE4DC_SS11_PRELOAD=1
+endif
 SS_BG_BLACK ?= 0
 ifneq ($(SS_BG_BLACK),0)
 ifneq ($(SUBSCREEN),1)

@@ -131,6 +131,29 @@ $(error LAKE_ZBIAS must be 0 or a decimal between 0.9 and 1.1 (e.g. 1.001))
 endif
 $(OBJDIR)/platform/native_lake.o: PLATFORM_CPPFLAGS += -DRE4DC_LAKE_ZBIAS=$(LAKE_ZBIAS)f
 endif
+# WATER_PS2=1 (lane water16 2026-10-16; render only, default 0; needs WATER45_NATIVE=1): the room water of r107, r108,
+# r10a, r10b, r11a and r11b as the PS2 draws it. The PS2 has no generator water (Espgen42_Trans is `jr ra`, Espgen45_Trans
+# only clears a flag): its rooms stack Esp08 world planes (a flat dark base, two scrolling 0xf2 water layers, an
+# animated noise layer). espgen45.cpp re4dc_water_ps2_draw draws those planes once per drawn image from the generated
+# table src/game/water_ps2_table.inc (tools/d367/water/water_ps2_table.py) as native layers (platform/include/
+# native_water_ps2.inc: eye-centred grids of textured translucent strips, UV repeat, table fog). In r10b it replaces the
+# WATER45_NATIVE multiply and the LAKE_RIPPLES layers. No PS2 record is spawned: effect slots, generators, areas and
+# Rnd() are untouched (logic STRICT). WATER_PS2_FLIP=n: animated layers show every n-th picture (default 8: 8 of the
+# 60 0xfe frames, 17.8 KB of VRAM; 4 doubles it). WATER_PS2_ROOMS: hex mask of the rooms drawn (bit 0 r107, 1 r108,
+# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x17 = r107 r108 r10a r11a (user option A, 10-16): r10b and r11b have no
+# VRAM room for the water pictures after lane resident16 (their preloads are at the byte limit).
+WATER_PS2 ?= 0
+WATER_PS2_FLIP ?= 8
+WATER_PS2_ROOMS ?= 0x17
+ifneq ($(WATER_PS2),0)
+ifneq ($(WATER_PS2)$(WATER45_NATIVE),11)
+$(error WATER_PS2 must be 0 or 1 and needs WATER45_NATIVE=1)
+endif
+$(OBJDIR)/src/game/espgen45.o: GAME_CPPFLAGS += -DRE4DC_WATER_PS2=1 -DRE4DC_WATER_PS2_FLIP=$(WATER_PS2_FLIP) \
+  -DRE4DC_WATER_PS2_ROOMS=$(WATER_PS2_ROOMS)
+$(OBJDIR)/src/game/Espgen42.o $(OBJDIR)/src/game/espgen.o: GAME_CPPFLAGS += -DRE4DC_WATER_PS2=1
+$(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_WATER_PS2=1
+endif
 # PS2_CH1_ENEMY=1 (lane alivecap 2026-10-15, user 10-15 "the PS2 logic holistically for enemy spawns in chapter 1, with
 #   our game cutting out more when it hits our threshold"; CHANGES GAMEPLAY by design; default 0 = off): one umbrella
 #   for every PS2 enemy-spawn rule of the stage 1 route (1-1 .. 2-1: r100-r10e, r117-r119, r11a, r11b; table in
@@ -1012,8 +1035,8 @@ ifeq ($(DISC_COMPAT),1)
 # DISC_COMPAT=1 DISC_READ_FALLBACK=0 is the timing-neutral subset (KOS fixes + the mount; 12.2's stream reads kept):
 # STRICT against 12.2 in Flycast, where the plain sector reads move load completion by ticks (lane discread 10-15).
 ifneq ($(filter $(origin DISC_READ_FALLBACK),command line environment),)
-ifneq ($(filter $(DISC_READ_FALLBACK),0 2),$(DISC_READ_FALLBACK))
-$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 0 for the subset))
+ifneq ($(filter $(DISC_READ_FALLBACK),0 2 3),$(DISC_READ_FALLBACK))
+$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 3: streams with the automatic fallback; 0: the subset))
 endif
 else
 DISC_READ_FALLBACK := 2
@@ -1088,10 +1111,16 @@ endif
 # flight; if every method fails a DISC READ FAILED screen stays up. DISC_FAIL_TEST with =2: 2 DMA reports done without a
 # transfer, 3 = 2 + PIO never completes, 4 the first DMA read and its abort never finish, 5 the first read spins with
 # interrupts off. Details: platform/dvd_read_safe.cpp.
+# DISC_READ_FALLBACK=3 (test 15, user decision 10-16 "option A"; lane plainread16): the stream reads of =0 (fast path,
+# same timing), each DMA request checked as =1 does; the first stream or sector read that fails, times out or does not
+# land latches the session onto =2's plain bounded sector reads (DMA, DMA after a bounded re-init, then PIO), no stream
+# is started again. DISC_FAIL_AFTER_S=N (test only, with DISC_FAIL_TEST=2 and =3): the "done without the transfer"
+# failure starts after N s of uptime (a mid-game failure), not at the first read.
 DISC_READ_FALLBACK ?= 0
-ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2),$(DISC_READ_FALLBACK))
-$(error DISC_READ_FALLBACK must be 0, 1 or 2)
+ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2 3),$(DISC_READ_FALLBACK))
+$(error DISC_READ_FALLBACK must be 0, 1, 2 or 3)
 endif
+DISC_FAIL_AFTER_S ?= 0
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
@@ -1103,7 +1132,7 @@ endif
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
 ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY) -DRE4DC_DISC_FAIL_AFTER_S=$(DISC_FAIL_AFTER_S)
 endif
 ifneq ($(DISC_READ_FALLBACK),0)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
@@ -1138,7 +1167,7 @@ $(error STORAGE_BOUNCE_ALIGNED=1 needs DISC_READ_FALLBACK=2 (an aligned buffer s
 endif
 $(OBJDIR)/native-reuse/room_storage.o: PLATFORM_CPPFLAGS += -DRE4DC_STORAGE_BOUNCE_ALIGNED=1
 endif
-ifeq ($(DISC_READ_FALLBACK),2)
+ifneq ($(filter $(DISC_READ_FALLBACK),2 3),)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS) -DRE4DC_DISC_LAND_SPIN_MS=$(DISC_LAND_SPIN_MS)
 endif

@@ -132,6 +132,21 @@ CPU percentage and the frame pacing mode. Hold R and press START to cycle the fr
 (Smooth, Fast, Off). Builds that also have the on screen display use R and START to cycle the display
 instead: Off, VMU, Screen, Both. Hold X and press START to switch the look preset.
 
+The player options are the rows in Options (START): Frame pacing (stored on the VMU), Rendering (Standard or FSAA,
+knob `RENDER_FSAA`) and View distance (Full, Near or Short, knob `VIEW_DIST_OPTION`: the world is drawn to 25, 18.75
+or 12.5 m and the fog reaches full strength there; drawing only, the game logic is unchanged). Two rules refine it
+(game/option_rows.cpp): a per-room minimum far table, `kViewRoomMin`, keeps rooms that need their horizon at Full (the
+lakes r10b, r11a and r11b); and while the player stands in one of the room's indoor effect areas (the game's
+weather-off areas, `Status_flg[1]` 0x02000000) the fog ramp starts behind that area, so a house interior is not
+fogged while the scenery seen through its doors and windows still fades out before the cut. Rendering and View
+distance are not saved: every boot starts in Standard and Full. Foliage (Full, Near or Off, knobs `FOLIAGE_TRIM`
+(the level word and the boot level, hwfog.mk) and `FOLIAGE_OPTION` (the row)): the translucent PS2 world parts whose
+texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table platform/include/foliage_keys.inc, built
+from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and the whole
+translucent world pass is left out at Off; soft decals, shadow strips and ground blends stay translucent. It is not
+saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
+`viewdist 0|1|2` starts the run at Full, Near or Short.
+
 ## 6. Send a patch
 
 * Put every change behind a build knob whose default is 0, so the default program does not change.

@@ -72,14 +72,13 @@ T14_15="G1_DIAG_INLINE=1 G1_FP_UNSIGNED=1 G1_PRESORT_LAZY=1"
 T14_NC=${T14_NC-ACTOR_NO_CLEAR=1}
 # T14_DISC="" (env): the variant without the disc items (KOS_DISC_FIX=0), ready in case the console verdict on
 # KOS_DISC_FIX goes against it (LinkOrder2 console halt 10-15, "invalid prepared enemy motion archive", under analysis).
-# Test 15 (user 10-16, "Why behind a switch, that's how most disks are read?"): the full DISC_COMPAT=1 set, i.e. plain
-# sector reads (DISC_READ_FALLBACK=2: no cdrom_stream start / cancel per read) are the default. The game logic is not
-# STRICT against test 14 across loads (plain reads move load completion by ticks); gated by decisions equivalence, load
-# time, the GDEMU + weak race gates and KOS squeeze (lane plainread16). T14_DISC="DISC_COMPAT=1 DISC_READ_FALLBACK=0" =
-# test 14's timing-neutral subset (stream reads kept). With plain reads: DISC_LAND_SPIN_MS=20 (yield, not sleep, while a
-# read's DMA lands; size-scaled bound), STORAGE_BOUNCE_ALIGNED=1 (one command per 16 KiB chunk), TEX_PACK_WINDOW=128 (room
-# preload reads tex.pak through a 128 KiB window; data texord16 = tex.pak in route load order, in T15_DATA).
-T14_DISC=${T14_DISC-DISC_COMPAT=1 DISC_LAND_SPIN_MS=20 STORAGE_BOUNCE_ALIGNED=1 TEX_PACK_WINDOW=128}
+# Test 15 disc reads (user decision 10-16, "option A"; lane plainread16): stream (fast) reads as before, and on the first
+# stream or sector read that fails, times out or does not land, an automatic switch to plain bounded sector reads for
+# the rest of the session (DISC_READ_FALLBACK=3; DMA, DMA after a bounded drive re-init, then PIO). DISC_LAND_SPIN_MS=20
+# only acts after the switch (yield while a plain read's DMA lands; size-scaled bound). The fast path is STRICT against
+# test 14's T14_DISC="DISC_COMPAT=1 DISC_READ_FALLBACK=0". Plain reads from the start: T14_DISC="DISC_COMPAT=1
+# DISC_LAND_SPIN_MS=20 STORAGE_BOUNCE_ALIGNED=1 TEX_PACK_WINDOW=128" plus data texord16 (lane plainread16 52868e97).
+T14_DISC=${T14_DISC-DISC_COMPAT=1 DISC_READ_FALLBACK=3 DISC_LAND_SPIN_MS=20}
 T14REC="$T14_1 $T14_17 $T14_15 $T14_NC $T14_DISC $T14_18 $T14_RE MEMSET_LEAN=0"
 T14=${T14-$T14REC}
 # Test 15 knobs (TEST15-SCOPE.md rows and merge log). Merged with default 0; in T15REC only once their lane reports gates passed.
@@ -133,7 +132,30 @@ T15_D="SND_PAD_SKIP=1"
 #   the last assignment on the make line wins); Leon is drawn exactly as with =1 (probe_eligible only adds Ganados).
 #   NEAREST=0 = no per-vertex Ganado light (option (a), -0.08 ms cross MODELLED). Render only. No data.
 T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G"
+#   V  VIEW_DIST_OPTION=1 (lane viewdist16; render only, user-approved player option, user 10-16 "the distance reduction can
+#      go in on its own"): Options row "View distance" Full / Near / Short (25 / 18.75 / 12.5 m, the benchmark sweep rows;
+#      console -3.9 / -7.9 ms CPU at the cross), fog to 100 % at the cut, this boot only; no fog inside houses (indoor
+#      effect areas), r10b / r11a / r11b never cut (kViewRoomMin). Gates in C:/Flycast-Evidence/re4-dreamcast/viewdist-20261016.
+#      T15_V="" builds the control without it.
+T15_V=${T15_V-VIEW_DIST_OPTION=1}
+# lane resident16 (10-16): the room preload runs again when SS heap 11 closes (chapter title / results / save screens), so
+#   r105 after the chapter 1-2 save screen loads its set back in one pass instead of 81 disc reads in play. Render only.
+T15_P="SS11_PRELOAD=1"
+#   W  WATER_PS2=1 (lane water16; render only, user 10-16 "ok option a for water"): chapter 1 room water drawn as the PS2
+#      does (stacked scrolling / animated planes, KI #26 / #19) in r107 r108 r10a r11a (WATER_PS2_ROOMS default 0x17);
+#      r10b / r11b keep today's water (no VRAM room). Data: water16h in T15_DATA (the rooms' water pictures preloaded).
+#      Gates in C:/Flycast-Evidence/re4-dreamcast/water-20261016. T15_W="" builds the control without it.
+T15_W=${T15_W-WATER_PS2=1}
+#   WV WORLD_VERT=1 WORLD_VERT_LEVEL=5 (ChatGPT world32, user GO 10-16, -4.16 ms MODELLED at the r101 cross): r101 world
+#      as the approved L2 geometry in 32 m static batches (data wv32r101). Render only. T15_WV="" builds the control.
+#      Gates in C:/Flycast-Evidence/re4-dreamcast/world32-land-20261016.
+T15_WV=${T15_WV-WORLD_VERT=1 WORLD_VERT_LEVEL=5}
+#   T  FOLIAGE_TRIM=1 FOLIAGE_OPTION=1 (lane mist16; user 10-16 "I approve near", "ship with full near and off then log the
+#      issue"; render only): the chapter 1 outdoor brush / leaf cards in the punch-through list to 12 m (Near, the boot
+#      default), Options row "Foliage" Full / Near / Off, this boot only. Off removes r109's walls and floor (KNOWN_ISSUES).
+#      Gates in C:\Flycast-Evidence\re4-dreamcast\mist-20261016. T15_T="" builds the control without it.
+T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

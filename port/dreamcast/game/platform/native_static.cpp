@@ -111,6 +111,17 @@ extern "C" unsigned re4dc_coarse_world_room();   // coarse.cpp: coarse_world.h k
 #ifndef RE4DC_MESH_CLIP_LEAN
 #define RE4DC_MESH_CLIP_LEAN 0 // 1: clipper frustum pre-cull + one clip_vertex per corner (exact in pixels)
 #endif
+#ifndef RE4DC_WORLD_VERT
+#define RE4DC_WORLD_VERT 0
+#endif
+#if RE4DC_WORLD_VERT
+#ifndef RE4DC_WORLD_VERT_LEVEL
+#define RE4DC_WORLD_VERT_LEVEL 0
+#endif
+// WORLD_VERT (lane worldvert): the wanted wholesale world level (0 = the source package), set by WORLD_VERT_LEVEL or at
+// open time. This POC does not expose the unqualified in-place runtime swap.
+static unsigned world_vert_level=RE4DC_WORLD_VERT_LEVEL;
+#endif
 static constexpr unsigned kClipOnce=16; // MESH_CLIP_LEAN: longer clipped strips take the per-triangle path
 #if defined(RE4DC_MESH_CLIP_ACCEPT) && RE4DC_MESH_CLIP_ACCEPT==2
 // MESH_CLIP_ACCEPT=2 (diagnostic): accepted triangles checked, dropped triangles checked, mismatches, crossings.
@@ -273,6 +284,9 @@ static const char* re4dc_look_scaler_request(unsigned cfg){
 // On-screen label (native_ui.cpp re4dc_look_grade_post draws it in the top letterbox): 3 s after each preset change,
 // or always while "always show" is on (hold X + Y, press START).
 extern "C" unsigned re4dc_vi_retrace_count(void);
+#if defined(RE4DC_MIST_CUT)
+extern "C" unsigned re4dc_mist_cut;   // esp_sub.cpp (hwfog.mk MIST_CUT)
+#endif
 static unsigned re4dc_look_osd_until;static bool re4dc_look_osd_always;
 extern "C" void re4dc_look_osd_toggle(void){
     re4dc_look_osd_always=!re4dc_look_osd_always;re4dc_look_osd_until=re4dc_vi_retrace_count()+180U;
@@ -2786,6 +2800,10 @@ extern "C" int re4dc_static_gate(const void* object,const float mv[12],const flo
 }
 #endif
 #if RE4DC_NATIVE_FOG
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane
+extern "C" float re4dc_view_indoor_depth(void);   // option_rows.cpp: the indoor area's farthest point from the eye, or 0
+#endif
 namespace {
 // Last GXSetFog state (gx_stub.cpp) and the source View far plane seen by the
 // model bridge. Temporary type-0 calls (effects, filters, thermal/black) reach
@@ -2794,6 +2812,27 @@ namespace {
 struct FogState { int type; float start,end,far; unsigned rgba; };
 FogState fog_now{0,0,0,0,0},fog_loaded{-1,0,0,0,0};
 constexpr float kFogRamp=0.8f; // ramp to 100% over the last 20% before the far plane
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// VIEW_DIST_OPTION (option_rows.cpp, Options View distance; render only): re4dc_fog_note_far moves the fogged far in
+// to Near / Short (18.75 / 12.5 m). Then the ramp to 100 % keeps Full's width, 20 % of 25 m = 5 m before the cut
+// (never more than half the far), so distant scenery fades out over the same depth instead of popping.
+bool fog_view_cut;
+// Indoors (option_rows.cpp re4dc_view_indoor_depth: the player in one of the room's indoor effect areas) the ramp
+// starts behind that area instead (its farthest point from the eye + 0.5 m, at most 2 m before the cut), so the room
+// around the player keeps Full's look while scenery seen through doors and windows still fades out before the cut.
+// The start moves 0.5 m per frame toward its target (no jump in the fog when stepping through a door); 0 = not indoors.
+float fog_indoor_start,fog_indoor_loaded=-1.0f;
+float fog_ramp_base(float far){
+    const float s=far-(1.0f-kFogRamp)*25000.0f;
+    return s>0.5f*far?s:0.5f*far;
+}
+float fog_ramp_start(float far){
+    if(!fog_view_cut)return kFogRamp*far;
+    const float s=fog_ramp_base(far);
+    return fog_indoor_start>s?fog_indoor_start:s;
+}
+float fog_ramp(float z,float far){const float s=fog_ramp_start(far);return (z-s)/(far-s);}
+#endif
 // 2^x for x in [-8, 0] without libm (powf alone is ~2 KB of image): halve
 // per whole step, then e^y on y=frac*ln2 in (-0.7, 0] (Taylor, error < 2e-4,
 // far below the table's 8-bit alpha).
@@ -2829,7 +2868,11 @@ extern "C" float re4dc_fog_amount(float z){
     if(fog_loaded.type<=0)return 0.0f;
     const float far=fog_loaded.far>1.0f?fog_loaded.far:(fog_loaded.end>1.0f?fog_loaded.end:1.0f);
     float f=gx_fog(fog_loaded.type,fog_loaded.start,fog_loaded.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    const float ramp=fog_ramp(z,far);
+#else
     const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
 #if RE4DC_LOOK_ANY
     if(ramp>0){
         const unsigned curve=re4dc_look_curve();const float cap=float(re4dc_look_cap())/100.0f;
@@ -2853,6 +2896,9 @@ extern "C" float re4dc_fog_far_for_gate(float far){ // re4dc_fog_note_far's clam
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    far=re4dc_view_far(far);
+#endif
     return far;
 }
 #endif
@@ -2860,8 +2906,26 @@ extern "C" void re4dc_fog_note_far(float far){
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    {const float v=re4dc_view_far(far);fog_view_cut=v<far;far=v;}   // Options View distance (render only)
+#endif
     fog_now.far=far;
 }
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// The indoor ramp start for this frame (see fog_indoor_start): one 0.5 m step toward the target, 0 once back at the
+// level's own ramp start.
+static float fog_indoor_next(){
+    const float far=fog_now.far,base=fog_ramp_base(far);
+    float t=base;
+    if(fog_view_cut && fog_now.type){
+        const float d=re4dc_view_indoor_depth();
+        if(d>0.0f){t=d+500.0f;const float lim=far-2000.0f;if(t>lim)t=lim;if(t<base)t=base;}
+    }
+    float c=fog_indoor_start>base?fog_indoor_start:base;
+    if(t>c){c+=500.0f;if(c>t)c=t;}else if(t<c){c-=500.0f;if(c<t)c=t;}
+    return c>base?c:0.0f;
+}
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
 // EFFECT_HAZE_LEAN bit 2 (STUDY2 M3): the fog table carries about 55 % of the PS2 haze's mean veil, which ramps in
 // from 1 to 5 m (Monte Carlo of the PS2 haze), so the sparse haze subset only adds the drifting blotches.
@@ -2904,6 +2968,9 @@ extern "C" int re4dc_fog_frame_pending(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     if(fog_now.type && re4dc_hwfog_key()!=hwfog_loaded)return 1;
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_now.type && fog_indoor_next()!=fog_indoor_loaded)return 1;
+#endif
     return fog_now.type && !(fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
         fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba);
 }
@@ -2945,6 +3012,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -2954,6 +3024,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        look_key==look_loaded && fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start &&
        fog_now.end==fog_loaded.end && fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -2961,6 +3034,12 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    if(fog_indoor_start!=fog_indoor_loaded && (fog_indoor_start==0.0f || fog_indoor_loaded<=0.0f))
+        re4dc_log("view distance: indoor fog %s (ramp start %u mm, far %u)\n",fog_indoor_start>0.0f?"on":"off",
+                  unsigned(fog_indoor_start),unsigned(fog_now.far));
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     look_loaded=look_key;
     fog_loaded=fog_now;
@@ -2976,7 +3055,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=tfar/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){
             const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);
             if(!curve)f+=(1.0f-f)*s;
@@ -2998,6 +3081,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     const unsigned hwfog_key=re4dc_hwfog_key();
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_start=fog_indoor_next();
+#endif
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
     const unsigned haze_key=re4dc_haze_key();
     if(haze_key==haze_loaded &&
@@ -3007,6 +3093,9 @@ extern "C" void re4dc_fog_frame(){
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
        hwfog_key==hwfog_loaded &&
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+       fog_indoor_start==fog_indoor_loaded &&
+#endif
        fog_now.type==fog_loaded.type && fog_now.start==fog_loaded.start && fog_now.end==fog_loaded.end &&
        fog_now.far==fog_loaded.far && fog_now.rgba==fog_loaded.rgba)return;
 #if defined(RE4DC_EFFECT_HAZE_LEAN) && (RE4DC_EFFECT_HAZE_LEAN & 2)
@@ -3014,6 +3103,9 @@ extern "C" void re4dc_fog_frame(){
 #endif
 #if defined(RE4DC_HW_FOG_HAZE) && RE4DC_HW_FOG_HAZE
     hwfog_loaded=hwfog_key;
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    fog_indoor_loaded=fog_indoor_start;
 #endif
     fog_loaded=fog_now;
     const float far=fog_now.far>1.0f?fog_now.far:(fog_now.end>1.0f?fog_now.end:1.0f);
@@ -3024,7 +3116,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=far/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);f+=(1.0f-f)*s;}
         table[j]=f;
     }
@@ -3597,6 +3693,10 @@ struct Ps2World {
 #if RE4DC_PS2_STRIP_GROUPS
     unsigned char* sg_block=nullptr; const std::uint8_t* sg=nullptr; unsigned sg_groups=0; // ps2-world.r4sg (heap 4)
 #endif
+#if RE4DC_WORLD_VERT
+    unsigned vert_loaded=0; // WORLD_VERT: the level resident in storage
+    unsigned sg_bytes=0;    // WORLD_VERT: bytes of the strip-group block (level 0's size)
+#endif
 } ps2w;
 #if RE4DC_PS2_WORLD_R11F_OWNER
 unsigned r11fPackageGeneration=1,r11fSidecarCrc;
@@ -4015,14 +4115,40 @@ bool ps2_open(){
     snprintf(mpath,sizeof(mpath),"/cd/dc/native/r%03x/ps2-world.re4mesh",ps2w.room);
     snprintf(ppath,sizeof(ppath),"/cd/dc/native/r%03x/ps2-world.r4pw",ps2w.room);
     re4dc_log("PS2MESH room=%03x open\n",ps2w.room);
+#if RE4DC_WORLD_VERT
+    file_t fm=fs_open(mpath,O_RDONLY);
+#else
     const file_t fm=fs_open(mpath,O_RDONLY);
+#endif
     const file_t fp=fs_open(ppath,O_RDONLY);
 #else
+#if RE4DC_WORLD_VERT
+#error "WORLD_VERT needs PS2_WORLD_ROOMS"
+#endif
     const file_t fm=fs_open("/cd/dc/native/r101/ps2-world.re4mesh",O_RDONLY);
     const file_t fp=fs_open("/cd/dc/native/r101/ps2-world.r4pw",O_RDONLY);
 #endif
+#if RE4DC_WORLD_VERT
+    // WORLD_VERT (lane worldvert, render only): level N of the room's wholesale world reduction
+    // (tools/ps2_world_vert_ladder.py) is ps2-wvN.re4mesh (+ ps2-wvN.r4sg; ISO9660 allows one dot) beside the level-0 package; the
+    // R4PW sidecar and ids file are shared (same mesh / part / placement records). Memory neutral: the heap-4 block is
+    // always sized by the level-0 file (one buffer the size of level 0; the sidecar sits at the same offset), and a level
+    // file larger than level 0, or absent, falls back to level 0. ps2w.vert_loaded records what is resident.
+    const unsigned l0size=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U;
+    ps2w.vert_loaded=0;
+    if(world_vert_level && fm!=FILEHND_INVALID){
+        char vpath[48];snprintf(vpath,sizeof(vpath),"/cd/dc/native/r%03x/ps2-wv%u.re4mesh",ps2w.room,world_vert_level);
+        const file_t fv=fs_open(vpath,O_RDONLY);
+        if(fv!=FILEHND_INVALID && unsigned(fs_total(fv))<=l0size && fs_total(fv)>0){fs_close(fm);fm=fv;ps2w.vert_loaded=world_vert_level;}
+        else if(fv!=FILEHND_INVALID)fs_close(fv);
+        re4dc_log("WORLDVERT room=%03x want=%u loaded=%u\n",ps2w.room,world_vert_level,ps2w.vert_loaded);
+    }
+    const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
+    const unsigned mbytes=(l0size+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
+#else
     const unsigned msize=fm!=FILEHND_INVALID?unsigned(fs_total(fm)):0U,psize=fp!=FILEHND_INVALID?unsigned(fs_total(fp)):0U;
     const unsigned mbytes=(msize+31U)&~31U,pbytes=(psize+31U)&~31U,total=mbytes+pbytes+kLutBytes+kGatherBytes;
+#endif
     const int before=re4dc_static_heap_free();
 #if RE4DC_PS2_OPEN_TRACE
     re4dc_log("PS2OPEN opened mesh=%d/%u sidecar=%d/%u heap=%d\n",int(fm),msize,int(fp),psize,before);
@@ -4193,12 +4319,29 @@ bool ps2_open(){
         // PS2_STRIP_GROUPS: tools/ps2_strip_groups.py's group records for this exact package (mesh crc / bytes, R4PW
         // crc, record crc). Absent or not matching: no groups (the whole-meshlet path).
         char gpath[48];snprintf(gpath,sizeof(gpath),"/cd/dc/native/r%03x/ps2-world.r4sg",ps2w.room);
+#if RE4DC_WORLD_VERT
+        // WORLD_VERT: the level's own group records, in a block sized by level 0's (memory neutral; larger: no groups).
+        file_t fg=fs_open(gpath,O_RDONLY);
+        const unsigned g0size=fg!=FILEHND_INVALID?unsigned(fs_total(fg)):0U;
+        if(ps2w.vert_loaded && fg!=FILEHND_INVALID){
+            fs_close(fg);
+            snprintf(gpath,sizeof(gpath),"/cd/dc/native/r%03x/ps2-wv%u.r4sg",ps2w.room,ps2w.vert_loaded);
+            fg=fs_open(gpath,O_RDONLY);
+            if(fg!=FILEHND_INVALID && unsigned(fs_total(fg))>g0size){fs_close(fg);fg=FILEHND_INVALID;}
+        }
+        const unsigned galloc=(g0size+31U)&~31U;
+#else
         const file_t fg=fs_open(gpath,O_RDONLY);
+#endif
         const unsigned gsize=fg!=FILEHND_INVALID?unsigned(fs_total(fg)):0U;
         const char* gwhy=fg==FILEHND_INVALID?"absent":nullptr;
         unsigned char* gb=nullptr;
         if(!gwhy && (gsize<32U || gsize>262144U || (gsize&15U)))gwhy="size";
+#if RE4DC_WORLD_VERT
+        if(!gwhy && !(gb=static_cast<unsigned char*>(re4dc_static_alloc(galloc))))gwhy="heap";
+#else
         if(!gwhy && !(gb=static_cast<unsigned char*>(re4dc_static_alloc((gsize+31U)&~31U))))gwhy="heap";
+#endif
         if(!gwhy && fs_read(fg,gb,gsize)!=ssize_t(gsize))gwhy="read";
         if(fg!=FILEHND_INVALID)fs_close(fg);
         std::uint32_t w[8]={};
@@ -4208,7 +4351,11 @@ bool ps2_open(){
                w[5]!=mh.bytes || w[6]!=h.crc || gsize!=32U+16U*w[2]*w[3] || ps2_crc32(gb+32,gsize-32U)!=w[7])gwhy="header";
         }
         if(gwhy){if(gb)re4dc_static_free(gb);}
-        else {ps2w.sg_block=gb;ps2w.sg=gb+32;ps2w.sg_groups=w[3];}
+        else {ps2w.sg_block=gb;ps2w.sg=gb+32;ps2w.sg_groups=w[3];
+#if RE4DC_WORLD_VERT
+              ps2w.sg_bytes=galloc;
+#endif
+        }
         re4dc_log("PS2SG room=%03x groups=%s per_meshlet=%u bytes=%u heap=%d\n",ps2w.room,gwhy?gwhy:"ok",unsigned(w[3]),gsize,
                   re4dc_static_heap_free());
     }
@@ -4390,6 +4537,72 @@ void end_pass(unsigned pass,unsigned nparts,unsigned frame,unsigned r){
             re4dc_log("WHDSUM frame=%u room=%03x pass=%u parts=%u refused=%u frames=%u draw=%u notready=%u aborted=%u storage=%u full=%u tex=%u size=%u abort2=%u other=%u\n",
                 frame,r,q,parts[q],refused[q],frames_with[q],total[q][0],total[q][2],total[q][3],total[q][4],total[q][5],
                 total[q][6],total[q][7],total[q][8],total[q][1]+total[q][9]+total[q][10]);
+    }
+}
+}
+#endif
+#if defined(RE4DC_MIST_CUT)
+// MIST_CUT (hwfog.mk, lane mist16 2026-10-16; esp_sub.cpp re4dc_mist_cut, render only). Bit 2: the world's translucent
+// mist / backdrop cards. The chapter 1 outdoor inventory (port/dreamcast/docs/MIST_CUT.md) found one: the grey fogged
+// treeline band e967b886 (r10b texture 7, staged in r10b / r11b); every other TR-pass part there is foliage, leaf litter,
+// ground blend overlays or shadow decals. Bit 16 (diagnostic ceiling only, never a look): no TR-pass world part at all.
+namespace mistcut{
+constexpr std::uint32_t kMistParts[][2]={{0xe967b886U,0x9bd0a435U}};
+static unsigned skipped,last_room;static std::uint32_t last_frame;
+static bool world_part(unsigned pass,std::uint32_t crc,std::uint32_t fnv){
+    if(pass!=2)return false;
+    bool cut=(re4dc_mist_cut&16U)!=0;
+    if(!cut && (re4dc_mist_cut&2U))for(const auto& k:kMistParts)cut=cut||(k[0]==crc && k[1]==fnv);
+    if(!cut)return false;
+    ++skipped;
+    const std::uint32_t f=re4dc_vi_retrace_count();
+    if(last_room!=ps2w.room || f-last_frame>=1200U){
+        re4dc_log("mist cut world: mask=%u room=%03x parts=%u\n",re4dc_mist_cut,unsigned(ps2w.room),skipped);
+        last_room=ps2w.room;last_frame=f;skipped=0;
+    }
+    return true;
+}
+}
+#endif
+#if defined(RE4DC_FOLIAGE_TRIM)
+// FOLIAGE_TRIM=<level> (hwfog.mk, lane mist16 2026-10-16, user: "we should get the fixes from foliage agent in"; render
+// only; unset = no code). The chapter 1 outdoor overdraw is the PS2 world's translucent (pass 2) brush / leaf cards, not
+// mist (port/dreamcast/docs/MIST_CUT.md). include/foliage_keys.inc classes their texture keys offline by texel alpha:
+// 1 near-invisible (max alpha < 0.1), 2 near-binary cut-out (>= 95 % of texels at 0 or >= 0.9, or max at the opaque level
+// with <= 25 % mid texels: leaf / brush / branch cards, fence gaps), 3 soft but reaching the opaque level (listed, drawn as
+// today). re4dc_foliage (one .data word; a later Options row sets it): 0 FULL = today; 1 NEAR = a class 1 part is not
+// drawn, a class 2 part is drawn in the punch-through list (alpha test at PT_ALPHA_REF 128, PT_BLEND_FIX header: no
+// blend, no per-tile sort) and only to FOLIAGE_NEAR_MM (the cards beyond it are hidden by the fog ramp's far half);
+// soft decals, shadow strips, ground blends and the vertex-alpha overlays (reserved bit 0) stay translucent;
+// 2 OFF = no translucent world pass at all (re4dc_ps2_mesh_draw; the tester's 10-16 binary patch, patch255 "wtr").
+} // namespace (re4dc_foliage at file scope: option_rows.cpp and dbgwarp_bridge.cpp link to it by its C name)
+extern "C" { unsigned re4dc_foliage=RE4DC_FOLIAGE_TRIM; }
+namespace {
+namespace foliage{
+struct Key { std::uint32_t crc,fnv; unsigned level; };
+constexpr Key kKeys[]={
+#include "include/foliage_keys.inc"
+};
+constexpr float kNear=float(RE4DC_FOLIAGE_NEAR_MM);
+static unsigned moved,dropped,last_room;static std::uint32_t last_frame;
+// The pass a pass-2 part draws in at NEAR: 1 punch-through, 2 translucent (as today), 3 not drawn.
+static unsigned pass_of(const Ps2Part& m){
+    if(m.pass!=2 || re4dc_foliage!=1U || (m.reserved&1U))return m.pass;
+    unsigned level=0,lo=0,hi=sizeof(kKeys)/sizeof(kKeys[0]); // kKeys is sorted by crc, fnv
+    while(lo<hi){
+        const unsigned mid=(lo+hi)/2;const Key& k=kKeys[mid];
+        if(k.crc<m.crc || (k.crc==m.crc && k.fnv<m.fnv))lo=mid+1;
+        else{if(k.crc==m.crc && k.fnv==m.fnv)level=k.level;hi=mid;}
+    }
+    return level==1?3U:level==2?1U:2U;
+}
+static void note(unsigned pass,unsigned drawn_pass){
+    if(drawn_pass==3){if(pass==2)++dropped;}else if(pass==1)++moved;
+    const std::uint32_t f=re4dc_vi_retrace_count();
+    if(last_room!=ps2w.room || f-last_frame>=1200U){
+        re4dc_log("foliage: level=%u room=%03x moved=%u dropped=%u near=%u\n",re4dc_foliage,unsigned(ps2w.room),moved,dropped,
+                  unsigned(RE4DC_FOLIAGE_NEAR_MM));
+        last_room=ps2w.room;last_frame=f;moved=dropped=0;
     }
 }
 }
@@ -4700,7 +4913,16 @@ int ps2_pass(unsigned pass,float zfar){
 #if RE4DC_PS2_WORLD_R11F_OWNER
             R11fUvScope uvScope(part,pl.placement,pl.mesh,index,pass);
 #endif
+#if defined(RE4DC_FOLIAGE_TRIM)
+            const unsigned foliage_pass=foliage::pass_of(meta);
+            if(foliage_pass!=meta.pass && (pass==1 || pass==2))foliage::note(pass,foliage_pass);
+            if(foliage_pass!=pass)continue;
+#else
             if(meta.pass!=pass)continue;
+#endif
+#if defined(RE4DC_MIST_CUT)
+            if(mistcut::world_part(pass,meta.crc,meta.fnv))continue;
+#endif
             ++c.parts;part.cull=meta.cull;
 #if RE4DC_PS2_WORLD_TRANSITION_OWNER
             // Offset belongs to this exact placement/part draw, never its
@@ -4719,6 +4941,9 @@ int ps2_pass(unsigned pass,float zfar){
             d.alpha=0xff000000U;d.vertex_alpha=false;d.cull_far=cull_far;d.direct=true;
 #endif
             d.part_index=index;d.lod_scale=lod_scale;
+#if defined(RE4DC_FOLIAGE_TRIM)
+            const bool foliage_near=foliage_pass!=meta.pass && foliage::kNear<cull_far;
+#endif
 #if RE4DC_PS2_PVS
             if(pvs_cur){d.pvs_set=pvs_cur;d.pvs_first=pvs::base[i]+pvs::poff[index];}
 #endif
@@ -4727,6 +4952,14 @@ int ps2_pass(unsigned pass,float zfar){
 #if RE4DC_PS2_STRIP_GROUPS
             d.sg=ps2w.sg;d.sg_groups=ps2w.sg_groups;
 #endif
+#endif
+#if defined(RE4DC_FOLIAGE_TRIM)
+            if(foliage_near){
+                d.cull_far=foliage::kNear; // the placement's inside test was against the pass far: test its clusters
+#if RE4DC_PS2_WORLD_LEAN
+                d.lean_inside=false;
+#endif
+            }
 #endif
             std::memcpy(d.mvq,mvq,sizeof(mvq));std::memcpy(d.mv,mvq,sizeof(mvq));
             const unsigned key[6]={meta.crc,meta.fnv,meta.width,meta.height,pass,meta.cull};d.ps2=key;
@@ -4948,6 +5181,9 @@ extern "C" int re4dc_ps2_mesh_draw(unsigned pass,float zfar){
 #endif
 #if RE4DC_PS2_INTERIOR_CULL==2
     if(!pass)pc_scan(re4dc_ui_frame());
+#endif
+#if defined(RE4DC_FOLIAGE_TRIM)
+    if(pass==2 && re4dc_foliage==2U)return 1; // FOLIAGE OFF: no translucent world pass (drawn, nothing to submit)
 #endif
     if(pass>2 || !ps2w.camera || !ps2_open())return 0;
 #if RE4DC_MOVIE_WORLD_ARENA

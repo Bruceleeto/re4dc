@@ -34,6 +34,7 @@ ENTER = re.compile(r'^room lifecycle: phase=enter room=([0-9a-f]+) ')
 
 def first_sight(log, room):
     out, pending, subscreen, cur = [], [], False, None
+    ss_heap = False
     for ln in Path(log).read_text(errors='replace').splitlines():
         m = ENTER.match(ln)
         if m:
@@ -45,8 +46,16 @@ def first_sight(log, room):
         if SS_CLOSE.match(ln):
             subscreen = False
             continue
+        # The chapter title card and the chapter-end results / save screens (SS heap 11 alive; lane resident16 10-16):
+        # menu pictures (~1 MB with the results screen) that no room list should pin, as vram_gate.py counts them.
+        if ln.startswith('-- MemCreateHeap 11 '):
+            ss_heap = True
+            continue
+        if ln.startswith('-- MemDestroyHeap 11 '):
+            ss_heap = False
+            continue
         m = LOAD.match(ln)
-        if m and subscreen:
+        if m and (subscreen or ss_heap):
             continue
         if m:
             pending.append((m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))))
