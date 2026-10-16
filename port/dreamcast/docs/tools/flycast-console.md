@@ -80,5 +80,18 @@ seed bad reads, stop, the guest-time r101 placement and door time (emulator mode
 | test 13 (c1ae83dd twin, door103) | 3/10 | MISSING enemy texture identities (2), HALT model.cpp(1907) (1) |
 | test 14 candidate (e2048df6 / 12dddcac twin, door103) | 0/10 | |
 
+## Results (2026-10-16, fork d17dc82d, dynarec on; crash repro, not rates)
+
+| Disc | Profile | Seeds failed | r101 placed (game time) |
+|---|---|---|---|
+| test 14 candidate twin (fp_master base, our layout, 3e24dedc) | weak | 0/10 (0 bad reads, 0 stops) | ~41.9 s |
+| test 14 mkdcdisc standard twin (same files, 3e24dedc) | gdemu | 0/10 | ~7.0 s |
+| test 14 mkdcdisc standard twin | weak | 0/10 | ~42.2 s |
+
+Under the weak profile almost every read is a one-sector command, so the 5 ms per command costs more than the
+600 KiB/s rate. The door to r103 itself showed no clear change (its reads in this fixture are few); r101 entry did.
+Evidence: `C:/Flycast-Evidence/re4-dreamcast/disc-20261016` (gate-*.log, gate/).
+e4-dreamcast\disc-20261016 (gate-*.log, gate\).
+
 The model makes every read report COMPLETED early (worst-case GDEMU). Interpreter + cache model (dynarec off) runs
 of D3/CTL/FIX seed 3 reached no disc-check reads within 240 s: too slow for this gate; keep them for cache suspects.
