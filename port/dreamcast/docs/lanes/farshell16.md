@@ -84,11 +84,44 @@ the lake pier; through a shed window the village shows where Short shows fog. Wh
 Evidence: C:\Flycast-Evidence\re4-dreamcast\farshell-20261016 (identity-*.txt, strict-sts3-*.json, decisions-sts3-*.json,
 kos-sq.log + kos-sq-door75.log, *-tc runs, stills, hwmodel-*).
 
+## Landing (10-16 evening; user: "short + far shell looks good")
+
+Merged onto t15/int 43284ef9 (viewdist16 landed with its indoor rule, resident16). Recipe: T15REC + T15_FS
+(FAR_SHELL=1; T15_FS="" builds the control). Data: T15_DATA + fsh = the approved v3 shells for r100 / r101
+(re4-assets-private/farshell-20261016/fsh3/<room>/far-shell.fsh -> dc/native/<room>/far-shell.fsh; release kit:
+add both files to the Build-Assets zip). r10b gets no file: viewdist16 never cuts the lakes (kViewRoomMin).
+Change found while landing: shell mode (Full fog, PT / TR at Full) now needs the current room's shell loaded; before,
+a room without a file (r103) at Short would have had Full fog over an opaque world cut at 12.5 m.
+
+Vertex cut (coordinator 10-16), both measured negative, the approved v3 data ships:
+- Continuous UVs (fs_uvfield.py): the source surface's UV at each shell vertex reproduces a shell triangle's own
+  mapping on only 10-16 % of r101's triangles; field UVs everywhere would cut vertices 13,457 -> 8,689 but about half
+  the triangles get a flipped or > 6x stretched texture (streaks): the look would change.
+- Distance levels (FSH1 version 2, fsh5: a ~2000-triangle coarse level beyond 18.75 m): 3,397 vs 3,537 vertices per
+  frame at the cross, shell 2.94 vs 2.83 ms (MODELLED), +79 KB per room: no gain, not used. The runtime keeps reading
+  version 2 files (per-group boxes for culling, the cell box for the level choice).
+
+Final numbers on the merged tree (hw model, MODELLED; console-fit in brackets; r101 cross benchmark-r101-v3, global
+500:1399, arm fs16frW, T15_DATA + fsh3): Full 64.84 (69.20), Short 54.79 (58.49), opaque cut only 56.53 (60.39),
+Short + shell 61.08 (65.10): -3.76 (-4.10) vs Full; shell draw 2.90 (2.99) ms, 3,537 vertices / 4,470 strip vertices /
+92 groups / 31 headers per frame. r100 house siege: Short + shell 68.28 (71.16), shell 0.43 ms (the cut saves ~0
+inside the house). Static heap: r101 218,880 B, r100 224,192 B (+2 KiB colour table each). VRAM: 0 B new; r101 room
+log pinned 2,314,072 free 220,544 largest 10,240, r100 pinned 2,015,286 free 494,784 largest 387,072, refusals 0.
+
+Gates on the final code (c13f20d1 image; docs after):
+| Gate | Result |
+|---|---|
+| Knob-off identity (T15_FS="" rP fs16krP vs t15/int 43284ef9 rP fs16trP) | IDENTITY PASS (image + overlays + syms) |
+| _end | rP +3,904 B (fs16hrP 8c422b58 vs 8c421c18), rT +4,064 B |
+| KOS squeeze 48 KiB (fp_twin fpfs16sq2W from fs16hrP; base t14cand tree, no shell files on it) | 10/10 PASS, 0 OOM: fight min 10,336 B, call 40,936, door 17,096 (75 s), leave100 10,536, leave103 10,536 |
+| STRICT + decisions at Short (fs16krT T15_FS="" vs fs16hrT; same T15_DATA + fsh fixture) | fight STRICT 802 ticks, bell 397, door103 1702 (rooms 0101 / 0103 / 0120), 0 overruns; decisions MUST-IDENTICAL 802 / 397 / 1701 |
+| TEXCHK (fs16hmW, Short + shell: r101 cross, r101 entry walk, r100 bridge, r100 house interior) | 4/4 PASS, LEON-GC 0, pair missing 0 |
+| VRAM room log | refusals 0, guard 0, nocontig 0 in every run |
+| Indoor (r100 house interior, viewdist16 rule in) | interior unfogged as Full; the window shows the shell (cmp-indoor.png); the shed window at the r100 path shows the village (cmp-houseF-merged.png) |
+
 ## Next (not done)
 
-- Cut shell vertices per frame (14k vertices for 6k triangles: UV seams duplicate corners; a UV-continuous remap or
-  per-material planar UVs would roughly halve it), and a distance LOD (coarser beyond ~18 m).
-- Interior rule from lane/viewdist16 (indoors: exterior through windows keeps the cut fog): FAR_SHELL keeps Full fog;
-  recheck the window view once that change lands.
-- Remaining chapter 1 outdoor rooms (r103 farm, where the console cut saved 12.2 ms, r104 ... r10a).
-- Console confirmation (geometry lever >= 3 ms: trust policy needs a console A/B before an fps claim).
+- Remaining chapter 1 outdoor rooms (r103 farm, where the console cut saved 12.2 ms, r104 ... r10a): build a shell per
+  room with tools/d367/farshell and add the room to DATA['fsh'].
+- Console confirmation (geometry lever >= 3 ms: the trust policy needs a console A/B before an fps claim).
+- Cheaper shell: fewer UV-split corners needs a different texture mapping (and a new look check).
