@@ -112,7 +112,12 @@ T15_10="LOGIC_WASTE=1 LOGIC_WASTE_MASK=0x02"
 #   O  OVL_ID_GUARD=1 (daac0cf2; robustness: a route overlay from another build stops cleanly at its load). STRICT h2/bell/door103
 #      vs kT stop 2000 (t15orT); deliberate mismatch stops cleanly (og3-r118-mm).
 T15_O="OVL_ID_GUARD=1"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O"
+#   V  VIEW_DIST_OPTION=1 (lane viewdist16; render only, user-approved player option): Options row "View distance"
+#      Full / Near / Short (25 / 18.75 / 12.5 m, the benchmark sweep rows; console -3.9 / -7.9 ms CPU at the cross),
+#      fog to 100 % at the cut, this boot only. Knob-off image identical (72d5a307 + 6 overlays); gates in
+#      C:\Flycast-Evidence\re4-dreamcast\viewdist-20261016. T15_V="" builds the control without it.
+T15_V=${T15_V-VIEW_DIST_OPTION=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_V"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
