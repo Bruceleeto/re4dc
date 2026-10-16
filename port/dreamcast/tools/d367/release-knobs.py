@@ -221,7 +221,7 @@ def cmd_doclint(a):
     bad = []
     for doc in a.docs:
         for i, line in enumerate(Path(doc).read_text().splitlines(), 1):
-            for m in re.finditer(r'\b[Tt]est ?(\d+(?:\.\d+)?)\b', line):
+            for m in re.finditer(r'(?<![/\w-])[Tt]est ?(\d+(?:\.\d+)?)\b', line):   # not a path (tools/d367/test15/)
                 if float(m.group(1)) < cur:
                     bad.append('%s:%d: names test %s (current %s): %s' % (doc, i, m.group(1), head['test'], line.strip()))
             for m in re.finditer(r'\btest-[0-9a-f]{8}-\d{8}\b', line):
