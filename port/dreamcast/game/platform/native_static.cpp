@@ -2786,6 +2786,9 @@ extern "C" int re4dc_static_gate(const void* object,const float mv[12],const flo
 }
 #endif
 #if RE4DC_NATIVE_FOG
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+extern "C" float re4dc_view_far(float far);   // option_rows.cpp: the Options View distance far plane
+#endif
 namespace {
 // Last GXSetFog state (gx_stub.cpp) and the source View far plane seen by the
 // model bridge. Temporary type-0 calls (effects, filters, thermal/black) reach
@@ -2794,6 +2797,18 @@ namespace {
 struct FogState { int type; float start,end,far; unsigned rgba; };
 FogState fog_now{0,0,0,0,0},fog_loaded{-1,0,0,0,0};
 constexpr float kFogRamp=0.8f; // ramp to 100% over the last 20% before the far plane
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+// VIEW_DIST_OPTION (option_rows.cpp, Options View distance; render only): re4dc_fog_note_far moves the fogged far in
+// to Near / Short (18.75 / 12.5 m). Then the ramp to 100 % keeps Full's width, 20 % of 25 m = 5 m before the cut
+// (never more than half the far), so distant scenery fades out over the same depth instead of popping.
+bool fog_view_cut;
+float fog_ramp_start(float far){
+    if(!fog_view_cut)return kFogRamp*far;
+    const float s=far-(1.0f-kFogRamp)*25000.0f;
+    return s>0.5f*far?s:0.5f*far;
+}
+float fog_ramp(float z,float far){const float s=fog_ramp_start(far);return (z-s)/(far-s);}
+#endif
 // 2^x for x in [-8, 0] without libm (powf alone is ~2 KB of image): halve
 // per whole step, then e^y on y=frac*ln2 in (-0.7, 0] (Taylor, error < 2e-4,
 // far below the table's 8-bit alpha).
@@ -2829,7 +2844,11 @@ extern "C" float re4dc_fog_amount(float z){
     if(fog_loaded.type<=0)return 0.0f;
     const float far=fog_loaded.far>1.0f?fog_loaded.far:(fog_loaded.end>1.0f?fog_loaded.end:1.0f);
     float f=gx_fog(fog_loaded.type,fog_loaded.start,fog_loaded.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    const float ramp=fog_ramp(z,far);
+#else
     const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
 #if RE4DC_LOOK_ANY
     if(ramp>0){
         const unsigned curve=re4dc_look_curve();const float cap=float(re4dc_look_cap())/100.0f;
@@ -2853,12 +2872,18 @@ extern "C" float re4dc_fog_far_for_gate(float far){ // re4dc_fog_note_far's clam
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
 #endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    far=re4dc_view_far(far);
+#endif
     return far;
 }
 #endif
 extern "C" void re4dc_fog_note_far(float far){
 #if RE4DC_FOG_FAR > 0
     if(!(far<=float(RE4DC_FOG_FAR)))far=float(RE4DC_FOG_FAR);
+#endif
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+    {const float v=re4dc_view_far(far);fog_view_cut=v<far;far=v;}   // Options View distance (render only)
 #endif
     fog_now.far=far;
 }
@@ -2976,7 +3001,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=tfar/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){
             const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);
             if(!curve)f+=(1.0f-f)*s;
@@ -3024,7 +3053,11 @@ extern "C" void re4dc_fog_frame(){
         const float v=j<128?float((j&15U)+16U)/16.0f*float(1U<<(j>>4)):256.0f;
         const float z=far/v;
         float f=gx_fog(fog_now.type,fog_now.start,fog_now.end,z);
+#if defined(RE4DC_VIEW_DIST_OPTION) && RE4DC_VIEW_DIST_OPTION
+        const float ramp=fog_ramp(z,far);
+#else
         const float ramp=(z-kFogRamp*far)/((1.0f-kFogRamp)*far);
+#endif
         if(ramp>0){const float s=ramp>=1?1.0f:ramp*ramp*(3.0f-2.0f*ramp);f+=(1.0f-f)*s;}
         table[j]=f;
     }

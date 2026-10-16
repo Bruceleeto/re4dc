@@ -290,6 +290,24 @@ endif
 GAME_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_RENDER_OPTION=1
 OBJS += $(OBJDIR)/option_rows.o
+# VIEW_DIST_OPTION=1 (test 15, user-approved 2026-10-16; default 0 = no code; render only): a third Options row,
+#   "View distance  Full / Near / Short" (option_rows.cpp). Full is the shipped 25 m (the PS2's); Near and Short are the
+#   benchmark disc's world-distance sweep rows (bench.cpp "WORLD 18.8M" / "WORLD 12.5M"; console 10-15: -3.9 / -7.9 ms
+#   CPU at the r101 cross, -12.2 ms at the r103 farm at 12.5 m). re4dc_view_far caps the far plane handed to the PS2
+#   world draw (coarse.cpp, native_ps2_world.cpp) and the fogged far noted for the fog table (native_static.cpp
+#   re4dc_fog_note_far): the hardware fog then reaches 100 % at the cut, over the same 5 m ramp Full uses, and the
+#   render-side culls that follow the fogged far (world passes, fogged model parts, SCENERY_GATE, the actor fog gate,
+#   CROWD_FOGSKIP, effect sprites) stop there too. View._zfar, the game camera's frustum and all logic are unchanged
+#   (STRICT at Full and forced Short). This boot only, like RENDER_FSAA: every boot starts at Full, RE4DCCFG and the VMU
+#   save are never touched. DBG_WARP builds: warp line `viewdist 0|1|2` sets the level at load.
+VIEW_DIST_OPTION ?= 0
+ifneq ($(filter-out 0 1,$(VIEW_DIST_OPTION)),)
+$(error VIEW_DIST_OPTION must be 0 or 1)
+endif
+ifeq ($(VIEW_DIST_OPTION),1)
+GAME_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
+PLATFORM_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
+endif
 # RENDER_DOUBLE=1 (debug fallback): Standard / Fast show each line twice instead of alternating lines.
 ifneq ($(RENDER_DOUBLE),1)
 PLATFORM_CPPFLAGS += -DRE4DC_RES_ALTERNATE=1
@@ -302,6 +320,9 @@ $(OBJDIR)/option_rows.o: option_rows.cpp
 ifneq ($(RENDER_OPTION),1)
 ifneq ($(filter-out 0,$(RENDER_FSAA)),)
 $(error RENDER_FSAA needs RENDER_OPTION=1 (the Rendering row))
+endif
+ifneq ($(filter-out 0,$(VIEW_DIST_OPTION)),)
+$(error VIEW_DIST_OPTION needs RENDER_OPTION=1 (the Options rows))
 endif
 endif
 RES_CYCLE_FRAMES ?= 0
