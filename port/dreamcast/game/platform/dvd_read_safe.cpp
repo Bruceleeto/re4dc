@@ -256,6 +256,18 @@ extern "C" void re4dc_disc_meter_room(int what, unsigned room)
               (unsigned) ((m_tot_block - m_room_b0) / 1000));
 }
 
+#if defined(RE4DC_DOOR_PROBE) && RE4DC_DOOR_PROBE
+// door_probe.cpp (DOOR_PROBE=1, diagnostic): the game-read totals since boot, for the door window's phase marks.
+extern "C" void re4dc_disc_meter_totals(unsigned* reads, unsigned long long* bytes, unsigned long long* block_us)
+{
+    const int o = irq_disable();
+    *reads = m_tot_reads;
+    *bytes = m_tot_bytes;
+    *block_us = m_tot_block;
+    irq_restore(o);
+}
+#endif
+
 // audio_aica.cpp str_main: the calling thread is the music stream.
 extern "C" void re4dc_disc_meter_music_thread(void) { m_music = thd_current; }
 

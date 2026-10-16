@@ -506,7 +506,7 @@ extern "C" int re4dc_room_cycle_poll(){
 #endif
     ++room_frames;
 #if defined(RE4DC_DISC_READ_METER) && RE4DC_DISC_READ_METER
-    if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
+    if(room_frames==1)re4dc_disc_meter_room(2,unsigned(pG->room_id)); if(room_frames==1)RE4DC_DOORPH_END(unsigned(pG->room_id));   // first gameMainLoop frame: the load ends
 #endif
 #if defined(RE4DC_KOS_CENSUS) && RE4DC_KOS_CENSUS>=2
     if(room_frames==1 || room_frames%150==0){  // KOS_CENSUS=2 (diagnostic): peak census per window, thread stacks

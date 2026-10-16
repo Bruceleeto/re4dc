@@ -848,7 +848,7 @@ void cDvdQueue::readMain()
         m_Counter = OSGetTick();
         m_be_flag |= 0x20;
         m_DivReadSize = m_LeftSize > 0x20000 ? 0x20000 : m_LeftSize;
-        fileReadAsync(DVD_BUFF, m_DivReadSize, m_Offset);
+        RE4DC_SND_PAD_READ((*ph)->type, m_TransAddr, m_DivReadSize, fileReadAsync(DVD_BUFF, m_DivReadSize, m_Offset));
         step++;
         break;
     case 2:
