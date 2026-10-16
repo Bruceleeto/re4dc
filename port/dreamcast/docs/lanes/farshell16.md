@@ -161,4 +161,3 @@ Gates on the merged tree (evidence C:\Flycast-Evidencee4-dreamcastarshell-2026
 - Remaining chapter 1 outdoor rooms (r103 farm, where the console cut saved 12.2 ms, r104 ... r10a): build a shell per
   room with tools/d367/farshell and add the room to DATA['fsh'].
 - Console confirmation (geometry lever >= 3 ms: the trust policy needs a console A/B before an fps claim).
-- Console confirmation of the Short + shell number (geometry lever >= 3 ms).
