@@ -189,6 +189,21 @@ DreamShell and Flycast all read this form. Put the four files in their own numbe
 rename them. If your card manager offers **Shrink GDI**, leave it off (test 14 and later still mount a shrunk image,
 but an unshrunk one is what we test).
 
+**How the game reads it (test 15 and later).** The game reads the disc with plain sector reads, the way most discs
+are read: one "read N sectors" command per request, never the drive's streaming mode (KallistiOS `cdrom_stream_*`,
+which earlier tests started and cancelled on almost every read). Make knobs, all in the test 15 recipe's disc set
+(`tools/d367/test15/t15-build.sh`, `T14_DISC`):
+
+| Knob | What it does |
+| --- | --- |
+| `DISC_COMPAT=1` | plain sector reads (`DISC_READ_FALLBACK=2`: each read a bounded DMA command, then DMA after a bounded drive re-init, then PIO), the KallistiOS disc fixes (`KOS_DISC_FIX=1`), the Shrink-GDI mount, an on-screen disc log only when a read misbehaves |
+| `DISC_LAND_SPIN_MS=20` | after a read reports done, wait for its DMA by yielding instead of sleeping a whole 10 ms scheduler tick, with a bound that grows with the read's size (a slow unit needs about 2 s for a 1.25 MB read) |
+| `STORAGE_BOUNCE_ALIGNED=1` | the shared 16 KiB read buffer is aligned, so a chunk is one command instead of one per 2 KiB sector |
+| `TEX_PACK_WINDOW=128` | a room's texture preload reads `dc/tex.pak` through a 128 KiB window; `tex.pak` is laid out in the chapter 1 route's load order (`tools/d367/texpak_order.py`, data set `texord16`), so a room's pictures arrive in a few large reads |
+
+`DISC_COMPAT=1 DISC_READ_FALLBACK=0` gives test 14's stream reads back for comparisons. If you rebuild `tex.pak`, run
+`texpak_order.py` on it last, or the window loses its order (pictures still load, only more slowly).
+
 **How it is checked.** Every image goes through three checks before it is published:
 
 1. `python3 port/dreamcast/tools/d367/disc_lint.py <gdemu>/disc.gdi` (the `standard` profile): track count, types
