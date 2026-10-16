@@ -27,13 +27,12 @@ until then, play the console test in Flycast. Extract the complete package:
 | Dreamcast / GDEMU | Console test ZIP (`RE4DC-Console-Test-...-GDEMU.zip`) on the [latest release](https://github.com/lamb2k/re4dc/releases/latest) | Copy the four files inside `gdemu` into a new numbered SD card folder. |
 
 The release page also has the test build checksums (`SHA256SUMS.txt`), the test notes, the Build-Assets zip for
-contributors (see Contributing), a second DreamShell test disc for [#28](https://github.com/lamb2k/re4dc/issues/28)
-and the benchmark disc (below).
+contributors (see Contributing).
 
 ### Benchmark disc (not the game)
 
-`RE4DC-Benchmark-NOT-THE-GAME-...-GDEMU.zip` on the release page is a separate disc that only measures speed on a
-real console. It cannot be played: no title menu, no New Game, no saves, and it does not touch your VMU. A red
+`RE4DC-Benchmark-NOT-THE-GAME-...-GDEMU.zip` is a separate disc that only measures speed on a real console. It is
+not on the test 14 release; a new benchmark disc will come with a later test build. It cannot be played: no title menu, no New Game, no saves, and it does not touch your VMU. A red
 "BENCHMARK DISC - NOT THE GAME" banner stays on screen, and the GDEMU menu lists it as
 "RE4DC BENCHMARK (NOT THE GAME)". It runs two scripted scenes by itself (the village by the burning cross, then the
 first house at its back window) and ends on a results screen; a full run takes about 4 minutes.
