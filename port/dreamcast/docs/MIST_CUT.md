@@ -115,3 +115,23 @@ padded control oCrT, PAD_T 2304; h2 aligned 1990 of 2001 ticks, capture ring gap
 10/10 at 48 KiB on the final play recipe (fight min 14,168 B, door 16,616, leave 14,232, call 31,976); menu walk: the row
 cycles NEAR -> OFF -> FULL -> NEAR and View distance FULL -> NEAR -> SHORT -> FULL (log `options: foliage ...`). Sheet:
 mist-20261016/OPTIONS-SHEET.png (menu crops beside the r100 woods still at each setting).
+
+## FOLIAGE Off follow-up: only the card keys (85128754)
+
+Off first dropped the whole translucent world pass (the tester's patch), which removed r109's cabin walls and floor (alpha
+238 surfaces). Now foliage_keys.inc has a class 4 (soft cards below the opaque level with cut-out holes: shadow strips,
+mist, grass fades; 61 keys, drawn as before at Full and Near) and Off drops classes 1-4 only. Unlisted translucent parts
+(surfaces without holes such as the cabin walls and floor, water, keys outside the chapter 1 census) and the vertex-alpha
+overlays always draw. Near is unchanged (classes 1-3 keep their levels; the generator adds class 4 after them).
+
+| view (Flycast TA) | FULL | NEAR | first OFF | OFF now |
+|---|---|---|---|---|
+| r100 woods path | 3.81 | 1.89 | 0.93 | 1.16 (GPU 9.7 ms MODELLED hi; first Off 8.9) |
+| r100 start | 2.74 | 1.06 | 0.41 | 0.66 |
+| r101 cross (world32) | - | - | - | 1.50 |
+| r109 entry | 6.79 | 6.79 | 2.11 (walls gone) | 6.35 (walls and floor drawn) |
+| r11b shore | 7.62 | 7.60 | 7.46 | 7.60 |
+
+Gates (85128754 on t15/int 6b5bc9b0): knob-off identity (T15_T="" rP image 1b56f915 = 6b5bc9b0, 6 overlays); STRICT +
+decisions MUST-IDENTICAL h2 / bell / door103 at Near (stop 2000, padded control, full tick range); TEXCHK 8/8; KOS squeeze
+(see TEST15-SCOPE). Sheet: mist-20261016/OFF-FIX-SHEET.png.

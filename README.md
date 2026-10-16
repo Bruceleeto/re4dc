@@ -64,7 +64,7 @@ game plays the same. Inside a house the room around you stays clear, and only wh
 windows fades. The lake always shows its full horizon. Foliage is how the see-through brush and leaf cards outdoors
 are drawn: Near (the default) draws the leaf and brush cards with sharp edges and only up to about 12 m, where the
 fog hides them anyway, which makes the woods faster; Full draws all of them blended, as on the PS2; Off leaves them
-out (fastest, but it also removes the walls and floor of the cabin in r109, see Known Issues). FSAA, View distance
+out, with the soft shadow and grass cards (fastest; walls, floors and water are always drawn). FSAA, View distance
 and Foliage last until the console is switched off; every boot starts in Standard, Full and Near.
 The speed display shows the frame rate and game speed on screen; it is off unless you switch it on.
 The VMU in controller slot 1 shows Leon, Ashley, Hunnigan and Luis pages.
