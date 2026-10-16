@@ -171,6 +171,50 @@ maintainers keep outside the repository.
 No PC version and no GameCube retail disc are used. The second GameCube debug disc is used only by
 the decompilation build.
 
+## 8. Disc image and compatibility
+
+Draft for test 15 (2026-10-16, not yet a release rule).
+
+**One image.** Each test release ships one disc image: a standard three-track GD-ROM GDI with raw 2,352-byte
+sectors, laid out the way the community tool [mkdcdisc](https://gitlab.com/simulant/mkdcdisc) writes `-F gdi`:
+
+| Track | Start (LBA) | What it holds |
+| --- | --- | --- |
+| `track01.bin` | 0 | data, low-density area: a small ISO9660 volume (COPYRIGH.TXT, ABSTRACT.TXT, BIBLIOGR.TXT) with the IP.BIN header in its system area (IP0000.BIN) |
+| `track02.raw` | 600 | audio: 526 sectors of silence (the "warning" track) |
+| `track03.bin` | 45000 | data, high-density area: IP.BIN (header, TOC1, SEGA licence code, bootstrap), then the game's ISO9660 tree; padded to LBA 549150, the end of a real GD-ROM, with `1ST_READ.BIN` as the last file |
+
+`disc.gdi` is four CRLF lines (`3`, then `number LBA type 2352 file 0` per track). GDEMU, MODE, USB-GDROM,
+DreamShell and Flycast all read this form. Put the four files in their own numbered folder on the SD card; don't
+rename them. If your card manager offers **Shrink GDI**, leave it off (test 14 and later still mount a shrunk image,
+but an unshrunk one is what we test).
+
+**How it is checked.** Every image goes through three checks before it is published:
+
+1. `python3 port/dreamcast/tools/d367/disc_lint.py <gdemu>/disc.gdi` (the `standard` profile): track count, types
+   and LBAs; whole sectors; sync, MSF header, EDC and ECC of a sector sample; every IP.BIN field (hardware and maker
+   ID, GD-ROM device info, area symbols and the matching region text, peripherals, version, date, boot file, the
+   unmodified SEGA licence code, the TOC1 table); the ISO9660 volume (absolute extents, path table, names KOS can
+   look up, no overlapping files, the boot file present and last); padding to LBA 549150; the low-density headers.
+   It exits non-zero on any violation. `--profile loader` keeps only the rules a loader needs; `--compare a.gdi b.gdi`
+   prints two images side by side.
+2. The GDEMU disc-timing gate in the console-like Flycast (`tools/d367/fullplay/gdemu_gate.sh`, see
+   `docs/tools/flycast-console.md`) under both disc profiles, 10 seeds each, r101 plus the r103 door load:
+   `RE4DC_GD_PROFILE=gdemu` (a GDEMU that answers before its data has landed) and `RE4DC_GD_PROFILE=weak` (a weak or
+   clone unit: about 600 KiB/s, like `read_limit = 600` in GDEMU.ini, and several milliseconds per command).
+   Pass = no stop and no bad read in any run.
+3. A plain Flycast boot of the image itself to the title and New Game.
+
+**Compatibility reports.** Please add a row when you play a test build on a loader we have not listed:
+
+| Loader | Firmware / version | Menu (openMenu, GDMenu, none) | Image (test, folder name) | Console (region, model) | SD card | Result | Report |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| GDEMU (genuine or clone) | e.g. 5.20.3, `read_limit` | | | | | boots / plays to ... / stops at ... | #issue |
+| MODE | | | | | | | |
+| USB-GDROM | | | | | | | |
+| DreamShell (IDE / SD) | | | | | | | |
+| Flycast | version | n/a | | n/a | n/a | | |
+
 ## Release checklist (maintainers)
 
 On every test release, in the same landing as the release recipe, before the release publishes:

@@ -16,22 +16,29 @@ frame times mean nothing: use it for crash and corruption repro only.
 Applies to the HLE BIOS DMA sector read (GDCC_DMAREAD, what KOS `cdrom_read_sectors_dma_irq` / fs_iso9660 use).
 The harness has no BIOS in `data\`, so the HLE BIOS is always the one in use.
 
-| Variable | Meaning | gdemu default | drive default |
-|---|---|---|---|
-| RE4DC_GD_PROFILE | `gdemu` or `drive` (unset = off) | | |
-| RE4DC_GD_CPB32 | SH-4 cycles per 32-byte chunk | 533 (~12 MB/s) | 4571 (~1.4 MB/s) |
-| RE4DC_GD_SEEK | cycles from command to first byte | 20000 (100 us) | 2000000 (10 ms) |
-| RE4DC_GD_STAT | gdemu: cycles from command to BIOS status COMPLETED | 2000 | n/a |
-| RE4DC_GD_IRQ | cycles from the last byte to the GD-DMA end IRQ | 4000 | 4000 |
-| RE4DC_GD_JITTER | max random extra cycles on SEEK, STAT and IRQ each | 0 | 0 |
-| RE4DC_GD_SEED | PRNG seed; a given seed is deterministic | 1 | 1 |
-| RE4DC_GD_EARLY | gdemu: per mille of commands whose status goes COMPLETED early | 1000 | n/a |
-| RE4DC_GD_CHUNK | bytes landed per scheduler event | 32 | 32 |
+| Variable | Meaning | gdemu default | weak default | drive default |
+|---|---|---|---|---|
+| RE4DC_GD_PROFILE | `gdemu`, `weak` or `drive` (unset = off) | | | |
+| RE4DC_GD_CPB32 | SH-4 cycles per 32-byte chunk | 533 (~12 MB/s) | 10417 (~600 KiB/s) | 4571 (~1.4 MB/s) |
+| RE4DC_GD_SEEK | cycles from command to first byte | 20000 (100 us) | 1000000 (5 ms) | 2000000 (10 ms) |
+| RE4DC_GD_STAT | gdemu/weak: cycles from command to BIOS status COMPLETED | 2000 | = SEEK | n/a |
+| RE4DC_GD_IRQ | cycles from the last byte to the GD-DMA end IRQ | 4000 | 4000 | 4000 |
+| RE4DC_GD_JITTER | max random extra cycles on SEEK, STAT and IRQ each | 0 | 400000 (2 ms) | 0 |
+| RE4DC_GD_SEED | PRNG seed; a given seed is deterministic | 1 | 1 | 1 |
+| RE4DC_GD_EARLY | gdemu/weak: per mille of commands whose status goes COMPLETED early | 1000 | 1000 | n/a |
+| RE4DC_GD_CHUNK | bytes landed per scheduler event | 32 | 32 | 32 |
+| RE4DC_GD_STREAM_CPB | weak: cycles per byte of a KOS stream DMA (REQ_DMA_TRANS) | n/a | 326 (~600 KiB/s) | n/a |
+| RE4DC_GD_STREAM_LAT | weak: extra cycles (+ jitter) before a stream DMA lands | n/a | = SEEK | n/a |
 
 - **gdemu:** the BIOS status reads COMPLETED almost at once (STAT cycles), independent of the data. The G1 DMA then
   lands the data progressively, 32 B at a time, written straight to RAM (bypassing the modelled operand cache, as a
   real DMA does). SB_GDST reads 1 while bytes are in flight. The DMA-end IRQ comes IRQ cycles after the last byte.
 - **drive:** status stays PROCESSING until the last byte landed; seek latency, then ~1.4 MB/s.
+- **weak** (2026-10-16, fork d17dc82d): a weak or clone GDEMU, as with `read_limit = 600` in GDEMU.ini plus slow
+  command handling (clone status polling is far slower than a real drive, KallistiOS PR #957). gdemu semantics
+  (status before the data), but data at ~600 KiB/s, 5 ms + 0..2 ms per command, and the KOS stream DMA
+  (REQ_DMA_TRANS, which the gdemu profile leaves instant) slowed the same way unless HWTRACE_GDLAT is set. PIO
+  reads still land at once. A test 14 run needs ~42 s of game time to reach r101 under it (7 s under gdemu).
 - One G1 engine: a second DMAREAD waits for the first; a stream request (REQ_DMA_TRANS) or a PIO read lands any
   in-flight sector DMA at once (simplification).
 - stderr (`serial.err.txt`) carries `GDCONSOLE` lines: the profile, the first 20 reads, then every 500th with counts.
@@ -55,8 +62,12 @@ not used and the binary behaves like the fast build plus the GD profile.
 
 ## GDEMU race gate
 
-`tools/d367/fullplay/gdemu_gate.sh <tag> <evidence dir> <fp_master twin base> "<twin syms>" <door103 fixture> 1 2 ... 10`
-(Git Bash). 10 seeds, r101 entry plus the r103 door load, 150 s each, at most 6 at once. Pass = 0 of 10 stopped.
+`[RE4DC_GD_PROFILE=gdemu|weak] [SECS=60] tools/d367/fullplay/gdemu_gate.sh <tag> <evidence dir> <disc> "<twin syms>" <door103 fixture|-> 1 2 ... 10`
+(Git Bash). `<disc>` is an fp_master.sh twin base (fixture into track 1) or a plain disc dir whose `dc/warp.txt`
+already holds the fixture (pass `-`), such as a mkdcdisc twin. 10 seeds, r101 entry plus the r103 door load, at most
+MAXP (6) at once. SECS defaults to 60 (lean rule); the weak profile needs SECS=150 (named exception: ~42 s to
+r101 and a slow door at 600 KiB/s). Pass = every seed reaches r103 with no stop and no bad read; the table gives per
+seed bad reads, stop, the guest-time r101 placement and door time (emulator model, not console timing).
 
 ## Results (2026-10-15, gdemu, jitter 20000, dynarec on; crash repro, not rates)
 
