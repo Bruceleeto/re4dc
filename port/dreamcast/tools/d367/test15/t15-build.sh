@@ -109,7 +109,10 @@ T15_H="SS_HOLD_RESTORE=1 CORE_PIN=2"
 #      fight/bell/H2/door103; -0.23 ms cross MODELLED; _end +1,824 B). LOGIC_APPROX_MASK (Leon cloth 30 Hz) stays 0 until the
 #      user OKs its motion still pair.
 T15_10="LOGIC_WASTE=1 LOGIC_WASTE_MASK=0x02"
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10"
+#   O  OVL_ID_GUARD=1 (daac0cf2; robustness: a route overlay from another build stops cleanly at its load). STRICT h2/bell/door103
+#      vs kT stop 2000 (t15orT); deliberate mismatch stops cleanly (og3-r118-mm).
+T15_O="OVL_ID_GUARD=1"
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"
