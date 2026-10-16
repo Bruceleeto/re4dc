@@ -1126,6 +1126,18 @@ DISC_POLL_SPIN_MS ?= 0
 # Nonzero also bounds that wait by the read's size (1 s + 8 ms a sector) instead of 1 s: on the weak profile (~600 KiB/s)
 # a 626-sector read took over 1 s to land, was declared lost and the drive was re-initialised under the DMA.
 DISC_LAND_SPIN_MS ?= 0
+# STORAGE_BOUNCE_ALIGNED=1 (needs DISC_READ_FALLBACK=2; lane plainread16 2026-10-16, default 0 = image unchanged): the
+# shared 16 KiB storage bounce buffer (room/room_storage.cpp: every texture package, tex.pak entry and other read_chunks
+# user) becomes 32-byte aligned. It was misaligned on purpose to keep KOS off its stream path; with streams refused
+# (plain sector reads) the aligned buffer makes fs_iso9660 read a chunk's whole sectors in one GD command instead of one
+# command per sector. Exact: the same bytes in the same places.
+STORAGE_BOUNCE_ALIGNED ?= 0
+ifneq ($(STORAGE_BOUNCE_ALIGNED),0)
+ifneq ($(DISC_READ_FALLBACK),2)
+$(error STORAGE_BOUNCE_ALIGNED=1 needs DISC_READ_FALLBACK=2 (an aligned buffer starts KOS cdrom streams otherwise))
+endif
+$(OBJDIR)/native-reuse/room_storage.o: PLATFORM_CPPFLAGS += -DRE4DC_STORAGE_BOUNCE_ALIGNED=1
+endif
 ifeq ($(DISC_READ_FALLBACK),2)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
 $(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS) -DRE4DC_DISC_LAND_SPIN_MS=$(DISC_LAND_SPIN_MS)
