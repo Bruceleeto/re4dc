@@ -40,6 +40,46 @@
 #if defined(RE4DC_ACTOR_PROBE_LIGHT) && RE4DC_ACTOR_PROBE_LIGHT
 #include "actor_light_probe.h"
 #endif
+// GANADO_LIT=1 (crowd.mk, lane ganlit 2026-10-16; render only; default 0: nothing changes; needs ACTOR_PROBE_LIGHT=2):
+// the Ganado probe's per-vertex light is limited to the RE4DC_GANADO_LIT_NEAREST nearest Ganado models (0: none, every
+// Ganado one colour per part from its probe; -1: every near-tier Ganado, as ACTOR_PROBE_LIGHT=2 alone). The rest keep
+// one colour per part from the probe. GANADO_LIT_TOGGLE=1 (debug builds only): warp `ganlit <m>` picks the mode at load
+// (0 = test 15: Ganados off the probe; 1..8 = the m - 1 nearest; 9 = every near-tier Ganado).
+#ifndef RE4DC_GANADO_LIT
+#define RE4DC_GANADO_LIT 0
+#endif
+#ifndef RE4DC_GANADO_LIT_TOGGLE
+#define RE4DC_GANADO_LIT_TOGGLE 0
+#endif
+#if RE4DC_GANADO_LIT
+#ifndef RE4DC_GANADO_LIT_NEAREST
+#define RE4DC_GANADO_LIT_NEAREST -1
+#endif
+static int ganlit_nearest = RE4DC_GANADO_LIT_NEAREST;
+#endif
+#ifndef RE4DC_GANADO_LIT_FILL
+#define RE4DC_GANADO_LIT_FILL 0
+#endif
+#if RE4DC_GANADO_LIT_FILL
+static int ganlit_fill = RE4DC_GANADO_LIT_FILL > 0 ? RE4DC_GANADO_LIT_FILL : 0;  // percent; the toggle build: -1 = 0 at boot
+#endif
+#if RE4DC_GANADO_LIT_TOGGLE
+extern "C" void re4dc_log(const char* fmt, ...);
+extern "C" {
+unsigned re4dc_ganlit_mode = RE4DC_GANADO_LIT_NEAREST < 0 ? 9U : unsigned(RE4DC_GANADO_LIT_NEAREST) + 1U;
+void re4dc_ganlit_set(unsigned mode) {
+    re4dc_ganlit_mode = mode > 9U ? 9U : mode;
+    ganlit_nearest = re4dc_ganlit_mode == 9U ? -1 : re4dc_ganlit_mode == 0U ? 0 : int(re4dc_ganlit_mode) - 1;
+    re4dc_log("GANLIT_MODE %u nearest=%d\n", re4dc_ganlit_mode, ganlit_nearest);
+}
+#if RE4DC_GANADO_LIT_FILL
+void re4dc_ganlit_fill_set(unsigned percent) {
+    ganlit_fill = percent > 100U ? 100 : int(percent);
+    re4dc_log("GANLIT_FILL %d\n", ganlit_fill);
+}
+#endif
+}
+#endif
 
 #include "actor_lifetime.h"
 #ifndef RE4DC_ACTOR_LOG
@@ -1880,6 +1920,9 @@ bool probe_eligible(const Re4dcModelPart& p) {
     if (!S.enable || S.ambient_vertex || S.material_vertex || S.diffuse != 2) return false;
     if (S.normal_matrix[3] == 1.0e30f) return true;  // Leon (LEON_SOURCE_LIGHT capture)
 #if RE4DC_ACTOR_PROBE_LIGHT >= 2
+#if RE4DC_GANADO_LIT_TOGGLE
+    if (re4dc_ganlit_mode == 0) return false;  // GANADO_LIT_TOGGLE mode 0: Ganados as test 15 (build_lights, flat)
+#endif
     const int id = re4dc_actor_model_id(p.model);
     if (id >= 0x10 && id <= 0x20) return true;
 #endif
@@ -1992,6 +2035,26 @@ bool probe_lights(const Re4dcModelPart& p, const Frame& f, Lights& L) {
         }
     }
 #endif
+#if RE4DC_GANADO_LIT_FILL
+    // GANADO_LIT_FILL=F (crowd.mk, lane ganlit; Ganados only; render only; default 0): Leon's camera fill (above) for the
+    // probe-lit Ganados, F% of their probe total in the kernel's spare second direction (no new pass). Lifts the
+    // camera-facing side the one-direction probe leaves at ambient; the mid/far one-colour parts take it too
+    // (part_colour), so every tier keeps one lighting model. GANADO_LIT_TOGGLE: warp `ganfill <F>` sets it at load.
+    if (!leon && ganlit_fill > 0) {
+        const float tx = p.modelview[3], ty = p.modelview[7], tz = p.modelview[11];
+        const float t2 = tx * tx + ty * ty + tz * tz;
+        if (t2 > 0.0f && re4dc::render::is_finite(t2)) {
+            const float r = -1.0f / std::sqrt(t2), cx = tx * r, cy = ty * r, cz = tz * r;
+            L.dir[1][0] = (N[0] * cx + N[4] * cy + N[8] * cz) * f.nq;
+            L.dir[1][1] = (N[1] * cx + N[5] * cy + N[9] * cz) * f.nq;
+            L.dir[1][2] = (N[2] * cx + N[6] * cy + N[10] * cz) * f.nq;
+            L.view_dot[1] = 1.0f;
+            L.count = 2;
+            const float k = 0.5f * float(ganlit_fill) / 100.0f;
+            for (unsigned c = 0; c < 3; ++c) L.color[4 + c] = k * (e.dcol[c] + e.amb[c]) * scale[c];
+        }
+    }
+#endif
     L.fast = true;
     ++stats.light_sets;
     ++probe_stats.parts;
@@ -2098,8 +2161,8 @@ void probe_dirs_all(Frame& f, const Lights& L) {
     const float l0 = L.dir[0][0], l1 = L.dir[0][1], l2 = L.dir[0][2];
     const float* P = f.palette;
     float* out = f.skin_dirs;
-#if RE4DC_LEON_LIGHT_FILL
-    if (L.count == 2) {  // LEON_LIGHT_FILL: direction 1 is the camera fill
+#if RE4DC_LEON_LIGHT_FILL || RE4DC_GANADO_LIT_FILL
+    if (L.count == 2) {  // LEON_LIGHT_FILL / GANADO_LIT_FILL: direction 1 is the camera fill
         const float m0 = L.dir[1][0], m1 = L.dir[1][1], m2 = L.dir[1][2];
         for (unsigned i = 0; i < f.palette_entries; ++i, P += 12, out += 12) {
             for (unsigned c = 0; c < 3; ++c) out[c] = P[c * 3] * l0 + P[c * 3 + 1] * l1 + P[c * 3 + 2] * l2;
@@ -4000,7 +4063,11 @@ constexpr float kSourceUnitsPerMetre = 1000.0f;
 unsigned crowd_near_count = RE4DC_ACTOR_CROWD_NEAR;
 float crowd_near = RE4DC_ACTOR_CROWD_NEAR_M * kSourceUnitsPerMetre, crowd_mid = RE4DC_ACTOR_CROWD_MID_M * kSourceUnitsPerMetre;
 float crowd_mid_tau = RE4DC_ACTOR_CROWD_MID_PX;
+#if RE4DC_GANADO_LIT
+struct CrowdEntry { const void* model; float distance; unsigned seen; unsigned tier; unsigned lit; };
+#else
 struct CrowdEntry { const void* model; float distance; unsigned seen; unsigned tier; };
+#endif
 constexpr unsigned kCrowdMax = 48;
 CrowdEntry crowd[kCrowdMax];
 unsigned crowd_count = 0;
@@ -4021,9 +4088,26 @@ void crowd_rank() {
         const bool near = i < crowd_near_count + (was_near ? 1U : 0U) || d <= crowd_near * (was_near ? 1.1f : 1.0f);
         const bool mid = d <= crowd_mid * (was_mid ? 1.1f : 1.0f);
         e.tier = near ? kTierNear : mid ? kTierMid : kTierFar;
+#if RE4DC_GANADO_LIT
+        // GANADO_LIT (crowd.mk): per-vertex probe light for the N nearest Ganado models only; the next one keeps it
+        // while within 10% of the Nth's distance (no flicker between two equally near Ganados). N < 0: every near one.
+        const int N = ganlit_nearest;
+        e.lit = N < 0 || i < unsigned(N) || (e.lit && N > 0 && i == unsigned(N) && d <= crowd[N - 1].distance * 1.1f);
+#endif
     }
     stats.crowd_models = n;
 }
+#if RE4DC_GANADO_LIT
+// The model's GANADO_LIT flag from this frame's ranking (a model first seen this frame: not lit until ranked).
+bool crowd_lit(const void* model) {
+    for (unsigned i = 0; i < crowd_count; ++i)
+        if (crowd[i].model == model) return crowd[i].lit != 0;
+    return false;
+}
+#define RE4DC_GANADO_VERTEX_LIT(p) (ganlit_nearest < 0 || crowd_lit((p).model))
+#else
+#define RE4DC_GANADO_VERTEX_LIT(p) true
+#endif
 #if defined(RE4DC_ACTOR_TEST)
 int test_crowd_tier = -1;  // >= 0: every crowd model at this tier
 #endif
@@ -4905,7 +4989,7 @@ extern "C" int re4dc_actor_submit(const Re4dcModelPart* part) {
     const unsigned tier = crowd_class > 0 ? crowd_tier(p, crowd_class) : kTierFull;
     if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant
 #if RE4DC_ACTOR_PROBE_LIGHT
-        && !(lights.probe && tier == kTierNear)  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
+        && !(lights.probe && tier == kTierNear && RE4DC_GANADO_VERTEX_LIT(p))  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
 #endif
     ) {
         lights.constant = true;
@@ -5489,7 +5573,7 @@ int one_chunk(Re4dcModelPart& p, OneWindow& w) {
     }
     if (tier >= (kCrowdFlat ? kTierNear : kTierMid) && tier != kTierFull && lights.fast && !lights.constant
 #if RE4DC_ACTOR_PROBE_LIGHT
-        && !(lights.probe && tier == kTierNear)  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
+        && !(lights.probe && tier == kTierNear && RE4DC_GANADO_VERTEX_LIT(p))  // ACTOR_PROBE_LIGHT=2: the near tier lights per vertex
 #endif
     ) {
         lights.constant = true;  // never the window's record: lights.fast is false for constant lighting
