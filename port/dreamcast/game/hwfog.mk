@@ -76,7 +76,7 @@ endif
 #   1 = NEAR: near-binary cut-out cards (leaf / brush / branch cards, fence gaps) drawn in the punch-through list (alpha
 #   test, no blend, no per-tile sort) and only to FOLIAGE_NEAR_MM (default 12000: the fog ramp's far half hides them
 #   beyond), near-invisible parts not drawn; soft decals, shadow strips, ground blends and vertex-alpha overlays as today.
-#   2 = OFF (test arm / the later Options row's Off): no translucent world pass at all (the tester's 10-16 patch).
+#   2 = OFF (the Options row's Off): the listed card keys (classes 1-4) are not drawn; surfaces, water and unlisted keys are.
 #   re4dc_foliage is one .data word (0 FULL, 1 NEAR, 2 OFF). Needs PT_BLEND_FIX=1 (punch-through with SRCALPHA /
 #   INVSRCALPHA: ONE / ZERO draws cut-out texels solid on PVR hardware, the test 8 leaves) and PS2_WORLD_MESH=1.
 FOLIAGE_TRIM ?=
