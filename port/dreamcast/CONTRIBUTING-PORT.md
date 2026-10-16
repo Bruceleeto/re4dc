@@ -31,10 +31,11 @@ newest test release and its Build-Assets zip from GitHub and checks them against
 * `KNOB=value` arguments go to the build, for example `bash port/dreamcast/contrib.sh MY_FEATURE=1`.
 
 The Build-Assets zip holds the generated character data the release program was built with
-(`ps2leon/`, `ps2ganado/`, and from test 15 `glod/ganado_lod.re4gl`, the lighter villager meshes named by
-`GANADO_LOD_PACK`), so your program draws the same characters as the release. From test 15 it also carries, under
-`re4dc-assets/disc/<disc path>`, the disc data files that changed in test 15 (the chapter 1 sound files
-`st1/r103.dar` and `bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak` and the village world in `dc/native/r101/`);
+(`ps2leon/`, `ps2ganado/`, and `glod/ganado_lod.re4gl`, the lighter villager meshes named by
+`GANADO_LOD_PACK`), so your program draws the same characters as the release. It also carries, under
+`re4dc-assets/disc/<disc path>`, the newer disc data files (the chapter 1 sound files `st1/r103.dar` and
+`bgm/aica_str.dat`, `dc/resident.bin`, `dc/tex.pak`, the village world in `dc/native/r101/` and the far shells
+`dc/native/r100/far-shell.fsh` and `dc/native/r101/far-shell.fsh`);
 they are on the release disc already, so you need them only for a disc of your own. Built from the release's source commit with its
 Build-Assets zip, the program is byte for byte the release's program (the maintainers check this before
 every release). Downloads are kept, so a second run only rebuilds.
@@ -99,7 +100,7 @@ overlays (`*.ovl`) that belong to it, and `resolved-knobs.txt` with every build 
 Add your own knobs at the end, for example `bash port/dreamcast/build-public.sh MY_FEATURE=1`.
 
 **Which recipe.** `build-public.sh` reads the release's knob file, today
-`tools/d367/test15/release-knobs.txt` (test 15; its header names the source commit). The maintainers write that file from
+`tools/d367/test16/release-knobs.txt` (test 16; its header names the source commit). The maintainers write that file from
 the release build itself, so it is the exact knob list of the published program. To build an older
 release, check out that release's source commit: its `build-public.sh` points at its own knob file.
 
@@ -176,13 +177,13 @@ texture is a near-binary cut-out (leaf / brush cards, fence gaps; key table plat
 from an alpha census of the chapter 1 packages) are drawn in the punch-through list up to 12 m at Near, and every listed
 card key (classes 1-4, soft shadow / mist / grass cards included) is left out at Off; surfaces without cut-out holes
 (walls, floors, water), unlisted keys and the vertex-alpha overlays always draw. It is not
-saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (test 15: Near). From test 15.1 the knob `HAZE_SPRITE_CUT=1`
+saved either: every boot starts at the recipe's `FOLIAGE_TRIM` level (Near in the release). The knob `HAZE_SPRITE_CUT=1`
 (hwfog.mk, recipe group `T15_HZ`; render only) leaves out every haze / mist sprite at every Foliage setting: the camera
 haze around Leon (Esp15), the mist sheets (Esp48) and the r118 / r11c PS2 haze additions; the distant haze stays as the
 fog table (`HW_FOG_HAZE`, `EFFECT_HAZE_LEAN`), which is fed before the cut. Docs: docs/MIST_CUT.md. On a warp test disc (`DBG_WARP=1`) the warp line
 `viewdist 0|1|2` starts the run at Full, Near or Short.
 Far shell (knob `FAR_SHELL`, needs `VIEW_DIST_OPTION`; game/platform/far_shell.inc): in a room that has a
-`dc/native/rXXX/far-shell.fsh` (r100 and r101 in test 15), Short cuts only the world's opaque pass; the fog,
+`dc/native/rXXX/far-shell.fsh` (r100 and r101 in the release), Short cuts only the world's opaque pass; the fog,
 the cut-out and see-through world surfaces, characters and objects keep Full's distance, and the room's far shell (a
 simplified copy of the far world, about 3,000 triangles textured with the world's own textures, so no extra graphics
 memory) is drawn beyond the cut, so landmarks stay visible. Build a shell with tools/d367/farshell (README there;
@@ -251,7 +252,7 @@ the decompilation build.
 
 ## 8. Disc image and compatibility
 
-The release disc format from test 16 on (decided 2026-10-16; test 15 still ships the old layout). Users had reported freezes and crashes on GDEMU
+The release disc format from test 16 on (decided 2026-10-16; earlier tests shipped the old layout). Users had reported freezes and crashes on GDEMU
 with this game only ([#27](https://github.com/lamb2k/re4dc/issues/27), "LinkOrder"); the image then was laid out by
 our own script and differed from a pressed GD-ROM in several ways (no table of contents in IP.BIN, a data track
 that ended with its last file, the program first instead of last, a non-standard low-density track). The same game
@@ -278,12 +279,12 @@ unshrunk image is what we test.
 fails, times out or comes back without its data, the game switches to plain sector reads (one bounded "read N sectors"
 command per request, the way most discs are read) for the rest of the session and never starts a stream again; the
 read that failed is redone the plain way. Make knobs, all in the release recipe's disc set
-(`tools/d367/test15/t15-build.sh`, `T14_DISC`):
+(`tools/d367/test16/t16-build.sh`, group `T14_DISC`):
 
 | Knob | What it does |
 | --- | --- |
 | `DISC_COMPAT=1` | the KallistiOS disc fixes (`KOS_DISC_FIX=1`), the Shrink-GDI mount, an on-screen disc log only when a read misbehaves |
-| `DISC_READ_FALLBACK=3` | stream reads, each checked; the first failure switches the session to plain reads (`=2`: a bounded DMA command, then DMA after a bounded drive re-init, then PIO). `=0` is test 14's stream reads, `=2` plain reads from the start |
+| `DISC_READ_FALLBACK=3` | stream reads, each checked; the first failure switches the session to plain reads (`=2`: a bounded DMA command, then DMA after a bounded drive re-init, then PIO). `=0` is the earlier stream reads with no fallback, `=2` plain reads from the start |
 | `DISC_LAND_SPIN_MS=20` | plain reads only: wait for a read's DMA by yielding instead of sleeping a whole 10 ms scheduler tick, with a bound that grows with the read's size |
 
 Test only: `DISC_FAIL_TEST=2 DISC_FAIL_AFTER_S=20` makes stream reads fail after 20 s of play, to see the switch.

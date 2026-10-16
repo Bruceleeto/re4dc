@@ -16,9 +16,29 @@ only (#27); a GDEMU console test of the test 14 game in this format ran
 fine. Please replace the old folder (don't mix test 15 and test 16 track
 files), and if your card manager offers "Shrink GDI", leave it off.
 
-RELEASE_NOTES_PLACEHOLDER (the release coordinator writes "New in test 16"
-here from TEST16-SCOPE.md; t16-package.sh refuses to package while this line
-is present)
+New in test 16:
+* The disc format above (for the GDEMU freezes, #27).
+* Disc reads: if a fast disc read fails, times out or comes back empty,
+  the game switches to plain sector reads for the rest of the session
+  and keeps playing (DreamShell and other loaders, #28).
+* Radio call subtitles follow the voice instead of falling behind it.
+* The lake draws its water the PS2 way out on the water too: the Del
+  Lago boat fight and the lake shore at night.
+* In the village (r101) the burning stake and the pyre keep their full
+  detail again. The fence by the house still misses its rails.
+* View distance Short: the first area (r100) and the village (r101)
+  show a simplified copy of the distant scenery beyond the cut, so the
+  houses, trees and hills stay in view.
+
+From test 15.1 (hotfix):
+* The see-through haze and mist sprites around Leon are no longer drawn,
+  in any room and at every Foliage setting. The distant haze is still
+  drawn as fog.
+* Foliage Off leaves out every see-through brush, leaf, shadow and mist
+  card, and the r109 cabin keeps its walls and floor.
+
+Still open: in r102, right after loading a save, a few effect pictures
+can be missing for a moment (#33).
 
 Please tell us about any crash, freeze or missing texture, and where. Photos
 help a lot. If you play from a loader other than GDEMU (MODE, USB-GDROM,
