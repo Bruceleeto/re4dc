@@ -1,0 +1,10 @@
+# vq16-lake.txt (lane water16b, 10-16): r10b / r11b 16-bit pictures re-encoded as full-codebook VQ so the lakes' water
+# pictures fit their room preloads (vq_plan.py target 1,950,000 B; user rule 10-16: VQ by default when it frees needed
+# capacity, PSNR >= ~29 dB, ARGB4444 / UI / unknown-owner pictures stay 16-bit). Class: D = Del Lago em2f, B = boat pl0f, W = PS2 world r10b.
+6891f596-5878acd1	D	 em/em2f.drs; dc/native/r10b/registry.re4nmr
+ccc53215-af468067	D	 em/em2f.drs
+372e58f1-527406ec	D	 em/em2f.drs
+05e16c8c-a588cda5	B	 em/pl0f.drs; dc/native/r10b r11b registry
+e3ad5e92-17cf2b94	B	 em/pl0f.drs; dc/native/r10b r11b registry
+046eb78f-46e9bc55	W	 dc/native/r10b/ps2-world.r4pw
+2ee4b12a-380aaf6d	W	 dc/native/r10b/ps2-world.r4pw

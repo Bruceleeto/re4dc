@@ -290,7 +290,7 @@ DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' el
 # on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
 GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
 DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
-T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs,water16h,wt16r101,fsh'  # fsh (lane farshell16) last: the far shells of r100 / r101; res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures; wv32r101 (world32, ChatGPT) replaces bake13 r101 world files and adds variant 5; test 16: wt16r101 replaces wv32r101 (r101 world32 with landmarks kept)
+T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16w,water16i,wt16r101,fsh'  # vq16w + water16i (lane water16b) replace vq16cs + water16h; fsh (lane farshell16) last: the far shells of r100 / r101; res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures; wv32r101 (world32, ChatGPT) replaces bake13 r101 world files and adds variant 5
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
@@ -359,6 +359,14 @@ DATA['fsh1'] = DATA['fsh']   # the lane's fixture name
 # 1092 records (1064 + 28), sha256 f043586efa564000. r10b / r11b lists wait in resident/after-room-lists/ (no VRAM
 # room). Lives in RS16D/water16h (not in git).
 DATA['water16h'] = {'dc/resident.bin': RS16D + '/water16h/resident.bin'}
+# water16i (lane water16b, 10-16): res16h + the new r11b list (vram/resident/r11b.tsv, 20 keys) + all six rooms' water
+# pictures (water/resident/r107 r108 r10a r10b r11a r11b .tsv; resident_keys.py pack of
+# vram/resident/*.tsv, then water_resident.py pack): 1084 + 50 records, sha256 0699533aac59b55d. Replaces water16h.
+# vq16w (lane water16b, 10-16): vq16cs + 7 r10b / r11b RGB565 pictures as full-codebook VQ (vram/vq16-lake.txt, Del Lago
+# em2f, boat pl0f, PS2 world r10b; PSNR 29.5-52.8 dB; 1,081,344 -> 149,504 B of VRAM), so the lakes' water pictures fit
+# the room preloads (user rule 10-16: VQ by default when it frees needed capacity). Replaces vq16cs. sha256 ae84c909afea8f4a.
+DATA['water16i'] = {'dc/resident.bin': RS16D + '/water16i/resident.bin'}
+DATA['vq16w'] = {'dc/tex.pak': RS16D + '/vq16w/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

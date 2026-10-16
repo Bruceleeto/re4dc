@@ -136,8 +136,8 @@ T15_V=${T15_V-VIEW_DIST_OPTION=1}
 #   r105 after the chapter 1-2 save screen loads its set back in one pass instead of 81 disc reads in play. Render only.
 T15_P="SS11_PRELOAD=1"
 #   W  WATER_PS2=1 (lane water16; render only, user 10-16 "ok option a for water"): chapter 1 room water drawn as the PS2
-#      does (stacked scrolling / animated planes, KI #26 / #19) in r107 r108 r10a r11a (WATER_PS2_ROOMS default 0x17);
-#      r10b / r11b keep today's water (no VRAM room). Data: water16h in T15_DATA (the rooms' water pictures preloaded).
+#      does (stacked scrolling / animated planes, KI #26 / #19) in r107 r108 r10a r11a r10b r11b (WATER_PS2_ROOMS default 0x3f; r10b / r11b
+#      added 10-16 by lane water16b after the vq16w VQ set). Data: vq16w + water16i in T15_DATA (water pictures preloaded).
 #      Gates in C:/Flycast-Evidence/re4-dreamcast/water-20261016. T15_W="" builds the control without it.
 T15_W=${T15_W-WATER_PS2=1}
 #   WV WORLD_VERT=1 WORLD_VERT_LEVEL=5 (ChatGPT world32, user GO 10-16, -4.16 ms MODELLED at the r101 cross): r101 world
@@ -146,7 +146,7 @@ T15_W=${T15_W-WATER_PS2=1}
 T15_WV=${T15_WV-WORLD_VERT=1 WORLD_VERT_LEVEL=5}
 #   T  FOLIAGE_TRIM=1 FOLIAGE_OPTION=1 (lane mist16; user 10-16 "I approve near", "ship with full near and off then log the
 #      issue"; render only): the chapter 1 outdoor brush / leaf cards in the punch-through list to 12 m (Near, the boot
-#      default), Options row "Foliage" Full / Near / Off, this boot only. Off removes r109's walls and floor (KNOWN_ISSUES).
+#      default), Options row "Foliage" Full / Near / Off, this boot only. Off leaves out the listed card keys only (85128754).
 #      Gates in C:\Flycast-Evidence\re4-dreamcast\mist-20261016. T15_T="" builds the control without it.
 T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
 #   FS FAR_SHELL=1 (lane farshell16; render only, needs T15_V; user 10-16 "short + far shell looks good", "short shell + half
@@ -155,7 +155,12 @@ T15_T=${T15_T-FOLIAGE_TRIM=1 FOLIAGE_OPTION=1}
 #      Full's fog, PT / TR world passes and actors (docs/lanes/farshell16.md). Near and rooms without a shell file keep
 #      the plain cut. T15_FS="" builds the control without it.
 T15_FS=${T15_FS-FAR_SHELL=1}
-T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T $T15_FS"
+#   RS RADIO_SUB_RT=1 (lane radiosub16; test 16 scope, after the t15/rc freeze; test 14 console report "the radio call
+#      subtitles are very slow"): the codec call's subtitle pages follow the voice's clock (KOS timer from the moment the
+#      AICA stream starts sounding, GameCube 30 Hz ticks) instead of drawn call frames. UI only (the game is stopped under
+#      the sub screen). T15_RS="" builds the control. Gates in C:/Flycast-Evidence/re4-dreamcast/radiosub-20261016.
+T15_RS=${T15_RS-RADIO_SUB_RT=1}
+T15REC="$T15_2 $T15_7 $T15_R $T15_4 $T15_F $T15_H $T15_10 $T15_O $T15_L $T15_S $T15_M $T15_D $T15_G $T15_V $T15_P $T15_W $T15_WV $T15_T $T15_FS $T15_RS"
 T15=${T15-$T15REC}
 ON="$T9K PVR_LATCH=2 PVR_RECOVER=1 TA_HEADROOM=1 CRASH_TASK_DETAIL=1 $PS2 $P2 $HANDS"
 BASE="$ON $T11REC $T12REC $T122"

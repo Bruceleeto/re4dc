@@ -506,6 +506,97 @@ void SsTermMain::OpeMesTblInit(SUB_SCREEN* wk)
     term_ope_tbl[23].seq = OP_ARC_PTR(wk, 13);
 }
 
+#if RE4DC_RADIO_SUB_RT
+// RADIO_SUB_RT (subscreen.mk): the op sequence (subtitle pages: TermSeq::time and the page clear countdown, in
+// GameCube sub screen ticks of GetSystemVcnt() = 2 NTSC vblanks) follows the voice's clock instead of the call's
+// drawn frames. The GameCube runs one tick per frame at a fixed 30 Hz, and its voice starts with the play command.
+// Here the voice plays from the AICA in real time: it starts once audio_aica.cpp's stream ring is filled (after
+// the play command; ~0.25 s on Flycast) and then runs on the KOS timer, while a call frame on the console takes
+// longer than 2 vblanks, so the pages fell further behind the voice on every frame (test 14 console report: "the
+// radio call subtitles are very slow"). With the knob, each frame runs as many ticks as the voice's clock is owed
+// (elapsed time since the AICA stream started / tick + 1, at most 150 per frame), each one exactly as a frame would
+// run it (page clear countdown, the entries whose time has come, seqCnt + 1), and none until the voice sounds.
+// A voice that never sounds (silent stream, no aica_str.dat entry) falls back to the play command after 1 s; an op
+// without a voice (mdtNo 0) runs from its start. The game is stopped under the sub screen and nothing outside
+// ss_term reads these counters: only the call's frame count follows wall time, as its close already did.
+extern "C" s64 OSGetTime(void);  // os.cpp: the KOS timer in 40.5 MHz ticks
+// audio_aica.cpp (RADIO_SUB_RT): stream starts so far, and when the last one began to sound (KOS timer us).
+extern "C" unsigned re4dc_aica_stream_started(unsigned long long* t0_us);
+static unsigned long long radio_rt_anchor;  // us: tick 0 of the sequence
+static unsigned long long radio_rt_play;    // us: the play command (fallback anchor)
+static unsigned radio_rt_starts;            // AICA stream starts at the play command
+static int radio_rt_wait;                   // 1: the voice has not started sounding yet
+
+static unsigned long long radioRtNow()
+{
+    return (unsigned long long) OSGetTime() * 2 / 81;
+}
+
+// An op begins (OpeMdtSetSub): its clock runs from now (ops without a voice).
+static void radioRtStart()
+{
+    radio_rt_anchor = radioRtNow();
+    radio_rt_wait = 0;
+}
+
+// The voice's play command: the clock waits for the AICA stream to start sounding.
+static void radioRtPlay()
+{
+    unsigned long long t0;
+    radio_rt_play = radioRtNow();
+    radio_rt_starts = re4dc_aica_stream_started(&t0);
+    radio_rt_wait = 1;
+}
+
+// Ticks to run this frame so that seqCnt reaches the ticks the voice's clock owes.
+static int radioRtTicks(int cnt)
+{
+    unsigned long long now = radioRtNow();
+    unsigned long long el;
+    int tick_us = GetSystemVcnt() * 16683;  // NTSC vblanks
+    int due;
+    int n;
+
+    if (radio_rt_wait) {
+        unsigned long long t0;
+        if (re4dc_aica_stream_started(&t0) != radio_rt_starts) {
+            radio_rt_anchor = t0;
+            radio_rt_wait = 0;
+        } else if (now - radio_rt_play > 1000000ull) {
+            radio_rt_anchor = radio_rt_play;  // the voice never sounded: the play command's clock
+            radio_rt_wait = 0;
+        } else {
+            return 0;
+        }
+    }
+    if (tick_us <= 0) {
+        tick_us = 16683;
+    }
+    el = now > radio_rt_anchor ? now - radio_rt_anchor : 0;
+    due = (int) (el / (unsigned) tick_us) + 1;
+    n = due - cnt;
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > 150) {
+        n = 150;  // 5 s in one frame: a stall
+    }
+    return n;
+}
+#endif
+#if RE4DC_RADIO_SUB_LOG
+// RADIO_SUB_LOG (test only): one line per sequence entry with the vblank clock and the KOS timer (ms, the clock of
+// audio_aica.cpp's "aica: t=<ms> stream ... start / stopped" lines), for the drift measurement (radiosub16).
+extern "C" void re4dc_log(const char*, ...);
+extern "C" s64 OSGetTime(void);
+extern "C" u32 re4dc_vi_retrace_count(void);
+static u32 radio_log_vb0;
+static u32 radioLogMs()
+{
+    return (u32) (OSGetTime() / 40500);
+}
+#endif
+
 // Starts the op selected by the DOL (OpeMdtSetInit = the pending call number).
 void SsTermMain::OpeMdtSet()
 {
@@ -535,6 +626,9 @@ void SsTermMain::OpeMdtSetSub(int mdtNo, void* seq, void* mes)
     ope.flags &= ~0x08000000;
     ope.seqCnt = 0;
     ope.str = 0;
+#if RE4DC_RADIO_SUB_RT
+    radioRtStart();
+#endif
 }
 
 // Runs the op one frame: starts the voice stream (SndStrReq mdtNo) and waits for it to be ready,
@@ -557,6 +651,14 @@ int SsTermMain::OpeMesMove()
             return 0;
         }
         SndStrReq(ope.str, 2, 0, 0);
+#if RE4DC_RADIO_SUB_RT
+        radioRtPlay();
+#endif
+#if RE4DC_RADIO_SUB_LOG
+        radio_log_vb0 = re4dc_vi_retrace_count();
+        re4dc_log("radiosub: play mdt=%d str=%u vb=%u ms=%u vcnt=%d\n", ope.mdtNo, (unsigned) ope.str,
+                  (unsigned) radio_log_vb0, (unsigned) radioLogMs(), GetSystemVcnt());
+#endif
         ope.flags &= ~0x08000000;
         FadeKillAll();
         termMotionSet(SubScreenWk.pPartner, 10);
@@ -570,6 +672,33 @@ int SsTermMain::OpeMesMove()
         u->be_flag |= 8;
         u->rev_flag &= 0xF0;
     }
+#if RE4DC_RADIO_SUB_RT
+    if (!(ope.flags & 0x10000000)) {
+        int n;
+        if (Key.trg & 0x40000) {
+            OpeSndStrStop();
+            ope.flags |= 0x10000000;
+            n = 1;  // this frame's one tick, as below
+        } else {
+            n = radioRtTicks(ope.seqCnt);
+        }
+        for (; n > 0; n--) {
+            OpeMesClear();
+            for (;;) {
+                TermSeq* s = &ope.seq[ope.seqIdx];
+                if (!(s->time > ope.seqCnt)) {
+                    if (OpeSeqMove(s) == 0) {
+                        return 1;
+                    }
+                } else {
+                    break;
+                }
+            }
+            ope.seqCnt++;
+        }
+        return 0;
+    }
+#endif
     OpeMesClear();
     if (!(ope.flags & 0x10000000)) {
         if (Key.trg & 0x40000) {
@@ -603,6 +732,14 @@ int SsTermMain::OpeSeqMove(TermSeq* s)
 {
     TermSub* w = &sub;
 
+#if RE4DC_RADIO_SUB_LOG
+    {
+        u32 vb = re4dc_vi_retrace_count();
+        re4dc_log("radiosub: seq idx=%d time=%d mes=%d arg=%d cnt=%d vb=%u dvb=%u ms=%u skip=%d\n", ope.seqIdx, s->time,
+                  s->mesNo, s->arg, ope.seqCnt, (unsigned) vb, (unsigned) (vb - radio_log_vb0), (unsigned) radioLogMs(),
+                  (ope.flags & 0x10000000) ? 1 : 0);
+    }
+#endif
     w->x14 = s->x2;
     w->x18 = s->mesNo;
     if (s->arg == -1) {

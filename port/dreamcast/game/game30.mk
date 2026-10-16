@@ -334,7 +334,7 @@ endif
 # FOLIAGE_OPTION=1 (test 15, user 10-16 "ship with full near and off"; default 0 = no code; render only): a fourth Options
 #   row below View distance, "Foliage  Full / Near / Off" (option_rows.cpp), setting the FOLIAGE_TRIM level (hwfog.mk:
 #   0 full = every translucent world part as the PS2 draws it, 1 near = cut-out brush / leaf cards in the punch-through
-#   list to 12 m, 2 off = no translucent world pass). This boot only: every boot starts at the recipe's FOLIAGE_TRIM level.
+#   list to 12 m, 2 off = the listed card keys not drawn). This boot only: every boot starts at the recipe's FOLIAGE_TRIM level.
 #   Needs VIEW_DIST_OPTION=1 (the row code) and FOLIAGE_TRIM (the level word). DBG_WARP builds: warp line `foliage 0|1|2`.
 FOLIAGE_OPTION ?= 0
 ifneq ($(filter-out 0 1,$(FOLIAGE_OPTION)),)

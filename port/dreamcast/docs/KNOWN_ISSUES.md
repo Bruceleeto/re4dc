@@ -13,11 +13,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 8 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 16 | Fixed and checked in our tests; the problem was not console-only | 22 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 9 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 16 | Fixed and checked in our tests; the problem was not console-only | 23 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 4 |
-| ⏸️ Open | Known, not yet worked on | 13 |
+| ⏸️ Open | Known, not yet worked on | 12 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -50,11 +50,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The item name disappears when its menu opens in the inventory | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The on-screen speed display is cut off by the border on a real console | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon switches back to the GameCube model after the boat | test 8, test 9, test 9.1 | 🟢 Fixed, needs console check (test 10) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Lake ripples are not visible | test 8 | ⏸️ Partly fixed in test 15: the lake seen from the shore (by day and at night) now draws the PS2 way, a dark water base with two slow moving water layers and a moving ripple layer. Out on the lake (the Del Lago boat fight, and the lake at night) the test 9.1 ripples stay: no graphics memory is free there yet | [#26](https://github.com/lamb2k/re4dc/issues/26) |
+| Lake ripples are not visible | test 8 | 🟢 Fixed in test 16, needs console check (test 15: the lake seen from the shore only): the lakes now draw the PS2 way, a dark water base with two slow moving water layers and a moving ripple layer, from the shore and out on the lake (the Del Lago boat fight), by day and at night | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Curtains in the first house have no texture | test 8 | 🟢 Fixed, needs console check (likely the same memory corruption) | |
 | Some textures are missing or corrupted (same memory corruption as the crashes) | test 7, test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon and most villagers are not lit by the scene's lights | test 8 | 🟢 Fixed in test 15: Leon is lit by the scene's lights from test 12, with a soft fill light that brings him close to the GameCube brightness. From test 15 the villagers take their colour from the lights around each of them (the same light probe as Leon), drawn flat: one colour per body part, no shading across the body | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn (the PS2 version has none either). From test 15 the pool, the river and the lake seen from the shore draw their water the PS2 way (needs console check); out on the lake the water keeps the test 9.1 surface until graphics memory is free there | [#19](https://github.com/lamb2k/re4dc/issues/19) |
+| Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn (the PS2 version has none either). From test 15 the pool, the river and the lake seen from the shore draw their water the PS2 way (needs console check); from test 16 the open lake (Del Lago, and the lake at night) does too | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Some rooms look almost pitch black: the r11b lake shore (dark dock and ground, near-black sky), r117, r108 | test 12 | 🟢 Fixed in test 12.1: the rooms use the PS2 room lighting, and the r11b / r119 mist is drawn as in test 10 | |
 | Shadows draw incorrectly | test 7 | 🔍 Investigating: the soft shadows are fixed; some fence rails in the valley still draw black | [#20](https://github.com/lamb2k/re4dc/issues/20) |
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
@@ -64,7 +64,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Broken boxes and barrels leave dark debris in the rooms after the village (r103, r104, r106, r107, r108, r10a, r10b, r117, r118, r11a, r11b) | test 8 to test 12.2 | 🟢 Fixed in test 13: breakable boxes and barrels use the GameCube models in every room, so they break into the GameCube splinters; the other room objects use their PS2 models | |
 | Right after the door from the village into r103, some effect pictures can be missing for a moment and more textures load from the disc during play | test 12, 12.1, 12.2 | 🟢 Fixed in test 13: the village's leftover textures are cleared at the door, so r103 (and r100 when you go back) loads its textures when the room starts | |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
-| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | ⏸️ Open: Near (the default) and Full draw the cabin normally | |
+| Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 16: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
 | In the village (r101) the burning stake has lost its crossbar and a plank of the pyre (the simplified village scenery of test 15) | test 15 | 🟢 Fixed in test 16: the stake and the pyre keep their full detail (checked in game at the village cross) | |
 | In the village (r101) the fence by the house on the right of the square shows only its posts, without its rails (the simplified village scenery of test 15) | test 15 | ⏸️ Open: keeping that fence's detail in the scenery simplification did not bring the rails back, so they are lost in a later step; a hand fix is planned | |
 
@@ -73,6 +73,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | The rifle sound is lower quality | all | ⏸️ Open (memory limit) | |
+| Radio call subtitles lag behind the voice: they fall further behind as the call goes on and end well after it (real console) | test 14 and earlier | 🟢 Fixed in test 16, needs console check: the subtitles counted one GameCube 30 Hz step per drawn frame of the call, while the voice plays in real time, so every call frame slower than 1/30 s put them further behind. They now follow the voice's own clock from the moment it starts sounding. With the call slowed to 15 frames a second on an emulator (a model, not a console measurement): 27 s behind at the end of the first call before, within 0.06 s of the voice through the whole call after (Flycast at full speed: 0.32 s before, 0.03 s after) | |
 | The chapter results music is silent on the third results screen | test 7 and earlier | 🟢 Fixed in test 8: the music that plays after each chapter's results (chapters 1-1, 1-2 and 1-3, on the save screen) is on the disc. The results table itself has no music, as in the original game: the chapter end stops the room music and starts none | |
 | Footsteps and room ambience are silent in r103 (the farm) | test 13, 14 | 🟢 Fixed in test 15: r103's footstep and ambience sounds are converted for the Dreamcast again (ambience 16 kHz, footsteps 11 kHz, the same rates as the other rooms). The later chapter 1 rooms already had theirs | |
 | Some music and voices are silent: the r104 and r107 room music, the r106 battle music, the r102 room music and the merchant's voice, the "you died" screen music, and a few short event jingles (r100, r101, r104, r108, r10b) | all | 🟢 Fixed in test 15: these music and voice tracks are now on the disc. Only one of them plays at a time, so a voice that starts while another track plays can still be silent, as before | |
