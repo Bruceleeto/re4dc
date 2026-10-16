@@ -831,7 +831,14 @@ int read_dma(void* buf, uint32_t lba, size_t cnt, const char* what)
     const uint64_t t0 = ms();
     // DISC_LAND_SPIN_MS (Makefile): yield (thd_pass) for up to that long before sleeping. A KOS sleep lasts until the
     // next 10 ms scheduler tick, so on a unit that reports COMPLETED before its DMA lands (GDEMU) every read cost >= 10 ms.
-    while ((*(volatile uint32_t*) 0xA05F7418u & 1u) && ms() - t0 < 1000) {
+    // With it the bound grows with the read (1 s + 8 ms a sector, the command's own timeout): a 600-sector read on a
+    // ~600 KiB/s clone needs about 2 s, and the fixed 1 s bound declared it lost and re-initialised the drive mid-DMA.
+#if RE4DC_DISC_LAND_SPIN_MS
+    const uint64_t land_bound = timeout_for(cnt) - 4000u;
+#else
+    const uint64_t land_bound = 1000;
+#endif
+    while ((*(volatile uint32_t*) 0xA05F7418u & 1u) && ms() - t0 < land_bound) {
         if (RE4DC_DISC_LAND_SPIN_MS && ms() - t0 < RE4DC_DISC_LAND_SPIN_MS) thd_pass();
         else thd_sleep(1);
     }

@@ -1117,7 +1117,9 @@ DISC_POLL_SPIN_MS ?= 0
 # DISC_LAND_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0 = image unchanged; lane plainread16 2026-10-16): after a DMA
 # sector read reports done, wait for the G1 GD-DMA engine to finish with thd_pass for up to N ms before sleeping. A KOS
 # sleep lasts until the next 10 ms scheduler tick; on units that report COMPLETED before the data lands (GDEMU, the
-# flycast-console gdemu / weak profiles) that made every plain read cost >= 10 ms.
+# flycast-console gdemu / weak profiles) that made every plain read cost >= 10 ms (r101 entry 7.0 -> 19.4 s, gdemu model).
+# Nonzero also bounds that wait by the read's size (1 s + 8 ms a sector) instead of 1 s: on the weak profile (~600 KiB/s)
+# a 626-sector read took over 1 s to land, was declared lost and the drive was re-initialised under the DMA.
 DISC_LAND_SPIN_MS ?= 0
 ifeq ($(DISC_READ_FALLBACK),2)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
