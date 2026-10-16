@@ -486,3 +486,9 @@ Gates (lane, 10-16): knob-off identity (glrP image 72d5a307 = t15/int rP, 6 over
 door103 for NEAREST=2 and on h2, bell for NEAREST=-1 FILL=45 (door103 has no villager in its 2000 ticks); TEXCHK
 PASS 3/3 + LEON-GC PASS 3/3 + wrap=0 (h2 120 s, bell, door103); host test `tests/test_actor_probe_light.py`
 (ranking, hysteresis, toggle, fill). No r104 / r106 row on the sheet: no villager reached a warp view there (DC or PS2).
+
+**Decision (user, 2026-10-16: "Option a for lighting"):** option (a) ships in test 15. T15REC gets
+`T15_G="ACTOR_PROBE_LIGHT=2 GANADO_LIT=1 GANADO_LIT_NEAREST=0"` (t15-build.sh): the villagers take their colour per part
+from their own probe, flat, no per-vertex light. ACTOR_PROBE_LIGHT moves from 1 to 2 for the whole recipe; Leon is drawn
+as before (`probe_eligible` only adds Ganado models 0x10..0x20 at =2; the frozen r106 Leon-only view is pixel-identical
+between the two recipes). Landing gates are in TEST15-SCOPE.md.
