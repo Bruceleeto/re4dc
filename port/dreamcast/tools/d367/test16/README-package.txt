@@ -1,4 +1,4 @@
-RE4 Dreamcast test 16, source SHA_PLACEHOLDER
+RE4 Dreamcast test 16.1 (hotfix of test 16), source SHA_PLACEHOLDER
 
 See Known Issues: https://github.com/lamb2k/re4dc/blob/dreamcast-port/port/dreamcast/docs/KNOWN_ISSUES.md
 
@@ -6,6 +6,14 @@ Extract the gdemu folder and copy its four disc files into a new numbered
 folder on your GDEMU SD card. Flycast can open gdemu/disc.gdi directly (if
 menu or popup text looks broken in Flycast, use its per-pixel renderer
 setting).
+
+New in test 16.1 (hotfix):
+* At most 4 Ganados at once (was 6); more arrive as you kill them. Every
+  villager still appears, and the waves, kills and events are unchanged.
+* The ambient farm animals are removed for speed: the cows, the chickens
+  and the farm dog (no eggs from chickens). The dog in the bear trap and
+  the dog that helps against El Gigante are still there.
+The disc and its data are the same as test 16 (only the program changed).
 
 New disc format: from test 16 the disc is a standard GD-ROM image, laid
 out the way the community tool mkdcdisc writes one and pressed GD-ROMs are:
