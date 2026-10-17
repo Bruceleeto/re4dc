@@ -298,6 +298,14 @@ T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16w,water16i,wt16r101,f
 # r101 world: the pre-world32 world as test 14 / 15-before-world32 shipped it (bake13's r101 files; wt16r101 left out; user
 # 10-16 "use the previously optimized r101", with WORLD_VERT off in T16REC).
 T16_DATA = T15_DATA.replace(',fsh', '').replace(',wt16r101', '')
+# Test 16.2 (hotfix, 10-17): r108p (lane castgc17) = dc/native/r108/registry.re4nmr built from
+# model-registry/ps2-ch1-r108p.json: r108's em17 type 0xc (holding a weapon) takes the PS2 pool descriptor
+# ganado-em17-0cp, so it is drawn by its PS2 model instead of the GameCube one. Its three textures (6c08f204,
+# b1328884, 20c4f786) are already on the test 16 disc with the same bytes; nothing else is staged. Private data:
+# /root/re4data/private/castgc17-20261017/r108p (R108PD).
+R108PD = os.environ.get('R108PD', '/root/re4data/private/castgc17-20261017/r108p')
+DATA['r108p'] = {'dc/native/r108/registry.re4nmr': R108PD + '/registry.re4nmr'}
+T162_DATA = T16_DATA + ',r108p'
 assert not {'fsh', 'wt16r101', 'wv32r101'} & set(T16_DATA.split(','))
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.

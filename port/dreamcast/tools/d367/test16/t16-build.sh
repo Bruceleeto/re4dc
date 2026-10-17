@@ -24,12 +24,15 @@ export T15_FS=${T15_FS-}   # test 16: no far shell (decision (a)); T15_FS=FAR_SH
 export T15_WV=${T15_WV-}
 D=$(cd "$(dirname "$0")" && pwd)
 export T=${T:-/root/probe/lanes-20261016/t16rc/tree} K=${K:-/root/probe/lanes-20261016/t16rc} LP=${LP:-t16rc}
-Q15=(env T15_FS= T15_RS= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WATER_PS2=1 WATER_PS2_ROOMS=0x17" LP=${LP}q)
+Q15=(env T15_FS= T15_RS= T15_AC= "T14_DISC=DISC_COMPAT=1 DISC_READ_FALLBACK=0" "T15_W=WATER_PS2=1 WATER_PS2_ROOMS=0x17" LP=${LP}q)
 # qP is test 15.1 exactly (WORLD_VERT on, as 15.1 shipped); qT / qW run on the test 16 data (pre-world32 r101), so they
 # keep WORLD_VERT off like rT (WORLD_VERT is render only: STRICT on vs off in its landing, world32-land-20261016).
 for x in "$@"; do case $x in
   qP) "${Q15[@]}" "T15_WV=WORLD_VERT=1 WORLD_VERT_LEVEL=5" bash $D/../test15/t15-build.sh rP ;;
   qT) "${Q15[@]}" T15_WV= bash $D/../test15/t15-build.sh rT ;;
   qW) "${Q15[@]}" T15_WV= bash $D/../test15/t15-build.sh rW ;;
+  # test 16.1 (hotfix, 10-17): sP / sT / sW = test 16 exactly (T15_AC="": cap 6, animals). sP's image must equal test
+  # 16's d551dab2 with its overlays (knob-off identity of ANIMALS_OFF + cap 4); sT is the STRICT reference for rT.
+  sP|sT|sW) T15_AC= LP=${LP}s bash $D/../test15/t15-build.sh r${x#s} ;;
   *)  bash $D/../test15/t15-build.sh $x ;;
 esac; done

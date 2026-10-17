@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 16, 2026. The current public build is console test 16 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)); test 16 follows test 15.1, a hotfix of test 15 (no haze or mist sprites around Leon, and Foliage Off leaves out every see-through card). Test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
+Last updated: October 17, 2026. The current public build is console test 16.2 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)), a second hotfix of test 16: a fifth Ganado no longer appears for a moment in some village areas, and the r108 Ganados holding a weapon use their PS2 model. Test 16.1 was the first hotfix of test 16 for speed: at most 4 Ganados at once (was 6), and no ambient farm animals. Test 16 follows test 15.1, a hotfix of test 15 (no haze or mist sprites around Leon, and Foliage Off leaves out every see-through card). Test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -14,10 +14,10 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 12 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 15.1 / 16 | Fixed and checked in our tests; the problem was not console-only | 24 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 15.1 / 16 / 16.1 / 16.2 | Fixed and checked in our tests; the problem was not console-only | 27 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 2 |
-| ⏸️ Open | Known, not yet worked on | 13 |
+| ⏸️ Open | Known, not yet worked on | 14 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -85,7 +85,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
-| At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
+| At most 4 Ganados are active at once (6 from test 12 in the village and test 13 in every chapter 1 room; 4 from test 16.1); the others wait and arrive as you kill them | test 12, 13, 16.1 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged. Test 16.1 lowers the limit from 6 to 4 in every room |  |
+| A fifth Ganado could appear for a moment in some village areas (r107), over the limit of 4 | test 16.1 | 🟢 Fixed in test 16.2: every Ganado a room sends waits for its turn under the limit |  |
+| In r108, the Ganados holding a weapon use the GameCube model instead of the PS2 one | test 16, 16.1 | 🟢 Fixed in test 16.2 |  |
+| Some scripted Ganado waves in r10a can start early: a Ganado still waiting for its turn under the Ganado limit is counted as dead, so the wave that waits for those kills begins too soon | test 16 | 🟢 Fixed in test 16.1: a waiting Ganado now counts as alive until it arrives and is killed |  |
+| The ambient farm animals are removed for speed: cows, chickens and the farm dog in the village (r101) and the farm (r103); no eggs from chickens. The dog in the bear trap (r100) and the dog that helps against El Gigante stay | test 16.1 | ⏸️ Open: by design, for the frame rate (the farm ran about 20% slower with them in our emulator tests) |  |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | The frame rate drops for a few seconds and then recovers, with no clear reason (for example outdoors in the woods, r100) | test 9.1 and later | 🔍 Investigating. Test 15.1 no longer draws the see-through haze and mist sprites around Leon, in any room and at every Foliage setting (the distant haze is still drawn as fog), and Foliage Off now leaves out every see-through brush, leaf, shadow and mist card. Together with Foliage these were most of the see-through layers outdoors. Please tell us whether the drops remain on test 15.1 or 16 | [#29](https://github.com/lamb2k/re4dc/issues/29) |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. From test 15 the on-screen display also keeps its pictures through the village radio call | |
