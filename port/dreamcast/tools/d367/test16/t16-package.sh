@@ -29,9 +29,10 @@ export PKG_SRC=${PKG_SRC:-/root/probe/lanes-20261015/t15k/pkgsrc-t14cand}
 KF=$T/test16/release-knobs.txt
 SHA=${SRC_SHA:-$(head -1 $O/stack.txt | cut -c1-8)}
 DATE=$(date +%Y%m%d)
-P=${P:-"/mnt/c/Game Dev/Emulators/RE4DC-Test16-Candidate"}
+TN=${TN:-16}   # test name in the output folder and the assets zip (test 16.1 hotfix: TN=16.1)
+P=${P:-"/mnt/c/Game Dev/Emulators/RE4DC-Test$TN-Candidate"}
 Z=RE4DC-Console-Test-$SHA-$DATE-GDEMU.zip
-A=RE4DC-Test16-$SHA-Build-Assets.zip
+A=RE4DC-Test$TN-$SHA-Build-Assets.zip
 [ "${LAYOUT:-standard}" = standard ] || { echo "t16-package: the release disc is the standard layout (LAYOUT=$LAYOUT refused)"; exit 1; }
 [ $(wc -l < $O/stack.txt) -le 1 ] || { echo "out-$L was built from a dirty tree"; cat $O/stack.txt; exit 1; }
 [ -d "$PKG_SRC" ] || { echo "PKG_SRC $PKG_SRC is missing"; exit 1; }
@@ -66,7 +67,7 @@ tr -d '\r' < $T/test16/README-package.txt | sed "s/SHA_PLACEHOLDER/$SHA/g" | sed
 cmp <(cut -c1-64 $R/SHA256SUMS-inner.txt) <(cut -c1-64 $R/gdemu-sha256.txt) && echo tracks-match-ext4-build
 if [ "${NOZIP:-0}" != 1 ]; then
   cd "$P"
-  rm -f RE4DC-Console-Test-*-GDEMU.zip RE4DC-Test16-*-Build-Assets.zip
+  rm -f RE4DC-Console-Test-*-GDEMU.zip RE4DC-Test$TN-*-Build-Assets.zip
   python3 - "$P" "$Z" "$R/SHA256SUMS-inner.txt" <<'E'
 import sys, zipfile, os
 p, z, sums = sys.argv[1:4]
