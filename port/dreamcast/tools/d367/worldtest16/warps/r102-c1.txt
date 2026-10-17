@@ -1,0 +1,8 @@
+name wt-r102-c1
+viewdist 0
+room 0x102
+pos -19691 0 -19088
+ang 0.785
+inv default
+god
+freeze 400

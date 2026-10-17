@@ -140,11 +140,11 @@ endif
 # WATER45_NATIVE multiply and the LAKE_RIPPLES layers. No PS2 record is spawned: effect slots, generators, areas and
 # Rnd() are untouched (logic STRICT). WATER_PS2_FLIP=n: animated layers show every n-th picture (default 8: 8 of the
 # 60 0xfe frames, 17.8 KB of VRAM; 4 doubles it). WATER_PS2_ROOMS: hex mask of the rooms drawn (bit 0 r107, 1 r108,
-# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x17 = r107 r108 r10a r11a (user option A, 10-16): r10b and r11b have no
-# VRAM room for the water pictures after lane resident16 (their preloads are at the byte limit).
+# 2 r10a, 3 r10b, 4 r11a, 5 r11b). Default 0x3f = all six (10-16, lane water16b): r10b / r11b fit after the vq16w VQ set
+# (data sets vq16w + water16i); 0x17 = r107 r108 r10a r11a was test 15's first landing (user option A).
 WATER_PS2 ?= 0
 WATER_PS2_FLIP ?= 8
-WATER_PS2_ROOMS ?= 0x17
+WATER_PS2_ROOMS ?= 0x3f
 ifneq ($(WATER_PS2),0)
 ifneq ($(WATER_PS2)$(WATER45_NATIVE),11)
 $(error WATER_PS2 must be 0 or 1 and needs WATER45_NATIVE=1)
@@ -1035,8 +1035,8 @@ ifeq ($(DISC_COMPAT),1)
 # DISC_COMPAT=1 DISC_READ_FALLBACK=0 is the timing-neutral subset (KOS fixes + the mount; 12.2's stream reads kept):
 # STRICT against 12.2 in Flycast, where the plain sector reads move load completion by ticks (lane discread 10-15).
 ifneq ($(filter $(origin DISC_READ_FALLBACK),command line environment),)
-ifneq ($(filter $(DISC_READ_FALLBACK),0 2),$(DISC_READ_FALLBACK))
-$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 0 for the subset))
+ifneq ($(filter $(DISC_READ_FALLBACK),0 2 3),$(DISC_READ_FALLBACK))
+$(error DISC_COMPAT=1 uses DISC_READ_FALLBACK=2 (or 3: streams with the automatic fallback; 0: the subset))
 endif
 else
 DISC_READ_FALLBACK := 2
@@ -1111,10 +1111,16 @@ endif
 # flight; if every method fails a DISC READ FAILED screen stays up. DISC_FAIL_TEST with =2: 2 DMA reports done without a
 # transfer, 3 = 2 + PIO never completes, 4 the first DMA read and its abort never finish, 5 the first read spins with
 # interrupts off. Details: platform/dvd_read_safe.cpp.
+# DISC_READ_FALLBACK=3 (test 15, user decision 10-16 "option A"; lane plainread16): the stream reads of =0 (fast path,
+# same timing), each DMA request checked as =1 does; the first stream or sector read that fails, times out or does not
+# land latches the session onto =2's plain bounded sector reads (DMA, DMA after a bounded re-init, then PIO), no stream
+# is started again. DISC_FAIL_AFTER_S=N (test only, with DISC_FAIL_TEST=2 and =3): the "done without the transfer"
+# failure starts after N s of uptime (a mid-game failure), not at the first read.
 DISC_READ_FALLBACK ?= 0
-ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2),$(DISC_READ_FALLBACK))
-$(error DISC_READ_FALLBACK must be 0, 1 or 2)
+ifneq ($(filter $(DISC_READ_FALLBACK),0 1 2 3),$(DISC_READ_FALLBACK))
+$(error DISC_READ_FALLBACK must be 0, 1, 2 or 3)
 endif
+DISC_FAIL_AFTER_S ?= 0
 DISC_FAIL_TEST ?= 0
 DVD_READ_SAFE ?= 0
 DVD_STUCK_TEST ?= 0
@@ -1126,7 +1132,7 @@ endif
 GAME_LDFLAGS += -Wl,--wrap=cdrom_stream_start -Wl,--wrap=cdrom_stream_request
 ifneq ($(DISC_READ_FALLBACK)$(DISC_FAIL_TEST)$(DISC_READ_VERIFY),000)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_read_sectors_ex -Wl,--wrap=cdrom_stream_stop
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK) -DRE4DC_DISC_FAIL_TEST=$(DISC_FAIL_TEST) -DRE4DC_DISC_READ_VERIFY=$(DISC_READ_VERIFY) -DRE4DC_DISC_FAIL_AFTER_S=$(DISC_FAIL_AFTER_S)
 endif
 ifneq ($(DISC_READ_FALLBACK),0)
 $(OBJDIR)/src/game/snd.o: GAME_CPPFLAGS += -DRE4DC_DISC_READ_FALLBACK=$(DISC_READ_FALLBACK)
@@ -1142,9 +1148,28 @@ endif
 # DISC_POLL_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0): a sector read polls its GD command with thd_pass for N ms
 # before it sleeps (a KOS sleep ends at the next 10 ms scheduler tick). Lane discread load-time experiment.
 DISC_POLL_SPIN_MS ?= 0
-ifeq ($(DISC_READ_FALLBACK),2)
+# DISC_LAND_SPIN_MS=N (with DISC_READ_FALLBACK=2, default 0 = image unchanged; lane plainread16 2026-10-16): after a DMA
+# sector read reports done, wait for the G1 GD-DMA engine to finish with thd_pass for up to N ms before sleeping. A KOS
+# sleep lasts until the next 10 ms scheduler tick; on units that report COMPLETED before the data lands (GDEMU, the
+# flycast-console gdemu / weak profiles) that made every plain read cost >= 10 ms (r101 entry 7.0 -> 19.4 s, gdemu model).
+# Nonzero also bounds that wait by the read's size (1 s + 8 ms a sector) instead of 1 s: on the weak profile (~600 KiB/s)
+# a 626-sector read took over 1 s to land, was declared lost and the drive was re-initialised under the DMA.
+DISC_LAND_SPIN_MS ?= 0
+# STORAGE_BOUNCE_ALIGNED=1 (needs DISC_READ_FALLBACK=2; lane plainread16 2026-10-16, default 0 = image unchanged): the
+# shared 16 KiB storage bounce buffer (room/room_storage.cpp: every texture package, tex.pak entry and other read_chunks
+# user) becomes 32-byte aligned. It was misaligned on purpose to keep KOS off its stream path; with streams refused
+# (plain sector reads) the aligned buffer makes fs_iso9660 read a chunk's whole sectors in one GD command instead of one
+# command per sector. Exact: the same bytes in the same places.
+STORAGE_BOUNCE_ALIGNED ?= 0
+ifneq ($(STORAGE_BOUNCE_ALIGNED),0)
+ifneq ($(DISC_READ_FALLBACK),2)
+$(error STORAGE_BOUNCE_ALIGNED=1 needs DISC_READ_FALLBACK=2 (an aligned buffer starts KOS cdrom streams otherwise))
+endif
+$(OBJDIR)/native-reuse/room_storage.o: PLATFORM_CPPFLAGS += -DRE4DC_STORAGE_BOUNCE_ALIGNED=1
+endif
+ifneq ($(filter $(DISC_READ_FALLBACK),2 3),)
 GAME_LDFLAGS += -Wl,--wrap=cdrom_reinit
-$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS)
+$(OBJDIR)/platform/dvd_read_safe.o: PLATFORM_CPPFLAGS += -DRE4DC_DISC_BOOT_LOG=$(DISC_BOOT_LOG) -DRE4DC_DISC_POLL_SPIN_MS=$(DISC_POLL_SPIN_MS) -DRE4DC_DISC_LAND_SPIN_MS=$(DISC_LAND_SPIN_MS)
 endif
 ifeq ($(DISC_GD_ATOMIC),1)
 GAME_LDFLAGS += -Wl,--wrap=syscall_gdrom_check_drive -Wl,--wrap=syscall_gdrom_send_command -Wl,--wrap=syscall_gdrom_check_command -Wl,--wrap=syscall_gdrom_exec_server -Wl,--wrap=syscall_gdrom_abort_command -Wl,--wrap=syscall_gdrom_dma_callback -Wl,--wrap=syscall_gdrom_dma_transfer -Wl,--wrap=syscall_gdrom_dma_check -Wl,--wrap=syscall_gdrom_pio_callback -Wl,--wrap=syscall_gdrom_pio_transfer -Wl,--wrap=syscall_gdrom_pio_check

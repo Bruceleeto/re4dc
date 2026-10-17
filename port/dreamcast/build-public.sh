@@ -9,6 +9,7 @@
 # Output (OUT, default port/dreamcast/out-public): re4dc-game.elf, the room overlays (*.ovl) linked
 # against it, resolved-knobs.txt (every knob as make resolved it) and build.log. Put it on a disc with
 #   python3 port/dreamcast/tools/swap-program.py <release zip> <OUT> <new disc dir>
+# and check it with python3 port/dreamcast/tools/d367/disc_lint.py <new disc dir>/disc.gdi (CONTRIBUTING-PORT.md section 8).
 #
 # Env: RE4DC_KOS_BASE / RE4DC_KOS_CC_BASE (from setup-toolchain.sh's env.sh or the Docker image),
 #      OUT, OBJDIR (default OUT/obj; always rebuilt from scratch), JOBS (default 4),
@@ -19,7 +20,7 @@ set -euo pipefail
 PORT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # The current test release. At each test release, point this at the new test's knob file (one line).
-RELEASE_KNOBS=${RELEASE_KNOBS:-$PORT/tools/d367/test15/release-knobs.txt}
+RELEASE_KNOBS=${RELEASE_KNOBS:-$PORT/tools/d367/test16/release-knobs.txt}
 
 OUT=${OUT:-$PORT/out-public}
 OBJDIR=${OBJDIR:-$OUT/obj}

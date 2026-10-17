@@ -314,6 +314,23 @@ ifeq ($(VIEW_DIST_OPTION),1)
 GAME_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 PLATFORM_CPPFLAGS += -DRE4DC_VIEW_DIST_OPTION=1
 endif
+# FAR_SHELL=1 (lane farshell16, proof of concept 2026-10-16; default 0 = no code; render only; needs VIEW_DIST_OPTION=1 and
+#   PS2_WORLD_MESH): at View distance Short the PS2 world's opaque pass stops at the cut, but the fog, the PT / TR
+#   world passes, actors and objects keep Full's far, and the room's far shell (dc/native/rXXX/far-shell.fsh, built by
+#   tools/d367/farshell from the room's PS2 world package; the world's own textures, no new VRAM) is drawn beyond the cut
+#   (platform/far_shell.inc). Near, and Short in a room without a file, keep the plain cut. DBG_WARP builds: warp line `farshell 0|1|2`
+#   (0 the View distance cut as before, 1 shell, 2 opaque cut only, for pricing).
+FAR_SHELL ?= 0
+ifneq ($(filter-out 0 1,$(FAR_SHELL)),)
+$(error FAR_SHELL must be 0 or 1)
+endif
+ifeq ($(FAR_SHELL),1)
+ifneq ($(VIEW_DIST_OPTION),1)
+$(error FAR_SHELL needs VIEW_DIST_OPTION=1)
+endif
+GAME_CPPFLAGS += -DRE4DC_FAR_SHELL=1
+PLATFORM_CPPFLAGS += -DRE4DC_FAR_SHELL=1
+endif
 # FOLIAGE_OPTION=1 (test 15, user 10-16 "ship with full near and off"; default 0 = no code; render only): a fourth Options
 #   row below View distance, "Foliage  Full / Near / Off" (option_rows.cpp), setting the FOLIAGE_TRIM level (hwfog.mk:
 #   0 full = every translucent world part as the PS2 draws it, 1 near = cut-out brush / leaf cards in the punch-through
@@ -2313,6 +2330,24 @@ $(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFOR
 ifneq ($(TEX_PACK_FAULT),0)
 $(OBJDIR)/platform/native_ui.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PACK_FAULT=$(TEX_PACK_FAULT)
 endif
+endif
+# TEX_PACK_WINDOW=KB (lane plainread16 2026-10-16, user-approved "per-room large texture reads"; default 0 = image
+# unchanged; needs TEX_PACK=1, DISC_READ_FALLBACK=2 and TEX_PAYLOAD_CRC=0): each room preload pass reads tex.pak through
+# a KB read-ahead window (room/texture_package.hpp pack_window_*; a transient staging buffer from the current heap, freed
+# at the end of the pass). With tex.pak laid out in the rooms' preload order (tools/d367/texpak_order.py) a room's
+# pictures arrive in a few large reads instead of 2+ commands per picture. Exact: same bytes, same VRAM, same order.
+TEX_PACK_WINDOW ?= 0
+ifneq ($(TEX_PACK_WINDOW),0)
+ifneq ($(TEX_PACK),1)
+$(error TEX_PACK_WINDOW needs TEX_PACK=1)
+endif
+ifeq ($(filter $(DISC_READ_FALLBACK),2 3),)
+$(error TEX_PACK_WINDOW needs DISC_READ_FALLBACK=2 or 3)
+endif
+ifeq ($(TEX_PAYLOAD_CRC),1)
+$(error TEX_PACK_WINDOW does not support TEX_PAYLOAD_CRC=1)
+endif
+$(OBJDIR)/platform/native_ui.o $(OBJDIR)/native-reuse/texture_package.o: PLATFORM_CPPFLAGS += -DRE4DC_TEX_PACK_WINDOW=$(TEX_PACK_WINDOW)
 endif
 # TEX_USE_CENSUS=1 (test only, native_ui.cpp, default 0): every 600 frames, the resident textures and how many the
 # last 2 s / 20 s drew ("tex use census"), to size what the room preload loads but nothing draws.

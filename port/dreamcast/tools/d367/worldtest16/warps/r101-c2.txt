@@ -1,0 +1,8 @@
+name wt-r101-c2
+viewdist 0
+room 0x101
+find 0x00002000
+inv default
+god
+act 30 fwd 900
+freeze 270

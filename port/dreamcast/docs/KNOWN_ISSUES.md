@@ -4,8 +4,8 @@ The official list of known problems in the public test builds. Updated with each
 Report new problems with the [bug report form](https://github.com/lamb2k/re4dc/issues/new/choose);
 please name the build, real console or emulator, and where in the game it happened.
 
-Last updated: October 16, 2026. The current public build is console test 15.1 (the newest release on the
-[releases page](https://github.com/lamb2k/re4dc/releases/latest)), a hotfix of test 15: no haze or mist sprites around Leon, and Foliage Off leaves out every see-through card. Test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
+Last updated: October 16, 2026. The current public build is console test 16 (the newest release on the
+[releases page](https://github.com/lamb2k/re4dc/releases/latest)); test 16 follows test 15.1, a hotfix of test 15 (no haze or mist sprites around Leon, and Foliage Off leaves out every see-through card). Test 15 follows test 14. Test 11 was not released; its changes are in test 12. Test 12.1 is test 12 with a room lighting fix; test 12.2 is test 12.1 with a memory fix for leaving the village; test 13 follows test 12.2.
 Test 8 (`d4bc5f45`) was withdrawn.
 
 ## Status at a glance
@@ -13,11 +13,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Status | Meaning | Count |
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
-| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 10 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 12 / 12.1 / 13 / 15 / 15.1 | Fixed and checked in our tests; the problem was not console-only | 20 |
+| 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 12 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 15.1 / 16 | Fixed and checked in our tests; the problem was not console-only | 24 |
 | 🛠️ In progress | Being fixed now | 0 |
-| 🔍 Investigating | Being reproduced or traced | 3 |
-| ⏸️ Open | Known, not yet worked on | 17 |
+| 🔍 Investigating | Being reproduced or traced | 2 |
+| ⏸️ Open | Known, not yet worked on | 13 |
 | ❔ Not reproduced | We could not make it happen; more details welcome | 1 |
 
 ## Stability
@@ -32,8 +32,8 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | After loading a save and resetting, the first room starts with less free memory (no crash seen) | test 9 | ⏸️ Open, being traced | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | The intro stops on `MISSING motion key read` (one disc read came back incomplete) | test 7 | 🟢 Fixed, needs console check: since test 8 the read is retried up to 3 times | [#25](https://github.com/lamb2k/re4dc/issues/25) |
 | Some memory is not freed when leaving a room (a side effect of the test 9 reset fix; no crash seen on the test 9 route) | test 9 | 🟢 Fixed in test 9.1 | |
-| Black screen when started from DreamShell with an IDE mod | test 9, 10 | 🔍 Investigating: DreamShell's loader handles the game's fast "streaming" disc reads differently, so some reads come back wrong. A second test disc that uses plain disc reads and shows on screen what it is doing is being prepared | [#28](https://github.com/lamb2k/re4dc/issues/28) |
-| Freezes or crashes on some GDEMU units while other games work, often while a room loads; one freeze at the SEGA screen | test 7, 8 and later | ⏸️ Open: a standard disc layout comes in test 16. Test 14 fixed one cause found on a real console (needs a console check). The disc library could hand a read back before the drive's transfer had finished, and a left-over "transfer done" signal then ended the NEXT read early, so the game used data that had not arrived yet (emulators never show this). Test 14 clears those signals before every read and waits until the transfer has really finished; two drive hangs are fixed too. Meanwhile: start the game from openMenu or GDMenu, and if your SD card tool has a "Shrink GDI" option, leave it off (a tester fixed a freeze at the SEGA screen this way). When you report, please tell us whether your GDEMU is an original or a clone, the firmware version shown in its menu, and your SD card's brand and size | [#17](https://github.com/lamb2k/re4dc/issues/17), [#24](https://github.com/lamb2k/re4dc/issues/24), [#25](https://github.com/lamb2k/re4dc/issues/25), [#27](https://github.com/lamb2k/re4dc/issues/27) |
+| Black screen when started from DreamShell with an IDE mod | test 9, 10 | 🟢 Fixed in test 16, needs a DreamShell check: DreamShell's loader handles the game's fast "streaming" disc reads differently, so some reads came back wrong. Test 16 still reads with the fast mode first, but checks that every read really arrived; the first time one fails, times out or comes back empty, the game switches to plain sector reads (the way most discs are read, with a slower method as the last resort) for the rest of the session, and shows on screen what it is doing if a read misbehaves | [#28](https://github.com/lamb2k/re4dc/issues/28) |
+| Freezes or crashes on some GDEMU units while other games work, often while a room loads; one freeze at the SEGA screen | test 7, 8 and later | 🟢 Fixed in test 16: the disc is now a standard GD-ROM image, laid out like a pressed GD-ROM (as the community tool mkdcdisc writes it): the table of contents real GD-ROMs carry, the full-size data track and the program as the last file. The disc of the earlier tests came from our own script and differed from that layout in several places. The test 14 game in the standard format ran fine on our GDEMU console on October 16, 2026 ("new gdi runs fine"), and it passes the GDEMU disc-timing checks in our console-like emulator. Test 14 also fixed the disc library underneath (a read waits until the drive's transfer has really finished; two drive hangs fixed). If a GDEMU still freezes with test 16, please report it with whether your GDEMU is an original or a clone, the firmware version shown in its menu, and your SD card's brand and size; leave "Shrink GDI" off. Details: [CONTRIBUTING-PORT.md section 8](../CONTRIBUTING-PORT.md#8-disc-image-and-compatibility). From test 16 the game also switches to plain sector reads by itself (for the rest of the session) as soon as a fast "streaming" read fails or times out, so a unit that cannot stream keeps playing instead of freezing; loading speed is unchanged when nothing fails. | [#17](https://github.com/lamb2k/re4dc/issues/17), [#24](https://github.com/lamb2k/re4dc/issues/24), [#25](https://github.com/lamb2k/re4dc/issues/25), [#27](https://github.com/lamb2k/re4dc/issues/27) |
 | A texture is refused for about 2 seconds when video memory is too broken up, though enough is free (r105 key event, r10b, r119) | test 9, 9.1, 10, 11 | 🟢 Fixed in test 15: fixed in test 13 for the r105 key event; from test 15 every chapter 1 room and r119 loads its pictures once when you enter it (lists per room, and 39 large pictures in a smaller compressed format), so nothing is refused for lack of one free block | |
 | On the r10b boat, and in r105 after the chapter 1-2 results screen, a few effect pictures can be skipped while video memory is full | test 12.2, 13 | 🟢 Fixed in test 15: the rooms' pictures load once at room entry and stay in video memory, and after the chapter results and save screens the room's pictures are loaded back in one go before play resumes | |
 | A small menu texture does not fit in memory as the r100 cliff movie starts | test 9, 9.1, 10 | ⏸️ Open (found by the full-play check) | |
@@ -50,11 +50,11 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The item name disappears when its menu opens in the inventory | test 7, test 8 | 🟢 Fixed in test 9 | |
 | The on-screen speed display is cut off by the border on a real console | test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon switches back to the GameCube model after the boat | test 8, test 9, test 9.1 | 🟢 Fixed, needs console check (test 10) | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Lake ripples are not visible | test 8 | ⏸️ Partly fixed in test 15: the lake seen from the shore (by day and at night) now draws the PS2 way, a dark water base with two slow moving water layers and a moving ripple layer. Out on the lake (the Del Lago boat fight, and the lake at night) the test 9.1 ripples stay: no graphics memory is free there yet | [#26](https://github.com/lamb2k/re4dc/issues/26) |
+| Lake ripples are not visible | test 8 | 🟢 Fixed in test 16, needs console check (test 15: the lake seen from the shore only): the lakes now draw the PS2 way, a dark water base with two slow moving water layers and a moving ripple layer, from the shore and out on the lake (the Del Lago boat fight), by day and at night | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Curtains in the first house have no texture | test 8 | 🟢 Fixed, needs console check (likely the same memory corruption) | |
 | Some textures are missing or corrupted (same memory corruption as the crashes) | test 7, test 8 | 🟢 Fixed, needs console check | [#26](https://github.com/lamb2k/re4dc/issues/26) |
 | Leon and most villagers are not lit by the scene's lights | test 8 | 🟢 Fixed in test 15: Leon is lit by the scene's lights from test 12, with a soft fill light that brings him close to the GameCube brightness. From test 15 the villagers take their colour from the lights around each of them (the same light probe as Leon), drawn flat: one colour per body part, no shading across the body | [#26](https://github.com/lamb2k/re4dc/issues/26) |
-| Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn (the PS2 version has none either). From test 15 the pool, the river and the lake seen from the shore draw their water the PS2 way (needs console check); out on the lake the water keeps the test 9.1 surface until graphics memory is free there | [#19](https://github.com/lamb2k/re4dc/issues/19) |
+| Water and puddles are missing | test 7, test 8 | 🟢 Fixed, needs console check: the lake surface and the wet ground layers draw in test 9.1; mirror-like puddles are not drawn (the PS2 version has none either). From test 15 the pool, the river and the lake seen from the shore draw their water the PS2 way (needs console check); from test 16 the open lake (Del Lago, and the lake at night) does too | [#19](https://github.com/lamb2k/re4dc/issues/19) |
 | Some rooms look almost pitch black: the r11b lake shore (dark dock and ground, near-black sky), r117, r108 | test 12 | 🟢 Fixed in test 12.1: the rooms use the PS2 room lighting, and the r11b / r119 mist is drawn as in test 10 | |
 | Shadows draw incorrectly: solid black shadow shapes, and some wooden fence rails in the valley (r106) drawn solid black | test 7 to test 10 | 🟢 Fixed in test 12 / 12.1: the soft ground shadows from test 7; the rails were unlit pieces (no ambient added) and the room now uses the PS2 room lighting, so they draw as dark wood like the PS2 (checked in test 14 and 15) | [#20](https://github.com/lamb2k/re4dc/issues/20) |
 | At the village bell the game looks for a 128x128 texture that is not on the disc | test 9, 9.1, 10 | 🟢 Fixed in test 12 | |
@@ -66,19 +66,20 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | The night lake (start of chapter 2-1): the torches have no flames and the rain is missing | test 10 and later | ⏸️ Open: they use drawing paths not yet converted; planned with the PS2 amounts (about 100 rain streaks) | [#30](https://github.com/lamb2k/re4dc/issues/30) |
 | Ashley shows a resting face: her facial expressions are not shown | test 13 | ⏸️ Open: Ashley now uses her PS2 model; the expressions come later | |
 | Foliage: Off removes walls and floor in r109 (the cabin); use Near or Full there | test 15 | 🟢 Fixed in test 15.1: Off now leaves out only the see-through brush, leaf and shadow cards; the cabin keeps its walls and floor | |
-| Village (r101): the burning stake is missing its crossbar and a pyre plank, and the rails of the fence by the house are missing (scenery simplification) | test 15 | ⏸️ Open: fix in test 16 | |
-| The item menu's confirm popup does not look as it did in test 13 | test 14, 15 | ⏸️ Open: fix in test 16 | |
-| In r102, right after loading a save, a few effect pictures are not drawn while video memory is full (test 15: 4 refused; test 14: 76) | test 14, 15 | ⏸️ Open: fix planned for test 16 (the room's pictures are loaded again in one pass after a save is loaded) | [#33](https://github.com/lamb2k/re4dc/issues/33) |
+| In the village (r101) the burning stake has lost its crossbar and a plank of the pyre (the simplified village scenery of test 15) | test 15 | 🟢 Fixed in test 16 (r101 uses its unreduced world again) | |
+| In the village (r101) the fence by the house on the right of the square shows only its posts, without its rails (the simplified village scenery of test 15) | test 15 | 🟢 Fixed in test 16 (r101 uses its unreduced world again) | |
+| The item menu's confirm popup does not look as it did in test 13 | test 14, 15 | ⏸️ Open | |
+| In r102, right after loading a save, a few effect pictures are not drawn while video memory is full (test 15: 4 refused; test 14: 76) | test 14, 15 | ⏸️ Open: fix planned for a later test (the room's pictures are loaded again in one pass after a save is loaded) | [#33](https://github.com/lamb2k/re4dc/issues/33) |
 
 ## Sound
 
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | The rifle sound is lower quality | all | ⏸️ Open (memory limit) | |
+| Radio call subtitles lag behind the voice: they fall further behind as the call goes on and end well after it (real console) | test 14 and earlier | 🟢 Fixed in test 16, needs console check: the subtitles counted one GameCube 30 Hz step per drawn frame of the call, while the voice plays in real time, so every call frame slower than 1/30 s put them further behind. They now follow the voice's own clock from the moment it starts sounding. With the call slowed to 15 frames a second on an emulator (a model, not a console measurement): 27 s behind at the end of the first call before, within 0.06 s of the voice through the whole call after (Flycast at full speed: 0.32 s before, 0.03 s after) | |
 | The chapter results music is silent on the third results screen | test 7 and earlier | 🟢 Fixed in test 8: the music that plays after each chapter's results (chapters 1-1, 1-2 and 1-3, on the save screen) is on the disc. The results table itself has no music, as in the original game: the chapter end stops the room music and starts none | |
 | Footsteps and room ambience are silent in r103 (the farm) | test 13, 14 | 🟢 Fixed in test 15: r103's footstep and ambience sounds are converted for the Dreamcast again (ambience 16 kHz, footsteps 11 kHz, the same rates as the other rooms). The later chapter 1 rooms already had theirs | |
 | Some music and voices are silent: the r104 and r107 room music, the r106 battle music, the r102 room music and the merchant's voice, the "you died" screen music, and a few short event jingles (r100, r101, r104, r108, r10b) | all | 🟢 Fixed in test 15: these music and voice tracks are now on the disc. Only one of them plays at a time, so a voice that starts while another track plays can still be silent, as before | |
-| Radio call subtitles fall behind the voice, more as the call goes on | test 14, 15 | ⏸️ Open: fix in test 16 | |
 
 ## Performance and loading
 
@@ -86,18 +87,18 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- | --- |
 | At most 6 villagers are active at once (the village fight from test 12, every chapter 1 room from test 13); the others wait and join as villagers fall | test 12, 13 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged; the enemy rules otherwise follow the PS2 version. Exception: the ambush at the first house (r100) can have more than 6 villagers, as in the original | |
 | Pauses when entering rooms | all | ⏸️ Open | |
-| The frame rate drops for a few seconds and then recovers, with no clear reason (for example outdoors in the woods, r100) | test 9.1 and later | 🔍 Investigating. Test 15.1 no longer draws the see-through haze and mist sprites around Leon, in any room and at every Foliage setting (the distant haze is still drawn as fog), and Foliage Off now leaves out every see-through brush, leaf, shadow and mist card. Together with Foliage these were most of the see-through layers outdoors. Please tell us whether the drops remain on test 15.1 | [#29](https://github.com/lamb2k/re4dc/issues/29) |
+| The frame rate drops for a few seconds and then recovers, with no clear reason (for example outdoors in the woods, r100) | test 9.1 and later | 🔍 Investigating. Test 15.1 no longer draws the see-through haze and mist sprites around Leon, in any room and at every Foliage setting (the distant haze is still drawn as fog), and Foliage Off now leaves out every see-through brush, leaf, shadow and mist card. Together with Foliage these were most of the see-through layers outdoors. Please tell us whether the drops remain on test 15.1 or 16 | [#29](https://github.com/lamb2k/re4dc/issues/29) |
 | The farm after the village (r103) re-reads villager animations from the disc during play (about 38 reads a second on a console) and loads textures while playing; after a radio call in the village the on-screen display reloads its pictures | test 12, 13 | 🟢 Fixed in test 14, needs a console check: the animations stay in memory, and r103's and r101's textures are loaded when the room starts. From test 15 the on-screen display also keeps its pictures through the village radio call | |
 | FSAA (Options, Rendering) is slower than Standard in busy scenes such as the village fight: it draws twice the pixels | test 12 | ⏸️ Open: by design; Standard is the default | |
-| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon) | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
+| View distance Near or Short (Options) shows less of the distant outdoor scenery: it fades into the fog sooner (houses inside stay clear, the lake keeps its full horizon). A simplified far view for Short (the distant houses, trees and hills kept beyond the cut) comes in test 17 | test 15 | ⏸️ Open: by design; Full is the default and every boot starts in Full | |
 | FSAA: busiest scenes have less geometry headroom (FSAA borrows 225 KB of the 1.95 MB per-frame geometry buffer; measured peak use 82% in the busiest test scene, El Gigante) | test 12 | ⏸️ Open: by design; Standard keeps the full buffer | |
 
-## Console checklist for test 15
+## Console checklist for test 16
 
-Test 15: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 13, plus: do rooms load on your GDEMU without a freeze (#27), and does the r100 cliff cutscene after the first house play?)
+Test 16: the newest release on the [releases page](https://github.com/lamb2k/re4dc/releases/latest) (the checklist is the same as test 15, plus: do rooms load on your GDEMU without a freeze with the new standard disc format (#27), and do the radio call subtitles keep up with the voice?)
 
 These fixes can only be confirmed on a real Dreamcast, because emulators draw the old and new versions the same.
-If you play test 15 on a console, please report on any of these in a bug report:
+If you play test 16 on a console, please report on any of these in a bug report:
 
 1. **Long play in the village and the first house.** Play for 20 minutes or more, through room loads. Any crash screen?
 2. **Trees and fences by the first house.** Do branch tips, leaves and fence gaps show the sky or wall behind them, or
@@ -106,9 +107,11 @@ If you play test 15 on a console, please report on any of these in a bug report:
 4. **Speed display** (hold R, press START until it shows on screen). Is the counter fully visible?
 5. **Leaving the village after the fight** (test 12.2 and later). After the village fight, walk on to the next room
    (back to r100, or on to r103). Any crash screen while it loads, or missing effect pictures right after the door?
-6. **Room loads on GDEMU** (test 14 and later). Do doors and room loads finish without a freeze?
+6. **Room loads on GDEMU** (test 14 and later; test 16 is the first standard GD-ROM image). Do doors and room loads
+   finish without a freeze? Please name your GDEMU (original or clone), its firmware and your SD card.
 7. **The r100 cliff cutscene** (test 15). After the first house, does the cliff cutscene play, and does the game go on
    normally after it?
+8. **Radio call subtitles** (test 16). In a radio call, do the subtitles keep up with the voice and end with it?
 
 An item moves to ✅ Confirmed fixed after a console report.
 

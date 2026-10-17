@@ -290,12 +290,26 @@ DATA['cast15']['tex'] = ['%s/conv-t14/reg-%s/tex' % (C15D, g) if g != '118pc' el
 # on the disc the LOD code never runs (no GANADOLOD log line: the poc101 bench trap).
 GLOD = os.environ.get('GLOD', '/root/probe/lanes-20261015/t15k/data/glod/ganado_lod.re4gl')
 DATA['glod'] = {'dc/native/ganado/ganado_lod.re4gl': GLOD}
-T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16cs,water16h,wv32r101'  # res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures; wv32r101 (world32, ChatGPT) replaces bake13 r101 world files and adds variant 5
+T15_DATA = T14_DATA + ',cast15,glod,res16,snd16,res16h,vq16w,water16i,wt16r101,fsh'  # vq16w + water16i (lane water16b) replace vq16cs + water16h; fsh (lane farshell16) last: the far shells of r100 / r101; res16 after res14r3: the HUD fix core set (CORE_PIN=2); snd16 (lane audio16) after objs13d: replaces st1/r103.dar + bgm/aica_str.dat, needs AICA_STR_ENT_MAX=48; res16h + vq16cs (lane resident16) after res16 / t13tex: chapter 1 resident lists + VQ tex.pak; water16h (lane water16) after res16h: res16h + the WATER_PS2 room water pictures; wv32r101 (world32, ChatGPT) replaces bake13 r101 world files and adds variant 5
+# Test 16 (t16/rc, 2026-10-16: t15/int e22bf562 + the test 15.1 haze cut): the disc data of e22bf562's T15_DATA. Against
+# test 15 (6b5bc9b0): vq16w + water16i replace vq16cs + water16h (PS2 water in r10b / r11b), wt16r101 replaces wv32r101
+# (r101 world version C: stake crossbar and pyre planks kept). The far shells (fsh) are left out: test 16 ships without
+# FAR_SHELL (coordinator decision (a) 10-16: heap 4 at the r100 s30 movie), and only FAR_SHELL builds read them.
+# r101 world: the pre-world32 world as test 14 / 15-before-world32 shipped it (bake13's r101 files; wt16r101 left out; user
+# 10-16 "use the previously optimized r101", with WORLD_VERT off in T16REC).
+T16_DATA = T15_DATA.replace(',fsh', '').replace(',wt16r101', '')
+assert not {'fsh', 'wt16r101', 'wv32r101'} & set(T16_DATA.split(','))
 # Test 15 HUD fix (t15/hud, CORE_PIN=2): res16 = res14r3 + the two HUD pictures the r101 post-bell radio call's frag window
 # released (test 14's open VRAM item): afa4bc82-306be3e3 (44x44) and bf17fc06-c975b3a7 (48x48), in the core set r000.tsv.
 # 248 records, sha256 de98da1ec2e75532 (resident_keys.py pack r000 r101 r103).
 T15RD = os.environ.get('T15RD', '/root/probe/lanes-20261015/t15k/data/res16')
 DATA['res16'] = {'dc/resident.bin': T15RD + '/resident.bin'}  # order: after res14r3
+# Test 15 per-room large texture reads (lane plainread16, user-approved 10-16; TEX_PACK_WINDOW): texord16 = t13tex's
+# tex-t13v.pak with its packages laid out in the chapter 1 route's preload order (texpak_order.py over the d01..d13 door
+# runs; every key byte-identical, index unchanged but offsets). Must come after every set that replaces dc/tex.pak.
+TEXORD = os.environ.get('TEXORD', '/root/probe/lanes-20261016/prk/data/texord16')
+DATA['texord16'] = {'dc/tex.pak': TEXORD + '/tex.pak'}
+# Not in T15_DATA (option A keeps stream reads; the layout moves load timing). Add it after every tex.pak set with TEX_PACK_WINDOW.
 # Chapter 1 sound completion (lane audio16, 10-16; data only, no knob, no AICA layout change):
 #   st1/r103.dar = objs13d's r103.dar with its ROOM (ambience) and FOOT (footsteps) banks prebuilt into the frozen AICA layout
 #     (aica_banks.py fit --room r103: 16000 / 11025 Hz, the preferred caps; arena 1,004,192 = r103's enemies 668,192 + these
@@ -332,16 +346,41 @@ WV32D = os.environ.get('WV32D', PRIV + '/world32-r101-20261016')
 DATA['wv32r101'] = {'dc/native/r101/' + _n: WV32D + '/' + _n for _n in (
     'ps2-world.re4mesh', 'ps2-world.r4pw', 'ps2-world.ids', 'ps2-world.r4sg',
     'ps2-wv5.re4mesh', 'ps2-wv5.r4sg')}
+# Test 16 r101 world (lane/worldtest16, user plan 10-16: no structural world cuts): wt16r101 = world32 with the landmarks
+# kept at level 0 (stake crossbar + pyre planks via a vertex box, the house fence segments, the well, the low fence); same
+# six files and R4PW tables as wv32r101 (replaces it). re4-assets-private/world-r101-wt16-20261016 (SHA256SUMS, RECIPE.txt).
+WT16D = os.environ.get('WT16D', PRIV + '/world-r101-wt16-20261016')
+DATA['wt16r101'] = {'dc/native/r101/' + _n: WT16D + '/' + _n for _n in (
+    'ps2-world.re4mesh', 'ps2-world.r4pw', 'ps2-world.ids', 'ps2-world.r4sg',
+    'ps2-wv5.re4mesh', 'ps2-wv5.r4sg')}
 for _n in ('res16c', 'res16d', 'res16e', 'res16f', 'res16g'):
     DATA[_n] = {'dc/resident.bin': RS16L + '/' + _n + '/resident.bin'}
 for _n in ('vq16c', 'vq16cr'):
     DATA[_n] = {'dc/tex.pak': RS16L + '/' + _n + '/tex-vq16c.pak'}
+# FAR_SHELL (lane farshell16, 2026-10-16; T15REC T15_FS): far-shell.fsh per room (tools/d367/farshell, built from the test 14
+# candidate's r101 / r100 PS2 world packages; the world's own texture keys, 0 B of VRAM). fsh6 = the shipped set (user 10-16
+# "short shell + half vertices"): params v6, r101 3,200 triangles / 6,634 vertices, r100 2,900 / 7,044 (weld 150 mm,
+# border-weighted collapse, integer UV shifts). fsh3 = v3, the first approved look (6000 triangles, 13,457 / 14,177
+# vertices). fsh5 (v3 + a coarse level beyond 18.75 m, version 2) priced the same as v3, not used. r10b is never cut by
+# the View distance option (kViewRoomMin), so it has no shell. Disc data only; read by FAR_SHELL=1 builds. Private store:
+# re4-assets-private/farshell-20261016/<set>/<room>/far-shell.fsh (release kit: Build-Assets).
+FSH = os.environ.get('FSH', PRIV + '/farshell-20261016/fsh6')
+DATA['fsh'] = {'dc/native/%s/far-shell.fsh' % r: FSH + '/%s/far-shell.fsh' % r for r in ('r100', 'r101')}
+DATA['fsh1'] = DATA['fsh']   # the lane's fixture name
 # Lane water16 (WATER_PS2=1, test 15, user option A 10-16): water16h = res16h + the WATER_PS2 pictures of the rooms
 # drawn (tools/d367/water/resident/r107 r108 r10a r11a .tsv; regenerate with: water_resident.py pack
 # $RS16D/res16h/resident.bin <out> r107.tsv r108.tsv r10a.tsv r11a.tsv). Replaces dc/resident.bin: order after res16h.
 # 1092 records (1064 + 28), sha256 f043586efa564000. r10b / r11b lists wait in resident/after-room-lists/ (no VRAM
 # room). Lives in RS16D/water16h (not in git).
 DATA['water16h'] = {'dc/resident.bin': RS16D + '/water16h/resident.bin'}
+# water16i (lane water16b, 10-16): res16h + the new r11b list (vram/resident/r11b.tsv, 20 keys) + all six rooms' water
+# pictures (water/resident/r107 r108 r10a r10b r11a r11b .tsv; resident_keys.py pack of
+# vram/resident/*.tsv, then water_resident.py pack): 1084 + 50 records, sha256 0699533aac59b55d. Replaces water16h.
+# vq16w (lane water16b, 10-16): vq16cs + 7 r10b / r11b RGB565 pictures as full-codebook VQ (vram/vq16-lake.txt, Del Lago
+# em2f, boat pl0f, PS2 world r10b; PSNR 29.5-52.8 dB; 1,081,344 -> 149,504 B of VRAM), so the lakes' water pictures fit
+# the room preloads (user rule 10-16: VQ by default when it frees needed capacity). Replaces vq16cs. sha256 ae84c909afea8f4a.
+DATA['water16i'] = {'dc/resident.bin': RS16D + '/water16i/resident.bin'}
+DATA['vq16w'] = {'dc/tex.pak': RS16D + '/vq16w/tex-vq16c.pak'}
 NAME = re.compile(r'^([0-9a-f]{8})-([0-9a-f]{8})\.re4tex$')
 
 

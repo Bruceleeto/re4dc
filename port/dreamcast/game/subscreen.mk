@@ -115,6 +115,30 @@ $(error SS_MENU_ANIM_RT=1 requires SUBSCREEN=1)
 endif
 $(OBJDIR)/mod/Sscrn/src/Sscrn/ss_pzzl.o: GAME_CPPFLAGS += -DRE4DC_SS_MENU_ANIM_RT=1
 endif
+# RADIO_SUB_RT=1 (test 15, console report "the radio call subtitles are very slow", lane radiosub16): the codec call's
+# subtitle sequence (ss_term.cpp OpeMesMove: TermSeq page times and clear countdowns, GameCube 30 Hz sub screen ticks)
+# follows the voice's clock (KOS timer since the AICA stream began to sound, audio_aica.cpp re4dc_aica_stream_started)
+# instead of the call's drawn frames, so the pages stay with the real-time voice when a call frame takes longer than 2
+# vblanks. At 30 Hz it runs one tick per frame as before. UI only: the game is stopped under the sub screen and nothing
+# else reads these counters. Needs AICA_AUDIO=1 AICA_STREAMS=1 (the voice clock). Default 0.
+# RADIO_SUB_LOG=1 (test only): "radiosub: play / seq" lines (vblanks and KOS timer ms) for the drift measurement.
+RADIO_SUB_RT ?= 0
+RADIO_SUB_LOG ?= 0
+ifneq ($(filter-out 0 1,$(RADIO_SUB_RT) $(RADIO_SUB_LOG)),)
+$(error RADIO_SUB_RT and RADIO_SUB_LOG must be 0 or 1)
+endif
+ifneq ($(RADIO_SUB_RT)$(RADIO_SUB_LOG),00)
+ifneq ($(SUBSCREEN),1)
+$(error RADIO_SUB_RT / RADIO_SUB_LOG require SUBSCREEN=1)
+endif
+$(OBJDIR)/mod/Sscrn/src/Sscrn/ss_term.o: GAME_CPPFLAGS += -DRE4DC_RADIO_SUB_RT=$(RADIO_SUB_RT) -DRE4DC_RADIO_SUB_LOG=$(RADIO_SUB_LOG)
+endif
+ifeq ($(RADIO_SUB_RT),1)
+ifneq ($(AICA_AUDIO)$(AICA_STREAMS),11)
+$(error RADIO_SUB_RT=1 requires AICA_AUDIO=1 AICA_STREAMS=1 (the voice clock))
+endif
+$(OBJDIR)/platform/audio_aica.o: PLATFORM_CPPFLAGS += -DRE4DC_RADIO_SUB_RT=1
+endif
 SUBSCREEN_OVL ?= 0
 SS_POOL_HIGH ?= 0
 # Source-ordered UI/model compositing only while the subscreen area is swapped.

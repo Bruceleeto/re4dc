@@ -1,0 +1,11 @@
+name wt-r101-c1
+viewdist 0
+room 0x101
+pos -7914 0 2000
+ang 1.5708
+find 0x00002000
+inv default
+god
+alert 30
+alivelog 150
+freeze 400
