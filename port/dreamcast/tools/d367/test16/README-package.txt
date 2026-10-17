@@ -13,6 +13,8 @@ New in test 16.1 (hotfix):
 * The ambient farm animals are removed for speed: the cows, the chickens
   and the farm dog (no eggs from chickens). The dog in the bear trap and
   the dog that helps against El Gigante are still there.
+* Scripted Ganado waves in r10a no longer start early. A Ganado still
+  waiting for its turn under the limit was counted as dead (test 16 too).
 The disc and its data are the same as test 16 (only the program changed).
 
 New disc format: from test 16 the disc is a standard GD-ROM image, laid
