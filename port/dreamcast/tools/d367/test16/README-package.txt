@@ -1,4 +1,4 @@
-RE4 Dreamcast test 16.1 (hotfix of test 16), source SHA_PLACEHOLDER
+RE4 Dreamcast test 16.2 (second hotfix of test 16), source SHA_PLACEHOLDER
 
 See Known Issues: https://github.com/lamb2k/re4dc/blob/dreamcast-port/port/dreamcast/docs/KNOWN_ISSUES.md
 
@@ -6,6 +6,12 @@ Extract the gdemu folder and copy its four disc files into a new numbered
 folder on your GDEMU SD card. Flycast can open gdemu/disc.gdi directly (if
 menu or popup text looks broken in Flycast, use its per-pixel renderer
 setting).
+
+New in test 16.2 (hotfix):
+* Fixed: in 16.1, a fifth Ganado could appear for a moment in some village
+  areas.
+* In r108 the Ganados holding a weapon use their PS2 model (they used the
+  GameCube model).
 
 New in test 16.1 (hotfix):
 * At most 4 Ganados at once (was 6); more arrive as you kill them. Every
@@ -15,7 +21,7 @@ New in test 16.1 (hotfix):
   the dog that helps against El Gigante are still there.
 * Scripted Ganado waves in r10a no longer start early. A Ganado still
   waiting for its turn under the limit was counted as dead (test 16 too).
-The disc and its data are the same as test 16 (only the program changed).
+The disc data is test 16's plus one r108 model file; the program changed.
 
 New disc format: from test 16 the disc is a standard GD-ROM image, laid
 out the way the community tool mkdcdisc writes one and pressed GD-ROMs are:
