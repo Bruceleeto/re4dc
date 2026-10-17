@@ -14,7 +14,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | --- | --- | --- |
 | ✅ Confirmed fixed | Fixed and confirmed on a real Dreamcast | 1 |
 | 🟢 Fixed, needs console check | Fixed and checked in our tests; waiting for a console report (see the checklist below) | 12 |
-| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 15.1 / 16 | Fixed and checked in our tests; the problem was not console-only | 24 |
+| 🟢 Fixed in test 8 / 9 / 9.1 / 10 / 12 / 12.1 / 13 / 15 / 15.1 / 16 / 16.1 | Fixed and checked in our tests; the problem was not console-only | 25 |
 | 🛠️ In progress | Being fixed now | 0 |
 | 🔍 Investigating | Being reproduced or traced | 2 |
 | ⏸️ Open | Known, not yet worked on | 14 |
@@ -86,6 +86,7 @@ Test 8 (`d4bc5f45`) was withdrawn.
 | Problem | Builds | Status | Report |
 | --- | --- | --- | --- |
 | At most 4 Ganados are active at once (6 from test 12 in the village and test 13 in every chapter 1 room; 4 from test 16.1); the others wait and arrive as you kill them | test 12, 13, 16.1 | ⏸️ Open: by design, for the frame rate. Every villager still appears, and the waves, the kills and the events are unchanged. Test 16.1 lowers the limit from 6 to 4 in every room |  |
+| Some scripted Ganado waves in r10a can start early: a Ganado still waiting for its turn under the Ganado limit is counted as dead, so the wave that waits for those kills begins too soon | test 16 | 🟢 Fixed in test 16.1: a waiting Ganado now counts as alive until it arrives and is killed |  |
 | The ambient farm animals are removed for speed: cows, chickens and the farm dog in the village (r101) and the farm (r103); no eggs from chickens. The dog in the bear trap (r100) and the dog that helps against El Gigante stay | test 16.1 | ⏸️ Open: by design, for the frame rate (the farm ran about 20% slower with them in our emulator tests) |  |
 | Pauses when entering rooms | all | ⏸️ Open | |
 | The frame rate drops for a few seconds and then recovers, with no clear reason (for example outdoors in the woods, r100) | test 9.1 and later | 🔍 Investigating. Test 15.1 no longer draws the see-through haze and mist sprites around Leon, in any room and at every Foliage setting (the distant haze is still drawn as fog), and Foliage Off now leaves out every see-through brush, leaf, shadow and mist card. Together with Foliage these were most of the see-through layers outdoors. Please tell us whether the drops remain on test 15.1 or 16 | [#29](https://github.com/lamb2k/re4dc/issues/29) |
